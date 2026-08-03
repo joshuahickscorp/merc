@@ -1,0 +1,1433 @@
+{
+  "schema_version": 1,
+  "kind": "evidence_binding_census",
+  "head": "ce6422be4fe0c1ee44aeeb376a5139152623532f",
+  "counts": {
+    "BOUND": 1,
+    "UNBOUND": 103,
+    "SUPERSEDED": 0,
+    "WITHDRAWN": 1
+  },
+  "total_artifacts": 105,
+  "artifacts": [
+    {
+      "path": "evidence/autonomous/agent-restart-authority-r1.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/autonomous/alert-delivery-r1.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/autonomous/alert-delivery.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/autonomous/alert-page-simulation.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/autonomous/alert-pipeline-simulation.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/autonomous/backup-age-metric.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/autonomous/corrupt-backup-refused-r1.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/autonomous/corrupt-backup-refused.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/autonomous/governance-preparation.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/autonomous/hardware-characterization.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/autonomous/local-production-tls.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/autonomous/local-restart-storm.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/autonomous/local-rollback.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/autonomous/local-soak-300s.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config"
+      ]
+    },
+    {
+      "path": "evidence/autonomous/local-soak-60s.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config"
+      ]
+    },
+    {
+      "path": "evidence/autonomous/logical-independent-restore.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/autonomous/payment-simulator.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/autonomous/registry-verification.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/autonomous/restore-drill-r1.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/autonomous/restore-drill.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/autonomous/staging-validation.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/autonomous/supply-chain.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/autonomous/technical-exercises.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/autonomous/website-validation.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/bench/quality-suite.jsonl",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/bench/quant-spec.jsonl",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/bench/runs-8bit.jsonl",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/bench/runs.jsonl",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/benchmarks/2026-07-01-m3-pro.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/benchmarks/2026-07-26-m3-pro-backend-compare.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/canary/artifacts/project-quote-b9917870.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/canary/artifacts/project-submit-b9917870.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/canary/artifacts/project-submit-replay-b9917870.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/canary/cad-local-proof-a6212e84.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/canary/cad-local-proof-aefa51df.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/canary/cad-local-proof-d0f1e802.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/canary/cad-stranger-final-image-0a4b66cb.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/canary/cad-stranger-final-image-84aab61b.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/canary/first-complete-loop.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/canary/media-transcode-contract-r1.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/canary/media-transcode-full-loop-r1.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/canary/private-canary.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/canary/project-quote-cad-f98b42a6.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/canary/project-submit-cad-b9917870.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/canary/real-runtime-embed.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/canary/real-runtime-realtime.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/canary/sdk-conformance-real-engine.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/canary/stripe-cad-supplier-matrix-0a4b66cb.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/chain/agent-build-receipt.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/chain/embed-candle_metal.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/chain/embed-corpus.jsonl",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/chain/embed-llama_cpp_metal.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/chain/two-agent-product-chain.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/competitive-position.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/deploy/live-cutover.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/onboarding/canary.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/onboarding/cuda-qwen1.5b.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/onboarding/qwen2.5-3b-instruct.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/perf/arrival-batching.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/perf/cuda-a5000-ceiling.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config"
+      ]
+    },
+    {
+      "path": "evidence/perf/cuda-a5000-qwen1.5b.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config"
+      ]
+    },
+    {
+      "path": "evidence/perf/cuda-a5000-tuned.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config"
+      ]
+    },
+    {
+      "path": "evidence/perf/cuda-throughput-correction.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/perf/gateway-concurrency-sweep.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest"
+      ]
+    },
+    {
+      "path": "evidence/perf/gateway-parity-v2-selftest-cli.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "corpus_digest",
+        "exact_config"
+      ]
+    },
+    {
+      "path": "evidence/perf/gateway-parity-v2-selftest.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "corpus_digest",
+        "exact_config"
+      ]
+    },
+    {
+      "path": "evidence/perf/gateway-parity.json",
+      "binding_status": "WITHDRAWN"
+    },
+    {
+      "path": "evidence/perf/metal-m3ultra-qwen3b.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config"
+      ]
+    },
+    {
+      "path": "evidence/perf/prefix-affinity-routing.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/perf/realtime-auth-reputation-20260803T005354Z.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/perf/realtime-auth-reputation-20260803T005444Z.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/perf/realtime-auth-reputation-latest.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/perf/routing-crossover.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/perf/runtime-benchmarks/candle-metal-ffmpeg-media-r1.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "corpus_digest",
+        "exact_config"
+      ]
+    },
+    {
+      "path": "evidence/perf/runtime-benchmarks/candle-metal-llama1-q4-r2.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/perf/runtime-benchmarks/candle-metal-llama1-q4-r3.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/perf/runtime-benchmarks/candle-metal-rendering-r1.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/perf/runtime-benchmarks/candle-vs-llama-cpp-metal-r3.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/perf/runtime-benchmarks/embed-cell-candle-vs-llama-cpp-r1.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/perf/runtime-benchmarks/llama-cpp-metal-determinism-sweep.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/perf/runtime-benchmarks/llama-cpp-metal-embed-cosine-gate.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/perf/runtime-benchmarks/llama-cpp-metal-llama1-q4-r1.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "build_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/perf/runtime-benchmarks/llama-cpp-metal-llama1-q4-r3.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/perf/runtime-benchmarks/llama-cpp-metal-raw.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/perf/runtime-benchmarks/mlx-metal-llama1-4bit-r1.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/perf/runtime-benchmarks/serving-matrix-llama-cpp-metal-local-r1.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "image_digest",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/perf/runtime-benchmarks/vllm-cuda-llama1-r1.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "corpus_digest",
+        "exact_config"
+      ]
+    },
+    {
+      "path": "evidence/perf/runtime-benchmarks/vllm-cuda-raw.txt",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/perf/selector/paired-cohort-embed.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/prefix/live-proof.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/realtime/openai-sdk-conformance.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/realtime/real-engine-parity.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest"
+      ]
+    },
+    {
+      "path": "evidence/reuse/live-proof.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/runpod/cuda-first-proof.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/runpod/pod-scheduling-diagnosis.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/runpod/spend-rr7b6uwmivaolh.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/runpod/startup-diagnosis.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/state/branch-state-step1.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/state/branch-state.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/state/correction-2026-07-31-coalescing-and-directed-routing.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/state/current-execution-frontier.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/state/must-not-do-audit.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/state/program-network-10of10-entry.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/state/release-image-boot.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/state/evidence-binding-census.json",
+      "binding_status": "BOUND"
+    }
+  ],
+  "note": "Retrospective stamp only. UNBOUND means producer identity cannot be recovered for a historical run; digests were not invented. UNBOUND artifacts must not back programme claims. counts include this census (BOUND).",
+  "producer_identity": {
+    "source_commit": {
+      "value": "ce6422be4fe0c1ee44aeeb376a5139152623532f"
+    },
+    "build_digest": {
+      "value": "7230ba9aa36b81f4f70a70bdade64d4905599b97d78fba7981e04fc9dc5945d8"
+    },
+    "model_artifact_digest": {
+      "na": "census has no model weights"
+    },
+    "image_digest": {
+      "na": "census has no container image"
+    },
+    "harness_revision": {
+      "value": "scripts/stamp-evidence-binding.py"
+    },
+    "corpus_digest": {
+      "na": "census summarises evidence/; not a corpus measurement"
+    },
+    "exact_config": {
+      "value": "stamp of committed evidence tree at HEAD"
+    },
+    "raw_samples": {
+      "value": "artifact_count=105"
+    }
+  },
+  "binding_status": "BOUND"
+}

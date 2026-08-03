@@ -1081,5 +1081,14 @@
     "device": "cpu",
     "llama_device": "none",
     "note": "local developer host; hw_class not attested; Metal unavailable in this environment so default is CPU (--device none)"
-  }
+  },
+  "binding_status": "UNBOUND",
+  "missing_identity_fields": [
+    "source_commit",
+    "build_digest",
+    "image_digest",
+    "corpus_digest",
+    "exact_config",
+    "raw_samples"
+  ]
 }

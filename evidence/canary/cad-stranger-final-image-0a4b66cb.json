@@ -50,7 +50,7 @@
     "known_variable_costs_nanos": 2000,
     "known_cost_contribution_nanos": 4000,
     "minor_unit_carry_micros": 9990,
-    "supplier_lifetime_earnings_major_units": 0.000004,
+    "supplier_lifetime_earnings_major_units": 4e-06,
     "supplier_payout_state": "held",
     "unknown_cost_categories": [
       "storage cost",
@@ -88,5 +88,16 @@
     "Stripe provider objects were real test-mode objects; the setup event was delivered locally with the configured endpoint secret because the configured temporary public tunnel had expired.",
     "True Merc net contribution remains unavailable while storage, egress, provider energy/depreciation and risk reserve costs are unattributed.",
     "The sub-cent buyer remainder is carried because Stripe CAD refunds settle in whole cents."
+  ],
+  "binding_status": "UNBOUND",
+  "missing_identity_fields": [
+    "source_commit",
+    "build_digest",
+    "model_artifact_digest",
+    "image_digest",
+    "harness_revision",
+    "corpus_digest",
+    "exact_config",
+    "raw_samples"
   ]
 }

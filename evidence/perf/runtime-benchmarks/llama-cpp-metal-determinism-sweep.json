@@ -57,11 +57,20 @@
       "diverges_at_batch": []
     }
   ],
-  "answer": "NO, among the configurations tested. llama.cpp on Metal reproduces its own serial output only when serialised to a single slot. Disabling continuous batching does NOT restore determinism, and neither does single-chunk prefill \u2014 so the divergence lives in the batched kernel path, not in the scheduling policy.",
-  "consequence": "For a byte_exact cell, llama_cpp_metal is DOMINATED by candle_metal on this hardware. Its only byte-deterministic setting runs at 1.02x serial; candle batches to 2.26x AND stays byte-identical. This is not a speed/verification trade-off to reason about \u2014 the challenger is strictly worse at the only setting where it is usable.",
+  "answer": "NO, among the configurations tested. llama.cpp on Metal reproduces its own serial output only when serialised to a single slot. Disabling continuous batching does NOT restore determinism, and neither does single-chunk prefill — so the divergence lives in the batched kernel path, not in the scheduling policy.",
+  "consequence": "For a byte_exact cell, llama_cpp_metal is DOMINATED by candle_metal on this hardware. Its only byte-deterministic setting runs at 1.02x serial; candle batches to 2.26x AND stays byte-identical. This is not a speed/verification trade-off to reason about — the challenger is strictly worse at the only setting where it is usable.",
   "not_established": {
     "other_configurations": "flash-attn, kv types and split modes were not swept",
     "non_metal": "this is a Metal result; CUDA llama.cpp was not tested",
     "non_byte_exact_cells": "a cosine-verified cell does not need byte identity, so this does not disqualify llama.cpp for embeddings"
-  }
+  },
+  "binding_status": "UNBOUND",
+  "missing_identity_fields": [
+    "build_digest",
+    "model_artifact_digest",
+    "image_digest",
+    "corpus_digest",
+    "exact_config",
+    "raw_samples"
+  ]
 }

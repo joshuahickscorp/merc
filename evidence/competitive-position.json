@@ -29,5 +29,16 @@
     "detail": "Metal 14.4ms TTFT at concurrency 1 vs CUDA 181ms; CUDA 1617 tok/s aggregate at concurrency 16 vs Metal 211 with a 5.0s TTFT collapse. Opposite ends, sharp crossover, and a homogeneous fleet cannot exploit it because it needs two physically different machines, one outside any datacenter.",
     "not_yet_exploited": "control/scheduler.go filters by hw_class and cost rank but nothing routes on workload SHAPE. The crossover is measured and unused."
   },
-  "honest_position": "merc has partially built infrastructure for a verified heterogeneous compute market. The structural story is real and now has one measured advantage behind it. The money-complete, demand-relevant product is not finished: suppliers cannot be paid in real currency, small jobs pay them zero, and the reuse economy that would survive falling token prices is dead code."
+  "honest_position": "merc has partially built infrastructure for a verified heterogeneous compute market. The structural story is real and now has one measured advantage behind it. The money-complete, demand-relevant product is not finished: suppliers cannot be paid in real currency, small jobs pay them zero, and the reuse economy that would survive falling token prices is dead code.",
+  "binding_status": "UNBOUND",
+  "missing_identity_fields": [
+    "source_commit",
+    "build_digest",
+    "model_artifact_digest",
+    "image_digest",
+    "harness_revision",
+    "corpus_digest",
+    "exact_config",
+    "raw_samples"
+  ]
 }

@@ -36,6 +36,26 @@ import time
 import urllib.error
 import urllib.request
 
+_SCRIPTS = os.path.dirname(os.path.abspath(__file__))
+if _SCRIPTS not in sys.path:
+    sys.path.insert(0, _SCRIPTS)
+from lib.evidence_binding import EvidenceBindingError, emit_bound_json  # noqa: E402
+
+
+def _write_report(path: str, report: dict) -> None:
+    try:
+        emit_bound_json(
+            path,
+            report,
+            harness="scripts/onboard-model.py",
+            build_binary_path=os.path.join(_SCRIPTS, "onboard-model.py"),
+            exact_config="onboard stages + runtime_profile",
+            raw_samples="measured samples embedded when present",
+        )
+    except EvidenceBindingError as exc:
+        print(f"REFUSED evidence write: {exc}", file=sys.stderr)
+        raise SystemExit(2) from exc
+
 # Mirrors resaleAllowedLicenses in control/model_onboarding.go. Kept as an
 # allowlist for the same reason: an unrecognised licence is refused, never
 # assumed permissive.
@@ -120,19 +140,19 @@ def main() -> int:
         stage("policy", False,
               "remote_code declared; refused unconditionally (runs repo-supplied "
               "code on third-party supplier hardware)")
-        json.dump(report, open(args.out, "w"), indent=2)
+        _write_report(args.out, report)
         return 1
     if args.license not in RESALE_ALLOWED:
         stage("policy", False,
               f"licence {args.license!r} is not on the resale allowlist; a human "
               f"must read the licence and confirm merc may charge for inference")
-        json.dump(report, open(args.out, "w"), indent=2)
+        _write_report(args.out, report)
         return 1
     if not args.revision or len(args.revision) < 7:
         stage("policy", False,
               "no usable model revision; an unpinned model can change under merc "
               "without the catalogue or any receipt noticing")
-        json.dump(report, open(args.out, "w"), indent=2)
+        _write_report(args.out, report)
         return 1
     stage("policy", True,
           f"{args.license}, remote_code=false, revision pinned to {args.revision[:12]}")
@@ -146,13 +166,13 @@ def main() -> int:
             served = [m.get("id") or m.get("name") for m in raw.get("models", [])]
         except Exception as exc:
             stage("identity", False, f"could not list models: {exc}")
-            json.dump(report, open(args.out, "w"), indent=2)
+            _write_report(args.out, report)
             return 1
     if args.alias not in served:
         stage("identity", False,
               f"runtime serves {served}, not {args.alias!r}; the profile would "
               f"describe a model the endpoint does not have")
-        json.dump(report, open(args.out, "w"), indent=2)
+        _write_report(args.out, report)
         return 1
     stage("identity", True, f"runtime serves {args.alias}")
 
@@ -168,18 +188,18 @@ def main() -> int:
         usage = body.get("usage") or {}
         if not text:
             stage("smoke", False, "model returned an empty completion")
-            json.dump(report, open(args.out, "w"), indent=2)
+            _write_report(args.out, report)
             return 1
         if not usage.get("completion_tokens"):
             stage("smoke", False,
                   "no completion_tokens in usage; merc bills on delivered tokens "
                   "and cannot meter this model")
-            json.dump(report, open(args.out, "w"), indent=2)
+            _write_report(args.out, report)
             return 1
         stage("smoke", True, f"answered {text[:40]!r}, usage {usage}")
     except Exception as exc:
         stage("smoke", False, f"{type(exc).__name__}: {exc}")
-        json.dump(report, open(args.out, "w"), indent=2)
+        _write_report(args.out, report)
         return 1
 
     # 4. Determinism at temperature 0. merc's verification compares a task run on
@@ -219,7 +239,7 @@ def main() -> int:
             latencies.append(dt * 1000)
         if not decode_rates:
             stage("benchmark", False, "no successful timed samples")
-            json.dump(report, open(args.out, "w"), indent=2)
+            _write_report(args.out, report)
             return 1
         report["measured"] = {
             "samples": len(decode_rates),
@@ -232,7 +252,7 @@ def main() -> int:
               f"over {len(decode_rates)} samples")
     except Exception as exc:
         stage("benchmark", False, f"{type(exc).__name__}: {exc}")
-        json.dump(report, open(args.out, "w"), indent=2)
+        _write_report(args.out, report)
         return 1
 
     report["admitted"] = all(s["passed"] for s in report["stages"].values())
@@ -254,8 +274,7 @@ def main() -> int:
             "deterministic_at_temperature_zero", False),
     }
 
-    os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
-    json.dump(report, open(args.out, "w"), indent=2)
+    _write_report(args.out, report)
     print(f"\n{'ADMITTED' if report['admitted'] else 'REFUSED'}: {args.alias} -> {args.out}")
     return 0 if report["admitted"] else 1
 

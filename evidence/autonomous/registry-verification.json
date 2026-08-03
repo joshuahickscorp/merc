@@ -35,7 +35,10 @@
       "status": "PASS",
       "scanner": "Trivy v0.66.0",
       "database_refreshed_for_run": true,
-      "severity_scope": ["HIGH", "CRITICAL"],
+      "severity_scope": [
+        "HIGH",
+        "CRITICAL"
+      ],
       "candidate_high": 0,
       "candidate_critical": 0,
       "prior_high": 0,
@@ -64,5 +67,16 @@
     },
     "rc_tag_created": false
   },
-  "secret_values_recorded": false
+  "secret_values_recorded": false,
+  "binding_status": "UNBOUND",
+  "missing_identity_fields": [
+    "source_commit",
+    "build_digest",
+    "model_artifact_digest",
+    "image_digest",
+    "harness_revision",
+    "corpus_digest",
+    "exact_config",
+    "raw_samples"
+  ]
 }

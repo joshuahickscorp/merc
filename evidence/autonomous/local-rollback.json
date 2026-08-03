@@ -55,5 +55,16 @@
     "stripe_sandbox": "NOT EXECUTED",
     "stripe_live": "PROHIBITED"
   },
-  "limitation": "Published amd64 candidate workload execution is not claimed on this arm64 host; current source was exercised as an immutable native image ID."
+  "limitation": "Published amd64 candidate workload execution is not claimed on this arm64 host; current source was exercised as an immutable native image ID.",
+  "binding_status": "UNBOUND",
+  "missing_identity_fields": [
+    "source_commit",
+    "build_digest",
+    "model_artifact_digest",
+    "image_digest",
+    "harness_revision",
+    "corpus_digest",
+    "exact_config",
+    "raw_samples"
+  ]
 }

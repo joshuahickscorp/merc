@@ -4,7 +4,16 @@
   "completed_at": "2026-07-20T04:26:08Z",
   "review_packet": "ops/governance-review-packets.json",
   "approval_bundle_schema": "ops/governance-approval-bundle.schema.json",
-  "domains_prepared": ["security", "privacy", "legal", "licensing", "payments", "operations", "supplier_policy", "release_approval"],
+  "domains_prepared": [
+    "security",
+    "privacy",
+    "legal",
+    "licensing",
+    "payments",
+    "operations",
+    "supplier_policy",
+    "release_approval"
+  ],
   "automated_checks": {
     "packet_validator": "PASS",
     "missing_bundle_rejected": true,
@@ -14,5 +23,16 @@
   "qualified_human_approvals": 0,
   "approvals_fabricated": false,
   "qualified_human_tabletop": "NOT EXECUTED",
-  "gate": "Level B NO-GO"
+  "gate": "Level B NO-GO",
+  "binding_status": "UNBOUND",
+  "missing_identity_fields": [
+    "source_commit",
+    "build_digest",
+    "model_artifact_digest",
+    "image_digest",
+    "harness_revision",
+    "corpus_digest",
+    "exact_config",
+    "raw_samples"
+  ]
 }

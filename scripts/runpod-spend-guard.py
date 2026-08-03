@@ -344,15 +344,28 @@ def main() -> int:
         args.ready = str(args.ready).lower() in ("1", "true", "yes")
         args.orphans = [p for p in args.orphans.split(",") if p.strip()]
         receipt = build_receipt(args)
-        rendered = json.dumps(receipt, indent=2)
         if args.out:
             path = os.path.join(ROOT, args.out)
-            os.makedirs(os.path.dirname(path), exist_ok=True)
-            with open(path, "w") as handle:
-                handle.write(rendered + "\n")
+            _scripts = os.path.join(ROOT, "scripts")
+            if _scripts not in sys.path:
+                sys.path.insert(0, _scripts)
+            from lib.evidence_binding import EvidenceBindingError, emit_bound_json
+            try:
+                emit_bound_json(
+                    path,
+                    receipt,
+                    harness="scripts/runpod-spend-guard.py",
+                    repo_root=ROOT,
+                    build_binary_path=os.path.join(ROOT, "scripts", "runpod-spend-guard.py"),
+                    exact_config="spend guard args embedded in receipt",
+                    raw_samples="spend fields embedded; no sample array",
+                )
+            except EvidenceBindingError as exc:
+                print(f"REFUSED evidence write: {exc}", file=sys.stderr)
+                return 2
             print(f"spend receipt written to {args.out}", file=sys.stderr)
         else:
-            print(rendered)
+            print(json.dumps(receipt, indent=2))
         for refusal in receipt["refusals"]:
             print(f"REFUSED: {refusal}", file=sys.stderr)
         return 0 if receipt["admissible"] else 1

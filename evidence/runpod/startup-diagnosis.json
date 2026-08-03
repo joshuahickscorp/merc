@@ -50,5 +50,16 @@
       "fix": "do not override dockerEntrypoint; poll the HTTP proxy endpoint for readiness instead of pod.runtime"
     }
   ],
-  "cost_usd_total": 0.46
+  "cost_usd_total": 0.46,
+  "binding_status": "UNBOUND",
+  "missing_identity_fields": [
+    "source_commit",
+    "build_digest",
+    "model_artifact_digest",
+    "image_digest",
+    "harness_revision",
+    "corpus_digest",
+    "exact_config",
+    "raw_samples"
+  ]
 }

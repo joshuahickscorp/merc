@@ -497,5 +497,15 @@
       "Requests whose handler start times fall within 1ms share prefill cost (ttft = base + prefill/B + decode)."
     ],
     "name": "cb_aware_prefill_share_v1"
-  }
+  },
+  "binding_status": "UNBOUND",
+  "missing_identity_fields": [
+    "source_commit",
+    "build_digest",
+    "model_artifact_digest",
+    "image_digest",
+    "harness_revision",
+    "corpus_digest",
+    "raw_samples"
+  ]
 }

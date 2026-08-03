@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http/httptest"
 	"os"
@@ -302,12 +301,16 @@ func writeCohortReceipt(
 				"by this cohort and are reported as unknown by the cost model.",
 		},
 	}
-	body, err := json.MarshalIndent(receipt, "", "  ")
-	if err != nil {
-		t.Fatalf("render receipt: %v", err)
-	}
 	path := filepath.Join(dir, "paired-cohort-embed.json")
-	if err := os.WriteFile(path, append(body, '\n'), 0o644); err != nil {
+	id, bin, err := DefaultBoundIdentity("..", "control/paired_cohort_test.go",
+		"embedded measured_cost + promotion_evidence", "embedded cohort samples")
+	if err != nil {
+		t.Fatalf("identity: %v", err)
+	}
+	if err := WriteBoundEvidenceJSON(EvidenceWriteRequest{
+		RepoRoot: "..", Path: path, Payload: receipt,
+		Identity: id, BuildBinaryPath: bin,
+	}); err != nil {
 		t.Fatalf("write receipt: %v", err)
 	}
 	t.Logf("cohort receipt written to %s", path)

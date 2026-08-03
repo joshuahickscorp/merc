@@ -46,5 +46,14 @@
     "note": "Trivially identical: it never batched, so there was nothing to diverge."
   },
   "benchmark_status": "PHYSICAL_THROUGHPUT_MEASURED",
-  "finding": "Flat at ~306 tok/s from batch 1 to 64, CV under 0.6%. mlx_lm.server serializes generation; it does not continuous-batch. The earlier 'transport failure' diagnosis was wrong twice over: mlx_lm already uses ThreadingHTTPServer, and the real cause was the 5-connection listen backlog. With the backlog raised the requests all land and are simply served one at a time. Whether MLX the LIBRARY can batch (it exposes batch_generate) is untested here."
+  "finding": "Flat at ~306 tok/s from batch 1 to 64, CV under 0.6%. mlx_lm.server serializes generation; it does not continuous-batch. The earlier 'transport failure' diagnosis was wrong twice over: mlx_lm already uses ThreadingHTTPServer, and the real cause was the 5-connection listen backlog. With the backlog raised the requests all land and are simply served one at a time. Whether MLX the LIBRARY can batch (it exposes batch_generate) is untested here.",
+  "binding_status": "UNBOUND",
+  "missing_identity_fields": [
+    "build_digest",
+    "model_artifact_digest",
+    "image_digest",
+    "corpus_digest",
+    "exact_config",
+    "raw_samples"
+  ]
 }

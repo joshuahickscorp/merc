@@ -36,5 +36,16 @@
     "jobs/ledger/objects meet production-shaped minima",
     "database and object content hashes match",
     "RTO measured wall-clock around pg_restore + object mirror"
+  ],
+  "binding_status": "UNBOUND",
+  "missing_identity_fields": [
+    "source_commit",
+    "build_digest",
+    "model_artifact_digest",
+    "image_digest",
+    "harness_revision",
+    "corpus_digest",
+    "exact_config",
+    "raw_samples"
   ]
 }

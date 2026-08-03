@@ -64,5 +64,15 @@
     "finding": "MERC_CONTROL_PLANE_PER_TASK_USD is a FIXED 100 micro-USD per task. On a 3-row job the buyer charge is 125 micro-USD per task, so fixed cost eats 80% before anything is split and the supplier's share rounds to 1 micro-USD -- 0.8%. At 400 rows the fixed cost amortises and the split is 49/51. The 99.2% take is a degenerate small-job artifact, measured rather than assumed.",
     "consequence": "A supplier serving only minimum-size jobs works for approximately nothing. This is the same failure class as the LoRA compute floor truncating to zero: a fixed cost dominating a small quote leaves a party with ~0, through arithmetic rather than policy. merc should enforce a minimum billable job size the way settleLoRARun now enforces a minimum quote. FIXED since this receipt was written: control/economic_plan.go now floors base compute to a minimum billable size, so a positive buyer charge always implies a positive supplier liability, and small_job_economics_test.go asserts that invariant instead of characterising its absence. This paragraph is retained rather than deleted because the measurement above was taken under the old behaviour and the number should not be read as current."
   },
-  "superseded_note": "Written before the minimum-billable floor existed. The supplier-share figures here describe behaviour that has since been corrected; kept as a historical measurement, not a current claim."
+  "superseded_note": "Written before the minimum-billable floor existed. The supplier-share figures here describe behaviour that has since been corrected; kept as a historical measurement, not a current claim.",
+  "binding_status": "UNBOUND",
+  "missing_identity_fields": [
+    "build_digest",
+    "model_artifact_digest",
+    "image_digest",
+    "harness_revision",
+    "corpus_digest",
+    "exact_config",
+    "raw_samples"
+  ]
 }

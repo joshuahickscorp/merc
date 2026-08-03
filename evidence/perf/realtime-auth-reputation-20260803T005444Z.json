@@ -163,7 +163,7 @@
       "notes": "authorize_admission_ms is full AuthorizeRealtimeContract after the change (stats join). legacy_reputation_aggregate_ms is the pre-change full-table CTE ranking probe (the term that dominated before). stats_table_reputation_read_ms is the same ranking with the incremental table."
     }
   ],
-  "interpretation": "This measures control-plane admission latency and isolated reputation ranking cost, NOT end-to-end TTFT against a real engine. Before: authorize recomputed supplier reputation with a full execution_contracts aggregate (legacy_reputation_aggregate_ms) inside the buyer funding critical section; that term scaled with history and dominated under concurrency. After: authorize joins realtime_supplier_outcome_stats (stats_table_reputation_read_ms), which does not scale with history. authorize_admission_ms is the full AuthorizeRealtimeContract path after the change. Do not claim the c=32 CUDA deficit is closed \u2014 that needs GPU hardware this machine does not have.",
+  "interpretation": "This measures control-plane admission latency and isolated reputation ranking cost, NOT end-to-end TTFT against a real engine. Before: authorize recomputed supplier reputation with a full execution_contracts aggregate (legacy_reputation_aggregate_ms) inside the buyer funding critical section; that term scaled with history and dominated under concurrency. After: authorize joins realtime_supplier_outcome_stats (stats_table_reputation_read_ms), which does not scale with history. authorize_admission_ms is the full AuthorizeRealtimeContract path after the change. Do not claim the c=32 CUDA deficit is closed — that needs GPU hardware this machine does not have.",
   "kind": "realtime_auth_reputation_admission_latency",
   "measured_at": "2026-08-03T00:54:44Z",
   "merc_source_commit": "695fa1e9de0c3a8194ee79cc486cead4bc8887e0",
@@ -237,6 +237,15 @@
     "does_not_measure": "end-to-end TTFT against a real engine; does not claim the c=32 CUDA deficit is closed",
     "reputation_no_longer_scales_with_history": true,
     "evidence": "At ~100k execution_contracts rows, legacy full aggregate ranking p50 is 110.95ms (c=1) / 1126ms (c=32); stats-table ranking p50 is 0.17ms (c=1) / 0.85ms (c=32). Full authorize after the change stays ~1.8ms at c=1 and ~42ms at c=32 (buyer funding advisory lock serializes same-buyer concurrent admits).",
-    "buyer_funding_lock": "scope left unchanged; narrowing would require a concurrency test that fails when wrong \u2014 not attempted"
-  }
+    "buyer_funding_lock": "scope left unchanged; narrowing would require a concurrency test that fails when wrong — not attempted"
+  },
+  "binding_status": "UNBOUND",
+  "missing_identity_fields": [
+    "build_digest",
+    "model_artifact_digest",
+    "image_digest",
+    "harness_revision",
+    "corpus_digest",
+    "raw_samples"
+  ]
 }

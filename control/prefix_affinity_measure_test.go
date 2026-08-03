@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
-	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -381,18 +380,25 @@ func TestPrefixAffinityControlledCorpusMeasurement(t *testing.T) {
 	art.ObservationCorrection.NoSignalDoesNotThrash = true
 	art.ObservationCorrection.CostClassNotPromotedByWarmth = true
 
-	// Write beside the other perf receipts.
-	outDir := filepath.Join("..", "evidence", "perf")
-	if err := os.MkdirAll(outDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	outPath := filepath.Join(outDir, "prefix-affinity-routing.json")
-	blob, err := json.MarshalIndent(art, "", "  ")
+	// Write beside the other perf receipts via the bound path.
+	outPath := filepath.Join("..", "evidence", "perf", "prefix-affinity-routing.json")
+	raw, err := json.Marshal(art)
 	if err != nil {
 		t.Fatal(err)
 	}
-	blob = append(blob, '\n')
-	if err := os.WriteFile(outPath, blob, 0o644); err != nil {
+	var payload map[string]any
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		t.Fatal(err)
+	}
+	id, bin, err := DefaultBoundIdentity("..", "control/prefix_affinity_measure_test.go",
+		"embedded arms + setup", "embedded arm observations")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteBoundEvidenceJSON(EvidenceWriteRequest{
+		RepoRoot: "..", Path: outPath, Payload: payload,
+		Identity: id, BuildBinaryPath: bin,
+	}); err != nil {
 		t.Fatal(err)
 	}
 	t.Logf("wrote %s", outPath)

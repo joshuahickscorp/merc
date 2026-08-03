@@ -46,5 +46,16 @@
     "bypass_scope": "repository owner only",
     "rc_tag_created": false
   },
-  "exact_head_note": "The publication workflow repeats scan, SBOM, sign, attestation, clean pull, signature verification, and provenance verification for every pushed head."
+  "exact_head_note": "The publication workflow repeats scan, SBOM, sign, attestation, clean pull, signature verification, and provenance verification for every pushed head.",
+  "binding_status": "UNBOUND",
+  "missing_identity_fields": [
+    "source_commit",
+    "build_digest",
+    "model_artifact_digest",
+    "image_digest",
+    "harness_revision",
+    "corpus_digest",
+    "exact_config",
+    "raw_samples"
+  ]
 }
