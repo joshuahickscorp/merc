@@ -238,6 +238,13 @@ def write_bound_evidence(
     dest = Path(path)
     if not payload:
         raise EvidenceBindingError("evidence write: empty payload")
+    if is_job_contract_payload(payload):
+        raise EvidenceBindingError(
+            f"evidence write refused: {dest} looks like a job-result payload "
+            "(closed job contract). Write the payload bytes unchanged and put "
+            "binding_status in a sibling .binding.json sidecar — never inside "
+            "the payload (DisallowUnknownFields would refuse it)."
+        )
     validate_identity(repo_root, identity, build_binary_path)
 
     existing = _read_json_object(dest)
@@ -397,12 +404,74 @@ def missing_fields_for_object(
     return missing
 
 
+# Metadata the binding layer owns. Never inject these into a job-result payload:
+# those files are decoded with DisallowUnknownFields under their job contracts.
+BINDING_META_KEYS = frozenset(
+    {
+        "binding_status",
+        "missing_identity_fields",
+        "producer_identity",
+    }
+)
+
+# Closed worker-committed result envelopes. A receipt describes a measurement
+# (kind/schema_version/assertions); a payload is the measured bytes themselves.
+_JOB_RESULT_PAYLOAD_MARKERS: dict[str, frozenset[str]] = {
+    "embed": frozenset({"job_type", "model", "dim", "count", "vectors"}),
+    "batch_infer": frozenset({"job_type", "model", "completions"}),
+}
+
+
+def is_job_contract_payload(data: Any) -> bool:
+    """True when this JSON object is a job-result payload, not an evidence receipt.
+
+    Job-result payloads are governed by the control-plane result contract
+    (decodeStrictJSON / DisallowUnknownFields). Stamping binding_status into
+    them breaks decoding. Binding for these files lives in a sibling
+    ``<name>.binding.json`` sidecar, same as for .jsonl/.txt.
+    """
+    if not isinstance(data, dict):
+        return False
+    # Explicit measurement receipts always declare kind and/or schema_version.
+    if data.get("kind") is not None or data.get("schema_version") is not None:
+        return False
+    job = data.get("job_type")
+    if not isinstance(job, str):
+        return False
+    required = _JOB_RESULT_PAYLOAD_MARKERS.get(job)
+    if required is None:
+        return False
+    keys = set(data.keys()) - BINDING_META_KEYS
+    if not required.issubset(keys):
+        return False
+    # Payload envelopes are closed: only the contract fields (plus any binding
+    # meta that a bad stamp may have left behind, which we ignore above).
+    return keys <= (required | {"inference_backend"})
+
+
+def strip_binding_meta(data: dict[str, Any]) -> dict[str, Any]:
+    """Return a shallow copy without binding-layer keys."""
+    return {k: v for k, v in data.items() if k not in BINDING_META_KEYS}
+
+
+def binding_sidecar_path(path: str | Path) -> Path:
+    return Path(str(path) + ".binding.json")
+
+
 def stamp_binding_fields(
     data: dict[str, Any],
     status: str,
     missing: list[str],
 ) -> dict[str, Any]:
-    """Return a copy with binding_status (+ missing list) added; no other changes."""
+    """Return a copy with binding_status (+ missing list) added; no other changes.
+
+    Do not call this for job-contract payloads — use a sidecar instead.
+    """
+    if is_job_contract_payload(data):
+        raise EvidenceBindingError(
+            "job-contract payload must not receive in-object binding fields; "
+            "write a .binding.json sidecar"
+        )
     out = dict(data)
     out["binding_status"] = status
     if status == BINDING_UNBOUND:
