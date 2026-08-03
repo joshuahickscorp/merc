@@ -60,6 +60,21 @@ func agentBinaryPath(t *testing.T) string {
 	return path
 }
 
+// repoSandboxProfilePath returns the seatbelt profile merc-agent requires before
+// it will touch a buyer payload. Production installs it next to the binary or
+// ships it inside the .app; a test running from the source tree has to name it.
+func repoSandboxProfilePath(t *testing.T) string {
+	t.Helper()
+	path, err := filepath.Abs(filepath.Join("..", "macapp", "ComputeExchangeAgent", "merc-agent.sb"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("seatbelt profile missing at %s: %v", path, err)
+	}
+	return path
+}
+
 type enrolledAgent struct {
 	name       string
 	workerID   uuid.UUID
@@ -131,6 +146,13 @@ llama_embed_base_url = %q
 		// The shared model cache: re-downloading pinned weights per agent would
 		// make this a network test.
 		"MERC_MODEL_CACHE="+filepath.Join(os.Getenv("HOME"), ".cache", "huggingface", "hub"),
+		// merc-agent refuses buyer payloads with no seatbelt profile, which is
+		// the containment guard working. Without this the agent never enrols and
+		// the test times out after ten minutes on
+		// REFUSED_UNSANDBOXED_BUYER_PAYLOAD. Point it at the repo's profile
+		// rather than setting MERC_ALLOW_UNSANDBOXED: the contained path is the
+		// one production runs, so it is the one worth testing.
+		"MERC_SANDBOX_PROFILE="+repoSandboxProfilePath(t),
 	)
 	cmd.Stdout, cmd.Stderr = logFile, logFile
 	if err := cmd.Start(); err != nil {
