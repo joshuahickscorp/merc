@@ -5,6 +5,11 @@ Does NOT invent producer identity for historical runs. Only adds:
   - binding_status: BOUND | UNBOUND | SUPERSEDED | WITHDRAWN
   - missing_identity_fields: [...]  (UNBOUND only)
 
+Receipts (measurement descriptions) receive binding fields in-object.
+Job-result payloads (embed vectors, batch_infer completions, …) and
+non-object evidence (.jsonl/.txt) receive a sibling ``.binding.json``
+sidecar so closed job contracts stay free of unknown fields.
+
 Then writes a bound census summary at evidence/state/evidence-binding-census.json
 via the single write path.
 
@@ -26,9 +31,12 @@ from lib.evidence_binding import (  # noqa: E402
     BINDING_SUPERSEDED,
     BINDING_UNBOUND,
     BINDING_WITHDRAWN,
+    binding_sidecar_path,
     classify_existing_artifact,
     default_bound_identity,
+    is_job_contract_payload,
     stamp_binding_fields,
+    strip_binding_meta,
     write_bound_evidence,
     EvidenceBindingError,
 )
@@ -56,6 +64,10 @@ def stamp_json_object(path: Path, dry_run: bool) -> tuple[str, list[str]]:
     data = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(data, dict):
         return stamp_sidecar(path, dry_run, note="non-object JSON")
+    # Job-result payloads (embed vectors, batch_infer completions, …) are
+    # decoded with DisallowUnknownFields. Binding must never enter the body.
+    if is_job_contract_payload(data):
+        return stamp_payload_object(path, data, dry_run)
     status, missing = classify_existing_artifact(data, ROOT)
     stamped = stamp_binding_fields(data, status, missing)
     if not dry_run:
@@ -64,11 +76,68 @@ def stamp_json_object(path: Path, dry_run: bool) -> tuple[str, list[str]]:
     return status, missing
 
 
+def stamp_payload_object(
+    path: Path, data: dict, dry_run: bool
+) -> tuple[str, list[str]]:
+    """Sidecar binding for a job-result payload; body stays contract-clean.
+
+    If a previous stamp left binding fields in the body, strip them back out
+    (restoring a pretty-printed contract object) so the control plane can decode
+    the artifact again. Prefer an existing sidecar's status over re-deriving.
+    """
+    side = binding_sidecar_path(path)
+    payload = strip_binding_meta(data)
+    # Prefer sidecar status when already present (re-stamp is idempotent).
+    if side.is_file():
+        try:
+            existing = json.loads(side.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            existing = {}
+        if isinstance(existing, dict) and existing.get("binding_status"):
+            status = str(existing["binding_status"]).upper()
+            missing = list(existing.get("missing_identity_fields") or [])
+            if not dry_run and set(data.keys()) != set(payload.keys()):
+                # Body still carries binding meta from a bad stamp — remove it.
+                path.write_text(
+                    json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
+                    encoding="utf-8",
+                )
+            return status, missing
+
+    status, missing = classify_existing_artifact(payload, ROOT)
+    # If the body still has binding meta (wrong prior stamp), use that status
+    # before stripping so we do not lose WITHDRAWN/SUPERSEDED.
+    if data.get("binding_status") and not side.is_file():
+        status, missing = classify_existing_artifact(data, ROOT)
+
+    doc = {
+        "schema_version": 1,
+        "kind": "evidence_binding_sidecar",
+        "target": path.relative_to(ROOT).as_posix(),
+        "binding_status": status,
+        "missing_identity_fields": missing if status == BINDING_UNBOUND else [],
+        "note": (
+            "sidecar for job-result payload; body is a closed job contract "
+            "and must not carry binding_status"
+        ),
+    }
+    if status != BINDING_UNBOUND:
+        doc.pop("missing_identity_fields", None)
+    if not dry_run:
+        side.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
+        if set(data.keys()) != set(payload.keys()):
+            path.write_text(
+                json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
+                encoding="utf-8",
+            )
+    return status, missing if status == BINDING_UNBOUND else []
+
+
 def stamp_sidecar(
     path: Path, dry_run: bool, note: str = ""
 ) -> tuple[str, list[str]]:
     """For jsonl/non-object files: write path+'.binding.json' only."""
-    side = Path(str(path) + ".binding.json")
+    side = binding_sidecar_path(path)
     if side.is_file():
         try:
             existing = json.loads(side.read_text(encoding="utf-8"))
