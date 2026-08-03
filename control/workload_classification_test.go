@@ -212,7 +212,10 @@ func TestJobClaimProjectionRejectsFrozenWorkloadMismatch(t *testing.T) {
 		name   string
 		mutate func(*jobRow)
 	}{
-		{"job type", func(j *jobRow) { j.JobType = "embed" }},
+		// Base is the bindable embed singleton. Mutating to a quarantined job
+		// type must still be refused — this is a column/authority mismatch, not
+		// an admission check, so demoted cells remain valid mutation targets.
+		{"job type", func(j *jobRow) { j.JobType = "batch_infer" }},
 		{"model", func(j *jobRow) { j.ModelRef = "different-model" }},
 		{"tier", func(j *jobRow) { j.Tier = "priority" }},
 		{"memory", func(j *jobRow) { j.MinMemoryGB++ }},

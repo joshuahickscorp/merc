@@ -209,13 +209,18 @@ func TestOutOfRangeResidencyIsRefusedNotClamped(t *testing.T) {
 
 	// In-range values still pass, including a negative delta inside the bound
 	// (RSS noise around a small model is real; clamping it to zero would invent data).
-	ok := []ResidentModel{{
+	// Only models with a bindable advertised cell (or a service-lease alias) may
+	// be warm: llama and media are lifecycle-present but unbound, so they are
+	// refused as resident models and cannot serve as the in-range fixture here.
+	if err := validateHeartbeatResidentModels([]ResidentModel{{
 		ModelID: "all-minilm-l6-v2", RSSDeltaBytes: -1024, LoadMS: 50,
-	}, {
-		ModelID: "llama-3.2-1b-instruct-q4", RSSDeltaBytes: maxResidencyRSSDeltaBytes, LoadMS: maxBenchmarkLoadMS,
-	}}
-	if err := validateHeartbeatResidentModels(ok); err != nil {
+	}}); err != nil {
 		t.Fatalf("in-range residency rejected: %v", err)
+	}
+	if err := validateHeartbeatResidentModels([]ResidentModel{{
+		ModelID: "all-minilm-l6-v2", RSSDeltaBytes: maxResidencyRSSDeltaBytes, LoadMS: maxBenchmarkLoadMS,
+	}}); err != nil {
+		t.Fatalf("in-range residency at operational max rejected: %v", err)
 	}
 
 	// Store path also refuses rather than writing a clamped figure.

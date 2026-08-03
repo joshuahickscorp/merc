@@ -419,9 +419,10 @@ func TestSyncAllowsLifecycleMovementWithoutARevisionBump(t *testing.T) {
 	}
 }
 
-// The derived routable column and the denormalized copy on the cell rows must
-// never disagree with the lifecycle they came from. Two sources of truth about
-// routability is the failure this whole registry exists to prevent.
+// Profile-level routable is lifecycle-derived; cell-level routable is lifecycle
+// AND bindable authority. They may legitimately disagree when a profile is
+// ACTIVE but a cell's receipt does not bind — that is the quarantine, not
+// registry corruption. What this test forbids is free assertion of either flag.
 func TestRoutabilityCannotBeAssertedIndependently(t *testing.T) {
 	_, pool, ctx := freshMigratedDatabase(t)
 
@@ -434,21 +435,36 @@ func TestRoutabilityCannotBeAssertedIndependently(t *testing.T) {
 		t.Fatal("an ACTIVE profile was marked non-routable")
 	}
 
-	var mismatched int
+	// Cell routable tracks bindable authority, profile routable does not. The
+	// three candle cells whose receipts do not bind (llama1, ffmpeg, scene-render)
+	// are non-routable under an ACTIVE profile — that disagreement is intended.
+	var unboundUnderRoutableProfile int
 	if err := pool.QueryRow(ctx, `
 		SELECT COUNT(*) FROM runtime_profile_models m
 		  JOIN runtime_profiles p USING (runtime_profile_id)
-		 WHERE m.routable <> p.routable`).Scan(&mismatched); err != nil {
-		t.Fatalf("cross-check routable: %v", err)
+		 WHERE p.routable AND NOT m.routable
+		   AND m.lifecycle IN ('CANARY','ACTIVE')`).Scan(&unboundUnderRoutableProfile); err != nil {
+		t.Fatalf("count unbound cells under routable profiles: %v", err)
 	}
-	if mismatched != 0 {
-		t.Fatalf("%d cell rows disagree with their profile's routability", mismatched)
+	if unboundUnderRoutableProfile < 1 {
+		t.Fatal("expected lifecycle-present cells with unbound authority under a " +
+			"routable profile; the quarantine left no demoted cells to check")
+	}
+	// The inverse is never allowed: a cell cannot be routable when its profile is not.
+	var cellRoutableProfileNot int
+	if err := pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM runtime_profile_models m
+		  JOIN runtime_profiles p USING (runtime_profile_id)
+		 WHERE m.routable AND NOT p.routable`).Scan(&cellRoutableProfileNot); err != nil {
+		t.Fatalf("cross-check cell-over-profile routable: %v", err)
+	}
+	if cellRoutableProfileNot != 0 {
+		t.Fatalf("%d cell rows are routable under a non-routable profile", cellRoutableProfileNot)
 	}
 
-	// Routability is derived from the CELL's lifecycle now, so asserting it on
-	// its own is refused rather than merely inconsistent. Promoting a cell means
-	// moving its lifecycle; flipping the flag is not a promotion, it is a claim
-	// with no evidence behind it.
+	// Routability is derived, so asserting it on its own is refused rather than
+	// merely inconsistent. Promoting a cell means moving its lifecycle (and
+	// having bindable authority); flipping the flag is not a promotion.
 	if _, err := pool.Exec(ctx,
 		`UPDATE runtime_profile_models SET routable=true
 		  WHERE runtime_profile_id='mlx_metal'`); err == nil {
@@ -457,6 +473,8 @@ func TestRoutabilityCannotBeAssertedIndependently(t *testing.T) {
 
 	// Only one routable profile may own a cell id. Promoting a challenger onto an
 	// occupied cell must collide at the database, not just in the document.
+	// Use a cell that is actually routable in the document (bindable embed) so
+	// the unique-routable-cell constraint is the thing under test, not authority.
 	if _, err := pool.Exec(ctx,
 		`UPDATE runtime_profile_models
 		    SET lifecycle='ACTIVE', routable=true,
@@ -465,8 +483,8 @@ func TestRoutabilityCannotBeAssertedIndependently(t *testing.T) {
 		t.Fatalf("promote challenger cells: %v", err)
 	}
 	_, err := pool.Exec(ctx,
-		`UPDATE runtime_profile_models SET cell_id='candle-metal-llama1-infer'
-		  WHERE runtime_profile_id='mlx_metal'`)
+		`UPDATE runtime_profile_models SET cell_id='candle-metal-minilm-embed'
+		  WHERE runtime_profile_id='mlx_metal' AND cell_id <> 'candle-metal-minilm-embed'`)
 	if err == nil {
 		t.Fatal("two routable profiles claimed the same cell id")
 	}
