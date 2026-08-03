@@ -202,9 +202,12 @@ func runtimeCapabilityForBinding(binding WorkloadBinding) (generatedRuntimeCapab
 // runtimeCapabilityForBindingDirected resolves the cell that will execute a
 // workload, optionally forced to a named one.
 //
-// With no directed cell this is ordinary admission: exactly one ADVERTISED cell
-// must match, and "exactly one" is the rule that keeps a buyer request from
-// being ambiguous about what will run it.
+// Ordinary admission is a singleton today. The advertised catalogue carries at
+// most one cell per (job type, model); this function filters to that match and
+// freezes it. Competing engines exist only as DRAFT or in the directed set —
+// the shadow selector scores them but does not route ordinary buyer traffic.
+// Multi-candidate production selection is a separate lane (the engine
+// tournament); it is not what this path does.
 //
 // With a directed cell an operator or a test names the cell explicitly, and the
 // search widens to cells reachable by directed routing — a superset that

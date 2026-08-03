@@ -406,10 +406,19 @@ func mutableCell(t *testing.T, doc *runtimeAuthorityDocument, cellID string) *au
 // schema.sql's runtime_profile_models_evidenced CHECK only forbids an ACTIVE
 // cell with an EMPTY benchmark_authority. A cell whose named receipt does not
 // measure it satisfies the CHECK and lands here, which is what this test builds.
+//
+// The receipt must still BIND (identity + validity): a mismatched authority
+// demotes the cell from the routable set entirely, which is a different branch
+// (no routable cell at all). This test strips throughput from the cell's own
+// bound receipt so Routable stays true and the unproven-rate refusal fires.
 func TestUnprovenRoutableCellRefusesAdmissionRatherThanCollapsingIt(t *testing.T) {
-	doc := mutableRuntimeAuthority(t)
-	cell := mutableCell(t, doc, "candle-metal-minilm-embed")
-	cell.BenchmarkAuthority = "evidence/perf/runtime-benchmarks/candle-metal-llama1-q4-r3.json"
+	const path = "evidence/perf/runtime-benchmarks/embed-cell-candle-vs-llama-cpp-r1.json"
+	saved := benchmarkAuthorityManifest[path]
+	t.Cleanup(func() { benchmarkAuthorityManifest[path] = saved })
+	stripped := saved
+	stripped.ThroughputMeasured = false
+	stripped.Throughput = nil
+	benchmarkAuthorityManifest[path] = stripped
 
 	rate, resolved, err := admissionUnitsPerSec("embed", "all-minilm-l6-v2", nil, benchmarkNow)
 	if err == nil {

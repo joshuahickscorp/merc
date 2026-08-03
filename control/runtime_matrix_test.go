@@ -129,9 +129,11 @@ func TestWorkerRuntimeProjectionRejectsHostileTelemetryAndIdentity(t *testing.T)
 }
 
 func TestAdvertisedRuntimeJobModelIsExactNotCartesian(t *testing.T) {
+	// Only bindable-authority cells are advertised. At this commit that is the
+	// candle embed cell alone; batch_infer and media cells are lifecycle-routable
+	// but stand on unbound authority and must not pass ordinary admission.
 	allowed := [][2]string{
 		{"embed", "all-minilm-l6-v2"},
-		{"batch_infer", "llama-3.2-1b-instruct-q4"},
 	}
 	for _, pair := range allowed {
 		if err := validateAdvertisedRuntimeJobModel(pair[0], pair[1]); err != nil {
@@ -142,7 +144,10 @@ func TestAdvertisedRuntimeJobModelIsExactNotCartesian(t *testing.T) {
 	rejected := [][2]string{
 		{"embed", "llama-3.2-1b-instruct-q4"},
 		{"unsupported", "all-minilm-l6-v2"},
+		{"batch_infer", "llama-3.2-1b-instruct-q4"},
 		{"batch_infer", "unsupported-model"},
+		{"media_transcode", "ffmpeg-transcode-v1"},
+		{"media_rendering", "svg-scene-render-v1"},
 		{"embed", "unsupported-model"},
 		{"unsupported", ""},
 	}
@@ -158,7 +163,9 @@ func TestGeneratedRuntimeModelRefOwnsInternalWireKind(t *testing.T) {
 		job, model, kind string
 	}{
 		{"embed", "all-minilm-l6-v2", "hf"},
-		{"batch_infer", "llama-3.2-1b-instruct-q4", "gguf"},
+		// batch_infer is not advertised while its authority is unbound, so the
+		// advertised-only lookup returns the model ref with an empty kind.
+		{"batch_infer", "llama-3.2-1b-instruct-q4", ""},
 		{"unknown", "unknown", ""},
 	} {
 		got := generatedRuntimeModelRef(tc.job, tc.model)
@@ -179,16 +186,15 @@ func TestNormalizeAdvertisedRuntimeModelRefOwnsBuyerIngressKind(t *testing.T) {
 		}
 	})
 
-	t.Run("matching explicit kind remains canonical", func(t *testing.T) {
-		got, err := normalizeAdvertisedRuntimeModelRef("batch_infer", ModelRef{
+	t.Run("unbound batch_infer is not advertised", func(t *testing.T) {
+		// Ordinary admission must refuse the unbound generation cell rather than
+		// canonicalizing it as if it still sold buyer work.
+		_, err := normalizeAdvertisedRuntimeModelRef("batch_infer", ModelRef{
 			Kind: "gguf",
 			Ref:  "llama-3.2-1b-instruct-q4",
 		})
-		if err != nil {
-			t.Fatalf("matching kind rejected: %v", err)
-		}
-		if got.Kind != "gguf" {
-			t.Fatalf("normalized kind=%q, want gguf", got.Kind)
+		if err == nil {
+			t.Fatal("unbound batch_infer was admitted as an advertised runtime model")
 		}
 	})
 
@@ -307,10 +313,13 @@ func TestWorkerRegistrationProjectsBuiltinMediaCell(t *testing.T) {
 }
 
 func TestHeartbeatLoadedModelsStayInsideProductionProjection(t *testing.T) {
-	if err := validateHeartbeatRuntimeModels([]string{"all-minilm-l6-v2", "llama-3.2-1b-instruct-q4"}); err != nil {
+	// Only models with a bindable advertised cell may be warm. Llama and media
+	// are lifecycle-present but unbound, so a heartbeat naming them is refused.
+	if err := validateHeartbeatRuntimeModels([]string{"all-minilm-l6-v2"}); err != nil {
 		t.Fatalf("production warm models rejected: %v", err)
 	}
 	for _, models := range [][]string{
+		{"llama-3.2-1b-instruct-q4"},
 		{"unsupported-model"},
 		{"unknown"},
 		{"all-minilm-l6-v2", "all-minilm-l6-v2"},
@@ -359,7 +368,8 @@ func TestAdvertisedRuntimeCatalogFailsClosedOnDrift(t *testing.T) {
 	}
 
 	t.Run("missing row", func(t *testing.T) {
-		rows := productionCatalogRows()[:1]
+		// Only advertised models are required; an empty catalogue misses embed.
+		rows := []ModelRow{}
 		if err := validateAdvertisedRuntimeCatalogRows(rows); err == nil || !strings.Contains(err.Error(), "no row") {
 			t.Fatalf("error=%v", err)
 		}
@@ -373,14 +383,15 @@ func TestAdvertisedRuntimeCatalogFailsClosedOnDrift(t *testing.T) {
 	})
 	t.Run("understated memory", func(t *testing.T) {
 		rows := productionCatalogRows()
-		rows[1].MinMemoryGB = 3
+		// Index 0 is the advertised embed model.
+		rows[0].MinMemoryGB = 0.5
 		if err := validateAdvertisedRuntimeCatalogRows(rows); err == nil || !strings.Contains(err.Error(), "requires") {
 			t.Fatalf("error=%v", err)
 		}
 	})
 	t.Run("missing resolver metadata", func(t *testing.T) {
 		rows := productionCatalogRows()
-		rows[1].HFRepo = ""
+		rows[0].HFRepo = ""
 		if err := validateAdvertisedRuntimeCatalogRows(rows); err == nil || !strings.Contains(err.Error(), "metadata") {
 			t.Fatalf("error=%v", err)
 		}

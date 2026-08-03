@@ -61,8 +61,8 @@ func TestNonRoutableProfilesDoNotWidenTheSellableSurface(t *testing.T) {
 				cap.Runtime, cap)
 		}
 	}
-	if len(advertisedRuntimeCapabilities()) != 4 {
-		t.Fatalf("advertised projection has %d cells, want the 4 candle cells",
+	if len(advertisedRuntimeCapabilities()) != 1 {
+		t.Fatalf("advertised projection has %d cells, want the 1 bindable candle cell",
 			len(advertisedRuntimeCapabilities()))
 	}
 }
@@ -162,7 +162,7 @@ func TestRuntimeAuthorityValidationRefusesEveryUngovernedShape(t *testing.T) {
 						"embed-cell-candle-vs-llama-cpp-r1.json",
 				}}
 			}},
-		{"a sellable model no routable runtime serves", "no routable runtime profile serves",
+		{"a sellable model no CANARY/ACTIVE runtime serves", "no CANARY/ACTIVE runtime cell serves",
 			func(d *runtimeAuthorityDocument) {
 				candle := runtimeIndex(t, *d, "candle_metal")
 				d.Runtimes[candle].Lifecycle = runtimeLifecycleQuarantined
@@ -861,8 +861,8 @@ func TestTheNewEmbedCellIsNotYetSellable(t *testing.T) {
 			t.Errorf("non-routable runtime %q is advertised", cap.Runtime)
 		}
 	}
-	if len(advertisedRuntimeCapabilities()) != 4 {
-		t.Fatalf("advertised projection has %d cells, want the 4 candle cells",
+	if len(advertisedRuntimeCapabilities()) != 1 {
+		t.Fatalf("advertised projection has %d cells, want the 1 bindable candle cell",
 			len(advertisedRuntimeCapabilities()))
 	}
 }

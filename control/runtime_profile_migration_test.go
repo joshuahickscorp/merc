@@ -760,9 +760,14 @@ func TestRegistryAndDocumentAgreeOnEveryRoutableCell(t *testing.T) {
 		}
 		inDB[fmt.Sprintf("%s/%s", profileID, cellID)] = true
 	}
+	// Document side uses the same Routable predicate the registry writes
+	// (lifecycle AND bindable authority), not every cell under a routable profile.
 	inDoc := map[string]bool{}
-	for _, profile := range runtimeAuthority.RoutableRuntimes() {
+	for _, profile := range runtimeAuthority.Runtimes {
 		for _, cell := range profile.Cells {
+			if !cell.Routable(profile) {
+				continue
+			}
 			inDoc[fmt.Sprintf("%s/%s", profile.RuntimeID, cell.ID)] = true
 		}
 	}

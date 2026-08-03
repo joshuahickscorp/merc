@@ -7,7 +7,9 @@
     "byte_deterministic": false,
     "model_ids": [
       "llama-3.2-1b-instruct-q4"
-    ]
+    ],
+    "merc_source_commit": "a0abf0a2bbe085bc2b67fbbc905860c13e085dd8",
+    "profile_revision": "r2"
   },
   "evidence/perf/runtime-benchmarks/candle-metal-llama1-q4-r3.json": {
     "runtime_profile_ids": [
@@ -30,7 +32,10 @@
         "best_observed_batch": 64,
         "basis": "physical_throughput.serial_tokens_per_sec, the un-batched decode rate. The sweep publishes one number per batch and no per-repetition wall times, so its slowest point is the only defensible floor. best_observed_units_per_sec is the sweep's own physical_throughput.peak_tokens_per_sec, recorded to be refused."
       }
-    }
+    },
+    "merc_source_commit": "c212dcb1e801ee8d030aa57ece165488c8d29114",
+    "profile_revision": "r3",
+    "harness": "merc-agent bench-batch (rebuilt after the schema-v2 agent fix)"
   },
   "evidence/perf/runtime-benchmarks/candle-metal-ffmpeg-media-r1.json": {
     "runtime_profile_ids": [
@@ -53,13 +58,20 @@
         "best_observed_batch": 1,
         "basis": "430.5 media_work_units divided by the slowest and fastest of 20 real FFmpeg subprocess wall times; the slowest rate is the only admission bound"
       }
-    }
+    },
+    "merc_source_commit": "working-tree-before-media-authority",
+    "profile_revision": "r9",
+    "harness": "fixed Merc media_transcode contract: ffmpeg + ffprobe, env-clear, protocol_whitelist=file,pipe, libx264 threads=1, bitexact, one 320x180 input"
   },
   "evidence/perf/runtime-benchmarks/candle-metal-rendering-r1.json": {
-    "runtime_profile_ids": ["candle_metal"],
+    "runtime_profile_ids": [
+      "candle_metal"
+    ],
     "throughput_measured": true,
     "byte_deterministic": true,
-    "model_ids": ["svg-scene-render-v1"],
+    "model_ids": [
+      "svg-scene-render-v1"
+    ],
     "measured_at": "2026-08-02T14:19:00Z",
     "hw_class": "apple_silicon_ultra",
     "throughput": {
@@ -72,7 +84,8 @@
         "best_observed_batch": 1,
         "basis": "merc-agent bench on Apple Silicon Ultra; 32 bounded 64x64 renders, admission uses the slowest observed wall time"
       }
-    }
+    },
+    "profile_revision": "r9"
   },
   "evidence/perf/runtime-benchmarks/llama-cpp-metal-llama1-q4-r1.json": {
     "runtime_profile_ids": [
@@ -82,6 +95,11 @@
     "byte_deterministic": false,
     "model_ids": [
       "llama-3.2-1b-instruct-q4"
+    ],
+    "merc_source_commit": "a0abf0a2bbe085bc2b67fbbc905860c13e085dd8",
+    "profile_revision": "r1",
+    "model_artifact_sha256s": [
+      "3f5a22426976ab26cfe84dba63c1d08391717abb1af893e10f1b2968d862dcc1"
     ]
   },
   "evidence/perf/runtime-benchmarks/llama-cpp-metal-llama1-q4-r3.json": {
@@ -105,7 +123,10 @@
         "best_observed_batch": 64,
         "basis": "physical_throughput.serial_tokens_per_sec, the un-batched decode rate. The sweep publishes one number per batch and no per-repetition wall times, so its slowest point is the only defensible floor. best_observed_units_per_sec is the sweep's own physical_throughput.peak_tokens_per_sec, recorded to be refused."
       }
-    }
+    },
+    "merc_source_commit": "c212dcb1e801ee8d030aa57ece165488c8d29114",
+    "profile_revision": "r3",
+    "harness": "merc-agent bench-batch (rebuilt after the schema-v2 agent fix)"
   },
   "evidence/perf/runtime-benchmarks/mlx-metal-llama1-4bit-r1.json": {
     "runtime_profile_ids": [
@@ -115,7 +136,10 @@
     "byte_deterministic": true,
     "model_ids": [
       "llama-3.2-1b-instruct-q4"
-    ]
+    ],
+    "merc_source_commit": "c212dcb1e801ee8d030aa57ece165488c8d29114",
+    "profile_revision": "r1",
+    "harness": "merc-agent bench-batch (rebuilt after the schema-v2 agent fix)"
   },
   "evidence/perf/runtime-benchmarks/vllm-cuda-llama1-r1.json": {
     "runtime_profile_ids": [
@@ -125,7 +149,10 @@
     "byte_deterministic": true,
     "model_ids": [
       "llama-3.2-1b-instruct-q4"
-    ]
+    ],
+    "merc_source_commit": "c212dcb1e801ee8d030aa57ece165488c8d29114",
+    "profile_revision": "r1",
+    "harness": "merc-agent bench-batch (rebuilt after the schema-v2 agent fix)"
   },
   "evidence/perf/runtime-benchmarks/embed-cell-candle-vs-llama-cpp-r1.json": {
     "runtime_profile_ids": [
@@ -158,6 +185,14 @@
         "best_observed_batch": 128,
         "basis": "128 texts divided by max_wall_s at batch 128: the SLOWEST of five repetitions, not the median rate the receipt quotes. best_observed_units_per_sec is that receipt-quoted texts_per_sec at its best batch, which is a MEDIAN of five repetitions and not a peak; it is a ceiling to refuse, not a rate anything may be offered at."
       }
-    }
+    },
+    "merc_source_commit": "c0cf09360b64b15b16b8405659e350669b6d72e4",
+    "harness": "merc-agent 0.1.0 bench-embed",
+    "model_artifact_sha256s": [
+      "797b70c4edf85907fe0a49eb85811256f65fa0f7bf52166b147fd16be2be4662",
+      "953f9c0d463486b10a6871cc2fd59f223b2c70184f49815e7efbcab5d8908b41",
+      "be50c3628f2bf5bb5e3a7f17b1f74611b2561a3a27eeab05e5aa30f411572037",
+      "53aa51172d142c89d9012cce15ae4d6cc0ca6895895114379cacb4fab128d9db"
+    ]
   }
 }
