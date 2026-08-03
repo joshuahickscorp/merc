@@ -52,6 +52,12 @@ func loadChainArtifact(t *testing.T, runtimeProfileID, cellID, modelKind string)
 		t.Skipf("no real %s artifact at %s; run merc-agent emit-embed-artifact first",
 			runtimeProfileID, path)
 	}
+	// Evidence binding stamps binding_status / missing_identity_fields onto
+	// files under evidence/. Those fields belong to the receipt census, not to
+	// the job-result contract. Task result validation uses DisallowUnknownFields,
+	// so a stamped evidence file is not a commit body. Rebuild the result shape
+	// the worker actually produces; leave the on-disk receipt stamped for the
+	// evidence gate.
 	var decoded struct {
 		JobType string      `json:"job_type"`
 		Model   string      `json:"model"`
@@ -65,13 +71,29 @@ func loadChainArtifact(t *testing.T, runtimeProfileID, cellID, modelKind string)
 	if decoded.JobType != "embed" || decoded.Dim != EMBED_DIM_FOR_CHAIN {
 		t.Fatalf("%s declares job_type=%q dim=%d", path, decoded.JobType, decoded.Dim)
 	}
-	sum := sha256.Sum256(body)
+	resultBody, err := json.Marshal(struct {
+		JobType string      `json:"job_type"`
+		Model   string      `json:"model"`
+		Dim     int         `json:"dim"`
+		Count   int         `json:"count"`
+		Vectors [][]float64 `json:"vectors"`
+	}{
+		JobType: decoded.JobType,
+		Model:   decoded.Model,
+		Dim:     decoded.Dim,
+		Count:   decoded.Count,
+		Vectors: decoded.Vectors,
+	})
+	if err != nil {
+		t.Fatalf("rebuild result body from %s: %v", path, err)
+	}
+	sum := sha256.Sum256(resultBody)
 	return chainArtifact{
 		runtimeProfileID: runtimeProfileID,
 		cellID:           cellID,
 		directedCellID:   cellID,
 		modelKind:        modelKind,
-		body:             body,
+		body:             resultBody,
 		sha256:           hex.EncodeToString(sum[:]),
 		vectors:          decoded.Vectors,
 	}
