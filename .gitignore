@@ -145,3 +145,6 @@ evidence/checkpoint/
 
 # The single `go test -json` record `make ci` hands to the skip gate.
 .ci-test.json
+
+# serena MCP writes a per-project cache here; it is tooling state, not source.
+.serena/

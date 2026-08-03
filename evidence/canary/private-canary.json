@@ -21,11 +21,11 @@
     },
     "cuda_runtime": {
       "present": false,
-      "detail": "no GPU runtime: set MERC_GPU_ENDPOINT to a reachable pinned runtime and RUNPOD_API_KEY (or MERC_GPU_API_KEY) to authenticate. No RunPod credential exists on this machine"
+      "detail": "a GPU API key is configured but MERC_GPU_ENDPOINT names no runtime"
     },
     "stripe_sandbox": {
-      "present": false,
-      "detail": "STRIPE_SECRET_KEY is not set"
+      "present": true,
+      "detail": "Stripe sandbox credential configured"
     },
     "openai_sdks": {
       "present": false,
@@ -96,7 +96,7 @@
         "database",
         "cuda_runtime"
       ],
-      "reason": "MERC_TEST_DATABASE_URL is not set; no GPU runtime: set MERC_GPU_ENDPOINT to a reachable pinned runtime and RUNPOD_API_KEY (or MERC_GPU_API_KEY) to authenticate. No RunPod credential exists on this machine",
+      "reason": "MERC_TEST_DATABASE_URL is not set; a GPU API key is configured but MERC_GPU_ENDPOINT names no runtime",
       "note": "NVIDIA hardware and a pinned digest-addressed vLLM image; no Apple Silicon engine substitutes for this; the retained provider receipt is direct-runtime evidence, not a merc request-to-settlement chain"
     },
     {
@@ -125,7 +125,7 @@
       "missing_capabilities": [
         "cuda_runtime"
       ],
-      "reason": "no GPU runtime: set MERC_GPU_ENDPOINT to a reachable pinned runtime and RUNPOD_API_KEY (or MERC_GPU_API_KEY) to authenticate. No RunPod credential exists on this machine",
+      "reason": "a GPU API key is configured but MERC_GPU_ENDPOINT names no runtime",
       "note": "governance only; no image runtime exists"
     },
     {
@@ -134,7 +134,7 @@
       "missing_capabilities": [
         "cuda_runtime"
       ],
-      "reason": "no GPU runtime: set MERC_GPU_ENDPOINT to a reachable pinned runtime and RUNPOD_API_KEY (or MERC_GPU_API_KEY) to authenticate. No RunPod credential exists on this machine",
+      "reason": "a GPU API key is configured but MERC_GPU_ENDPOINT names no runtime",
       "note": "settlement arithmetic only; no trainer, no evaluator dispatch"
     },
     {
@@ -143,7 +143,7 @@
       "missing_capabilities": [
         "cuda_runtime"
       ],
-      "reason": "no GPU runtime: set MERC_GPU_ENDPOINT to a reachable pinned runtime and RUNPOD_API_KEY (or MERC_GPU_API_KEY) to authenticate. No RunPod credential exists on this machine",
+      "reason": "a GPU API key is configured but MERC_GPU_ENDPOINT names no runtime",
       "note": "admission only; no tensor-parallel runtime has served a request"
     },
     {
@@ -168,10 +168,9 @@
       "lane": "payouts",
       "status": "EXTERNALLY_BLOCKED",
       "missing_capabilities": [
-        "database",
-        "stripe_sandbox"
+        "database"
       ],
-      "reason": "MERC_TEST_DATABASE_URL is not set; STRIPE_SECRET_KEY is not set",
+      "reason": "MERC_TEST_DATABASE_URL is not set",
       "note": "accrual and reconciliation; a real transfer needs the sandbox"
     },
     {
