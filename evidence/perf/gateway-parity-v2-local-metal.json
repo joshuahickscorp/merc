@@ -128915,6 +128915,14 @@
   "binding_status": "SUPERSEDED",
   "superseded_by": "evidence/perf/gateway-parity-v2-local-metal-quiet.bound.json",
   "superseded": true,
-  "superseded_reason": "host contaminated by concurrent go test / mutation-test workloads during measure; quiet re-run supersedes for load-sensitive claims",
-  "os_host_load_note": "OS loadavg was not captured by the harness at measure time. Operator declared concurrent go test ./... and other suites on host. Process-level host_load_start/end only (goroutines/mem). Quiet re-run records OS loadavg in notes/os_host_load_* fields."
+  "validity": "SUPERSEDED_GATE_STATISTICS",
+  "os_host_load_note": "OS loadavg was not captured by the harness at measure time. Operator declared concurrent go test ./... and other suites on host. Process-level host_load_start/end only (goroutines/mem). Quiet re-run records OS loadavg in notes/os_host_load_* fields.",
+  "superseded_reason": [
+    "host contaminated by concurrent go test / mutation-test workloads during measure; the quiet re-run supersedes it for load-sensitive claims. Note the quiet run did NOT rescue c=1: it measured +17.4 ms against this run's +12.5 ms, both INCONCLUSIVE, so load was not the cause and the conclusions stand.",
+    "gate_version gateway-parity-gate-v3 computed MDE under an independence assumption the harness scheduler refutes: wave size equals concurrency, so every level is ~6 waves regardless of n; the independent observation is the wave, not the request. At c=64 the shipped MDE was 6.9 ms; wave-block MDE is ~105 ms.",
+    "primary metric renamed ttft_overhead_p95_ms to ttft_shift_q95_ms: the estimator is q95(merc)-q95(direct), a shift function, not a percentile of paired overheads. The method string was already honest; the human-facing name was not.",
+    "pointEstimateBounds collapsed an unset CI (lo=hi=0, point!=0) to a zero-width interval at the point, disarming MDE and allowing a point-estimate PASS - fixed to refuse instead.",
+    "sample floor was request-count based (max(20,5c)); a finite 97.5% percentile-bootstrap upper bound needs at least 72 independent waves. Floor is now a wave floor with a cost-capped schedule and explicit non-identification when wave_count < 72.",
+    "Superseded by gateway-parity-gate-v4 (wave-block bootstrap of the difference; pass_hi=max(diff_hi, merc_hi-direct_lo)). Raw samples retained on disk for re-adjudication; do not rewrite."
+  ]
 }

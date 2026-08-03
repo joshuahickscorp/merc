@@ -36,7 +36,9 @@ type gapCellResult struct {
 	Quiet            bool           `json:"quiet"`
 	Client           map[string]any `json:"client_ttft_ms"`
 	Direct           map[string]any `json:"direct_ttft_ms"`
-	Overhead         map[string]any `json:"overhead_merc_minus_direct_ms"`
+	// Shift (q_p(merc) − q_p(direct)), not a percentile of paired differences.
+	// JSON key kept stable for existing readers; values are a shift function.
+	Overhead map[string]any `json:"overhead_merc_minus_direct_ms"`
 	Stages           map[string]any `json:"stages_ms"`
 	MercOwned        map[string]any `json:"merc_owned_ttft_ms"`
 	EngineFacing     map[string]any `json:"engine_facing_ms"`
@@ -280,12 +282,15 @@ func TestMercLatencyGapAccounting(t *testing.T) {
 		mercOwned := sumStageSamplesExt(lines, mercOwnedKeys)
 		engineFacing := sumStageSamplesExt(lines, engineKeys)
 
+		// Shift function Δ(p) = q_p(merc) − q_p(direct). Not a percentile vector:
+		// Δ(0.99) can sit below Δ(0.50) when the arms' upper tails differ. Do not
+		// publish p99 from thin high-fail arms (e.g. n_direct=39 with direct_fail=25).
 		overhead := map[string]any{
-			"p50":    pctDurMs(mercTTFT, 0.50) - pctDurMs(directTTFT, 0.50),
-			"p95":    pctDurMs(mercTTFT, 0.95) - pctDurMs(directTTFT, 0.95),
-			"p99":    pctDurMs(mercTTFT, 0.99) - pctDurMs(directTTFT, 0.99),
-			"mean":   meanDurMs(mercTTFT) - meanDurMs(directTTFT),
-			"method": "percentile_difference (merc_pX − direct_pX); PercentileNearestRank with p in [0,1]",
+			"p50": pctDurMs(mercTTFT, 0.50) - pctDurMs(directTTFT, 0.50),
+			"p95": pctDurMs(mercTTFT, 0.95) - pctDurMs(directTTFT, 0.95),
+			"mean": meanDurMs(mercTTFT) - meanDurMs(directTTFT),
+			"method": "ttft_shift (q_p(merc) − q_p(direct)); PercentileNearestRank with p in [0,1]; " +
+				"not a percentile of paired differences; p99 omitted (shift function, thin-tail)",
 			"n_merc": len(mercTTFT), "n_direct": len(directTTFT),
 		}
 

@@ -20,21 +20,24 @@ import (
 // Sub-floor sample count must hard-refuse. Reporting the level with a caveat
 // is the defect class that produced invalid receipts.
 func TestGatewayParityRefusesSubFloorSampleCount(t *testing.T) {
+	// Wave-floor schedule (request budget 768/arm, identifying waves = 72):
+	// c=1 → 72 waves × 1 = 72; c=8 → 72×8 = 576; c=32 → 24×32 = 768;
+	// c=64 → 12×64 = 768; c=128 → 6×128 = 768.
 	cases := []struct {
 		c, n    int
 		refuse  bool
 		wantSub string
 	}{
-		{1, 19, true, "below floor"},
-		{1, 20, false, ""},
-		{8, 39, true, "below floor"},
-		{8, 40, false, ""},
-		{32, 159, true, "below floor"},
-		{32, 160, false, ""},
-		{64, 319, true, "below floor"},
-		{64, 320, false, ""},
-		{128, 639, true, "below floor"},
-		{128, 640, false, ""},
+		{1, 71, true, "below floor"},
+		{1, 72, false, ""},
+		{8, 575, true, "below floor"},
+		{8, 576, false, ""},
+		{32, 767, true, "below floor"},
+		{32, 768, false, ""},
+		{64, 767, true, "below floor"},
+		{64, 768, false, ""},
+		{128, 767, true, "below floor"},
+		{128, 768, false, ""},
 	}
 	for _, tc := range cases {
 		reason := RefuseGatewayParitySampleCount(tc.c, tc.n)
@@ -48,11 +51,14 @@ func TestGatewayParityRefusesSubFloorSampleCount(t *testing.T) {
 			t.Fatalf("c=%d n=%d: refusal %q missing %q", tc.c, tc.n, reason, tc.wantSub)
 		}
 	}
-	if GatewayParitySampleFloor(1) != 20 {
-		t.Fatalf("floor(1)=%d, want 20 (absolute min, not 5×1)", GatewayParitySampleFloor(1))
+	if GatewayParityWaveFloor(1) != 72 || GatewayParitySampleFloor(1) != 72 {
+		t.Fatalf("floor(1): waves=%d samples=%d, want 72/72", GatewayParityWaveFloor(1), GatewayParitySampleFloor(1))
 	}
-	if GatewayParitySampleFloor(32) != 160 {
-		t.Fatalf("floor(32)=%d, want 160", GatewayParitySampleFloor(32))
+	if GatewayParityWaveFloor(32) != 24 || GatewayParitySampleFloor(32) != 768 {
+		t.Fatalf("floor(32): waves=%d samples=%d, want 24/768", GatewayParityWaveFloor(32), GatewayParitySampleFloor(32))
+	}
+	if GatewayParityUpperBoundIdentified(71) || !GatewayParityUpperBoundIdentified(72) {
+		t.Fatal("upper bound identified iff waves ≥ 72")
 	}
 
 	// RunGatewayParityLevel must refuse before fabricating samples.
@@ -258,12 +264,12 @@ func TestGatewayParityGateRefusesLargeTTFTOverhead(t *testing.T) {
 		t.Fatalf("want FAIL for +500 ms overhead, got passed=%v verdict=%s levels=%+v",
 			gate.GatePassed, gate.Verdict, gate.Levels)
 	}
-	if len(gate.Levels) != 1 || gate.Levels[0].TTFTOverheadP95Ms == nil {
-		t.Fatalf("missing overhead estimate: %+v", gate.Levels)
+	if len(gate.Levels) != 1 || gate.Levels[0].TTFTShiftQ95BudgetMs == nil {
+		t.Fatalf("missing shift estimate: %+v", gate.Levels)
 	}
-	oh := gate.Levels[0].TTFTOverheadP95Ms
+	oh := gate.Levels[0].TTFTShiftQ95BudgetMs
 	if oh.Point < 400 {
-		t.Fatalf("overhead point %.1f, want ~500", oh.Point)
+		t.Fatalf("shift point %.1f, want ~500", oh.Point)
 	}
 	// Primary FAIL must not dual-refuse throughput even if loss is large.
 	// Throughput secondary note should acknowledge non-dual-refuse when loss exceeds budget.
@@ -276,7 +282,7 @@ func TestGatewayParityGateRefusesLargeTTFTOverhead(t *testing.T) {
 	// Exactly one primary TTFT refusal; no separate throughput refusal string.
 	ttftRefusals, thrRefusals := 0, 0
 	for _, r := range gate.Levels[0].Refusals {
-		if strings.Contains(r, "ttft overhead") {
+		if strings.Contains(r, "ttft shift") || strings.Contains(r, "ttft overhead") {
 			ttftRefusals++
 		}
 		if strings.Contains(r, "throughput loss") {
@@ -487,7 +493,7 @@ func TestGatewayParityUnderpoweredMDEInconclusive(t *testing.T) {
 	if gate.GatePassed {
 		t.Fatal("under-powered run must not set gate_passed")
 	}
-	if gate.Levels[0].MinimumDetectableEffectMs <= DefaultGatewayParityBudget().TTFTOverheadP95Ms {
+	if gate.Levels[0].MinimumDetectableEffectMs <= DefaultGatewayParityBudget().TTFTShiftQ95BudgetMs {
 		t.Fatalf("test setup: MDE=%.3f should exceed budget 15", gate.Levels[0].MinimumDetectableEffectMs)
 	}
 	joined := strings.Join(gate.Levels[0].Refusals, "; ")
@@ -499,7 +505,7 @@ func TestGatewayParityUnderpoweredMDEInconclusive(t *testing.T) {
 // Error rate above the survival-bias cap refuses the level even when OK samples
 // still meet the floor.
 func TestGatewayParityErrorRateBudgetRefuses(t *testing.T) {
-	// 3 errors out of 23 attempted ≈ 13% > 5% budget; 20 OK still meets floor(1)=20.
+	// 3 errors out of 23 attempted ≈ 13% > 5% budget.
 	if reason := RefuseGatewayParityErrorRate(23, 3); reason == "" {
 		t.Fatal("expected error-rate refusal for 3/23")
 	} else if !strings.Contains(reason, "error rate") {
@@ -509,24 +515,59 @@ func TestGatewayParityErrorRateBudgetRefuses(t *testing.T) {
 		// 1/24 ≈ 4.2% ≤ 5%
 		t.Fatalf("1/24 should clear 5%% budget, got %s", reason)
 	}
-	if reason := RefuseGatewayParityErrorRate(20, 0); reason != "" {
+	if reason := RefuseGatewayParityErrorRate(72, 0); reason != "" {
 		t.Fatalf("zero errors refused: %s", reason)
 	}
 
-	// finalize path: fabricate samples with high error rate.
-	samples := make([]GatewayParityRawSample, 23)
-	for i := 0; i < 20; i++ {
-		samples[i] = GatewayParityRawSample{Arm: "merc", TTFTMs: 10, FinishReason: "stop", CompletionTokens: 1}
+	// finalize path: 72 OK meet wave floor(1)=72, but 4/76 ≈ 5.3% > 5% error budget.
+	const nOK, nErr = 72, 4
+	n := nOK + nErr
+	samples := make([]GatewayParityRawSample, n)
+	for i := 0; i < nOK; i++ {
+		samples[i] = GatewayParityRawSample{Arm: "merc", Index: i, TTFTMs: 10, FinishReason: "stop", CompletionTokens: 1}
 	}
-	for i := 20; i < 23; i++ {
-		samples[i] = GatewayParityRawSample{Arm: "merc", Err: "transport reset"}
+	for i := nOK; i < n; i++ {
+		samples[i] = GatewayParityRawSample{Arm: "merc", Index: i, Err: "transport reset"}
 	}
-	got := finalizeGatewayParitySamples("merc", 1, 23, samples, 1.0, 1.0, 1, 20)
+	got := finalizeGatewayParitySamples("merc", 1, n, samples, 1.0, 1.0, 1, nOK)
 	if got.Status != "REFUSED" {
 		t.Fatalf("status=%s want REFUSED for survival bias; reason=%s", got.Status, got.Reason)
 	}
 	if !strings.Contains(got.Reason, "error rate") {
 		t.Fatalf("reason=%q want error rate", got.Reason)
+	}
+}
+
+// Unset CI bounds (point set, lo=hi=0) must refuse — never collapse to a
+// zero-width interval that would disarm MDE and mint a point-estimate PASS.
+func TestGatewayParityUnsetCIRefusesNotCollapse(t *testing.T) {
+	n := 20
+	tps := 100.0
+	levels := map[string]GatewayParityLevelResult{
+		"merc@c=1": {
+			Arm: "merc", Concurrency: 1, RequestsAttempted: n, RequestsOK: n,
+			Status: "MEASURED", MeanInFlight: 1, PeakInFlight: 1,
+			// Point only — CI unset (both zero). Old collapse would PASS with MDE=0.
+			TTFTp95:            &GatewayParityPointEstimate{Point: 12, CI95Low: 0, CI95High: 0, N: n},
+			AggregateTokPerSec: &tps, TotalTokens: n * 5, MeanCompletionTok: 5,
+		},
+		"direct@c=1": {
+			Arm: "direct", Concurrency: 1, RequestsAttempted: n, RequestsOK: n,
+			Status: "MEASURED", MeanInFlight: 1, PeakInFlight: 1,
+			TTFTp95:            &GatewayParityPointEstimate{Point: 10, CI95Low: 0, CI95High: 0, N: n},
+			AggregateTokPerSec: &tps, TotalTokens: n * 5, MeanCompletionTok: 5,
+		},
+	}
+	gate := EvaluateGatewayParityGate([]int{1}, levels, DefaultGatewayParityBudget())
+	if gate.Verdict == "PASS" || gate.GatePassed {
+		t.Fatalf("unset CI must not PASS; verdict=%s levels=%+v", gate.Verdict, gate.Levels)
+	}
+	if gate.Levels[0].Verdict != "FAIL" {
+		t.Fatalf("verdict=%s want FAIL (nil/unset percentile refusal)", gate.Levels[0].Verdict)
+	}
+	joined := strings.Join(gate.Levels[0].Refusals, "; ")
+	if !strings.Contains(joined, "unset") && !strings.Contains(joined, "missing") {
+		t.Fatalf("refusal must name missing/unset CI: %v", gate.Levels[0].Refusals)
 	}
 }
 
@@ -720,8 +761,10 @@ func TestGatewayParityPoolMaintainsInFlight(t *testing.T) {
 
 	client := NewGatewayParityClient(8)
 	body := []byte(`{"model":"m","messages":[{"role":"user","content":"hi"}],"max_tokens":1,"temperature":0,"top_p":1,"stream":true,"stream_options":{"include_usage":true}}`)
-	// n=40 at c=8 meets the floor; sleep-based stand-in keeps workers busy.
-	result := RunGatewayParityLevel(context.Background(), client, srv.URL+"/v1", "", "direct", body, 8, 40)
+	// n at wave floor for c=8; sleep-based stand-in keeps workers busy.
+	// Cap at a smaller n for wall-time if floor is huge: still must meet floor.
+	n := GatewayParitySampleFloor(8)
+	result := RunGatewayParityLevel(context.Background(), client, srv.URL+"/v1", "", "direct", body, 8, n)
 	if result.Status != "MEASURED" {
 		t.Fatalf("status=%s reason=%s", result.Status, result.Reason)
 	}
@@ -733,8 +776,8 @@ func TestGatewayParityPoolMaintainsInFlight(t *testing.T) {
 	}
 	// Connection reuse: more requests than dials.
 	stats := client.SnapshotConnStats()
-	if stats.ConnectionsOpened > 40 {
-		t.Fatalf("opened %d connections for 40 requests; keep-alive broken", stats.ConnectionsOpened)
+	if stats.ConnectionsOpened > n {
+		t.Fatalf("opened %d connections for %d requests; keep-alive broken", stats.ConnectionsOpened, n)
 	}
 	if stats.ReusedConnections == 0 && result.RequestsOK > 8 {
 		t.Fatalf("zero connection reuses across %d ok requests", result.RequestsOK)
