@@ -168,5 +168,14 @@
     "verification": "cosine"
   },
   "question": "What does the embed cell cost and deliver on each of the two registered runtime profiles, measured on one harness over one corpus?",
-  "schema_version": 1
+  "schema_version": 1,
+  "binding_status": "UNBOUND",
+  "missing_identity_fields": [
+    "build_digest",
+    "model_artifact_digest",
+    "image_digest",
+    "corpus_digest",
+    "exact_config",
+    "raw_samples"
+  ]
 }

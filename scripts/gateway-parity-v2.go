@@ -83,11 +83,12 @@ func main() {
 	modelDigest := flag.String("model-digest", "", "sha256 of model artifact (required for PARITY_EVIDENCE)")
 	topologyNote := flag.String("topology-note", "", "where client / control plane / engine run")
 	selfTestStandin := flag.Bool("self-test-standin", false, "run against a local stand-in; forces HARNESS_SELF_TEST")
+	authorityID := flag.String("authority-id", "", "required to overwrite a withdrawn receipt at -out")
 	flag.Parse()
 
 	if *selfTestStandin {
 		*evidenceClass = "HARNESS_SELF_TEST"
-		runStandinSelfTest(*out)
+		runStandinSelfTest(*out, *authorityID)
 		return
 	}
 	if *mercURL == "" || *directURL == "" {
@@ -273,10 +274,9 @@ func main() {
 		rec.RefusalReason = rec.Refusals[0]
 	}
 
-	raw, _ := json.MarshalIndent(rec, "", "  ")
-	if err := os.WriteFile(*out, append(raw, '\n'), 0o644); err != nil {
+	if err := writeBoundEvidenceJSON(*out, rec, harnessID+"#"+gateVersion, *modelDigest, *authorityID); err != nil {
 		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		os.Exit(2)
 	}
 	fmt.Println("wrote", *out)
 	if !rec.GatePassed {
@@ -285,7 +285,7 @@ func main() {
 	}
 }
 
-func runStandinSelfTest(out string) {
+func runStandinSelfTest(out, authorityID string) {
 	// Minimal stand-in so `go run scripts/gateway-parity-v2.go -self-test-standin`
 	// produces a labelled HARNESS_SELF_TEST receipt without merc or a model.
 	var hits atomic.Int64
@@ -346,12 +346,55 @@ func runStandinSelfTest(out string) {
 	for _, lvl := range levels {
 		rec.RawSampleCount += len(lvl.RawSamples)
 	}
-	raw, _ := json.MarshalIndent(rec, "", "  ")
-	if err := os.WriteFile(out, append(raw, '\n'), 0o644); err != nil {
+	if err := writeBoundEvidenceJSON(out, rec, harnessID+"#HARNESS_SELF_TEST", "", authorityID); err != nil {
 		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		os.Exit(2)
 	}
 	fmt.Println("wrote", out, "(HARNESS_SELF_TEST)")
+}
+
+// writeBoundEvidenceJSON routes through scripts/write-bound-evidence.py so
+// standalone harnesses share the same refusal rules as control/receipt_identity.go
+// (complete identity, real git source_commit, sticky withdrawal).
+func writeBoundEvidenceJSON(path string, rec any, harness, modelDigest, authorityID string) error {
+	raw, err := json.Marshal(rec)
+	if err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp("", "merc-parity-payload-*.json")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
+	if _, err := tmp.Write(append(raw, '\n')); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	args := []string{
+		"scripts/write-bound-evidence.py",
+		"--out", path,
+		"--harness", harness,
+		"--payload-file", tmpName,
+		"--build-binary", "scripts/gateway-parity-v2.go",
+		"--exact-config", "embedded sampling + topology",
+		"--raw-samples", "embedded levels.*.raw_samples",
+	}
+	if modelDigest != "" {
+		args = append(args, "--model-digest", modelDigest)
+	} else {
+		args = append(args, "--model-na", "no model digest supplied (self-test or omitted)")
+	}
+	if authorityID != "" {
+		args = append(args, "--authority-id", authorityID)
+	}
+	cmd := exec.Command("python3", args...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
 }
 
 // --- thin client / pool (mirrors control/gateway_parity_harness.go) ---

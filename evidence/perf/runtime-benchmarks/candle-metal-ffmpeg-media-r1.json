@@ -52,9 +52,21 @@
     "ffmpeg_timeout_secs": 150,
     "input_cap_bytes": 536870912,
     "output_cap_bytes": 536870912,
-    "protocols": ["file", "pipe"],
+    "protocols": [
+      "file",
+      "pipe"
+    ],
     "metadata_stripped": true,
     "teardown": "kill_on_drop plus private scratch directory cleanup"
   },
-  "benchmark_status": "PHYSICAL_THROUGHPUT_MEASURED"
+  "benchmark_status": "PHYSICAL_THROUGHPUT_MEASURED",
+  "binding_status": "UNBOUND",
+  "missing_identity_fields": [
+    "source_commit",
+    "build_digest",
+    "model_artifact_digest",
+    "image_digest",
+    "corpus_digest",
+    "exact_config"
+  ]
 }

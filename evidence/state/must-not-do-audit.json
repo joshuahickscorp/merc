@@ -64,7 +64,7 @@
       "prohibition": "10",
       "name": "pricing is not one fixed percentage",
       "status": "FAIL",
-      "detail": "the platform take rate has no workload dimension \u2014 one percentage applies to embeddings, generation, rendering and every future lane alike, tunable only by MERC_PLATFORM_TAKE_PCT within 1-5%. a single process-wide take rate in control/payment.go:takeRateFromEnv; the published schedule carries 1 distinct supplier share(s) across 3 row(s) (min 0.97, max 0.97)"
+      "detail": "the platform take rate has no workload dimension — one percentage applies to embeddings, generation, rendering and every future lane alike, tunable only by MERC_PLATFORM_TAKE_PCT within 1-5%. a single process-wide take rate in control/payment.go:takeRateFromEnv; the published schedule carries 1 distinct supplier share(s) across 3 row(s) (min 0.97, max 0.97)"
     },
     {
       "prohibition": "11",
@@ -96,5 +96,16 @@
   ],
   "undecidable": [
     "14"
+  ],
+  "binding_status": "UNBOUND",
+  "missing_identity_fields": [
+    "source_commit",
+    "build_digest",
+    "model_artifact_digest",
+    "image_digest",
+    "harness_revision",
+    "corpus_digest",
+    "exact_config",
+    "raw_samples"
   ]
 }

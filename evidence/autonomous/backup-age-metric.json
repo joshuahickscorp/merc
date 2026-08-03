@@ -13,7 +13,7 @@
       "configured": true,
       "valid": true,
       "last_success": 1785092083,
-      "age_seconds": 0.800,
+      "age_seconds": 0.8,
       "observed_at_unix": 1785092083,
       "path_configured": true
     },
@@ -28,10 +28,21 @@
   },
   "derived": {
     "age_moved": true,
-    "fresh_age_seconds": 0.800,
+    "fresh_age_seconds": 0.8,
     "stale_age_seconds": 97201.639,
     "stale_would_fire_alert": true,
     "backup_sh_dry_run_status_written": true
   },
-  "secret_values_recorded": false
+  "secret_values_recorded": false,
+  "binding_status": "UNBOUND",
+  "missing_identity_fields": [
+    "source_commit",
+    "build_digest",
+    "model_artifact_digest",
+    "image_digest",
+    "harness_revision",
+    "corpus_digest",
+    "exact_config",
+    "raw_samples"
+  ]
 }

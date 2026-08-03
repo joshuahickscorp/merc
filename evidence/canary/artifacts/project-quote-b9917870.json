@@ -149,8 +149,8 @@
           "eta_worst_case_secs": 180,
           "eta_source": "static",
           "eta_confidence_band_method": "synthetic_multiples",
-          "base_compute_usd": 0.000001,
-          "verification_overhead_usd": 0.000001,
+          "base_compute_usd": 1e-06,
+          "verification_overhead_usd": 1e-06,
           "confidence": 0.5,
           "confidence_reasons": [
             "no workers currently pass the memory/model filter for this job",
@@ -183,9 +183,9 @@
             "schedule_sha256": "832e96a7a71dd1a2576caf5914f4fc625bb46c1db1f2d522e4cf4cafa516a614",
             "schedule_version": 1,
             "reference_currency": "usd",
-            "reference_price_per_1k": 0.000018,
+            "reference_price_per_1k": 1.8e-05,
             "settlement_currency": "cad",
-            "settlement_price_per_1k": 0.00002466,
+            "settlement_price_per_1k": 2.466e-05,
             "reference_to_settlement_rate": 1.37,
             "fx_revision": "bank-of-canada-manual-2026-08-01",
             "board_sha256": "0e4a70dc40f8f4df4148bd1a4bcd85eb77558056d9d3fc346fef39c0d1aec154",
@@ -200,26 +200,26 @@
           "supplier_gross_nanos": 970,
           "supplier_required_nanos": 388,
           "supplier_entitlement_policy": "economic-nanos-v1",
-          "buyer_price": 0.000008,
-          "maximum_buyer_price": 0.000012,
+          "buyer_price": 8e-06,
+          "maximum_buyer_price": 1.2e-05,
           "primary_supplier_cost": {
             "status": "modeled",
-            "amount": 0.000001,
+            "amount": 1e-06,
             "basis": "frozen supplier payout per task × primary task count"
           },
           "verification_cost": {
             "status": "modeled",
-            "amount": 0.000001,
+            "amount": 1e-06,
             "basis": "frozen supplier payout per task × redundancy and honeypot task count"
           },
           "payment_cost": {
             "status": "modeled",
-            "amount": 0.000001,
+            "amount": 1e-06,
             "basis": "economic schedule processor percentage and allocated fixed fee"
           },
           "control_plane_cost": {
             "status": "modeled",
-            "amount": 0.000001,
+            "amount": 1e-06,
             "basis": "declared account/invoice overhead allocated across the economic charge batch"
           },
           "storage_cost": {
@@ -244,7 +244,7 @@
           },
           "platform_contribution": {
             "status": "modeled",
-            "amount": 0.000004,
+            "amount": 4e-06,
             "basis": "known-cost contribution: buyer price less modeled supplier, processor and allocated control-plane costs; not true net while named costs remain unknown"
           },
           "fixed_point": {
@@ -321,11 +321,11 @@
           "pool_reputation": 0
         },
         "cost": {
-          "min_usd": 0.000004,
-          "expected_usd": 0.000008,
-          "max_usd": 0.000012,
-          "verification_overhead_usd": 0.000004,
-          "platform_take_usd": 0.000006
+          "min_usd": 4e-06,
+          "expected_usd": 8e-06,
+          "max_usd": 1.2e-05,
+          "verification_overhead_usd": 4e-06,
+          "platform_take_usd": 6e-06
         },
         "time": {
           "p50_secs": 45,
@@ -343,7 +343,7 @@
           ]
         },
         "budget": {
-          "suggested_max_usd": 0.000012,
+          "suggested_max_usd": 1.2e-05,
           "cancel_before_exceeding": true
         },
         "warnings": [
@@ -362,11 +362,11 @@
             "min_charge_batch_usd": 5,
             "control_plane_per_batch_usd": 0.0001,
             "control_plane_allocation_policy": "charge_batch_pro_rata_v1",
-            "minimum_contribution_usd": 0.000001,
+            "minimum_contribution_usd": 1e-06,
             "target_margin_rate": 0.2
           },
           "input": {
-            "base_compute_usd": 0.000002,
+            "base_compute_usd": 2e-06,
             "initial_task_count": 2,
             "extra_task_reserve": 1,
             "supplier_share": 0.97,
@@ -374,67 +374,67 @@
             "base_compute_nanos": 2000
           },
           "executable": true,
-          "base_compute_per_task_usd": 0.000001,
-          "buyer_charge_per_task_usd": 0.000004,
-          "supplier_payout_per_task_usd": 0.000001,
+          "base_compute_per_task_usd": 1e-06,
+          "buyer_charge_per_task_usd": 4e-06,
+          "supplier_payout_per_task_usd": 1e-06,
           "supplier_settlement_policy": "floor_cent_carry_v1",
-          "buyer_safety_fee_per_task_usd": 0.000003,
-          "initial_buyer_charge_usd": 0.000008,
-          "reserved_buyer_charge_usd": 0.000012,
+          "buyer_safety_fee_per_task_usd": 3e-06,
+          "initial_buyer_charge_usd": 8e-06,
+          "reserved_buyer_charge_usd": 1.2e-05,
           "minimum_scenario": "one_task_partial",
           "minimum_margin_headroom_usd": 0,
           "scenarios": [
             {
               "name": "one_task_partial",
               "accepted_tasks": 1,
-              "gross_charge_usd": 0.000004,
+              "gross_charge_usd": 4e-06,
               "refund_usd": 0,
-              "net_billed_usd": 0.000004,
-              "supplier_liability_usd": 0.000001,
-              "processor_fee_usd": 0.000001,
-              "control_plane_cost_usd": 0.000001,
-              "contribution_margin_usd": 0.000001,
-              "required_margin_usd": 0.000001,
+              "net_billed_usd": 4e-06,
+              "supplier_liability_usd": 1e-06,
+              "processor_fee_usd": 1e-06,
+              "control_plane_cost_usd": 1e-06,
+              "contribution_margin_usd": 1e-06,
+              "required_margin_usd": 1e-06,
               "margin_headroom_usd": 0
             },
             {
               "name": "full_success_sla_met",
               "accepted_tasks": 2,
-              "gross_charge_usd": 0.000008,
+              "gross_charge_usd": 8e-06,
               "refund_usd": 0,
-              "net_billed_usd": 0.000008,
-              "supplier_liability_usd": 0.000002,
-              "processor_fee_usd": 0.000001,
-              "control_plane_cost_usd": 0.000001,
-              "contribution_margin_usd": 0.000004,
-              "required_margin_usd": 0.000002,
-              "margin_headroom_usd": 0.000002
+              "net_billed_usd": 8e-06,
+              "supplier_liability_usd": 2e-06,
+              "processor_fee_usd": 1e-06,
+              "control_plane_cost_usd": 1e-06,
+              "contribution_margin_usd": 4e-06,
+              "required_margin_usd": 2e-06,
+              "margin_headroom_usd": 2e-06
             },
             {
               "name": "full_success_sla_miss",
               "accepted_tasks": 2,
-              "gross_charge_usd": 0.000008,
+              "gross_charge_usd": 8e-06,
               "refund_usd": 0,
-              "net_billed_usd": 0.000008,
-              "supplier_liability_usd": 0.000002,
-              "processor_fee_usd": 0.000001,
-              "control_plane_cost_usd": 0.000001,
-              "contribution_margin_usd": 0.000004,
-              "required_margin_usd": 0.000002,
-              "margin_headroom_usd": 0.000002
+              "net_billed_usd": 8e-06,
+              "supplier_liability_usd": 2e-06,
+              "processor_fee_usd": 1e-06,
+              "control_plane_cost_usd": 1e-06,
+              "contribution_margin_usd": 4e-06,
+              "required_margin_usd": 2e-06,
+              "margin_headroom_usd": 2e-06
             },
             {
               "name": "max_extra_work_sla_miss",
               "accepted_tasks": 3,
-              "gross_charge_usd": 0.000012,
+              "gross_charge_usd": 1.2e-05,
               "refund_usd": 0,
-              "net_billed_usd": 0.000012,
-              "supplier_liability_usd": 0.000003,
-              "processor_fee_usd": 0.000002,
-              "control_plane_cost_usd": 0.000001,
-              "contribution_margin_usd": 0.000006,
-              "required_margin_usd": 0.000002,
-              "margin_headroom_usd": 0.000004
+              "net_billed_usd": 1.2e-05,
+              "supplier_liability_usd": 3e-06,
+              "processor_fee_usd": 2e-06,
+              "control_plane_cost_usd": 1e-06,
+              "contribution_margin_usd": 6e-06,
+              "required_margin_usd": 2e-06,
+              "margin_headroom_usd": 4e-06
             }
           ],
           "assumptions": [
@@ -454,5 +454,16 @@
         }
       }
     }
+  ],
+  "binding_status": "UNBOUND",
+  "missing_identity_fields": [
+    "source_commit",
+    "build_digest",
+    "model_artifact_digest",
+    "image_digest",
+    "harness_revision",
+    "corpus_digest",
+    "exact_config",
+    "raw_samples"
   ]
 }

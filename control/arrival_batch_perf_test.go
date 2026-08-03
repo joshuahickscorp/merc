@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -333,15 +332,16 @@ func TestArrivalBatchingPerfSweep(t *testing.T) {
 	}
 
 	dir := filepath.Join("..", "evidence", "perf")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatalf("mkdir evidence/perf: %v", err)
-	}
 	path := filepath.Join(dir, "arrival-batching.json")
-	blob, err := json.MarshalIndent(receipt, "", "  ")
+	id, bin, err := DefaultBoundIdentity("..", "control/arrival_batch_perf_test.go",
+		"embedded receipt body", "embedded level samples")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, blob, 0o644); err != nil {
+	if err := WriteBoundEvidenceJSON(EvidenceWriteRequest{
+		RepoRoot: "..", Path: path, Payload: receipt,
+		Identity: id, BuildBinaryPath: bin,
+	}); err != nil {
 		t.Fatal(err)
 	}
 	t.Logf("wrote %s verdict=%s improvement=%.2f%%", path, verdict, improvement*100)

@@ -45,5 +45,15 @@
   },
   "peak_aggregate_tokens_per_sec": 211.54,
   "usd_per_million_tokens_at_peak": null,
-  "comparability_warning": "Valid only against another sweep with the SAME model, precision and max_tokens. Metal/GGUF-Q4 and CUDA/fp16 are different weights at different precision; quoting one number across them is not a measurement, it is a slogan."
+  "comparability_warning": "Valid only against another sweep with the SAME model, precision and max_tokens. Metal/GGUF-Q4 and CUDA/fp16 are different weights at different precision; quoting one number across them is not a measurement, it is a slogan.",
+  "binding_status": "UNBOUND",
+  "missing_identity_fields": [
+    "source_commit",
+    "build_digest",
+    "model_artifact_digest",
+    "image_digest",
+    "harness_revision",
+    "corpus_digest",
+    "exact_config"
+  ]
 }

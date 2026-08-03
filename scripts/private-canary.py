@@ -713,10 +713,23 @@ def main() -> int:
     }
 
     out = os.path.join(REPO, args.out)
-    os.makedirs(os.path.dirname(out), exist_ok=True)
-    with open(out, "w") as fh:
-        json.dump(report, fh, indent=2)
-        fh.write("\n")
+    _scripts = os.path.join(REPO, "scripts")
+    if _scripts not in sys.path:
+        sys.path.insert(0, _scripts)
+    from lib.evidence_binding import EvidenceBindingError, emit_bound_json
+    try:
+        emit_bound_json(
+            out,
+            report,
+            harness="scripts/private-canary.py",
+            repo_root=REPO,
+            build_binary_path=os.path.join(REPO, "scripts", "private-canary.py"),
+            exact_config="lane inventory + retained historical receipts",
+            raw_samples="retained receipt references; no new samples",
+        )
+    except EvidenceBindingError as exc:
+        print(f"REFUSED evidence write: {exc}", file=sys.stderr)
+        return 2
 
     print(f"capability inventory: {proven}/{len(LANES)} candidate-bound lanes CANARY_PROVEN; "
           f"{len(retained)} lane(s) carry validated historical REAL_RUNTIME_PROVEN evidence")

@@ -48,5 +48,16 @@
     "True Merc net contribution remains unknown for storage, egress, energy/depreciation and risk reserve.",
     "media_rendering is deterministic scene rasterisation and does not claim prompt-to-image generation."
   ],
-  "public_claim_allowed": false
+  "public_claim_allowed": false,
+  "binding_status": "UNBOUND",
+  "missing_identity_fields": [
+    "source_commit",
+    "build_digest",
+    "model_artifact_digest",
+    "image_digest",
+    "harness_revision",
+    "corpus_digest",
+    "exact_config",
+    "raw_samples"
+  ]
 }

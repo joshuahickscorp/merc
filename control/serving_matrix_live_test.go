@@ -180,18 +180,33 @@ func TestLiveServingMatrixLlamaCppMetal(t *testing.T) {
 		},
 	}
 
-	raw, err := json.MarshalIndent(out, "", "  ")
+	raw, err := json.Marshal(out)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Write next to the other runtime-benchmark receipts.
+	var payload map[string]any
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		t.Fatal(err)
+	}
+	// Write next to the other runtime-benchmark receipts via the bound path.
 	dest := filepath.Join("..", "evidence", "perf", "runtime-benchmarks",
 		"serving-matrix-llama-cpp-metal-local-r1.json")
-	if err := os.WriteFile(dest, append(raw, '\n'), 0o644); err != nil {
+	id, bin, err := DefaultBoundIdentity("..", "control/serving_matrix_live_test.go",
+		"embedded serving matrix cells", "embedded cell raw samples")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if arm.ModelDigest != "" {
+		id.ModelArtifactDigest = IdentitySlotValue(arm.ModelDigest)
+	}
+	if err := WriteBoundEvidenceJSON(EvidenceWriteRequest{
+		RepoRoot: "..", Path: dest, Payload: payload,
+		Identity: id, BuildBinaryPath: bin,
+	}); err != nil {
 		t.Fatalf("write evidence: %v", err)
 	}
-	t.Logf("wrote %s (%d bytes); benchmark_status=%s gate_passed=%v measured_cells=%d",
-		dest, len(raw), art.BenchmarkStatus, art.Gate.GatePassed, countMeasured(cells))
+	t.Logf("wrote %s; benchmark_status=%s gate_passed=%v measured_cells=%d",
+		dest, art.BenchmarkStatus, art.Gate.GatePassed, countMeasured(cells))
 
 	if countMeasured(cells) == 0 {
 		t.Fatal("live run produced no MEASURED cells")
