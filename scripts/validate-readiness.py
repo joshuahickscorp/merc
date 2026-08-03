@@ -57,7 +57,7 @@ def auth_matrix_complete(doc: Any) -> bool:
     # not a fact about the world: it exists so that adding a route forces someone
     # to look at the matrix. It went stale when that route landed, which silently
     # cost this domain 11 readiness points and made `make ci` red.
-    return routes == 118 and doc.get("policy", {}).get("default") == "deny"
+    return routes == 121 and doc.get("policy", {}).get("default") == "deny"
 
 
 def technical_break_glass(doc: Any) -> bool:

@@ -74,10 +74,13 @@ if missing or stale:
 # worker-scoped fabric topology replay, and 116 for the buyer-scoped render
 # assembly manifest and receipt read, and 118 for the worker-authenticated LoRA
 # evaluation report and buyer-scoped receipt read, and 119 for the operator
-# dispute-resolution exit (unresolvable operator queue).
+# dispute-resolution exit (unresolvable operator queue), and 121 for the two
+# buyer-owned execution-envelope routes (POST /v1/execution-envelopes and
+# GET /v1/execution-envelopes/{id}), which are registered through authBuyer at
+# control/api.go:151-152 and were serving traffic while absent from this matrix.
 # The count is pinned so a NEW route cannot be added without a reviewer deciding
 # what every role may do with it.
-if len(reviewed) != 119:
-    fail(f"expected reviewed 119-route surface, found {len(reviewed)}")
+if len(reviewed) != 121:
+    fail(f"expected reviewed 121-route surface, found {len(reviewed)}")
 
 print(f"authorization matrix: PASS ({len(reviewed)} routes, {len(ROLES)} roles, default deny)")

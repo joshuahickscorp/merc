@@ -37,7 +37,7 @@ four audited.
 ## The pieces
 
 - **`cx`** - one Go binary: control server, buyer CLI, and operator CLI.
-- **`cx-agent`** - the Rust program a supplier runs on their Mac. It claims a
+- **`merc-agent`** - the Rust program a supplier runs on their Mac. It claims a
   task, runs it, uploads the result, and reports back. It ships a macOS sandbox
   profile blocking inbound connections, stray writes, and credential reads.
 - **PostgreSQL** - the queue and the record of every job and balance. Tasks are
@@ -99,8 +99,8 @@ The `cx` command drives all of this from a shell — `cx quote`, `cx submit`,
 `CX_API_URL` (default `http://localhost:8080`) and `CX_API_KEY`; `cx help` lists
 the rest.
 
-The Python SDK wraps the same API. Its package name is still `computeexchange`,
-and it is not on PyPI — install it from the checkout with
+The Python SDK wraps the same API. Its package name is `merc`, and it is not on
+PyPI — install it from the checkout with
 `python3 -m pip install ./sdk/python`.
 
 The media transcode private canary uses the same quote/submit identity. A small
