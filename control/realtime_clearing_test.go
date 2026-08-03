@@ -102,7 +102,8 @@ func resetRealtimeClearingState(t *testing.T, ctx context.Context, pool *pgxpool
 	if _, err := pool.Exec(ctx, `TRUNCATE
 		realtime_admission_events, realtime_offer_samples,
 		realtime_authorization_events, realtime_settlements, realtime_executions,
-		realtime_refunds, execution_contracts, realtime_worker_offers
+		realtime_refunds, execution_contracts, realtime_worker_offers,
+		realtime_supplier_outcome_stats
 		RESTART IDENTITY CASCADE`); err != nil {
 		t.Fatalf("reset realtime clearing state: %v", err)
 	}

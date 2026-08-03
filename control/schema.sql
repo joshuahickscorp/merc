@@ -6312,3 +6312,179 @@ CREATE INDEX IF NOT EXISTS claim_independence_exclusions_job_idx
     ON claim_independence_exclusions (job_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS claim_independence_exclusions_supplier_idx
     ON claim_independence_exclusions (supplier_id, created_at DESC);
+
+-- ── realtime supplier outcome stats (reputation inputs for market clearing) ─
+-- Per-request authorization used to re-aggregate every execution_contracts row
+-- for the runtime profile (and join settlements/refunds) inside the buyer
+-- funding critical section. That scan scales with history, not with live
+-- offers, and dominated admission latency once history was large.
+--
+-- These counters are the same four numbers the old CTE computed:
+--   terminal_attempts / terminal_fails  from contracts in VERIFIED|FAILED
+--   verified_settlements / refund_count from settlements on VERIFIED contracts
+-- Maintained incrementally by triggers so authorize is a PK lookup. CANCELLED
+-- is intentionally excluded (matches the historical aggregate). Reputation
+-- ranks suppliers only; it never enters buyer or charge arithmetic.
+CREATE TABLE IF NOT EXISTS realtime_supplier_outcome_stats (
+    runtime_profile_id    TEXT NOT NULL,
+    supplier_id           UUID NOT NULL REFERENCES suppliers(id) ON DELETE CASCADE,
+    terminal_attempts     INT  NOT NULL DEFAULT 0
+                          CHECK (terminal_attempts >= 0),
+    terminal_fails        INT  NOT NULL DEFAULT 0
+                          CHECK (terminal_fails >= 0 AND terminal_fails <= terminal_attempts),
+    verified_settlements  INT  NOT NULL DEFAULT 0
+                          CHECK (verified_settlements >= 0),
+    refund_count          INT  NOT NULL DEFAULT 0
+                          CHECK (refund_count >= 0),
+    updated_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (runtime_profile_id, supplier_id)
+);
+
+CREATE OR REPLACE FUNCTION realtime_supplier_outcome_stats_on_contract()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  -- Reuse / exact-result contracts have no supplier; they never entered the
+  -- historical aggregate either.
+  IF NEW.supplier_id IS NULL OR NEW.runtime_profile_id IS NULL
+     OR btrim(NEW.runtime_profile_id) = '' THEN
+    RETURN NEW;
+  END IF;
+  IF NEW.state NOT IN ('VERIFIED', 'FAILED') THEN
+    RETURN NEW;
+  END IF;
+  -- Only count a transition into a terminal outcome state. Re-writes of an
+  -- already-final row must not double-count.
+  IF TG_OP = 'UPDATE' AND OLD.state IN ('VERIFIED', 'FAILED') THEN
+    RETURN NEW;
+  END IF;
+  IF TG_OP = 'UPDATE' AND OLD.state IS NOT DISTINCT FROM NEW.state THEN
+    RETURN NEW;
+  END IF;
+  INSERT INTO realtime_supplier_outcome_stats (
+    runtime_profile_id, supplier_id,
+    terminal_attempts, terminal_fails,
+    verified_settlements, refund_count
+  ) VALUES (
+    NEW.runtime_profile_id, NEW.supplier_id,
+    1, CASE WHEN NEW.state = 'FAILED' THEN 1 ELSE 0 END,
+    0, 0
+  )
+  ON CONFLICT (runtime_profile_id, supplier_id) DO UPDATE SET
+    terminal_attempts = realtime_supplier_outcome_stats.terminal_attempts + 1,
+    terminal_fails = realtime_supplier_outcome_stats.terminal_fails
+                     + CASE WHEN NEW.state = 'FAILED' THEN 1 ELSE 0 END,
+    updated_at = now();
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS realtime_supplier_outcome_stats_contract_ai ON execution_contracts;
+CREATE TRIGGER realtime_supplier_outcome_stats_contract_ai
+  AFTER INSERT ON execution_contracts
+  FOR EACH ROW EXECUTE FUNCTION realtime_supplier_outcome_stats_on_contract();
+
+DROP TRIGGER IF EXISTS realtime_supplier_outcome_stats_contract_au ON execution_contracts;
+CREATE TRIGGER realtime_supplier_outcome_stats_contract_au
+  AFTER UPDATE OF state ON execution_contracts
+  FOR EACH ROW EXECUTE FUNCTION realtime_supplier_outcome_stats_on_contract();
+
+CREATE OR REPLACE FUNCTION realtime_supplier_outcome_stats_on_settlement()
+RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+  sid UUID;
+  rpid TEXT;
+BEGIN
+  SELECT c.supplier_id, c.runtime_profile_id
+    INTO sid, rpid
+    FROM execution_contracts c
+   WHERE c.id = NEW.contract_id;
+  IF sid IS NULL OR rpid IS NULL OR btrim(rpid) = '' THEN
+    RETURN NEW;
+  END IF;
+  INSERT INTO realtime_supplier_outcome_stats (
+    runtime_profile_id, supplier_id,
+    terminal_attempts, terminal_fails,
+    verified_settlements, refund_count
+  ) VALUES (rpid, sid, 0, 0, 1, 0)
+  ON CONFLICT (runtime_profile_id, supplier_id) DO UPDATE SET
+    verified_settlements = realtime_supplier_outcome_stats.verified_settlements + 1,
+    updated_at = now();
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS realtime_supplier_outcome_stats_settlement_ai ON realtime_settlements;
+CREATE TRIGGER realtime_supplier_outcome_stats_settlement_ai
+  AFTER INSERT ON realtime_settlements
+  FOR EACH ROW EXECUTE FUNCTION realtime_supplier_outcome_stats_on_settlement();
+
+CREATE OR REPLACE FUNCTION realtime_supplier_outcome_stats_on_refund()
+RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+  sid UUID;
+  rpid TEXT;
+BEGIN
+  SELECT c.supplier_id, c.runtime_profile_id
+    INTO sid, rpid
+    FROM execution_contracts c
+   WHERE c.id = NEW.contract_id;
+  IF sid IS NULL OR rpid IS NULL OR btrim(rpid) = '' THEN
+    RETURN NEW;
+  END IF;
+  -- Settlement always precedes refund on the money path, so a stats row with
+  -- verified_settlements already exists. Upsert still works if a test inserts
+  -- a refund against a synthetic contract.
+  INSERT INTO realtime_supplier_outcome_stats (
+    runtime_profile_id, supplier_id,
+    terminal_attempts, terminal_fails,
+    verified_settlements, refund_count
+  ) VALUES (rpid, sid, 0, 0, 0, 1)
+  ON CONFLICT (runtime_profile_id, supplier_id) DO UPDATE SET
+    refund_count = realtime_supplier_outcome_stats.refund_count + 1,
+    updated_at = now();
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS realtime_supplier_outcome_stats_refund_ai ON realtime_refunds;
+CREATE TRIGGER realtime_supplier_outcome_stats_refund_ai
+  AFTER INSERT ON realtime_refunds
+  FOR EACH ROW EXECUTE FUNCTION realtime_supplier_outcome_stats_on_refund();
+
+-- Bootstrap existing history exactly once per empty stats table. Subsequent
+-- boots leave live counters alone (triggers own them). ON CONFLICT is a belt
+-- for races with a concurrent terminal write during first migrate.
+INSERT INTO realtime_supplier_outcome_stats (
+  runtime_profile_id, supplier_id,
+  terminal_attempts, terminal_fails,
+  verified_settlements, refund_count
+)
+SELECT o.runtime_profile_id,
+       o.supplier_id,
+       o.terminal_attempts,
+       o.terminal_fails,
+       COALESCE(r.verified_settlements, 0),
+       COALESCE(r.refund_count, 0)
+  FROM (
+    SELECT runtime_profile_id,
+           supplier_id,
+           count(*) FILTER (WHERE state IN ('VERIFIED','FAILED'))::int AS terminal_attempts,
+           count(*) FILTER (WHERE state = 'FAILED')::int AS terminal_fails
+      FROM execution_contracts
+     WHERE supplier_id IS NOT NULL
+     GROUP BY runtime_profile_id, supplier_id
+  ) o
+  LEFT JOIN (
+    SELECT c.runtime_profile_id,
+           c.supplier_id,
+           count(*)::int AS verified_settlements,
+           count(rf.id)::int AS refund_count
+      FROM execution_contracts c
+      JOIN realtime_settlements s ON s.contract_id = c.id
+      LEFT JOIN realtime_refunds rf ON rf.contract_id = c.id
+     WHERE c.state = 'VERIFIED' AND c.supplier_id IS NOT NULL
+     GROUP BY c.runtime_profile_id, c.supplier_id
+  ) r ON r.runtime_profile_id = o.runtime_profile_id
+     AND r.supplier_id = o.supplier_id
+ WHERE NOT EXISTS (SELECT 1 FROM realtime_supplier_outcome_stats LIMIT 1)
+ON CONFLICT (runtime_profile_id, supplier_id) DO NOTHING;
