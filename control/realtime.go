@@ -1167,8 +1167,23 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(io.LimitReader(response.Body, maxRealtimeResponseBytes+1))
 	pathTiming.mark("read_json_body", stage)
 	if err != nil || len(body) > maxRealtimeResponseBytes {
-		finalizeRealtimeFailure(s.store, contract.ID, executionID, response.StatusCode, started, "upstream_response_invalid", errors.New("upstream response exceeded the bounded JSON response size"), false)
-		writeOpenAIError(w, http.StatusBadGateway, "realtime worker returned an invalid response", "server_error", "upstream_response_invalid")
+		// Same cancellation determination as the upstream Do and stream-proxy
+		// sites: requestContext is derived from the buyer request, so a
+		// disconnect surfaces as context.Canceled. Hard-coding false here
+		// mis-records a buyer cancel as a worker/response failure.
+		cancelled := errors.Is(requestContext.Err(), context.Canceled)
+		code := "upstream_response_invalid"
+		detail := errors.New("upstream response exceeded the bounded JSON response size")
+		if cancelled {
+			code = "client_cancelled"
+			if err != nil {
+				detail = err
+			}
+		}
+		finalizeRealtimeFailure(s.store, contract.ID, executionID, response.StatusCode, started, code, detail, cancelled)
+		if !cancelled {
+			writeOpenAIError(w, http.StatusBadGateway, "realtime worker returned an invalid response", "server_error", "upstream_response_invalid")
+		}
 		return
 	}
 	stage = time.Now()
@@ -1231,12 +1246,25 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		TimeToFirstEventMS: time.Since(started).Milliseconds(), DurationMS: time.Since(started).Milliseconds(),
 	}
 	pathTiming.mark("usage_reconcile", stage)
+	// Delivered non-stream work must settle even if the buyer hung up after
+	// the upstream body was fully received. Match the streaming path: detach
+	// from r.Context() so a disconnect cannot abandon the ledger write.
+	settlementContext, settlementCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	stage = time.Now()
-	if _, err := s.store.FinalizeRealtimeSuccess(r.Context(), contract.ID, evidence); err != nil {
-		pathTiming.mark("settlement", stage)
+	_, err = s.store.FinalizeRealtimeSuccess(settlementContext, contract.ID, evidence)
+	pathTiming.mark("settlement", stage)
+	settlementCancel()
+	if err != nil {
 		metrics.realtimeFinalizationErrors.Add(1)
-		finalizeRealtimeFailure(s.store, contract.ID, executionID, response.StatusCode, started, "settlement_failed", err, false)
-		writeOpenAIError(w, http.StatusBadGateway, "verified response could not be settled", "server_error", "settlement_failed")
+		// Pass cancellation truth for bookkeeping/metrics. Money on this path
+		// still voids (JSON path has no durable settlement intent); the
+		// detached context above is what prevents a pure disconnect from
+		// manufacturing a settlement_failed void of work already performed.
+		cancelled := errors.Is(requestContext.Err(), context.Canceled)
+		finalizeRealtimeFailure(s.store, contract.ID, executionID, response.StatusCode, started, "settlement_failed", err, cancelled)
+		if !cancelled {
+			writeOpenAIError(w, http.StatusBadGateway, "verified response could not be settled", "server_error", "settlement_failed")
+		}
 		pathTiming.log(false, contract.ID.String())
 		return
 	}
