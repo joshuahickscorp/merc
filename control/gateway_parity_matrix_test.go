@@ -17,6 +17,48 @@ import (
 	"time"
 )
 
+func TestCompetitiveCUDAParityMatrixSelection(t *testing.T) {
+	sel := CompetitiveCUDAParityMatrixSelection()
+	if len(sel.Selected) < 18 || len(sel.Selected) > 40 {
+		t.Fatalf("competitive selected=%d; want a bounded matrix covering the competitive ladder", len(sel.Selected))
+	}
+	var hasC64, hasC128, hasMedium, hasCold, hasWarm bool
+	for _, c := range sel.Selected {
+		switch c.Concurrency {
+		case 64:
+			hasC64 = true
+		case 128:
+			hasC128 = true
+		}
+		if c.PromptTokens == 256 {
+			hasMedium = true
+		}
+		if c.State == "cold" {
+			hasCold = true
+		}
+		if c.State == "warm" {
+			hasWarm = true
+		}
+	}
+	if !hasC64 || !hasC128 {
+		t.Fatalf("competitive matrix must include c=64 and c=128: c64=%v c128=%v", hasC64, hasC128)
+	}
+	if !hasMedium || !hasCold || !hasWarm {
+		t.Fatalf("competitive matrix missing medium/cold/warm: medium=%v cold=%v warm=%v", hasMedium, hasCold, hasWarm)
+	}
+	// Overhead warm@c=128 must be present so the high concurrency claim is real.
+	found := false
+	for _, c := range sel.Selected {
+		if c.Concurrency == 128 && c.PromptTokens == 32 && c.OutputTokens == 16 && c.State == "warm" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("missing overhead warm c=128 cell")
+	}
+}
+
 func TestGatewayParityMatrixDefaultSubsetIsDefensible(t *testing.T) {
 	sel := DefaultGatewayParityMatrixSelection()
 	if len(sel.Selected) < 12 || len(sel.Selected) > 24 {
