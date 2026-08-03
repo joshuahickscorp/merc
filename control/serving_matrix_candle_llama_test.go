@@ -86,7 +86,7 @@ func TestLiveServingMatrixCandleVsLlamaCppMetal(t *testing.T) {
 	{
 		candlePort := freeLocalPort(t)
 		candleBind := fmt.Sprintf("127.0.0.1:%d", candlePort)
-		var candleStderr bytes.Buffer
+		var candleStderr syncBuffer
 		candleCmd := exec.CommandContext(ctx, agentBin, "serve-openai",
 			"--bind", candleBind,
 			"--model", "llama-3.2-1b-instruct-q4",
@@ -144,7 +144,7 @@ func TestLiveServingMatrixCandleVsLlamaCppMetal(t *testing.T) {
 	// ── llama.cpp exclusive window ────────────────────────────────────────
 	{
 		llamaPort := freeLocalPort(t)
-		var llamaStderr bytes.Buffer
+		var llamaStderr syncBuffer
 		llamaCmd := exec.CommandContext(ctx, llamaServer,
 			"-m", gguf,
 			"--port", strconv.Itoa(llamaPort),
@@ -986,7 +986,7 @@ func resolveMercAgentBin() (string, error) {
 	return "", fmt.Errorf("merc-agent binary not found (build agent or set MERC_AGENT_BIN)")
 }
 
-func waitCandleReady(ctx context.Context, stdout io.Reader, done <-chan error, stderrBuf *bytes.Buffer, timeout time.Duration) (string, error) {
+func waitCandleReady(ctx context.Context, stdout io.Reader, done <-chan error, stderrBuf *syncBuffer, timeout time.Duration) (string, error) {
 	deadline := time.Now().Add(timeout)
 	// Also poll HTTP /v1/models once the port is bound.
 	scanner := bufio.NewScanner(stdout)

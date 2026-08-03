@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -103,7 +102,7 @@ func TestLiveServingMatrixLlamaCppMetal(t *testing.T) {
 		deviceLabel = device
 	}
 
-	var stderrBuf bytes.Buffer
+	var stderrBuf syncBuffer
 	cmd := exec.CommandContext(ctx, llamaServer, args...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = io.MultiWriter(os.Stderr, &stderrBuf)
@@ -605,7 +604,7 @@ func probeMetalCommandQueue(t *testing.T) bool {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 	defer cancel()
-	var stderrBuf bytes.Buffer
+	var stderrBuf syncBuffer
 	cmd := exec.CommandContext(ctx, llamaServer,
 		"-m", gguf,
 		"--port", strconv.Itoa(port),
@@ -682,7 +681,7 @@ func waitHTTP(ctx context.Context, url string, timeout time.Duration) error {
 // waitHTTPOrExit returns when the URL is ready, the context ends, timeout hits,
 // or (when waitDone is set) the server process exits. Fails fast on Metal init
 // errors visible in stderrBuf rather than spinning the full timeout.
-func waitHTTPOrExit(ctx context.Context, url string, timeout time.Duration, waitDone <-chan error, stderrBuf *bytes.Buffer) error {
+func waitHTTPOrExit(ctx context.Context, url string, timeout time.Duration, waitDone <-chan error, stderrBuf *syncBuffer) error {
 	deadline := time.Now().Add(timeout)
 	client := &http.Client{Timeout: 2 * time.Second}
 	for time.Now().Before(deadline) {
@@ -726,3 +725,4 @@ func trimTail(s string, n int) string {
 	}
 	return s[len(s)-n:]
 }
+
