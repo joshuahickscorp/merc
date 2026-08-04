@@ -1,10 +1,5 @@
 # Tests permitted to skip, one exact name per line, each with a reason above it.
 #
-# Needs a MinIO/S3 endpoint as well as Postgres to prove objects are really gone
-# from the bucket.  CI has Postgres but no object store; when one is added this
-# line must be deleted, because deletable_data_removed in the DSAR receipt is
-# derived from this test's result.
-TestBuyerObjectDeletionQueueAndSweep
 #
 # Opt-in live measurement against a real local engine (llama-server / vLLM).
 # Requires MERC_GATEWAY_PARITY=1 plus a reachable MERC_REALTIME_UPSTREAM; CI has
@@ -90,3 +85,32 @@ TestPairedCohortMeasuresCostAndRegret
 # Delete this line when a lane exists that always has a built agent.
 TestFirstCompleteLoopThroughThePublicAPI
 
+#
+# Opt-in latency and placement measurement harnesses added during the performance
+# wave. Each is gated behind its own env var because running it in CI would take
+# minutes to hours, needs a live engine, and writes a bound evidence receipt --
+# tracked files CI must not modify. They are measurement instruments, not
+# assertions about behaviour; the behaviour they measure is covered by ordinary
+# tests that do run. Delete a line here only when its measurement is folded into
+# a CI lane that always has the hardware and a writable evidence path.
+TestArrivalBatchingPerfSweep
+TestAuthorizeLatencyRemeasureAfterHierarchy
+TestAuthorizeTailCharacterize
+TestHotPathFreeAdmitProbe
+TestMercLatencyGapAccounting
+TestMercSegmentLatencyMeasure
+TestPrefixKVHitRateAgentRAGProductionClaim
+TestRealtimeAuthLatencyProbe
+#
+# Live serving-matrix measurements against a real llama.cpp/Candle Metal server.
+# Require MERC_RUN_LIVE_SERVING_MATRIX=1 plus a local engine and a GGUF on disk;
+# CI has neither. These produce the bound engine-tournament receipts, so running
+# them here would also rewrite tracked evidence.
+TestLiveServingMatrixCandleVsLlamaCppMetal
+TestLiveServingMatrixLlamaCppMetal
+#
+# Emits the Phase 6 economics evidence payload; gated behind
+# MERC_PHASE6_ECONOMICS_WRITE=1 so a verification run cannot modify the tracked
+# receipt. The economics arithmetic itself is asserted by TestPhase6* tests that
+# always run.
+TestPhase6WriteEvidencePayload
