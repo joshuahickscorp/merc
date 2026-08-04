@@ -20,14 +20,14 @@
   "active_surfaces": [
     "README.md",
     "clients/cli/README.md",
-    "docs/QUICKSTART.md",
+    "docs/ARCHITECTURE.md",
     "docs/RUNBOOKS.md",
-    "docs/RUNTIME_MATRIX.md",
+    "docs/RUNTIME_AND_PERF.md",
     "docs/SECURITY.md",
-    "ops/monitoring/README.md",
     "scripts/install.sh",
     "web/admin.html",
-    "web/index.html"
+    "web/index.html",
+    "docs/PROGRAMME.md"
   ],
   "capability_checks": {
     "macos_menu_bar_requires_package_swift": {
