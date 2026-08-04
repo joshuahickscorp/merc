@@ -6,8 +6,9 @@ Nothing here is inferred from intent; each row was probed against the tree.
 > Newer than this file for the runtime selector, batching, execution modes and
 > the §20 prohibitions: `docs/MASTER_PROGRAMME_LEDGER.md`, with machine-readable
 > receipts at `evidence/state/branch-state-step1.json` and
-> `evidence/state/must-not-do-audit.json`. Where the two disagree, the receipts
-> are the authority — this file is prose and prose drifts.
+> `evidence/state/must-not-do-audit.json` (both unbound; session-state inventory,
+> not bound identity). Where the two disagree, the receipts are the authority —
+> this file is prose and prose drifts.
 
 **A `CANARY_PROVEN` receipt is capability evidence, not release authorization.**
 `public_capability_allowed` remains false, Level B remains `NO_GO`, and Level C
@@ -39,11 +40,11 @@ unit tests and recorded-response UI tests — after separately probing that a
 runtime or credential existed. That did not prove the command used the
 capability, and it did not bind an immutable candidate image or exact commit.
 
-The regenerated inventory at `evidence/canary/private-canary.json` therefore
-reports zero candidate-bound lanes and keeps
-`public_capability_allowed: false`. A passing lane command is capped at
-`TESTED`. Two clean, tracked historical receipts preserve
-`REAL_RUNTIME_PROVEN` evidence for three lane labels (batch inference,
+The regenerated inventory at `evidence/canary/private-canary.json` (unbound
+capability inventory, not a bound canary receipt) therefore reports zero
+candidate-bound lanes and keeps `public_capability_allowed: false`. A passing
+lane command is capped at `TESTED`. Two clean, tracked historical receipts
+preserve `REAL_RUNTIME_PROVEN` evidence for three lane labels (batch inference,
 embeddings, and realtime), but each is explicitly `candidate_bound: false`.
 Fabricated, untracked, dirty, malformed, non-ancestor, incomplete-chain, and
 non-conserving receipts are rejected. Only
@@ -89,11 +90,11 @@ external offsite backup or rollback run is claimed.
 
 The supplier restart authority contract was also re-run against a disposable
 PostgreSQL 16 instance and retained at
-`evidence/autonomous/agent-restart-authority-r1.json`. It verifies exact-run,
-candidate/driver/worker bindings, durable process-session transitions,
-out-of-window and replay refusal, and release-doctor refusal when the reviewed
-restart-driver digest is absent. This remains a local authority exercise, not
-external staging evidence.
+`evidence/autonomous/agent-restart-authority-r1.json` (unbound local exercise
+receipt; not a bound identity proof). It verifies exact-run, candidate/driver/
+worker bindings, durable process-session transitions, out-of-window and replay
+refusal, and release-doctor refusal when the reviewed restart-driver digest is
+absent. This remains a local authority exercise, not external staging evidence.
 
 The separate final acceptance validator now prevents individually plausible
 receipts from being spliced into false release authority. It requires one
@@ -335,7 +336,7 @@ candidate-bound `CANARY_PROVEN`.
 | Stripe sandbox end to end | historical capability evidence; formal gate `OPEN` (`NO_GO`) | Historical CAD-settlement provider evidence is retained without promotion. The current formal candidate still lacks the complete test-mode matrix and provider-reconciliation receipt required by `P1-STRIPE-TEST`; live activation is sealed and Level C remains prohibited. |
 | Production deployment / TLS | `EXTERNALLY_BLOCKED` | No SSH key in session. Droplet still serves the pre-session build (`/version` 404s). |
 | Backup / restore | `TESTED` | Gates present and passing. |
-| Alerts / status / rollback | `REAL_RUNTIME_PROVEN` private | 27 alerts validated; Alertmanager fire→HTTP sink→resolve was observed through the real local webhook path in `evidence/autonomous/alert-delivery-r1.json`; external staffed paging remains open. |
+| Alerts / status / rollback | `REAL_RUNTIME_PROVEN` private | 27 alerts validated; Alertmanager fire→HTTP sink→resolve was observed through the real local webhook path in `evidence/autonomous/alert-delivery-r1.json` (unbound local path receipt; not external paging authority); external staffed paging remains open. |
 | Licence scope | `PARTIAL` | Split done; `validate-license-register` deliberately red pending counsel. |
 | Buyer/supplier/privacy/refund terms | `EXTERNALLY_BLOCKED` | Drafts marked DO NOT PUBLISH pending counsel. |
 | Internal security review | `PARTIAL` | Adversarial input, fuzzing, tenant-isolation and mutation testing done this session; found 3 real defects. |

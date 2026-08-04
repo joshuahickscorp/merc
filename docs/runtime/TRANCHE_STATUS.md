@@ -24,7 +24,7 @@ and every "not done" row says so plainly rather than being described as partial.
 | 4 | A second runtime is REAL_RUNTIME_PROVEN through the full Merc chain | **NOT done** — engine proven, routing mechanism built, chain not driven. See below |
 | 5 | RuntimeSelector produces shadow decisions and regret measurements | **NOT done** — not started |
 | 6 | Routing has not changed without promotion evidence | **done** — `llama_cpp_metal` is still `VALIDATED`; the advertised projection is still exactly the two candle cells, asserted by test |
-| 7 | In-flight coalescing works with one payable and independent discounted receipts | **Bound money-path proofs against a double upstream (commit `4ef1922a`).** `evidence/reuse/public-path-coalescing-128-to-1.json` and `evidence/reuse/public-path-128-to-1.json` show 128 deliveries to 1 upstream call through the real public handler; they prove control-plane money/receipt paths and do not measure GPU performance. The 2026-07-31 correction still records earlier store-level gaps; see `evidence/state/correction-2026-07-31-coalescing-and-directed-routing.json` |
+| 7 | In-flight coalescing works with one payable and independent discounted receipts | **Bound money-path proofs against a double upstream (commit `4ef1922a`).** `evidence/reuse/public-path-coalescing-128-to-1.json` and `evidence/reuse/public-path-128-to-1.json` show 128 deliveries to 1 upstream call through the real public handler; they prove control-plane money/receipt paths and do not measure GPU performance. The 2026-07-31 correction still records earlier store-level gaps; see `evidence/state/correction-2026-07-31-coalescing-and-directed-routing.json` (unbound correction record of withdrawn claims) |
 | 8 | Tokenization / tool-schema caches with real callers and measured savings | **partial, closed honestly** — tool/schema identity cache is production-wired; control-plane tokenization **DOES_NOT_APPLY** (no tokenizer on control plane). Bound audit: `evidence/perf/five-cache-architecture-audit.json`. Do not build an empty tokenizer cache |
 | 9 | Token-budget batching with measured policies per latency class | **NOT done** — not started |
 | 10 | No calibration or overhead authority can affect money | **done** — call-graph gate, mutation-verified |
@@ -168,7 +168,8 @@ in the tree and in the history.
 ### Promotion
 
 `llama_cpp_metal` r7 → r8, profile and embed cell VALIDATED →
-REAL_RUNTIME_PROVEN, receipt at `evidence/chain/two-agent-product-chain.json`.
+REAL_RUNTIME_PROVEN, receipt at `evidence/chain/two-agent-product-chain.json`
+(unbound historical chain receipt; directed/test routing only, not candidate-bound).
 
 REAL_RUNTIME_PROVEN is reachable by directed operator or test routing only. The
 cell is **not** routable, Candle remains ACTIVE with both cells routable, and
