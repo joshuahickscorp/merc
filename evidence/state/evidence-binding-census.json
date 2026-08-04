@@ -1,14 +1,14 @@
 {
   "schema_version": 1,
   "kind": "evidence_binding_census",
-  "head": "0487c043ba83ae7a15d44f9a63635e54580d2730",
+  "head": "1c524276e128ce0cd3721f89c6f431ac11124157",
   "counts": {
-    "BOUND": 5,
-    "UNBOUND": 102,
-    "SUPERSEDED": 2,
+    "BOUND": 31,
+    "UNBOUND": 110,
+    "SUPERSEDED": 6,
     "WITHDRAWN": 2
   },
-  "total_artifacts": 111,
+  "total_artifacts": 149,
   "artifacts": [
     {
       "path": "evidence/autonomous/agent-restart-authority-r1.json",
@@ -850,6 +850,72 @@
       ]
     },
     {
+      "path": "evidence/perf/authorize-auth-tails-20260803T174152Z.json",
+      "binding_status": "BOUND"
+    },
+    {
+      "path": "evidence/perf/authorize-auth-tails-20260803T174544Z.json",
+      "binding_status": "BOUND"
+    },
+    {
+      "path": "evidence/perf/authorize-auth-tails-20260803T174711Z.json",
+      "binding_status": "BOUND"
+    },
+    {
+      "path": "evidence/perf/authorize-auth-tails-after.json",
+      "binding_status": "BOUND"
+    },
+    {
+      "path": "evidence/perf/authorize-auth-tails-baseline.json",
+      "binding_status": "BOUND"
+    },
+    {
+      "path": "evidence/perf/authorize-auth-tails-latest.json",
+      "binding_status": "BOUND"
+    },
+    {
+      "path": "evidence/perf/board-power-a40-20260803T175830Z.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/perf/board-power-a40-latest.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/perf/catalogue-profile-match-1ylse7hwwee68x.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
       "path": "evidence/perf/cuda-a5000-ceiling.json",
       "binding_status": "UNBOUND",
       "missing_identity_fields": [
@@ -903,6 +969,10 @@
       ]
     },
     {
+      "path": "evidence/perf/five-cache-architecture-audit.json",
+      "binding_status": "BOUND"
+    },
+    {
       "path": "evidence/perf/gateway-concurrency-sweep.json",
       "binding_status": "UNBOUND",
       "missing_identity_fields": [
@@ -911,6 +981,55 @@
         "image_digest",
         "harness_revision",
         "corpus_digest"
+      ]
+    },
+    {
+      "path": "evidence/perf/gateway-parity-v2-local-metal-quiet.bound.json",
+      "binding_status": "BOUND"
+    },
+    {
+      "path": "evidence/perf/gateway-parity-v2-local-metal-quiet.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "corpus_digest",
+        "exact_config"
+      ]
+    },
+    {
+      "path": "evidence/perf/gateway-parity-v2-local-metal.bound.json",
+      "binding_status": "SUPERSEDED"
+    },
+    {
+      "path": "evidence/perf/gateway-parity-v2-local-metal.json",
+      "binding_status": "SUPERSEDED"
+    },
+    {
+      "path": "evidence/perf/gateway-parity-v2-matrix-selftest.json",
+      "binding_status": "BOUND"
+    },
+    {
+      "path": "evidence/perf/gateway-parity-v2-runpod-vllm-20260803T175830Z.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "corpus_digest",
+        "exact_config"
+      ]
+    },
+    {
+      "path": "evidence/perf/gateway-parity-v2-runpod-vllm-latest.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "corpus_digest",
+        "exact_config"
       ]
     },
     {
@@ -940,6 +1059,70 @@
       "binding_status": "WITHDRAWN"
     },
     {
+      "path": "evidence/perf/heterogeneous-placement-principal-20260803T182413Z.json",
+      "binding_status": "BOUND"
+    },
+    {
+      "path": "evidence/perf/heterogeneous-placement-principal-latest.json",
+      "binding_status": "BOUND"
+    },
+    {
+      "path": "evidence/perf/hot-path-free-admit-20260803T190538Z.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/perf/hot-path-free-admit-latest.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/perf/ioreport-energy-deltas-authority.json",
+      "binding_status": "BOUND"
+    },
+    {
+      "path": "evidence/perf/ioreport-gpu-energy-authority.json",
+      "binding_status": "BOUND"
+    },
+    {
+      "path": "evidence/perf/merc-latency-gap-accounting-20260803T172126Z.json",
+      "binding_status": "BOUND"
+    },
+    {
+      "path": "evidence/perf/merc-latency-gap-accounting-20260803T172320Z.json",
+      "binding_status": "BOUND"
+    },
+    {
+      "path": "evidence/perf/merc-latency-gap-accounting-latest.json",
+      "binding_status": "BOUND"
+    },
+    {
+      "path": "evidence/perf/merc-segment-latency-20260803T154711Z.json",
+      "binding_status": "BOUND"
+    },
+    {
+      "path": "evidence/perf/merc-segment-latency-latest.json",
+      "binding_status": "BOUND"
+    },
+    {
       "path": "evidence/perf/metal-m3ultra-qwen3b.json",
       "binding_status": "UNBOUND",
       "missing_identity_fields": [
@@ -951,6 +1134,10 @@
         "corpus_digest",
         "exact_config"
       ]
+    },
+    {
+      "path": "evidence/perf/phase6-directive-economics.json",
+      "binding_status": "BOUND"
     },
     {
       "path": "evidence/perf/prefix-affinity-routing.json",
@@ -965,6 +1152,14 @@
         "exact_config",
         "raw_samples"
       ]
+    },
+    {
+      "path": "evidence/perf/prefix-kv-hitrate-20260803T190529Z.json",
+      "binding_status": "BOUND"
+    },
+    {
+      "path": "evidence/perf/prefix-kv-hitrate-latest.json",
+      "binding_status": "BOUND"
     },
     {
       "path": "evidence/perf/realtime-auth-reputation-20260803T005354Z.json",
@@ -1054,6 +1249,10 @@
       ]
     },
     {
+      "path": "evidence/perf/runtime-benchmarks/candle-metal-llama1-q4-r4.json",
+      "binding_status": "BOUND"
+    },
+    {
       "path": "evidence/perf/runtime-benchmarks/candle-metal-rendering-r1.json",
       "binding_status": "UNBOUND",
       "missing_identity_fields": [
@@ -1082,18 +1281,18 @@
     },
     {
       "path": "evidence/perf/runtime-benchmarks/embed-cell-candle-vs-llama-cpp-r1.json",
-      "binding_status": "UNBOUND",
-      "missing_identity_fields": [
-        "build_digest",
-        "model_artifact_digest",
-        "image_digest",
-        "corpus_digest",
-        "exact_config",
-        "raw_samples"
-      ]
+      "binding_status": "SUPERSEDED"
+    },
+    {
+      "path": "evidence/perf/runtime-benchmarks/embed-cell-candle-vs-llama-cpp-r2.json",
+      "binding_status": "BOUND"
     },
     {
       "path": "evidence/perf/runtime-benchmarks/engine-tournament-metal-host-scope-r1.json",
+      "binding_status": "BOUND"
+    },
+    {
+      "path": "evidence/perf/runtime-benchmarks/engine-tournament-metal-host-scope-r2.json",
       "binding_status": "BOUND"
     },
     {
@@ -1110,16 +1309,7 @@
     },
     {
       "path": "evidence/perf/runtime-benchmarks/llama-cpp-metal-embed-cosine-gate.json",
-      "binding_status": "UNBOUND",
-      "missing_identity_fields": [
-        "build_digest",
-        "model_artifact_digest",
-        "image_digest",
-        "harness_revision",
-        "corpus_digest",
-        "exact_config",
-        "raw_samples"
-      ]
+      "binding_status": "SUPERSEDED"
     },
     {
       "path": "evidence/perf/runtime-benchmarks/llama-cpp-metal-llama1-q4-r1.json",
@@ -1172,6 +1362,10 @@
       ]
     },
     {
+      "path": "evidence/perf/runtime-benchmarks/serving-matrix-candle-vs-llama-cpp-metal-r1.json",
+      "binding_status": "BOUND"
+    },
+    {
       "path": "evidence/perf/runtime-benchmarks/serving-matrix-llama-cpp-metal-local-r1.json",
       "binding_status": "SUPERSEDED"
     },
@@ -1212,6 +1406,20 @@
         "build_digest",
         "model_artifact_digest",
         "image_digest",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
+      "path": "evidence/perf/vllm-profile-probe-20260803T175830Z.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
         "corpus_digest",
         "exact_config",
         "raw_samples"
@@ -1259,6 +1467,20 @@
       "binding_status": "BOUND"
     },
     {
+      "path": "evidence/runpod/aborted-b1ff52mcigjcz3.json",
+      "binding_status": "UNBOUND",
+      "missing_identity_fields": [
+        "source_commit",
+        "build_digest",
+        "model_artifact_digest",
+        "image_digest",
+        "harness_revision",
+        "corpus_digest",
+        "exact_config",
+        "raw_samples"
+      ]
+    },
+    {
       "path": "evidence/runpod/cuda-first-proof.json",
       "binding_status": "UNBOUND",
       "missing_identity_fields": [
@@ -1285,6 +1507,10 @@
         "exact_config",
         "raw_samples"
       ]
+    },
+    {
+      "path": "evidence/runpod/spend-1ylse7hwwee68x.json",
+      "binding_status": "BOUND"
     },
     {
       "path": "evidence/runpod/spend-rr7b6uwmivaolh.json",
@@ -1419,7 +1645,7 @@
   "note": "Retrospective stamp only. UNBOUND means producer identity cannot be recovered for a historical run; digests were not invented. UNBOUND artifacts must not back programme claims. counts include this census (BOUND).",
   "producer_identity": {
     "source_commit": {
-      "value": "0487c043ba83ae7a15d44f9a63635e54580d2730"
+      "value": "1c524276e128ce0cd3721f89c6f431ac11124157"
     },
     "build_digest": {
       "value": "f6d76fc99d14b1b126c3cce5b63aabe3b49ff4d016cea894edef8f036f62dc8f"
@@ -1440,7 +1666,7 @@
       "value": "stamp of committed evidence tree at HEAD"
     },
     "raw_samples": {
-      "value": "artifact_count=111"
+      "value": "artifact_count=149"
     }
   },
   "binding_status": "BOUND"

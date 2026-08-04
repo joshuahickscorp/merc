@@ -3512,7 +3512,7 @@
       "buyer_funding_authorize_arm": "single prepaid free-credit buyer (same-buyer serialization is the subject)",
       "buyer_funding_e2e_arm": "one prepaid buyer per in-flight slot (avoids ABBA deadlock with offer row during concurrent settlement)",
       "database": "isolated Postgres created by openIsolatedTestStore (not the shared suite DB)",
-      "observed_defect": "single-buyer concurrent e2e streams (c\u003e=8) produced PostgreSQL deadlocks (SQLSTATE 40P01) between authorize (offer row then buyer funding) and settlement in pilot runs; reported, not fixed in this measurement lane",
+      "observed_defect": "single-buyer concurrent e2e streams (c>=8) produced PostgreSQL deadlocks (SQLSTATE 40P01) between authorize (offer row then buyer funding) and settlement in pilot runs; reported, not fixed in this measurement lane",
       "offer_capacity": 50000,
       "offer_count": 1,
       "path_timing": "MERC_REALTIME_PATH_TIMING=1 structured log lines parsed per sample",
@@ -3531,7 +3531,7 @@
       "load_n": 28,
       "num_cpu": 28,
       "quiet": true,
-      "quiet_reason": "1-min load 11.67 \u003c half of 28 CPUs"
+      "quiet_reason": "1-min load 11.67 < half of 28 CPUs"
     },
     "percentile_method": "nearest-rank: ceil(p*n)-1 on sorted samples (same as realtime_auth_latency_probe)",
     "run_to_run_variance": "each independent run recomputes p50; aggregated.p50_across_runs is the median of those p50s; p50_run_min/max and p50_run_stdev report spread",

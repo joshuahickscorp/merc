@@ -216,7 +216,7 @@
     },
     "c=32": {
       "attribution": {
-        "engine_misattribution_verdict": "MILD — engine_excess p95=55.56 ms is positive but \u003c50% of overhead p95=169.49 ms (frac=0.33).",
+        "engine_misattribution_verdict": "MILD — engine_excess p95=55.56 ms is positive but <50% of overhead p95=169.49 ms (frac=0.33).",
         "p50_ms": {
           "direct_ttft": 44.181,
           "engine_excess_vs_direct": 2.460000000000001,
@@ -932,7 +932,7 @@
         "p99": 56.516
       },
       "attribution": {
-        "engine_misattribution_verdict": "MILD — engine_excess p95=55.56 ms is positive but \u003c50% of overhead p95=169.49 ms (frac=0.33).",
+        "engine_misattribution_verdict": "MILD — engine_excess p95=55.56 ms is positive but <50% of overhead p95=169.49 ms (frac=0.33).",
         "p50_ms": {
           "direct_ttft": 44.181,
           "engine_excess_vs_direct": 2.460000000000001,
@@ -999,7 +999,7 @@
       "load_n": 28,
       "num_cpu": 28,
       "quiet": true,
-      "quiet_reason": "1-min load 7.02 \u003c half of 28 CPUs"
+      "quiet_reason": "1-min load 7.02 < half of 28 CPUs"
     },
     "path_timing": "MERC_REALTIME_PATH_TIMING=1; stages include auth_lookup, pre_upstream, post_upstream, upstream_first_sse, unmarked residual",
     "percentile_method": "nearest-rank: ceil(p*n)-1 on sorted samples",
@@ -1248,7 +1248,7 @@
   "schema_version": 1,
   "verdict": {
     "c1_engine_misattribution": "INCONCLUSIVE — engine_excess p50=0.29 p95=0.45; overhead p50=3.43 p95=5.24.",
-    "c32_engine_misattribution": "MILD — engine_excess p95=55.56 ms is positive but \u003c50% of overhead p95=169.49 ms (frac=0.33).",
+    "c32_engine_misattribution": "MILD — engine_excess p95=55.56 ms is positive but <50% of overhead p95=169.49 ms (frac=0.33).",
     "summary": "See accounting_table and ranked_attack_list. If engine_excess dominates parity overhead, do not optimise Merc control-plane for those milliseconds — fix the measurement or the engine saturation shape first."
   }
 }

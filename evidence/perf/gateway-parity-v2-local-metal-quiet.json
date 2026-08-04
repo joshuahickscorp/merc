@@ -134050,5 +134050,13 @@
     "captured_at": "2026-08-03T18:10:13Z",
     "ncpu": 28,
     "note": "end load includes the ladder itself under c=128 interleaved dual-arm pressure; not residual background"
-  }
+  },
+  "binding_status": "UNBOUND",
+  "missing_identity_fields": [
+    "build_digest",
+    "model_artifact_digest",
+    "image_digest",
+    "corpus_digest",
+    "exact_config"
+  ]
 }

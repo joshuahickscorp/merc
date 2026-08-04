@@ -24,5 +24,16 @@
   },
   "matches_advertised_catalogue_profile": true,
   "evidence_class_justification": "PARITY_EVIDENCE is legitimate: both arms hit the same pod provisioned from the admitted catalogue profile (immutable vLLM 0.23.0 image digest, bf16, linux/amd64, pinned HF revision). Body identity proven (1308/1308). Do not relabel down solely because the optional /version HTTP probe failed in the drive script's urllib client.",
-  "topology_correction": "The measure-test topology fields say control_to_engine_hop=loopback; that is wrong for this run. Actual path: client(loopback)\u2192httptest merc\u2192HTTPS RunPod proxy\u2192vLLM on A40."
+  "topology_correction": "The measure-test topology fields say control_to_engine_hop=loopback; that is wrong for this run. Actual path: client(loopback)→httptest merc→HTTPS RunPod proxy→vLLM on A40.",
+  "binding_status": "UNBOUND",
+  "missing_identity_fields": [
+    "source_commit",
+    "build_digest",
+    "model_artifact_digest",
+    "image_digest",
+    "harness_revision",
+    "corpus_digest",
+    "exact_config",
+    "raw_samples"
+  ]
 }
