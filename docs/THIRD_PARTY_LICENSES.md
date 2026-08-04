@@ -42,7 +42,7 @@ Primary sources:
 
 ## Font register
 
-The tracked `logo/Geist-VariableFont_wght.ttf` and
+The tracked `web/logo/Geist-VariableFont_wght.ttf` and
 `web/assets/site/fonts/geist-mono.woff2` identify as Geist-family assets. The
 official upstream repository states SIL OFL 1.1 and copyright to Vercel in
 collaboration with basement.studio. The WOFF2 appears in repository history as

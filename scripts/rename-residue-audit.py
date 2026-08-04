@@ -60,7 +60,7 @@ FROZEN_PATHS = (
     ("realtime-lane-snapshot/", "checksummed snapshot, verified by manifest"),
     ("clients/macapp/ComputeExchangeAgent/",
      "real directory with 8 consumers including a live claim gate; renames as one commit"),
-    ("logo/cx-capsule-target.svg", "pinned by path and sha256 in ops/asset-provenance.json"),
+    ("web/logo/cx-capsule-target.svg", "pinned by path and sha256 in ops/asset-provenance.json"),
     ("docs/SHIPPABILITY_STATUS.md",
      "documents the rename; a record of what was renamed must be able to name it"),
     ("docs/DECISION_ZERO_REVERSAL.md", "documents the rename"),
