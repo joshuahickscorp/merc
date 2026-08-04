@@ -158,6 +158,14 @@ MUTATIONS=(
 "runtime_cell_admission_binding.go|a partial cost sum calls itself complete|s#f.ExpectedVOCostStatus = frozenVOCostPartial#f.ExpectedVOCostStatus = frozenVOCostComplete#"
 "runtime_cell_admission_binding.go|the block stops naming its own unknown terms|s#out.UnknownCategories = append(out.UnknownCategories, out.unknownNamedTerms()...)##"
 "pricing_decision.go|a legacy decision is retro-fitted with a frozen cell block|s#if decision.RuntimeCell == nil {#if false {#"
+
+# --- Cost tie authority (2026-08-04) ---
+# The block that explains WHY two cells cost the same. Its value is entirely in
+# refusing to let a blocked term rule and in not calling a real difference a tie.
+"runtime_cost_tie_authority.go|an ASSUMED term is allowed to rule on money|s#MayRule: k == CategoryKnown,#MayRule: true,#"
+"runtime_cost_tie_authority.go|a comparison takes the stronger knowledge instead of the weaker|s#if rank(a) <= rank(b) {#if rank(a) >= rank(b) {#"
+"runtime_cost_tie_authority.go|a real cost difference is still reported as a forced tie|s#case !out.Tied:#case false:#"
+"runtime_cost_tie_authority.go|a governed term that differs is swallowed by the tie verdict|s#case out.LargestGovernedShare > 0:#case false:#"
 )
 
 caught=0
