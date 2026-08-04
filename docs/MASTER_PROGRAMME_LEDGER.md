@@ -22,12 +22,13 @@ PUBLICLY_USABLE
 
 ## Step 2 — entry classification
 
-Read from `evidence/state/branch-state-step1.json` (HEAD `58384221`, live
-database projection), `ops/go-no-go.json`, and the tree. Not from prose.
+Read from `evidence/state/branch-state-step1.json` (unbound session-state
+inventory; HEAD `58384221`, live database projection), `ops/go-no-go.json`, and
+the tree. Not from prose.
 
 | # | Step | Entry status | Evidence read |
 | -: | ---- | ------ | -------- |
-| 1 | Generate current HEAD/state receipt | `DONE` | `evidence/state/branch-state-step1.json`, HEAD-bound, live DB projection |
+| 1 | Generate current HEAD/state receipt | `DONE` | `evidence/state/branch-state-step1.json` (unbound session inventory), HEAD-bound, live DB projection |
 | 2 | Skip every item already proven by that receipt | `DONE` | this table |
 | 3 | Boot the production image from a clean clone | `PRODUCTION_WIRED` | `scripts/test-release-image-boots.sh` runs in `make ci`; clean-clone boot not re-verified this session |
 | 4 | Canary-decision packaging and readiness | `PRODUCTION_WIRED` | `control/canary_decision.go`, `control/canary_policy.go` + tests |
@@ -41,7 +42,7 @@ database projection), `ops/go-no-go.json`, and the tree. Not from prose.
 | 12 | 128-request coalescing through money | `PRODUCTION_WIRED`; bound money-path proofs against a double upstream | `control/inflight_coalescing.go`, caller `control/realtime.go`; `evidence/reuse/public-path-coalescing-128-to-1.json` (commit `4ef1922a`) |
 | 13 | Tokenization and tool-schema caches | `PARTIAL` → identity **DONE**; tokenization **DOES_NOT_APPLY** | prepared request identity cache is production-wired and micro-measured; control-plane tokenization cache does not apply (no model tokenizer on the control plane). Bound audit: `evidence/perf/five-cache-architecture-audit.json` |
 | 14 | Token-budget batching by traffic class | `PARTIAL` | `control/batch_policy.go` declares `INTERACTIVE` and `BATCH` only |
-| 15 | Governed vLLM CUDA cell through RunPod | direct runtime `REAL_RUNTIME_PROVEN`, Merc chain `ABSENT` | `evidence/runpod/cuda-first-proof.json`; `vllm_cuda` r3 cell is `DRAFT`. **The stored RunPod key returns HTTP 401** |
+| 15 | Governed vLLM CUDA cell through RunPod | direct runtime `REAL_RUNTIME_PROVEN`, Merc chain `ABSENT` | `evidence/runpod/cuda-first-proof.json` (unbound provider proof; not Merc-chain canary); `vllm_cuda` r3 cell is `DRAFT`. **The stored RunPod key returns HTTP 401** |
 | 16 | Rendering IR and distributed render proof | `ABSENT` | no render adapter, no rendering IR, no Blender path in the tree |
 | 17 | Merc Agent one-click experience | `PARTIAL` | `agent/` builds and benchmarks, `macapp/` exists; limit/schedule surface unverified |
 | 18 | Workload IR and project detectors | `ABSENT` | `WorkloadDecision` is an admission artefact, not a project graph |
@@ -68,7 +69,7 @@ existing.
 
 | # | Step | Exit status | What landed |
 | -: | ---- | ----------- | ----------- |
-| 1 | HEAD/state receipt | `DONE` | `evidence/state/branch-state-step1.json` with a working live-database projection. Getting there required fixing `control/schema.sql`, which could not migrate any database that had ever served work |
+| 1 | HEAD/state receipt | `DONE` | `evidence/state/branch-state-step1.json` (unbound session inventory) with a working live-database projection. Getting there required fixing `control/schema.sql`, which could not migrate any database that had ever served work |
 | 2 | Skip proven work | `DONE` | the entry table above |
 | 7 | Supplier throughput from benchmark authority | `PARTIAL` | `control/repricing_benchmark_authority_test.go` binds every `repricingBenchmarks` constant to the receipt it cites, and enforces a CONSERVATIVE bound: a constant above the measurement fails (it would price undemonstrated supply), one more than 1% below fails (it overcharges the buyer). Found the `batch_infer` constant at 138.7 against a measured 138.71389521 — conservative, so it stands. Still not the per-cell, per-hardware derivation the step asks for |
 | 9 | RuntimeSelector shadow mode | `DONE` | the scoring half arrived. `control/runtime_cell_cost.go` reads measured per-cell cost out of the money path — the earlier comment claiming no such source existed was wrong, since every committed task already carries its cell, units, duration, frozen supplier liability, retries and verification outcome. Cost is a query, not a new table. Policy is now `eligibility-and-measured-cost-v2` and every row records which arm decided it |
@@ -77,15 +78,15 @@ existing.
 | 13 | Tokenization and tool-schema caches | `PARTIAL` closed honestly: identity **DONE**; tokenization **DOES_NOT_APPLY** | `control/realtime_identity_cache.go` is production-wired (tenant/profile/policy-scoped). Host microbench (M3 Ultra): hit ~0.4µs, miss ~12µs. Control-plane tokenization does not exist — admission/pricing use byte heuristics; settlement tokens come from the engine. Agent embed already has `token_cache.rs`. Bound audit: `evidence/perf/five-cache-architecture-audit.json`. Do not build an empty tokenizer cache to tick the box |
 | 14 | Batching by traffic class | `DONE, declared unwired` | `control/traffic_class.go`: the four classes with promoted policy, and `ValidateTrafficClassPolicies` proving the ordering invariants — every lower class declares it never delays every higher one, only BACKGROUND is preemptible, INTERACTIVE stays below the throughput knee. Budgets come from the two MEASURED points on the existing curve; classes sharing one say so rather than interpolating a third. Registered in `knownUnwired` because no production path asks for the class yet |
 | 19 | Execution fabric modes | `DONE, declared unwired` | `control/execution_mode.go`: POOL, REPLICA_SERVICE, LOCAL_CLUSTER, CLOUD_BACKSTOP, each placement carrying its reason and every refused mode carrying its own. Tightly coupled work is refused on a WAN fabric and on an unmeasured one; unknown parallelism fails closed to tight, so a new upstream mode cannot be silently placed on the public internet |
-| 21 | §20 must-not-do audit | `DONE` | `scripts/must-not-do-audit.py` → `evidence/state/must-not-do-audit.json`. **12 PASS, 1 FAIL, 1 not mechanically checkable.** The failure is prohibition 10: `control/payment.go` has one process-wide `platformTakeRate`, so one percentage applies to embeddings, generation, rendering and every future lane alike, and the published schedule carries a single supplier share of 0.97 |
+| 21 | §20 must-not-do audit | `DONE` | `scripts/must-not-do-audit.py` → `evidence/state/must-not-do-audit.json` (unbound audit inventory). **12 PASS, 1 FAIL, 1 not mechanically checkable.** The failure is prohibition 10: `control/payment.go` has one process-wide `platformTakeRate`, so one percentage applies to embeddings, generation, rendering and every future lane alike, and the published schedule carries a single supplier share of 0.97 |
 
 ## Second pass
 
 | # | Step | Status | What changed |
 | -: | ---- | ------ | ------------ |
-| 3 | Boot the production image | `DONE`, verified this session | `scripts/test-release-image-boots.sh` built the final image from the tree and served every probe with **no host files**: `/healthz`, `/version`, `/prices`, `/pricing/board.json`, `/.well-known/security.txt`, and the price board loaded from the release at digest `0e4a70dc40f8`. Receipt: `evidence/state/release-image-boot.json` |
+| 3 | Boot the production image | `DONE`, verified this session | `scripts/test-release-image-boots.sh` built the final image from the tree and served every probe with **no host files**: `/healthz`, `/version`, `/prices`, `/pricing/board.json`, `/.well-known/security.txt`, and the price board loaded from the release at digest `0e4a70dc40f8`. Receipt: `evidence/state/release-image-boot.json` (unbound boot inventory; not a bound release attestation) |
 | 4 | Canary packaging and readiness | `DONE`, already tested at entry | `/readyz` returns 503 with `reason_code: canary_policy_unconfigured` — a direct configuration error, not an unexplained buyer-facing 403 — and it reads BOTH the boot copy and a live re-read, so a decision that stops resolving on a running process cannot leave the probe green while payouts halt. `TestReadyzGoesRedWhenTheDisableDecisionStopsResolving` and `TestReadyzNamesCanaryMisconfigurationAndProbesStayReachable` |
-| 10 | Paired cohorts and regret | `DONE`, and it found something | `control/paired_cohort_test.go` drives 40 real executions through two enrolled agents across both embed cells, records the shadow decisions the way `createJob` does, then reads measured cost, regret and the promotion gate off the result and writes `evidence/perf/selector/paired-cohort-embed.json`. Opt-in behind `MERC_PAIRED_COHORT=1` and registered in `allowed-test-skips.txt` |
+| 10 | Paired cohorts and regret | `DONE`, and it found something | `control/paired_cohort_test.go` drives 40 real executions through two enrolled agents across both embed cells, records the shadow decisions the way `createJob` does, then reads measured cost, regret and the promotion gate off the result and writes `evidence/perf/selector/paired-cohort-embed.json` (unbound cohort receipt; apple_silicon_ultra only). Opt-in behind `MERC_PAIRED_COHORT=1` and registered in `allowed-test-skips.txt` |
 | 12 | 128-request coalescing | bound money-path proofs (double upstream) | Bound proofs at commit `4ef1922a` (`evidence/reuse/public-path-128-to-1.json`, `evidence/reuse/public-path-coalescing-128-to-1.json`) show 128 deliveries to 1 upstream call through the real public handler against an HTTP upstream double. They prove control-plane reuse/coalescing money and receipt paths; they do not measure GPU performance. Store-level follower money/isolation remains in `control/coalesced_cluster_money_test.go` |
 | 15 | Governed vLLM CUDA cell | harness ready, credential still dead | `scripts/runpod-spend-guard.py` converts a dollar cap into a pod lifetime with a self-test, holds back 20% for teardown delay, rounds spend up, and marks a receipt **inadmissible** on unverified teardown, an overrun lifetime, a floating image tag or a leftover pod. `runpod-vllm.sh experiment` wires that around the existing provisioner and refuses to start while anything else is billing. The self-test runs in `make ci` |
 | 19 | Execution fabric modes | `PRODUCTION_WIRED` | `createJob` now asks `ChooseExecutionMode` and stores the mode plus the full explanation, refusals included, beside the shadow selection. Batch work reaches POOL by construction, which is the reason to record it: once a second mode is reachable, "by construction" and "by decision" are indistinguishable afterwards. A tightly coupled degree-4 workload records **no** mode rather than being defaulted onto the public internet, and the database refuses a mode with no reason |
@@ -192,7 +193,7 @@ wrong cell:
 
 | # | Step | Status | What happened |
 | -: | ---- | ------ | ------------- |
-| 15 | Governed vLLM CUDA cell | harness `ECONOMICALLY_PROVEN`, Merc chain still `ABSENT` | A live RunPod key was supplied. **First governed paid experiment ran end to end**: RTX A5000 on SECURE, pinned `vllm/vllm-openai:v0.26.0-cu129`, vLLM served, teardown **verified**, zero orphan pods, receipt **admissible** — 105s against an 18,000s budget from a $1.00 cap at $0.16/hr, **$0.01 spent**. `evidence/runpod/spend-rr7b6uwmivaolh.json`. The chain did not run: no quote, selector decision, verification, charge, payable or receipt went through the pod, and `vllm_cuda` r3 stays `DRAFT` |
+| 15 | Governed vLLM CUDA cell | harness `ECONOMICALLY_PROVEN`, Merc chain still `ABSENT` | A live RunPod key was supplied. **First governed paid experiment ran end to end**: RTX A5000 on SECURE, pinned `vllm/vllm-openai:v0.26.0-cu129`, vLLM served, teardown **verified**, zero orphan pods — 105s against an 18,000s budget from a $1.00 cap at $0.16/hr, **$0.01 spent**. `evidence/runpod/spend-rr7b6uwmivaolh.json` is now **WITHDRAWN** (mutable image tag; runtime unidentifiable) and citable by nothing; the paid run happened, but the receipt backs no cost or performance claim. The chain did not run: no quote, selector decision, verification, charge, payable or receipt went through the pod, and `vllm_cuda` r3 stays `DRAFT` |
 | 6 | Stripe provider matrix | still `OPEN`, and now for two *named* reasons | A public HTTPS control plane was stood up and reached from the internet at `status: ready, payment_mode: test, live_value_movement: false` — the exact `/readyz` gate the staging plan names — through a `cloudflared` quick tunnel, then torn down. So webhook delivery is reachable in principle. What blocks the matrix is below |
 
 ### What the Stripe matrix actually needs now
@@ -351,9 +352,9 @@ guess at a fourth change.
 
 **Another Claude Code session was editing this same working tree during the second
 pass.** `scripts/merc-credentials.sh` gained a `--runpod` flag at 19:54 and
-`evidence/canary/private-canary.json` was rewritten at 19:57, neither by this
-session. Those changes are deliberately left uncommitted and untouched here, and
-no commit in this session's range contains either file.
+`evidence/canary/private-canary.json` (unbound capability inventory) was rewritten
+at 19:57, neither by this session. Those changes are deliberately left uncommitted
+and untouched here, and no commit in this session's range contains either file.
 
 It also explains an earlier puzzle: a background test suite that appeared to
 restart itself twice. Two agents in one tree race on the same test databases, the
@@ -492,7 +493,8 @@ project, Merc admitted and priced it, a real `merc-agent` process claimed it,
 executed it on Candle/Metal, the result verified against a seeded honeypot, the
 buyer was charged inside the ceiling they accepted, the supplier was credited once
 per executed task, and money conserved exactly. The receipt is
-`evidence/canary/first-complete-loop.json`.
+`evidence/canary/first-complete-loop.json` (unbound historical loop receipt; not
+candidate-bound canary authority).
 
 Two things had to be fixed before it would close, and neither was the pricing
 authority.
