@@ -59,9 +59,19 @@ done
 docker run --rm --network "container:${container}" --entrypoint /bin/sh "$mc_image" -c \
   "mc alias set local http://localhost:9000 merc_test_minio merc_test_minio_password >/dev/null && mc mb local/${bucket} >/dev/null"
 
+# Both spellings. The Go helpers split on this: openObjectStorageForTest reads
+# the bare S3_* names and skips without them, while the rest of the suite reads
+# MERC_TEST_S3_*. Exporting only the prefixed set meant every object-storage
+# integration test skipped in CI even though MinIO was running right here --
+# including TestBuyerObjectDeletionQueueAndSweep, whose result the DSAR receipt's
+# deletable_data_removed field is derived from.
 MERC_TEST_S3_ENDPOINT="$endpoint" \
 MERC_TEST_S3_PUBLIC_ENDPOINT="$endpoint" \
 MERC_TEST_S3_BUCKET="$bucket" \
 MERC_TEST_S3_ACCESS_KEY=merc_test_minio \
 MERC_TEST_S3_SECRET_KEY=merc_test_minio_password \
+S3_ENDPOINT="$endpoint" \
+S3_BUCKET="$bucket" \
+S3_ACCESS_KEY=merc_test_minio \
+S3_SECRET_KEY=merc_test_minio_password \
 "$@"
