@@ -125,7 +125,12 @@ func TestAuthorizationMatrixProtectedRoutesRejectAnonymousAndWrongCredentialName
 	// decided what each role may do with them. Listing them puts them under this
 	// exhaustive anonymous/wrong-namespace check like every other buyer route;
 	// neither can create or move money outside the envelope's own bounded cap.
-	if checked != 101 {
-		t.Fatalf("checked %d protected routes, want 101", checked)
+	// 103 after the two operator selector routes joined the matrix: applying an
+	// activation policy, and submitting a directed job onto a named non-routable
+	// cell. Both are authAdmin, and both are now covered by this exhaustive
+	// anonymous / wrong-namespace check like every other protected route. Neither
+	// can move money, and neither can promote a cell without the promotion gate.
+	if checked != 103 {
+		t.Fatalf("checked %d protected routes, want 103", checked)
 	}
 }
