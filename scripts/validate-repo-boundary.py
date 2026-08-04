@@ -34,7 +34,7 @@ def main() -> int:
     foreign = [p for p in tracked if FOREIGN_SEGMENTS.search(p)]
 
     try:
-        with open("census/CODEBASE_CENSUS.json") as fh:
+        with open("evidence/census/CODEBASE_CENSUS.json") as fh:
             census = json.load(fh)
         owned_loc = census["ownership"]["global_owned_loc"]
         scope = census["scope"]

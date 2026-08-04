@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-POLICY = ROOT / "proof" / "claims" / "claim-policy.json"
+POLICY = ROOT / "evidence" / "proof" / "claims" / "claim-policy.json"
 
 # Defaults matching control/pricing.go + control/payment.go (3% platform take).
 TARGET_SUPPLIER_USD_HR = 2.0

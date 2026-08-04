@@ -57,7 +57,7 @@ CITE_ROOTS = (
     ROOT / "scripts",
     ROOT / "agent",
     ROOT / "ops",
-    ROOT / "proof",
+    ROOT / "evidence" / "proof",
     ROOT / "README.md",
     ROOT / "RELEASE_READINESS.md",
     ROOT / "RELEASE_GATES.md",
@@ -83,6 +83,16 @@ def fail(msg: str) -> None:
     FAILURES.append(msg)
 
 
+# Trees relocated under evidence/ that are not measurement receipts.
+# Formerly lived at repo root (proof/, census/, artifacts/) and were outside
+# this scanner; they remain policy/census/fixture trees, not binding corpus.
+EVIDENCE_SCAN_SKIP_PREFIXES = (
+    "evidence/proof/",
+    "evidence/census/",
+    "evidence/artifacts/",
+)
+
+
 def iter_evidence_files() -> list[Path]:
     if not EVIDENCE.is_dir():
         return []
@@ -93,7 +103,10 @@ def iter_evidence_files() -> list[Path]:
         if path.name.endswith(".binding.json"):
             continue
         # Skip hidden scratch.
+        rel = path.relative_to(ROOT).as_posix()
         if any(part.startswith(".") for part in path.relative_to(ROOT).parts):
+            continue
+        if any(rel.startswith(prefix) for prefix in EVIDENCE_SCAN_SKIP_PREFIXES):
             continue
         out.append(path)
     return out
