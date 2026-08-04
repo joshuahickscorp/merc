@@ -5,9 +5,9 @@ mod fabric;
 mod failure;
 mod hardware;
 mod inference;
-mod openai_serve;
 mod media;
 mod models;
+mod openai_serve;
 mod pool;
 mod protocol;
 mod quantized_llama_batched; // vendored + patched candle quantized_llama (bsz>1 batched prefill)

@@ -308,7 +308,14 @@ fn handle_chat_completions(
     state.inflight.fetch_add(1, Ordering::Relaxed);
 
     if req.stream {
-        let result = stream_completion(stream, state, &model_id, &completion_id, &prompt, max_tokens);
+        let result = stream_completion(
+            stream,
+            state,
+            &model_id,
+            &completion_id,
+            &prompt,
+            max_tokens,
+        );
         state.inflight.fetch_sub(1, Ordering::Relaxed);
         match result {
             Ok(()) => {
@@ -323,7 +330,14 @@ fn handle_chat_completions(
             }
         }
     } else {
-        let result = nonstream_completion(stream, state, &model_id, &completion_id, &prompt, max_tokens);
+        let result = nonstream_completion(
+            stream,
+            state,
+            &model_id,
+            &completion_id,
+            &prompt,
+            max_tokens,
+        );
         state.inflight.fetch_sub(1, Ordering::Relaxed);
         match result {
             Ok(()) => {
