@@ -129,7 +129,7 @@ ci:
 	bash scripts/test-technical-exercises-fail-closed.sh
 	bash scripts/test-canary-gaming.sh
 	bash scripts/test-canary-scenario-receipt.sh
-	bash scripts/test-canary-database-corroboration.sh
+	MERC_TEST_DATABASE_URL="$(MERC_TEST_DATABASE_URL)" bash scripts/test-canary-database-corroboration.sh
 	MERC_TEST_DATABASE_URL="$(MERC_TEST_DATABASE_URL)" bash scripts/test-agent-restart-authority.sh
 	bash scripts/test-go-closure-soak-authority.sh
 	python3 scripts/test-go-closure-evidence-chain.py
