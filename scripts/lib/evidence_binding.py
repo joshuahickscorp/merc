@@ -60,7 +60,14 @@ LEGACY_FIELD_KEYS: dict[str, tuple[str, ...]] = {
     "harness_revision": ("harness_revision", "harness", "gate_version"),
     "corpus_digest": ("corpus_digest", "corpus_sha256", "input_fixture_sha256"),
     "exact_config": ("exact_config", "config", "scope"),
-    "raw_samples": ("raw_samples", "raw_sample_count", "samples", "runs", "levels"),
+    "raw_samples": (
+        "raw_samples",
+        "raw_samples_sha256",
+        "raw_sample_count",
+        "samples",
+        "runs",
+        "levels",
+    ),
 }
 
 
@@ -92,12 +99,90 @@ def slot_complete(slot: Any) -> bool:
     return bool(value or na)
 
 
+def raw_samples_sha256_complete(identity: dict[str, Any]) -> bool:
+    """True when raw_samples_sha256 stands in for the inline raw_samples slot.
+
+    New receipts (post tier-2) may omit producer_identity.raw_samples and instead
+    carry raw_samples_sha256: a 64-char hex digest of the sample body. Both forms
+    complete the programme raw_samples identity field.
+    """
+    if not isinstance(identity, dict):
+        return False
+    # Formal slot shape: {"value": "<hex>"} or bare hex string on the identity.
+    slot = identity.get("raw_samples_sha256")
+    if isinstance(slot, dict):
+        digest = str(slot.get("value") or "").strip().lower()
+    elif isinstance(slot, str):
+        digest = slot.strip().lower()
+    else:
+        digest = ""
+    if len(digest) == 64 and all(c in "0123456789abcdef" for c in digest):
+        return True
+    return False
+
+
 def incomplete_fields(identity: dict[str, Any]) -> list[str]:
     missing: list[str] = []
     for name in IDENTITY_FIELDS:
+        if name == "raw_samples":
+            if slot_complete(identity.get("raw_samples")):
+                continue
+            # Dual form: digest of the sample body replaces the inline array.
+            if raw_samples_sha256_complete(identity):
+                continue
+            missing.append(name)
+            continue
         if not slot_complete(identity.get(name)):
             missing.append(name)
     return missing
+
+
+def identity_raw_samples_hash_material(data: dict[str, Any]) -> str | None:
+    """Return the string hashed into binding identity for the raw_samples field.
+
+    Historical form: canonical JSON of the inline raw_samples array (or the
+    producer_identity.raw_samples slot value/na).
+    New form: the raw_samples_sha256 digest itself when the array is absent.
+
+    Returns None when neither form is present.
+    """
+    # Prefer explicit digest when the inline array is gone.
+    if "raw_samples" not in data or data.get("raw_samples") in (None, "", [], {}):
+        # producer_identity nested form
+        pi = data.get("producer_identity") if isinstance(data.get("producer_identity"), dict) else None
+        candidates = [data, pi] if pi else [data]
+        for obj in candidates:
+            if obj is None:
+                continue
+            if raw_samples_sha256_complete(obj) or (
+                isinstance(obj.get("raw_samples_sha256"), str)
+                and len(obj["raw_samples_sha256"].strip()) == 64
+            ):
+                slot = obj.get("raw_samples_sha256")
+                if isinstance(slot, dict):
+                    return str(slot.get("value") or "").strip().lower()
+                return str(slot).strip().lower()
+        # Fall through to formal slot on producer_identity
+        if pi and slot_complete(pi.get("raw_samples")):
+            slot = pi["raw_samples"]
+            if str(slot.get("value") or "").strip():
+                return str(slot["value"]).strip()
+            return "na:" + str(slot.get("na") or "").strip()
+        return None
+
+    raw = data.get("raw_samples")
+    # Formal slot
+    if isinstance(raw, dict) and ("value" in raw or "na" in raw):
+        if str(raw.get("value") or "").strip():
+            return str(raw["value"]).strip()
+        if str(raw.get("na") or "").strip():
+            return "na:" + str(raw["na"]).strip()
+        return None
+    # Inline array / object: hash material is canonical JSON
+    try:
+        return json.dumps(raw, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    except (TypeError, ValueError):
+        return str(raw)
 
 
 def sha256_file(path: str | Path) -> str:
@@ -106,6 +191,128 @@ def sha256_file(path: str | Path) -> str:
         for chunk in iter(lambda: fh.read(1024 * 1024), b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+LFS_POINTER_PREFIX = "version https://git-lfs.github.com/spec/v1"
+
+
+def parse_lfs_pointer(text: str) -> tuple[str, int] | None:
+    """Parse a git-lfs pointer file. Returns (oid_hex, size) or None."""
+    if not text.startswith(LFS_POINTER_PREFIX):
+        return None
+    oid = ""
+    size = -1
+    for line in text.splitlines():
+        if line.startswith("oid sha256:"):
+            oid = line[len("oid sha256:") :].strip().lower()
+        elif line.startswith("size "):
+            try:
+                size = int(line[len("size ") :].strip())
+            except ValueError:
+                size = -1
+    if len(oid) == 64 and all(c in "0123456789abcdef" for c in oid) and size >= 0:
+        return oid, size
+    return None
+
+
+def lfs_local_object_path(repo_root: str | Path, oid: str) -> Path | None:
+    """Locate an LFS object on disk (works for worktrees via git-common-dir)."""
+    root = Path(repo_root)
+    candidates: list[Path] = []
+    # git-common-dir covers worktrees (.git/worktrees/X -> main .git)
+    try:
+        common = subprocess.check_output(
+            ["git", "-C", str(root), "rev-parse", "--git-common-dir"],
+            stderr=subprocess.DEVNULL,
+            text=True,
+        ).strip()
+        common_path = Path(common)
+        if not common_path.is_absolute():
+            common_path = (root / common_path).resolve()
+        candidates.append(common_path / "lfs" / "objects" / oid[:2] / oid[2:4] / oid)
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
+        pass
+    candidates.append(root / ".git" / "lfs" / "objects" / oid[:2] / oid[2:4] / oid)
+    for p in candidates:
+        if p.is_file():
+            return p
+    return None
+
+
+def read_evidence_bytes(path: str | Path, repo_root: str | Path | None = None) -> bytes:
+    """Read file bytes, resolving a git-lfs pointer to content when present.
+
+    Resolution order:
+      1. Working-tree bytes if not a pointer (smudged or never-LFS).
+      2. Local LFS object store by oid (oid == sha256(content)).
+      3. `git lfs smudge` as a last resort.
+    Raises OSError/EvidenceBindingError if a pointer cannot be resolved.
+    """
+    p = Path(path)
+    raw = p.read_bytes()
+    try:
+        head = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return raw
+    parsed = parse_lfs_pointer(head)
+    if parsed is None:
+        return raw
+    oid, size = parsed
+    # Prefer validating from the pointer oid alone when content is not needed —
+    # callers that only need the digest can use oid directly. Here we resolve.
+    root = Path(repo_root) if repo_root is not None else p.resolve().parent
+    obj = lfs_local_object_path(root, oid)
+    if obj is not None:
+        data = obj.read_bytes()
+        if hashlib.sha256(data).hexdigest() != oid:
+            raise EvidenceBindingError(
+                f"LFS object for {p} failed oid check: expected {oid}"
+            )
+        if size >= 0 and len(data) != size:
+            raise EvidenceBindingError(
+                f"LFS object for {p} size mismatch: pointer {size}, got {len(data)}"
+            )
+        return data
+    # smudge fallback
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(root), "lfs", "smudge"],
+            input=raw,
+            capture_output=True,
+            check=True,
+        )
+        data = proc.stdout
+        if hashlib.sha256(data).hexdigest() != oid:
+            raise EvidenceBindingError(
+                f"LFS smudge for {p} failed oid check: expected {oid}"
+            )
+        return data
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError) as exc:
+        raise EvidenceBindingError(
+            f"cannot resolve LFS pointer for {p} (oid={oid}): {exc}"
+        ) from exc
+
+
+def read_evidence_text(
+    path: str | Path,
+    repo_root: str | Path | None = None,
+    *,
+    encoding: str = "utf-8",
+    errors: str = "strict",
+) -> str:
+    """read_evidence_bytes decoded as text."""
+    return read_evidence_bytes(path, repo_root).decode(encoding, errors=errors)
+
+
+def lfs_pointer_oid(path: str | Path) -> str | None:
+    """Return the LFS oid if path is a pointer file, else None."""
+    try:
+        raw = Path(path).read_bytes()
+        text = raw.decode("utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+    parsed = parse_lfs_pointer(text)
+    return parsed[0] if parsed else None
 
 
 def validate_git_object(repo_root: str | Path, rev: str) -> None:
