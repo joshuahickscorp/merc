@@ -171,7 +171,7 @@ printf '%s' 'https://hooks.slack.com/services/XXX/YYY/ZZZ' \
   | sudo tee /run/secrets/cx_alert_receiver_url > /dev/null
 ```
 
-`monitoring/alertmanager.yml:21` already reads that path. PagerDuty or Opsgenie
+`ops/monitoring/alertmanager.yml:21` already reads that path. PagerDuty or Opsgenie
 work the same way.
 
 **Unblocks:** operability 8 → 9. Turns "alerting configured" into "alerting

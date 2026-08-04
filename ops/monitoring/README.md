@@ -83,8 +83,8 @@ the mount to `${MERC_BACKUP_HEALTH_DIR:-./.artifacts/backup-health}` →
 Validate locally:
 
 ```text
-promtool check rules monitoring/alerts.yml
-promtool check config --syntax-only monitoring/prometheus.yml
+promtool check rules ops/monitoring/alerts.yml
+promtool check config --syntax-only ops/monitoring/prometheus.yml
 node scripts/validate-observability.mjs
 docker compose -f docker-compose.prod.yml -f docker-compose.observability.yml config
 ```

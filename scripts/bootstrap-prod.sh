@@ -132,7 +132,7 @@ esac
 [ "${#MERC_TOKEN_KEY}" -ge 32 ] || die "MERC_TOKEN_KEY is too short"
 [ "${#MERC_VERIFICATION_SAMPLE_SECRET}" -ge 32 ] || die "verification secret is too short"
 [ -f "$MERC_ALERT_RECEIVER_URL_FILE" ] && [ -s "$MERC_ALERT_RECEIVER_URL_FILE" ] \
-  || die "MERC_ALERT_RECEIVER_URL_FILE must exist and contain the HTTPS alert webhook URL (see monitoring/README.md)"
+  || die "MERC_ALERT_RECEIVER_URL_FILE must exist and contain the HTTPS alert webhook URL (see ops/monitoring/README.md)"
 docker compose -f docker-compose.prod.yml -f docker-compose.observability.yml config -q \
   || die "invalid production+observability compose"
 

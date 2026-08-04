@@ -33,7 +33,7 @@ for tool in docker python3 jq curl; do
   command -v "$tool" >/dev/null 2>&1 || die "missing dependency: $tool"
 done
 [ -f "$COMPOSE_FILE" ] || die "missing $COMPOSE_FILE"
-[ -f "$ROOT/monitoring/alertmanager.yml" ] || die "missing monitoring/alertmanager.yml"
+[ -f "$ROOT/ops/monitoring/alertmanager.yml" ] || die "missing ops/monitoring/alertmanager.yml"
 
 mkdir -p "$ART" "$(dirname "$EVIDENCE_OUT")"
 SINK_LOG="$ART/sink-events.jsonl"
@@ -42,7 +42,7 @@ SINK_LOG="$ART/sink-events.jsonl"
 # Production alertmanager.yml uses group_wait=30s and group_interval=5m. For a
 # local fire→resolve proof we keep the same receiver contract (url_file secret,
 # send_resolved) but shrink timing so the loop is observable without a 5m wait.
-# Receiver routing and secret path remain identical to monitoring/alertmanager.yml.
+# Receiver routing and secret path remain identical to ops/monitoring/alertmanager.yml.
 cat >"$ART/alertmanager.yml" <<'YAML'
 global:
   resolve_timeout: 1m

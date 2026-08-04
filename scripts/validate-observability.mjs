@@ -27,7 +27,7 @@ if (!metrics.includes('io.LimitReader(f, 129)')) {
   throw new Error('control/metrics.go: backup health input must remain size-bounded');
 }
 
-const alerts = read('monitoring/alerts.yml');
+const alerts = read('ops/monitoring/alerts.yml');
 const requiredAlerts = [
   'MercControlUnavailable',
   'MercQueueAgeHigh',
@@ -44,10 +44,10 @@ const requiredAlerts = [
   'MercAlertmanagerUnavailable',
 ];
 for (const name of requiredAlerts) {
-  if (!alerts.includes(`- alert: ${name}`)) throw new Error(`monitoring/alerts.yml: missing ${name}`);
+  if (!alerts.includes(`- alert: ${name}`)) throw new Error(`ops/monitoring/alerts.yml: missing ${name}`);
 }
 if (!alerts.includes('4 * merc_ticker_interval_seconds') || /merc_ticker_seconds_since_success\s*>\s*3600/.test(alerts)) {
-  throw new Error('monitoring/alerts.yml: ticker alert must derive from each loop interval');
+  throw new Error('ops/monitoring/alerts.yml: ticker alert must derive from each loop interval');
 }
 const alertMatches = [...alerts.matchAll(/^\s+- alert: (\S+)/gm)];
 for (let index = 0; index < alertMatches.length; index += 1) {
@@ -55,24 +55,24 @@ for (let index = 0; index < alertMatches.length; index += 1) {
   const end = alertMatches[index + 1]?.index ?? alerts.length;
   const block = alerts.slice(start, end);
   if (!/runbook:\s+docs\/RUNBOOKS\.md#[a-z0-9-]+/.test(block)) {
-    throw new Error(`monitoring/alerts.yml: ${alertMatches[index][1]} has no source runbook link`);
+    throw new Error(`ops/monitoring/alerts.yml: ${alertMatches[index][1]} has no source runbook link`);
   }
 }
 
-const prometheus = read('monitoring/prometheus.yml');
+const prometheus = read('ops/monitoring/prometheus.yml');
 for (const token of ['computexchange-control', 'control:8080', 'node-exporter:9100', 'alertmanager:9093', '/etc/prometheus/alerts.yml']) {
-  if (!prometheus.includes(token)) throw new Error(`monitoring/prometheus.yml: missing ${token}`);
+  if (!prometheus.includes(token)) throw new Error(`ops/monitoring/prometheus.yml: missing ${token}`);
 }
 
-const alertmanager = read('monitoring/alertmanager.yml');
+const alertmanager = read('ops/monitoring/alertmanager.yml');
 for (const token of ['url_file: /run/secrets/cx_alert_receiver_url', 'send_resolved: true', 'group_by: [alertname, severity]']) {
-  if (!alertmanager.includes(token)) throw new Error(`monitoring/alertmanager.yml: missing ${token}`);
+  if (!alertmanager.includes(token)) throw new Error(`ops/monitoring/alertmanager.yml: missing ${token}`);
 }
 if (/https?:\/\//.test(alertmanager)) {
-  throw new Error('monitoring/alertmanager.yml: receiver URL must come from a secret file');
+  throw new Error('ops/monitoring/alertmanager.yml: receiver URL must come from a secret file');
 }
 
-const dashboard = JSON.parse(read('monitoring/grafana/dashboards/merc-canary.json'));
+const dashboard = JSON.parse(read('ops/monitoring/grafana/dashboards/merc-canary.json'));
 if (dashboard.uid !== 'merc-canary' || dashboard.refresh !== '15s') {
   throw new Error('Grafana dashboard: stable uid and 15s refresh are required');
 }
