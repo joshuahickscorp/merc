@@ -592,6 +592,8 @@ impl JobRunner for MediaTranscodeRunner {
             duration_ms: started.elapsed().as_millis() as u64,
             tokens_used: 0,
             inference_backend: MEDIA_BACKEND.to_string(),
+            // Transcoding has no prompt cache to observe.
+            cached_prompt_tokens: None,
         })
     }
 

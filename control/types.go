@@ -232,9 +232,13 @@ type TaskCommit struct {
 	// evidence/perf/prefix-kv-physical-metal-latest.json. MLX / Candle typically
 	// do not. Nil means "no signal" — never treat absence as a miss. When
 	// present, CorrectPrefixBeliefFromObservation prefers this over Merc's
-	// belief. The batch agent openai_http path still only parses
-	// completion_tokens today, so TaskCommit may omit this field even when the
-	// engine put it on the wire.
+	// belief.
+	//
+	// The batch agent's openai_http path now parses it and sums it across a
+	// task's completions (agent/src/inference.rs). Until it did, this field was
+	// never populated in production and the correction path could not fire: every
+	// observation was "no signal", so a stale warm belief could only expire by
+	// TTL rather than be contradicted by the engine that had just served it.
 	CachedPromptTokens *uint64 `json:"cached_prompt_tokens,omitempty"`
 }
 

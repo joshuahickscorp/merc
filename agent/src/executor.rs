@@ -30,6 +30,14 @@ pub struct JobOutput {
     /// Which pluggable inference backend produced this result (`candle`, `openai_http`, …).
     /// Empty for non-inference jobs (embed).
     pub inference_backend: String,
+    /// Total engine-reported prefix-cache hit size across this task's
+    /// completions, when the engine reported it at all.
+    ///
+    /// `None` means no completion carried the signal, which the control plane
+    /// must read as "no observation", not as a miss. `Some(0)` is a real
+    /// observed miss and is the value that lets a stale warm belief be
+    /// contradicted immediately instead of waiting out its TTL.
+    pub cached_prompt_tokens: Option<u64>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -506,6 +514,8 @@ impl JobRunner for EmbedRunner {
             duration_ms: started.elapsed().as_millis() as u64,
             tokens_used: count as u64,
             inference_backend: String::new(),
+            // Embed has no prompt cache to observe.
+            cached_prompt_tokens: None,
         })
     }
 
@@ -1021,6 +1031,7 @@ impl JobRunner for BatchInferRunner {
         let slice = checkpoint_slice(prompts.len(), ckpt);
         let mut completions: Vec<Completion> = Vec::with_capacity(prompts.len());
         let mut total_tokens: usize = 0;
+        let mut cached_prompt_tokens: Option<u64> = None;
         let mut last_flush = std::time::Instant::now();
         clear_live_throttle();
         let mut live_monitor = LiveThroughputMonitor::new();
@@ -1060,6 +1071,12 @@ impl JobRunner for BatchInferRunner {
             for c in results {
                 total_tokens += c.tokens;
                 slice_tokens += c.tokens;
+                // Sum only over completions that actually carried the signal, so
+                // a batch where the engine said nothing stays None rather than
+                // becoming an observed zero. A mixed batch reports what was seen.
+                if let Some(n) = c.cached_prompt_tokens {
+                    cached_prompt_tokens = Some(cached_prompt_tokens.unwrap_or(0) + n);
+                }
                 completions.push(Completion {
                     index: completions.len(),
                     text: c.text,
@@ -1102,6 +1119,7 @@ impl JobRunner for BatchInferRunner {
             duration_ms: started.elapsed().as_millis() as u64,
             tokens_used: total_tokens as u64,
             inference_backend: backend_name,
+            cached_prompt_tokens,
         })
     }
 

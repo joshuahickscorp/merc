@@ -2936,6 +2936,7 @@ async fn execute_task(
     wipe(&mut input);
 
     let (duration_ms, tokens_used) = (output.duration_ms, output.tokens_used);
+    let cached_prompt_tokens = output.cached_prompt_tokens;
 
     let mut result = output.result;
     let content_type = output.content_type;
@@ -2970,6 +2971,7 @@ async fn execute_task(
         result_sha256,
         hardware_temp_c: None,
         inference_backend: output.inference_backend,
+        cached_prompt_tokens,
     };
 
     wipe(&mut result);
