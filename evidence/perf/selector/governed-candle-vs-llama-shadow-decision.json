@@ -1,15 +1,15 @@
 {
   "actuals_binding": {
     "consequence": "an UNBOUND actual can order this decision's shadow ranking but cannot rule on the prior claim, and cannot make this receipt BOUND",
-    "status": "UNBOUND",
+    "status": "BOUND",
     "why": "the weakest binding_status across the measured rows this comparison ranks on; the receipt's own producer identity names who ran the arithmetic, not who produced the timings"
   },
-  "binding_status": "UNBOUND",
+  "binding_status": "BOUND",
   "cells": {
     "candle-metal-minilm-embed": {
-      "actual_latency_ms_per_unit": 0.21875,
+      "actual_latency_ms_per_unit": 3.0256119375,
       "actual_physical_cost_usd_per_unit": 0.0060625,
-      "actual_units_per_sec": 4571.428571428572,
+      "actual_units_per_sec": 330.5116520746805,
       "buyer_price_per_1k_units": 0.00625,
       "cell_id": "candle-metal-minilm-embed",
       "confidence": 1,
@@ -19,9 +19,9 @@
       "latency_regret_ms_per_unit": 0,
       "merc_true_net_reason": "true net contribution remains structurally unavailable while any named cost category is UNKNOWN or ASSUMED; a gross platform ledger residual must never be presented as net",
       "merc_true_net_unavailable": true,
-      "predicted_latency_ms_per_unit": 0.21875,
+      "predicted_latency_ms_per_unit": 3.0256119375,
       "predicted_physical_cost_usd_per_unit": 0.0060625,
-      "predicted_units_per_sec": 4571.428571428572,
+      "predicted_units_per_sec": 330.5116520746805,
       "quality_tier": "OUTCOME_EQUIVALENT",
       "reliability_multiplier": 1,
       "runtime_id": "candle_metal",
@@ -38,21 +38,21 @@
       "verification_pass_rate": 1
     },
     "llama-cpp-metal-minilm-embed": {
-      "actual_latency_ms_per_unit": 0.28125,
+      "actual_latency_ms_per_unit": 1.8643411250000002,
       "actual_physical_cost_usd_per_unit": 0.0060625,
-      "actual_units_per_sec": 3555.5555555555557,
+      "actual_units_per_sec": 536.3825249523474,
       "buyer_price_per_1k_units": 0.00625,
       "cell_id": "llama-cpp-metal-minilm-embed",
       "confidence": 1,
       "cost_regret_usd_per_unit": 0,
       "engine": "llama_cpp",
       "hw_class": "apple_silicon_ultra",
-      "latency_regret_ms_per_unit": -0.17708333333333334,
+      "latency_regret_ms_per_unit": -0.423573535714286,
       "merc_true_net_reason": "true net contribution remains structurally unavailable while any named cost category is UNKNOWN or ASSUMED; a gross platform ledger residual must never be presented as net",
       "merc_true_net_unavailable": true,
-      "predicted_latency_ms_per_unit": 0.10416666666666666,
+      "predicted_latency_ms_per_unit": 1.4407675892857141,
       "predicted_physical_cost_usd_per_unit": 0.0060625,
-      "predicted_units_per_sec": 9600,
+      "predicted_units_per_sec": 694.0744693568291,
       "quality_tier": "OUTCOME_EQUIVALENT",
       "reliability_multiplier": 1,
       "runtime_id": "llama_cpp_metal",
@@ -88,13 +88,13 @@
     "does not authorise a promotion receipt; that is a separate governed act"
   ],
   "host_load": {
-    "captured_at": "2026-08-04T07:33:12.025442Z",
+    "captured_at": "2026-08-04T07:43:56.579558Z",
     "goos_goarch": "darwin/arm64",
     "hw_class": "apple_silicon_ultra",
     "load_average": [
-      5.72,
-      5.95,
-      5.9
+      5.12,
+      5.92,
+      6.08
     ],
     "note": "host is not perfectly quiet; absolute sub-ms deltas are host-noise-adjacent"
   },
@@ -102,22 +102,22 @@
   "job_type": "embed",
   "kind": "governed_cell_comparison_and_shadow_decision",
   "latency_comparison": {
-    "absolute_delta_ms_per_unit": 0.0625,
-    "candle_actual_ms_per_unit": 0.21875,
-    "llama_actual_ms_per_unit": 0.28125,
-    "rank_by": "p50 median_ms_per_unit from MeasuredCellCost (chain tasks); p95/p99 require a wider cohort and are not invented here",
-    "ratio_llama_over_candle": 1.2857142857142858,
-    "scale_note": "absolute delta is sub-millisecond; contrast with prefix work measuring ~−410 ms prefill at p50/p95 — that is the scale at which a latency claim is worth making",
-    "throughput_ratio_candle_over_llama": 1.2857142857142858
+    "absolute_delta_ms_per_unit": -1.1612708124999997,
+    "candle_actual_ms_per_unit": 3.0256119375,
+    "llama_actual_ms_per_unit": 1.8643411250000002,
+    "rank_by": "p50 median_ms_per_unit from MeasuredCellCost; p95/p99 live in the parity receipt and are not re-derived here",
+    "ratio_llama_over_candle": 0.6161864652545185,
+    "scale_note": "absolute delta 1.1613 ms per unit is real and reproducible, and is still 353x smaller than the ~410 ms prefill saving the prefix work measured; engine choice on this contract matters and is not where the large latency lives",
+    "throughput_ratio_candle_over_llama": 0.6161864652545185
   },
   "limitations": [
     "One host, one hardware class (apple_silicon_ultra); not a fleet claim.",
     "Host load is recorded because the machine is not perfectly quiet.",
     "Energy partial uses ASSUMED watts and defaulted electricity.",
     "Storage, egress, utilization, refund risk remain unknown.",
-    "Sub-millisecond absolute latency deltas must not be led by ratio alone."
+    "A latency ratio is never the headline; the absolute delta is stated first."
   ],
-  "measured_at": "2026-08-04T07:33:12.025576Z",
+  "measured_at": "2026-08-04T07:43:56.579643Z",
   "model_contract": {
     "job_type": "embed",
     "model_id": "all-minilm-l6-v2",
@@ -130,12 +130,38 @@
     "note": "this is the prediction under verification; only a BOUND actual is authoritative over it",
     "ratio": 2.1,
     "statement": "prior measurement put llama.cpp ahead by ~2.1× throughput (lower bound 1.5×) on Metal embed",
-    "status": "UNRESOLVED_UNBOUND_ACTUALS"
+    "status": "CONFIRMED_ABOVE_LOWER_BOUND_1.5X_BELOW_2.1X"
+  },
+  "producer_identity": {
+    "source_commit": {
+      "value": "f7918dfef03b525db7af15cf2b397f7925d5af3c"
+    },
+    "build_digest": {
+      "value": "ed0954c8c27a005f8dce79a535d6773edca6c1819509bc62026f1b70a9ce0e56"
+    },
+    "model_artifact_digest": {
+      "na": "no model weights in this measurement"
+    },
+    "image_digest": {
+      "na": "no container image in this measurement"
+    },
+    "harness_revision": {
+      "value": "control/runtime_governed_comparison_test.go"
+    },
+    "corpus_digest": {
+      "na": "no external corpus in this measurement"
+    },
+    "exact_config": {
+      "value": "governed embed comparison candle vs llama.cpp + one shadow decision; predictedFromPrior=true"
+    },
+    "raw_samples": {
+      "value": "actuals from a BOUND cell-cost measurement"
+    }
   },
   "projections": {
     "candle-metal-minilm-embed": {
-      "admission_expected_supplier_usd_hr": 99.77142857142859,
-      "admission_units_per_sec": 4571.428571428572,
+      "admission_expected_supplier_usd_hr": 7.213416806529903,
+      "admission_units_per_sec": 330.5116520746805,
       "buyer_price_per_1k_units": 0.00625,
       "cell_id": "candle-metal-minilm-embed",
       "confidence": 1,
@@ -149,11 +175,11 @@
       ],
       "duration_cancels_from_supplier_entitlement": true,
       "energy_usd_per_unit_partial": {
-        "basis": "65.0 W (ASSUMED) × 0.000219s/unit × $0.15/kWh; PARTIAL energy only — not full verified-outcome cost; package boundary and electricity are not a metered invoice",
+        "basis": "65.0 W (ASSUMED) × 0.003026s/unit × $0.15/kWh; PARTIAL energy only — not full verified-outcome cost; package boundary and electricity are not a metered invoice",
         "knowledge": "ASSUMED",
-        "money_usd": 5.924479166666666e-10,
+        "money_usd": 8.1943656640625e-9,
         "name": "energy_usd_per_unit_partial",
-        "non_money": 0.01421875,
+        "non_money": 0.1966647759375,
         "non_money_unit": "joules_per_unit",
         "source": "ASSUMED by control/pricing.go: whole-package sustained draw for apple_silicon_ultra under inference-shaped load. GPU-alone prefill-shaped work on this host was observed near 131.69 W (more than twice this constant) but is not a bound MEASURED receipt; the constant remains ASSUMED and known understated until remeasured + control/pricing.go:defaultElectricityUSDPerKWh"
       },
@@ -169,8 +195,8 @@
       "hw_class": "apple_silicon_ultra",
       "kind": "runtime_cell_economics_projection",
       "measured": true,
-      "measured_units_per_sec": 4571.428571428572,
-      "median_ms_per_unit": 0.21875,
+      "measured_units_per_sec": 330.5116520746805,
+      "median_ms_per_unit": 3.0256119375,
       "merc_true_net_contribution": {
         "unavailable": {
           "blocking_categories": [
@@ -204,7 +230,7 @@
       "reliability_multiplier": 1,
       "retry_rate": 0,
       "runtime_id": "candle_metal",
-      "samples": 20,
+      "samples": 40,
       "schema_version": 1,
       "storage_and_transfer": {
         "basis": "CostSchedule publishes defaulted rates with provenance, but rates without bytes are not a cost",
@@ -214,11 +240,11 @@
       },
       "supplier_entitlement_policy": "exact_units_price_share_duration_cancelled",
       "supplier_usd_per_unit": 0.0060625,
-      "terminal_attempts": 20,
+      "terminal_attempts": 40,
       "terminal_delivered_rate": 1,
       "terminal_fails": 0,
       "tier": "batch",
-      "units": 640,
+      "units": 320,
       "unknown_components": [
         "storage",
         "egress",
@@ -235,14 +261,14 @@
       },
       "verification_fails": 0,
       "verification_pass_rate": 1,
-      "verification_samples": 20,
+      "verification_samples": 40,
       "verified_outcome_basis": "supplier_usd_per_unit × (1+retry_rate) / verification_pass_rate / terminal_delivered_rate; supplier_usd_per_unit is catalogue units×price×share (duration cancelled)",
       "verified_outcome_ok": true,
       "verified_outcome_usd_per_unit": 0.0060625
     },
     "llama-cpp-metal-minilm-embed": {
-      "admission_expected_supplier_usd_hr": 77.6,
-      "admission_units_per_sec": 3555.5555555555557,
+      "admission_expected_supplier_usd_hr": 11.706548607084981,
+      "admission_units_per_sec": 536.3825249523474,
       "buyer_price_per_1k_units": 0.00625,
       "cell_id": "llama-cpp-metal-minilm-embed",
       "confidence": 1,
@@ -256,11 +282,11 @@
       ],
       "duration_cancels_from_supplier_entitlement": true,
       "energy_usd_per_unit_partial": {
-        "basis": "65.0 W (ASSUMED) × 0.000281s/unit × $0.15/kWh; PARTIAL energy only — not full verified-outcome cost; package boundary and electricity are not a metered invoice",
+        "basis": "65.0 W (ASSUMED) × 0.001864s/unit × $0.15/kWh; PARTIAL energy only — not full verified-outcome cost; package boundary and electricity are not a metered invoice",
         "knowledge": "ASSUMED",
-        "money_usd": 7.617187499999998e-10,
+        "money_usd": 5.0492572135416674e-9,
         "name": "energy_usd_per_unit_partial",
-        "non_money": 0.01828125,
+        "non_money": 0.12118217312500001,
         "non_money_unit": "joules_per_unit",
         "source": "ASSUMED by control/pricing.go: whole-package sustained draw for apple_silicon_ultra under inference-shaped load. GPU-alone prefill-shaped work on this host was observed near 131.69 W (more than twice this constant) but is not a bound MEASURED receipt; the constant remains ASSUMED and known understated until remeasured + control/pricing.go:defaultElectricityUSDPerKWh"
       },
@@ -276,8 +302,8 @@
       "hw_class": "apple_silicon_ultra",
       "kind": "runtime_cell_economics_projection",
       "measured": true,
-      "measured_units_per_sec": 3555.5555555555557,
-      "median_ms_per_unit": 0.28125,
+      "measured_units_per_sec": 536.3825249523474,
+      "median_ms_per_unit": 1.8643411250000002,
       "merc_true_net_contribution": {
         "unavailable": {
           "blocking_categories": [
@@ -311,7 +337,7 @@
       "reliability_multiplier": 1,
       "retry_rate": 0,
       "runtime_id": "llama_cpp_metal",
-      "samples": 20,
+      "samples": 40,
       "schema_version": 1,
       "storage_and_transfer": {
         "basis": "CostSchedule publishes defaulted rates with provenance, but rates without bytes are not a cost",
@@ -321,11 +347,11 @@
       },
       "supplier_entitlement_policy": "exact_units_price_share_duration_cancelled",
       "supplier_usd_per_unit": 0.0060625,
-      "terminal_attempts": 20,
+      "terminal_attempts": 40,
       "terminal_delivered_rate": 1,
       "terminal_fails": 0,
       "tier": "batch",
-      "units": 640,
+      "units": 320,
       "unknown_components": [
         "storage",
         "egress",
@@ -342,7 +368,7 @@
       },
       "verification_fails": 0,
       "verification_pass_rate": 1,
-      "verification_samples": 20,
+      "verification_samples": 40,
       "verified_outcome_basis": "supplier_usd_per_unit × (1+retry_rate) / verification_pass_rate / terminal_delivered_rate; supplier_usd_per_unit is catalogue units×price×share (duration cancelled)",
       "verified_outcome_ok": true,
       "verified_outcome_usd_per_unit": 0.0060625
@@ -357,21 +383,21 @@
   },
   "shadow_selector_decision": {
     "actual_basis": "MORE_THROUGHPUT_AT_EQUAL_PRICE",
-    "actual_winner": "candle-metal-minilm-embed",
-    "authority_digest": "401da9ec43d56c9b3f3e5514d3618705817bb935527bb416b5250a89f5eb11ca",
+    "actual_winner": "llama-cpp-metal-minilm-embed",
+    "authority_digest": "dbdedb15312524cb1507d41f35a509eb29a60ef2fa2ca994b3d2408a74c21d2c",
     "confidence": 1,
     "cost_hw_class": "apple_silicon_ultra",
     "cost_regret_usd_per_unit": 0,
     "deciding_term": "MORE_THROUGHPUT_AT_EQUAL_PRICE",
-    "diverged": false,
+    "diverged": true,
     "eligible_cells": [
       {
         "cell_id": "candle-metal-minilm-embed",
         "cost_measured": true,
-        "cost_samples": 20,
+        "cost_samples": 40,
         "engine": "candle",
         "lifecycle": "ACTIVE",
-        "median_ms_per_unit": 0.21875,
+        "median_ms_per_unit": 3.0256119375,
         "model_kind": "hf",
         "quality_tier": "OUTCOME_EQUIVALENT",
         "routable": true,
@@ -382,10 +408,10 @@
       {
         "cell_id": "llama-cpp-metal-minilm-embed",
         "cost_measured": true,
-        "cost_samples": 20,
+        "cost_samples": 40,
         "engine": "llama_cpp",
         "lifecycle": "REAL_RUNTIME_PROVEN",
-        "median_ms_per_unit": 0.28125,
+        "median_ms_per_unit": 1.8643411250000002,
         "model_kind": "gguf",
         "quality_tier": "OUTCOME_EQUIVALENT",
         "routable": false,
@@ -400,7 +426,7 @@
         "reason": "no paid CUDA arm with matched model identity and quality on this host; selector consumer structure exists but CUDA remains ineligible"
       }
     ],
-    "latency_regret_ms_per_unit": -0.17708333333333334,
+    "latency_regret_ms_per_unit": -0.423573535714286,
     "predicted_basis": "MORE_THROUGHPUT_AT_EQUAL_PRICE",
     "predicted_winner": "llama-cpp-metal-minilm-embed",
     "promoted": false,
@@ -409,8 +435,7 @@
     "routing_changed": false,
     "runtime_matrix_sha256": "0814f833d415287f45502cd6d42455958c279ff8e43514adccf00169742f0b9c",
     "selection_policy": "eligibility-and-measured-cost-v2",
-    "selection_reason": "verified-outcome cost ties by catalogue arithmetic; cell candle-metal-minilm-embed wins on more throughput at equal price — not a cost win",
-    "shadow_cell_id": "candle-metal-minilm-embed"
-  },
-  "unbound_reason": "actuals read from an UNBOUND cohort artifact (evidence/perf/selector/paired-cohort-embed.json, missing source_commit, build_digest, model_artifact_digest, image_digest, corpus_digest, exact_config, raw_samples); the decision structure is exercised, the engine ordering is not established"
+    "selection_reason": "verified-outcome cost ties by catalogue arithmetic; cell llama-cpp-metal-minilm-embed wins on more throughput at equal price — not a cost win",
+    "shadow_cell_id": "llama-cpp-metal-minilm-embed"
+  }
 }
