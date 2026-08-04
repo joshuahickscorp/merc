@@ -883,6 +883,7 @@ mod tests {
             result_sha256: "ab".repeat(32),
             hardware_temp_c: Some(54.5),
             inference_backend: "candle".to_string(),
+            cached_prompt_tokens: Some(2618),
         };
 
         client
