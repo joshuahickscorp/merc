@@ -14,6 +14,7 @@ Generated from measured probes, not from intent. Re-derive with:
 ```bash
 set -a; . ./.env; set +a
 bash scripts/stripe-sandbox.sh check
+# private-canary.json is an unbound capability inventory, not a bound canary receipt
 python3 -c "import json;d=json.load(open('evidence/canary/private-canary.json'));print(d['lanes_canary_proven'],'/',d['lanes_total'])"
 ```
 

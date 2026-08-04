@@ -227,8 +227,8 @@ python3 scripts/validate-readiness.py
 | External subprocessor deletion | Evidence that a real subprocessor deletion (or approved absence) was exercised — not only the local technical DSAR/tombstone path | Privacy + engineering |
 
 Technical DSAR/deletion/tombstone already scores 3/4 via
-`evidence/autonomous/technical-exercises.json`. The remaining point is the
-**qualified** half.
+`evidence/autonomous/technical-exercises.json` (unbound local technical receipt;
+not qualified external evidence). The remaining point is the **qualified** half.
 
 Bundle: `approvals.privacy` and `exercises.dsar_export_deletion` (qualified) in
 the governance approval bundle. Context: `docs/PRIVACY_DATA_GOVERNANCE.md`,
@@ -388,8 +388,8 @@ python3 scripts/validate-readiness.py
 | Contacts | Non-placeholder contacts in the support/incident runbook where the release gates require them | Same |
 
 Local technical tabletops already score 1/2 via
-`evidence/autonomous/technical-exercises.json`
-(`qualified_human_tabletop: NOT EXECUTED` in the derived technical receipt).
+`evidence/autonomous/technical-exercises.json` (unbound local technical receipt;
+`qualified_human_tabletop: NOT EXECUTED` in the derived technical receipt).
 
 ### Commands / gate
 

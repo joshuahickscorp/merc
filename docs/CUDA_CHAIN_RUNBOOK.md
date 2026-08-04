@@ -1,8 +1,10 @@
 # The CUDA chain: what is left, and exactly how to run it
 
-Step 15's harness is proven with real money — a governed pod provisioned, served,
-tore down verifiably and produced an admissible spend receipt for $0.01
-(`evidence/runpod/spend-rr7b6uwmivaolh.json`). What has never run is the **Merc
+Step 15's harness once ran with real money — a governed pod provisioned, served,
+tore down verifiably for $0.01 — but the spend receipt
+(`evidence/runpod/spend-rr7b6uwmivaolh.json`) is now **WITHDRAWN** (mutable image
+tag; runtime unidentifiable) and citable by nothing. The paid experiment happened;
+the receipt backs no cost or performance claim. What has never run is the **Merc
 chain** through CUDA: a buyer request that produces a quote, a routed execution on
 an NVIDIA host, verification, a buyer charge, a supplier payable, a positive Merc
 contribution and a receipt.
@@ -125,8 +127,9 @@ COLD. An offer that stops heartbeating drains.
 It proves the CUDA lane end to end for ONE profile on ONE host, which is what
 promotes `vllm_cuda` off `DRAFT` and gives the RuntimeSelector a second hardware
 class to compare on — currently every measurement in
-`evidence/perf/selector/paired-cohort-embed.json` is `apple_silicon_ultra`, and the
-cost model refuses to compare across hardware classes for good reason.
+`evidence/perf/selector/paired-cohort-embed.json` (unbound cohort receipt) is
+`apple_silicon_ultra`, and the cost model refuses to compare across hardware
+classes for good reason.
 
 It does not prove TP>1, does not prove a fleet, and does not close `P1-STRIPE-TEST`
 or any of the other seven external gates.
