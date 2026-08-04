@@ -49,7 +49,7 @@
           "id": "SEC-P2-EGRESS",
           "severity": "P2",
           "status": "OPEN",
-          "evidence": "macapp/ComputeExchangeAgent/merc-agent.sb"
+          "evidence": "clients/macapp/ComputeExchangeAgent/merc-agent.sb"
         }
       ],
       "repair": [

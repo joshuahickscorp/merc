@@ -441,7 +441,7 @@ func loadEnrollmentWireFixture(t *testing.T) enrollmentWireFixture {
 	if !ok {
 		t.Fatal("locate enrollment test source")
 	}
-	raw, err := os.ReadFile(filepath.Join(filepath.Dir(source), "..", "proto", "enrollment-wire-fixtures.json"))
+	raw, err := os.ReadFile(filepath.Join(filepath.Dir(source), "..", "clients", "proto", "enrollment-wire-fixtures.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

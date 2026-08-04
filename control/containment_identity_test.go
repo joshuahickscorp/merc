@@ -18,8 +18,8 @@ func TestSeatbeltProfileIsDenyDefaultWithoutWildcardEgress(t *testing.T) {
 	// Parse the profile file so a future edit that re-opens allow-default or
 	// *:443 fails the suite.
 	candidates := []string{
-		filepath.Join("..", "macapp", "ComputeExchangeAgent", "merc-agent.sb"),
-		filepath.Join("macapp", "ComputeExchangeAgent", "merc-agent.sb"),
+		filepath.Join("..", "clients", "macapp", "ComputeExchangeAgent", "merc-agent.sb"),
+		filepath.Join("clients", "macapp", "ComputeExchangeAgent", "merc-agent.sb"),
 	}
 	var body []byte
 	var err error

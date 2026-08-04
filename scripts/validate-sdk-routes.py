@@ -14,8 +14,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 API = ROOT / "control" / "api.go"
-PY_SDK = ROOT / "sdk" / "python" / "merc" / "__init__.py"
-TS_SDK = ROOT / "sdk" / "typescript" / "src" / "index.ts"
+PY_SDK = ROOT / "clients" / "sdk" / "python" / "merc" / "__init__.py"
+TS_SDK = ROOT / "clients" / "sdk" / "typescript" / "src" / "index.ts"
 
 ROUTE_RE = re.compile(r'mux\.Handle(?:Func)?\("((?:GET|POST|DELETE) [^"]+)"')
 # Python: self._request("GET", "/v1/...") or f"/v1/jobs/{job_id}"

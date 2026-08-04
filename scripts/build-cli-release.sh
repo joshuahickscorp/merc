@@ -44,7 +44,7 @@ for target in "${TARGETS[@]}"; do
     CGO_ENABLED=0 GOOS="$GOOS" GOARCH="$GOARCH" \
       go build -trimpath -ldflags "$LDFLAGS" -o "$STAGE/cx" .
   )
-  cp "$ROOT/cli/README.md" "$STAGE/README.md"
+  cp "$ROOT/clients/cli/README.md" "$STAGE/README.md"
   tar -C "$WORK" -czf "$OUT/$NAME.tar.gz" "$NAME"
   SHA="$(checksum "$OUT/$NAME.tar.gz")"
   SIZE="$(wc -c <"$OUT/$NAME.tar.gz" | tr -d ' ')"

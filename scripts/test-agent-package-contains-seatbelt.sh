@@ -6,7 +6,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PKG="$ROOT/scripts/package-agent-binary.sh"
-PROFILE="$ROOT/macapp/ComputeExchangeAgent/merc-agent.sb"
+PROFILE="$ROOT/clients/clients/macapp/ComputeExchangeAgent/merc-agent.sb"
 INSTALL="$ROOT/scripts/install.sh"
 
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
@@ -53,7 +53,7 @@ mkdir -p "$EXTRACT"
 tar -C "$EXTRACT" -xzf "$ARCHIVE"
 STAGED="$(find "$EXTRACT" -type f -name merc-agent.sb | head -n 1)"
 [[ -n "$STAGED" ]] || fail "extracted archive has no merc-agent.sb"
-cmp -s "$PROFILE" "$STAGED" || fail "staged merc-agent.sb differs from macapp/ComputeExchangeAgent/merc-agent.sb"
+cmp -s "$PROFILE" "$STAGED" || fail "staged merc-agent.sb differs from clients/macapp/ComputeExchangeAgent/merc-agent.sb"
 
 # Linux packages must not be forced to carry the macOS seatbelt file (different
 # containment story), but must still succeed.
