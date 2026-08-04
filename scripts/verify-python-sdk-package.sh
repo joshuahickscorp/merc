@@ -8,7 +8,7 @@ trap 'rm -rf "$WORK"' EXIT
 
 "$PYTHON_BIN" -m venv "$WORK/venv"
 PY="$WORK/venv/bin/python"
-cp -R "$ROOT/sdk/python" "$WORK/sdk-python"
+cp -R "$ROOT/clients/sdk/python" "$WORK/sdk-python"
 rm -rf \
   "$WORK/sdk-python/build" \
   "$WORK/sdk-python/dist" \
@@ -20,10 +20,10 @@ find "$WORK/sdk-python" -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete
 "$PY" -m pip check
 
 cd "$WORK"
-MERC_SDK_SOURCE_ROOTS="$ROOT/sdk/python:$WORK/sdk-python" \
+MERC_SDK_SOURCE_ROOTS="$ROOT/clients/sdk/python:$WORK/sdk-python" \
   PYTHONNOUSERSITE=1 \
   "$PY" -m unittest discover \
-    -s "$ROOT/sdk/python/tests" \
+    -s "$ROOT/clients/sdk/python/tests" \
     -p 'test_*.py' \
     -v
 

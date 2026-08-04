@@ -9,9 +9,9 @@ Components located in a directory that contains its own LICENSE file are
 licensed under the terms stated in that file. As of this writing those are:
 
     agent/          Apache License 2.0   supplier agent (distributed to suppliers)
-    sdk/python/     Apache License 2.0   buyer client library
-    cli/            Apache License 2.0   buyer command-line client
-    proto/          Apache License 2.0   wire schemas and runtime matrix
+    clients/sdk/python/     Apache License 2.0   buyer client library
+    clients/cli/     Apache License 2.0   buyer command-line client
+    clients/proto/   Apache License 2.0   wire schemas and runtime matrix
 
 All other source code and materials in this repository -- including but not
 limited to the control plane, scheduler, verification, settlement, pricing and

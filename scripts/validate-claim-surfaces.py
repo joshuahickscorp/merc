@@ -74,7 +74,7 @@ def main() -> None:
 
     # macOS menu bar / Package.swift
     mac = checks.get("macos_menu_bar_requires_package_swift") or {}
-    required = mac.get("required_path", "macapp/MercAgent/Package.swift")
+    required = mac.get("required_path", "clients/macapp/MercAgent/Package.swift")
     has_package = (ROOT / required).is_file()
     for relative in mac.get("surfaces", ["web/index.html"]):
         path = ROOT / relative

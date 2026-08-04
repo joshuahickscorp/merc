@@ -272,7 +272,7 @@ if [ "$SKIP_LIVE" != "1" ]; then
   SANDBOX_ROOT="$(mktemp -d /private/tmp/cx-prove.XXXXXX)"
   mkdir -p "$SANDBOX_ROOT/home/.merc"
   cp "$CARGO_TARGET_DIR/release/merc-agent" "$SANDBOX_ROOT/merc-agent"
-  cp macapp/ComputeExchangeAgent/merc-agent.sb "$SANDBOX_ROOT/merc-agent.sb"
+  cp clients/macapp/ComputeExchangeAgent/merc-agent.sb "$SANDBOX_ROOT/merc-agent.sb"
   AGENT_BIN="$SANDBOX_ROOT/merc-agent"
   MODEL_CACHE="${MERC_MODEL_CACHE:-${HF_HOME:-$HOME/.cache/huggingface}}"
 

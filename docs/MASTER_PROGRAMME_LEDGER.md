@@ -44,7 +44,7 @@ the tree. Not from prose.
 | 14 | Token-budget batching by traffic class | `PARTIAL` | `control/batch_policy.go` declares `INTERACTIVE` and `BATCH` only |
 | 15 | Governed vLLM CUDA cell through RunPod | direct runtime `REAL_RUNTIME_PROVEN`, Merc chain `ABSENT` | `evidence/runpod/cuda-first-proof.json` (unbound provider proof; not Merc-chain canary); `vllm_cuda` r3 cell is `DRAFT`. **The stored RunPod key returns HTTP 401** |
 | 16 | Rendering IR and distributed render proof | `ABSENT` | no render adapter, no rendering IR, no Blender path in the tree |
-| 17 | Merc Agent one-click experience | `PARTIAL` | `agent/` builds and benchmarks, `macapp/` exists; limit/schedule surface unverified |
+| 17 | Merc Agent one-click experience | `PARTIAL` | `agent/` builds and benchmarks, `clients/macapp/` exists; limit/schedule surface unverified |
 | 18 | Workload IR and project detectors | `ABSENT` | `WorkloadDecision` is an admission artefact, not a project graph |
 | 19 | Pool, replica and local-cluster modes | `ABSENT` as declared modes | placement authority exists; no mode taxonomy, no refusal rule |
 | 20 | Level-B security and operational closure | `EXTERNALLY_BLOCKED` | `ops/go-no-go.json`: 0 P0, 8 open P1, 7 of them external |

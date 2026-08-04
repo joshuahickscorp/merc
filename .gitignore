@@ -8,16 +8,16 @@ control/control
 control/**/*.test
 *.out
 coverage.out
-# Swift (macapp/) build products
-macapp/.build/
-# Assembled .app bundle from macapp/assemble-app.sh (build output; rebuilt on demand)
+# Swift (clients/macapp/) build products
+clients/macapp/.build/
+# Assembled .app bundle from clients/macapp/assemble-app.sh (build output; rebuilt on demand)
 build/
-# Python (sdk/) caches
+# Python (clients/sdk/) caches
 **/__pycache__/
 *.pyc
-sdk/python/build/
-sdk/python/dist/
-sdk/python/*.egg-info/
+clients/sdk/python/build/
+clients/sdk/python/dist/
+clients/sdk/python/*.egg-info/
 
 # ── Local run artifacts ──────────────────────────────────────────────────────
 # scripts/prove-local.sh writes its throwaway Postgres/MinIO data, logs, and the
@@ -126,8 +126,8 @@ tmp/
 *.rej
 
 # TypeScript SDK build output and local deps
-sdk/typescript/dist/
-sdk/typescript/node_modules/
+clients/sdk/typescript/dist/
+clients/sdk/typescript/node_modules/
 
 # Local canary credentials. Never commit.
 .merc-credentials.env

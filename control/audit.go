@@ -206,11 +206,18 @@ func subsystemOf(path string) string {
 		default:
 			return "control"
 		}
-	case "proto":
-		return "contract"
-	case "sdk":
-		return "sdk"
-	case "web", "macapp", "logo":
+	case "clients":
+		switch {
+		case strings.HasPrefix(path, "clients/proto/") || path == "clients/proto":
+			return "contract"
+		case strings.HasPrefix(path, "clients/sdk/") || path == "clients/sdk":
+			return "sdk"
+		case strings.HasPrefix(path, "clients/macapp/") || path == "clients/macapp":
+			return "interface"
+		default:
+			return "ops"
+		}
+	case "web", "logo":
 		return "interface"
 	case "docs":
 		return "documentation"

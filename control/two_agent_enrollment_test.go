@@ -65,7 +65,7 @@ func agentBinaryPath(t *testing.T) string {
 // ships it inside the .app; a test running from the source tree has to name it.
 func repoSandboxProfilePath(t *testing.T) string {
 	t.Helper()
-	path, err := filepath.Abs(filepath.Join("..", "macapp", "ComputeExchangeAgent", "merc-agent.sb"))
+	path, err := filepath.Abs(filepath.Join("..", "clients", "macapp", "ComputeExchangeAgent", "merc-agent.sb"))
 	if err != nil {
 		t.Fatal(err)
 	}

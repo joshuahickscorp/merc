@@ -5,7 +5,7 @@ Project license status
 ----------------------
 
 This repository is licensed component-by-component; see LICENSE at the root.
-Components with their own LICENSE file (agent/, sdk/python/, cli/, proto/) are
+Components with their own LICENSE file (agent/, clients/sdk/python/, clients/cli/, clients/proto/) are
 Apache-2.0 and are intended for distribution. Everything else -- the control
 plane, scheduler, verification and settlement -- is proprietary.
 
