@@ -64,7 +64,7 @@ func NewServer(store *Store, storage *Storage, verifier *Verifier, payout Payout
 		// delays every interactive request by up to its class window (2 ms
 		// today) against a c=1 TTFT overhead budget of 15 ms — so it spends
 		// real latency that the parity gate measures. The throughput it buys
-		// back is currently INCONCLUSIVE_NULL: the sweep in
+		// back is currently INCONCLUSIVE_NULL: the unbound sweep in
 		// evidence/perf/arrival-batching.json ran against a stand-in, not a
 		// continuous-batching engine, and a stand-in cannot show that win.
 		//

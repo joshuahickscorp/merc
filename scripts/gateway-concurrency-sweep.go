@@ -6,6 +6,7 @@
 //
 //	go run scripts/gateway-concurrency-sweep.go \
 //	  -out evidence/perf/gateway-concurrency-sweep.json
+//	  (default out is unbound stand-in harness evidence; not a bound engine receipt)
 //
 // Compares DefaultTransport (MaxIdleConnsPerHost=2) against the transport
 // newRealtimeHTTPClient builds. Also records TCP connections opened to the
@@ -396,6 +397,7 @@ func gitHEAD() string {
 }
 
 func main() {
+	// Default path is unbound stand-in harness evidence, not a bound engine receipt.
 	outPath := flag.String("out", "evidence/perf/gateway-concurrency-sweep.json", "receipt path")
 	tokenCount := flag.Int("tokens", 16, "stand-in completion tokens per request")
 	interTokenMS := flag.Int("inter-token-ms", 3, "stand-in inter-token delay (ms)")
