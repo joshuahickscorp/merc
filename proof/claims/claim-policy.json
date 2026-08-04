@@ -24,7 +24,7 @@
     "docs/RUNBOOKS.md",
     "docs/RUNTIME_MATRIX.md",
     "docs/SECURITY.md",
-    "monitoring/README.md",
+    "ops/monitoring/README.md",
     "scripts/install.sh",
     "web/admin.html",
     "web/index.html"

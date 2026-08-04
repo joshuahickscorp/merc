@@ -18,7 +18,7 @@ import subprocess
 import sys
 
 # Paths and identifiers that belong to VisionMCP. Matching is on path segments so
-# an unrelated file that merely contains the substring (monitoring/grafana/
+# an unrelated file that merely contains the substring (ops/monitoring/grafana/
 # proVISIONing/) does not trip it.
 FOREIGN_SEGMENTS = re.compile(
     r"(^|/)(visionmcp|VisionMCP|vision-mcp|blender-vision-mcp|ocular)(/|$|[-_.])",
