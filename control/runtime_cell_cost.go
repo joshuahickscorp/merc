@@ -100,6 +100,20 @@ type MeasuredCellCost struct {
 	// with the number instead of being recomputed by every reader.
 	Measured bool `json:"measured"`
 
+	// SourceBinding is the binding_status of the artifact these numbers came
+	// out of, carried on the row rather than looked up by each reader.
+	//
+	// A measurement is only as bound as the evidence it reads. A derived
+	// receipt stamps BOUND from the identity of the harness that ran the
+	// projection, which says who did the arithmetic and nothing at all about
+	// who produced the inputs. That gap is how an UNBOUND cohort file --
+	// missing source_commit, build_digest, model_artifact_digest and
+	// raw_samples, so unable to name which binary produced its timings -- can
+	// end up backing a BOUND-stamped verdict about which engine is faster.
+	//
+	// Empty means the caller did not say, which is treated as not bound.
+	SourceBinding string `json:"source_binding,omitempty"`
+
 	// Unknown names every cost component this measurement does not contain. It
 	// is part of the value, not documentation: a reader comparing two cells has
 	// to know what the comparison leaves out.

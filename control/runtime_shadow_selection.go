@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"sort"
 )
 
@@ -62,9 +63,31 @@ const (
 	// hardware class — which is the honest answer, not a degraded one.
 	selectionBasisLadder = "LIFECYCLE_LADDER"
 	// selectionBasisMeasuredCost ranks on measured expected verified-outcome cost
-	// per unit, on one hardware class.
+	// per unit, on one hardware class. Used only when one candidate is strictly
+	// cheaper; a cost-tie must not claim this basis (see throughput / tie bases).
 	selectionBasisMeasuredCost = "MEASURED_VERIFIED_OUTCOME_COST"
+	// selectionBasisThroughputEqualPrice ranks on measured median latency when
+	// verified-outcome costs tie. Capacity gain at equal price — not a saving.
+	// Same name as the promotion throughput basis so a receipt cannot re-label
+	// a capacity win as a cost win by switching vocabularies.
+	selectionBasisThroughputEqualPrice = "MORE_THROUGHPUT_AT_EQUAL_PRICE"
+	// selectionBasisTieNoDecision records that every term the projection binds
+	// also tied (cost, reliability, and latency within noise). Preferring the
+	// routed cell is not a judgement and must not be scored as one.
+	selectionBasisTieNoDecision = "TIE_NO_DECISION"
 )
+
+// latencyNoiseFraction is how close two median_ms_per_unit values must be to
+// count as a latency tie for shadow selection. Two percent: tighter than the
+// 25% promotion throughput margin (which refuses a weak capacity claim) and
+// wide enough that sub-millisecond timer jitter on a shared host is not a
+// manufactured winner. Absolute floor is applied in latenciesTie.
+const latencyNoiseFraction = 0.02
+
+// latencyNoiseAbsMs is the absolute floor under which two latencies are treated
+// as equal regardless of ratio. A 0.01 ms gap on a 0.2 ms unit is a large ratio
+// and a meaningless absolute difference on this host.
+const latencyNoiseAbsMs = 0.01
 
 // shadowCandidate is one cell the selector considered.
 type shadowCandidate struct {
@@ -86,6 +109,10 @@ type shadowCandidate struct {
 	CostMeasured       bool    `json:"cost_measured"`
 	CostSamples        int     `json:"cost_samples,omitempty"`
 	VerifiedUSDPerUnit float64 `json:"verified_outcome_usd_per_unit,omitempty"`
+	// MedianMsPerUnit is carried when measured so a cost-tie can be re-ranked on
+	// throughput without a second query. Zero with CostMeasured=true is a real
+	// measurement (free-as-in-instant), not an absent field — so no omitempty.
+	MedianMsPerUnit float64 `json:"median_ms_per_unit,omitempty"`
 }
 
 // shadowExclusion is a cell that was rejected, and why in the cell's own terms.
@@ -265,8 +292,20 @@ func planShadowSelection(decision WorkloadDecision) (ShadowSelection, error) {
 	return out, nil
 }
 
-// rankedByMeasuredCost re-decides the shadow cell on measured cost when — and
-// only when — two or more candidates have a measured cost on one hardware class.
+// rankedByMeasuredCost re-decides the shadow cell on measured economics when —
+// and only when — two or more candidates have a measured cost on one hardware
+// class.
+//
+// Ranking honesty:
+//
+//   - When one cell is strictly cheaper on verified-outcome USD/unit, the basis
+//     is MEASURED_VERIFIED_OUTCOME_COST and that cell wins.
+//   - When costs tie (the common case for same-model catalogue pricing, where
+//     duration cancels from supplier entitlement), the basis is
+//     MORE_THROUGHPUT_AT_EQUAL_PRICE and the faster cell wins. Claiming a cost
+//     win on a cost-tie is false.
+//   - When cost and latency both tie, the basis is TIE_NO_DECISION and the
+//     routed cell is kept. A correct refusal to choose is a real result.
 //
 // Separate from planShadowSelection, and applied after it, for two reasons. The
 // planner stays pure and database-free, so it remains testable without Postgres;
@@ -298,15 +337,129 @@ func (s ShadowSelection) rankedByMeasuredCost(
 		s.Considered[i].CostMeasured = true
 		s.Considered[i].CostSamples = costs[candidate.CellID].Samples
 		s.Considered[i].VerifiedUSDPerUnit = cost
+		s.Considered[i].MedianMsPerUnit = costs[candidate.CellID].MedianMsPerUnit
 	}
-	ranked := rankCellsByMeasuredCost(costs, cells)
-	if len(ranked) < 2 {
+	decision := decideMeasuredShadow(costs, cells, s.RoutedCellID)
+	if decision.Basis == "" || decision.Winner == "" {
 		return s
 	}
-	s.ShadowCellID = ranked[0]
-	s.SelectionBasis = selectionBasisMeasuredCost
+	s.ShadowCellID = decision.Winner
+	s.SelectionBasis = decision.Basis
 	s.CostHWClass = hw
 	return s
+}
+
+// measuredShadowDecision is the pure outcome of ranking measured candidates.
+type measuredShadowDecision struct {
+	Winner string
+	Basis  string
+}
+
+// decideMeasuredShadow picks a winner and names the term that actually decided.
+// Pure: no DB, no admission side effects. Used by rankedByMeasuredCost and by
+// the governed comparison receipt so both surfaces cannot disagree on basis.
+func decideMeasuredShadow(
+	costs map[string]MeasuredCellCost, cells []string, routed string,
+) measuredShadowDecision {
+	ranked := rankCellsByMeasuredCost(costs, cells)
+	if len(ranked) < 2 {
+		return measuredShadowDecision{}
+	}
+	// Strict cost win: cheapest is meaningfully below second.
+	bestCost, okBest := measuredCost(costs, ranked[0])
+	secondCost, okSecond := measuredCost(costs, ranked[1])
+	if !okBest || !okSecond {
+		return measuredShadowDecision{}
+	}
+	if !costsTieUSD(bestCost, secondCost) {
+		return measuredShadowDecision{Winner: ranked[0], Basis: selectionBasisMeasuredCost}
+	}
+	// Cost tie. Rank on throughput (lower median ms/unit is more capacity).
+	byLatency := rankCellsByMeasuredLatency(costs, ranked)
+	if len(byLatency) < 2 {
+		// Only one cell has a positive latency sample among the cost-tied set.
+		if len(byLatency) == 1 {
+			return measuredShadowDecision{
+				Winner: byLatency[0], Basis: selectionBasisThroughputEqualPrice,
+			}
+		}
+		return measuredShadowDecision{Winner: routed, Basis: selectionBasisTieNoDecision}
+	}
+	fast := costs[byLatency[0]].MedianMsPerUnit
+	slow := costs[byLatency[1]].MedianMsPerUnit
+	if latenciesTie(fast, slow) {
+		// Every ranking term tied. Prefer the routed cell so sort order does not
+		// manufacture a divergence, and name the refusal.
+		winner := routed
+		if winner == "" {
+			winner = byLatency[0]
+		}
+		// If the routed cell is not among the measured set, keep the first.
+		if _, ok := costs[winner]; !ok || !costs[winner].Measured {
+			winner = byLatency[0]
+		}
+		return measuredShadowDecision{Winner: winner, Basis: selectionBasisTieNoDecision}
+	}
+	return measuredShadowDecision{
+		Winner: byLatency[0], Basis: selectionBasisThroughputEqualPrice,
+	}
+}
+
+// costsTieUSD reports whether two verified-outcome costs are the same number
+// for selection purposes (same band as promotion pricesTieWithin).
+func costsTieUSD(a, b float64) bool {
+	if a <= 0 || b <= 0 {
+		return false
+	}
+	mid := (a + b) / 2
+	if mid <= 0 {
+		return false
+	}
+	return math.Abs(a-b)/mid < pricesTieWithin
+}
+
+// latenciesTie reports whether two median_ms_per_unit values are indistinguishable
+// for selection. Absolute floor first: sub-centisecond gaps on this host are
+// noise, not capacity.
+func latenciesTie(a, b float64) bool {
+	if a <= 0 || b <= 0 {
+		return true // unusable latency is not a ranking signal
+	}
+	if math.Abs(a-b) < latencyNoiseAbsMs {
+		return true
+	}
+	mid := (a + b) / 2
+	return math.Abs(a-b)/mid < latencyNoiseFraction
+}
+
+// rankCellsByMeasuredLatency orders measured cells fastest-first (lowest
+// median_ms_per_unit). Unmeasured or non-positive latency cells are dropped.
+// Ties break toward the cell id so the order is stable; callers that want the
+// routed cell to win a true latency-tie use decideMeasuredShadow instead.
+func rankCellsByMeasuredLatency(costs map[string]MeasuredCellCost, cells []string) []string {
+	type scored struct {
+		cell string
+		ms   float64
+	}
+	var ranked []scored
+	for _, cell := range cells {
+		c, ok := costs[cell]
+		if !ok || !c.Measured || c.MedianMsPerUnit <= 0 {
+			continue
+		}
+		ranked = append(ranked, scored{cell, c.MedianMsPerUnit})
+	}
+	sort.Slice(ranked, func(i, j int) bool {
+		if ranked[i].ms != ranked[j].ms {
+			return ranked[i].ms < ranked[j].ms
+		}
+		return ranked[i].cell < ranked[j].cell
+	})
+	out := make([]string, 0, len(ranked))
+	for _, r := range ranked {
+		out = append(out, r.cell)
+	}
+	return out
 }
 
 // chooseShadowCell applies the ranking available before any cell was measured.
