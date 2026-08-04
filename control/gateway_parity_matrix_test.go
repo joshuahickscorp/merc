@@ -372,7 +372,7 @@ func TestGatewayParityMatrixSelfTestAcrossDimensions(t *testing.T) {
 			{Concurrency: 1, PromptTokens: 32, OutputTokens: 128, State: "warm"},
 			{Concurrency: 8, PromptTokens: 32, OutputTokens: 16, State: "warm"},
 		},
-		Rationale: "unit self-test across dimensions (thinner ladder than live CLI)",
+		Rationale:      "unit self-test across dimensions (thinner ladder than live CLI)",
 		DroppedSummary: []string{"unit test subset"},
 		DroppedAxes: []GatewayParityDroppedAxis{
 			{Axis: "traffic_class", Values: gatewayParityFullTrafficClasses, Reason: TrafficClassNonActingNote},
@@ -467,7 +467,7 @@ func TestGatewayParityMatrixSelfTestAcrossDimensions(t *testing.T) {
 			contract,
 			GatewayParityNetworkTopology{
 				ClientHost: "local-test-process", ControlPlane: "none (self-test)",
-				Engine: "dual stand-in (merc=+5ms fixed; engine cost scales with body)",
+				Engine:         "dual stand-in (merc=+5ms fixed; engine cost scales with body)",
 				ClientToEngine: "loopback", Notes: "HARNESS_SELF_TEST matrix dimensions",
 			},
 			sealSel, sealCells, DefaultGatewayParityBudget(), hostStart, CaptureGatewayParityHostLoad(),
@@ -542,14 +542,14 @@ func TestGatewayParityShapeInsightPrefersShortRequests(t *testing.T) {
 	shortAbs, longAbs := 5.0, 5.0
 	cells := []GatewayParityCellResult{
 		{
-			Spec: GatewayParityCellSpec{Concurrency: 1, PromptTokens: 32, OutputTokens: 16, State: "warm"},
+			Spec:   GatewayParityCellSpec{Concurrency: 1, PromptTokens: 32, OutputTokens: 16, State: "warm"},
 			Status: "MEASURED", Gate: GatewayParityGateLevel{Verdict: "PASS"},
 			RelativeOverhead: &shortRel, AbsoluteOverheadMs: &shortAbs,
 			Merc:   GatewayParityLevelResult{TTFTp95: &GatewayParityPointEstimate{Point: 10}},
 			Direct: GatewayParityLevelResult{TTFTp95: &GatewayParityPointEstimate{Point: 5}},
 		},
 		{
-			Spec: GatewayParityCellSpec{Concurrency: 1, PromptTokens: 8192, OutputTokens: 16, State: "warm"},
+			Spec:   GatewayParityCellSpec{Concurrency: 1, PromptTokens: 8192, OutputTokens: 16, State: "warm"},
 			Status: "MEASURED", Gate: GatewayParityGateLevel{Verdict: "PASS"},
 			RelativeOverhead: &longRel, AbsoluteOverheadMs: &longAbs,
 			Merc:   GatewayParityLevelResult{TTFTp95: &GatewayParityPointEstimate{Point: 55}},

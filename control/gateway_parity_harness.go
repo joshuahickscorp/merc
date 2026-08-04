@@ -344,13 +344,13 @@ type GatewayParityRawSample struct {
 	// CachedTokens is usage.prompt_tokens_details.cached_tokens when the engine
 	// reports it (vLLM OpenAI shape). Zero with CachedTokensReported=false means
 	// no signal — never treat a missing field as a hit or a miss.
-	CachedTokens         int  `json:"cached_tokens,omitempty"`
-	CachedTokensReported bool `json:"cached_tokens_reported,omitempty"`
-	FinishReason         string    `json:"finish_reason,omitempty"`
-	RequestBytes         int       `json:"request_bytes"`
-	ResponseBytes        int       `json:"response_bytes"`
-	RequestBodySHA       string    `json:"request_body_sha256,omitempty"`
-	UpstreamBodySHA      string    `json:"upstream_body_sha256,omitempty"` // merc arm when capture on
+	CachedTokens         int    `json:"cached_tokens,omitempty"`
+	CachedTokensReported bool   `json:"cached_tokens_reported,omitempty"`
+	FinishReason         string `json:"finish_reason,omitempty"`
+	RequestBytes         int    `json:"request_bytes"`
+	ResponseBytes        int    `json:"response_bytes"`
+	RequestBodySHA       string `json:"request_body_sha256,omitempty"`
+	UpstreamBodySHA      string `json:"upstream_body_sha256,omitempty"` // merc arm when capture on
 	// ContractID is X-Merc-Contract-ID from the merc control plane. A bare-SHA
 	// stand-in that only echoes X-Merc-Upstream-Body-SHA256 does not set this.
 	ContractID string `json:"merc_contract_id,omitempty"`
@@ -770,11 +770,11 @@ type GatewayParityReceipt struct {
 	// Matrix dimensions (prompt × output × state × concurrency). Empty Cells
 	// means legacy single-shape mode. When non-empty, each cell is gated and
 	// refused independently; a claim about one cell is not a claim about another.
-	FullAxes       *GatewayParityAxes        `json:"full_axes,omitempty"`
-	SelectedCells  []GatewayParityCellSpec   `json:"selected_cells,omitempty"`
+	FullAxes       *GatewayParityAxes         `json:"full_axes,omitempty"`
+	SelectedCells  []GatewayParityCellSpec    `json:"selected_cells,omitempty"`
 	DroppedAxes    []GatewayParityDroppedAxis `json:"dropped_axes,omitempty"`
-	DroppedSummary []string                  `json:"dropped_summary,omitempty"`
-	Cells          []GatewayParityCellResult `json:"cells,omitempty"`
+	DroppedSummary []string                   `json:"dropped_summary,omitempty"`
+	Cells          []GatewayParityCellResult  `json:"cells,omitempty"`
 	// TrafficClassNote records why traffic class is not an axis of this harness.
 	TrafficClassNote string `json:"traffic_class_note,omitempty"`
 	// StateDefinitions are the precise operational meanings of cold/warm/prefix-hit.

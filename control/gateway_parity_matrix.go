@@ -111,10 +111,10 @@ type GatewayParityDroppedAxis struct {
 
 // GatewayParityMatrixSelection is the chosen subset plus machine-readable drops.
 type GatewayParityMatrixSelection struct {
-	Selected       []GatewayParityCellSpec   `json:"selected"`
+	Selected       []GatewayParityCellSpec    `json:"selected"`
 	DroppedAxes    []GatewayParityDroppedAxis `json:"dropped_axes"`
-	DroppedSummary []string                  `json:"dropped_summary"`
-	Rationale      string                    `json:"rationale"`
+	DroppedSummary []string                   `json:"dropped_summary"`
+	Rationale      string                     `json:"rationale"`
 }
 
 // DefaultGatewayParityMatrixSelection returns a defensible ~16–20 cell subset.
@@ -317,9 +317,9 @@ type GatewayParityStateProof struct {
 
 // GatewayParityCellResult is one independently gated matrix cell.
 type GatewayParityCellResult struct {
-	Spec   GatewayParityCellSpec  `json:"spec"`
-	Status string                 `json:"status"` // MEASURED | REFUSED
-	Reason string                 `json:"reason,omitempty"`
+	Spec   GatewayParityCellSpec `json:"spec"`
+	Status string                `json:"status"` // MEASURED | REFUSED
+	Reason string                `json:"reason,omitempty"`
 	// Gate is the interval verdict for THIS cell alone. A PASS here is not a
 	// PASS for any other cell.
 	Gate             GatewayParityGateLevel        `json:"gate"`
@@ -1158,9 +1158,9 @@ func ComputeGatewayParityShapeInsight(cells []GatewayParityCellResult) *GatewayP
 	haveBest, haveWorst := false, false
 	for _, cell := range cells {
 		note := GatewayParityShapeCellNote{
-			Cell:             cell.Spec.Key(),
-			Status:           cell.Status,
-			GateVerdict:      cell.Gate.Verdict,
+			Cell:               cell.Spec.Key(),
+			Status:             cell.Status,
+			GateVerdict:        cell.Gate.Verdict,
 			AbsoluteOverheadMs: cell.AbsoluteOverheadMs,
 			RelativeOverhead:   cell.RelativeOverhead,
 		}

@@ -72,21 +72,21 @@ func TestAuthorizeTailCharacterize(t *testing.T) {
 	maxConnsLevels := []int32{20, 64} // 20 = production defaultDBMaxConns
 
 	type cell struct {
-		MaxConns            int32                  `json:"max_conns"`
-		Concurrency         int                    `json:"concurrency"`
-		Samples             int                    `json:"samples"`
-		PoolAcquireMs       segmentLatencySummary  `json:"pool_acquire_ms"`
-		PoolStatDelta       map[string]any         `json:"pool_stat_delta"`
-		LookupColdMs        segmentLatencySummary  `json:"lookup_api_key_cold_ms"`
-		LookupWarmMs        segmentLatencySummary  `json:"lookup_api_key_warm_ms"`
-		AuthSameBuyer1Off   segmentLatencySummary  `json:"authorize_same_buyer_1offer_ms"`
-		AuthMultiBuyer1Off  segmentLatencySummary  `json:"authorize_multi_buyer_1offer_ms"`
-		AuthMultiBuyerNOff  segmentLatencySummary  `json:"authorize_multi_buyer_Noffer_ms"`
-		AuthOK              map[string]int         `json:"authorize_ok"`
-		AuthFail            map[string]int         `json:"authorize_fail"`
-		SlowSampleNotes     []string               `json:"slow_sample_notes,omitempty"`
-		CauseHint           string                 `json:"cause_hint"`
-		PgWaitEventsDuring  map[string]int         `json:"pg_wait_events_during_auth,omitempty"`
+		MaxConns           int32                 `json:"max_conns"`
+		Concurrency        int                   `json:"concurrency"`
+		Samples            int                   `json:"samples"`
+		PoolAcquireMs      segmentLatencySummary `json:"pool_acquire_ms"`
+		PoolStatDelta      map[string]any        `json:"pool_stat_delta"`
+		LookupColdMs       segmentLatencySummary `json:"lookup_api_key_cold_ms"`
+		LookupWarmMs       segmentLatencySummary `json:"lookup_api_key_warm_ms"`
+		AuthSameBuyer1Off  segmentLatencySummary `json:"authorize_same_buyer_1offer_ms"`
+		AuthMultiBuyer1Off segmentLatencySummary `json:"authorize_multi_buyer_1offer_ms"`
+		AuthMultiBuyerNOff segmentLatencySummary `json:"authorize_multi_buyer_Noffer_ms"`
+		AuthOK             map[string]int        `json:"authorize_ok"`
+		AuthFail           map[string]int        `json:"authorize_fail"`
+		SlowSampleNotes    []string              `json:"slow_sample_notes,omitempty"`
+		CauseHint          string                `json:"cause_hint"`
+		PgWaitEventsDuring map[string]int        `json:"pg_wait_events_during_auth,omitempty"`
 	}
 	var cells []cell
 
@@ -186,13 +186,13 @@ func TestAuthorizeTailCharacterize(t *testing.T) {
 			})
 			statAfter := pool.Stat()
 			poolDelta := map[string]any{
-				"empty_acquire_count_delta":     statAfter.EmptyAcquireCount() - statBefore.EmptyAcquireCount(),
-				"empty_acquire_wait_ms_delta":   (statAfter.EmptyAcquireWaitTime() - statBefore.EmptyAcquireWaitTime()).Seconds() * 1000,
-				"canceled_acquire_count_delta":  statAfter.CanceledAcquireCount() - statBefore.CanceledAcquireCount(),
-				"max_conns":                     statAfter.MaxConns(),
-				"acquired_conns_end":            statAfter.AcquiredConns(),
-				"idle_conns_end":                statAfter.IdleConns(),
-				"total_conns_end":               statAfter.TotalConns(),
+				"empty_acquire_count_delta":    statAfter.EmptyAcquireCount() - statBefore.EmptyAcquireCount(),
+				"empty_acquire_wait_ms_delta":  (statAfter.EmptyAcquireWaitTime() - statBefore.EmptyAcquireWaitTime()).Seconds() * 1000,
+				"canceled_acquire_count_delta": statAfter.CanceledAcquireCount() - statBefore.CanceledAcquireCount(),
+				"max_conns":                    statAfter.MaxConns(),
+				"acquired_conns_end":           statAfter.AcquiredConns(),
+				"idle_conns_end":               statAfter.IdleConns(),
+				"total_conns_end":              statAfter.TotalConns(),
 			}
 
 			// --- LookupAPIKey cold (cache cleared every sample; serial clear then concurrent) ---
@@ -515,11 +515,11 @@ func TestAuthorizeTailCharacterize(t *testing.T) {
 
 	// Cross-cell cause synthesis from the factorial.
 	var (
-		poolStarvationCells  int
-		offerRowLockCells    int
-		rank1PileOnCells     int
-		buyerFundingCells    int
-		lookupColdTailCells  int
+		poolStarvationCells int
+		offerRowLockCells   int
+		rank1PileOnCells    int
+		buyerFundingCells   int
+		lookupColdTailCells int
 	)
 	for _, cl := range cells {
 		h := cl.CauseHint
@@ -540,11 +540,11 @@ func TestAuthorizeTailCharacterize(t *testing.T) {
 		}
 	}
 	synthesis := map[string]any{
-		"pool_starvation_cells":   poolStarvationCells,
-		"offer_row_lock_cells":    offerRowLockCells,
-		"rank1_pile_on_cells":     rank1PileOnCells,
+		"pool_starvation_cells":    poolStarvationCells,
+		"offer_row_lock_cells":     offerRowLockCells,
+		"rank1_pile_on_cells":      rank1PileOnCells,
 		"buyer_funding_lock_cells": buyerFundingCells,
-		"lookup_cold_tail_cells":  lookupColdTailCells,
+		"lookup_cold_tail_cells":   lookupColdTailCells,
 		"how_to_read": "" +
 			"If pool_acquire_ms.p95 rises when max_conns=20 and c=32 but not at max_conns=64, " +
 			"the tail is connection-pool starvation. " +
@@ -792,4 +792,3 @@ func classifyTailCause(
 	}
 	return strings.Join(parts, " | ")
 }
-

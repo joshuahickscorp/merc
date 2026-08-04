@@ -281,6 +281,7 @@ func (s *Store) RevokeSession(ctx context.Context, rawToken string) error {
 //   - EXECUTING realtime maxima, excluding contracts already held by an ACTIVE
 //     envelope (counting both would double-hold)
 //   - ACTIVE envelope residual (cap − spent), ceil-nanos → micros → USD
+//
 // When an envelope leaves ACTIVE, the exclusion falls off and still-EXECUTING
 // work is held by the contract term again — the same expiry fallback the other
 // two rails apply.
