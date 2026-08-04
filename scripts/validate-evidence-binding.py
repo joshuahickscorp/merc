@@ -36,7 +36,9 @@ from lib.evidence_binding import (  # noqa: E402
     binding_sidecar_path,
     incomplete_fields,
     is_job_contract_payload,
+    lfs_pointer_oid,
     missing_fields_for_object,
+    read_evidence_text,
     validate_git_object,
     EvidenceBindingError,
 )
@@ -119,8 +121,8 @@ def _load_sidecar(path: Path, rel: str) -> dict[str, Any] | None:
     if not side.is_file():
         return None
     try:
-        binding = json.loads(side.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+        binding = json.loads(read_evidence_text(side, ROOT))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, EvidenceBindingError) as exc:
         fail(f"{side.relative_to(ROOT)}: unreadable: {exc}")
         return None
     if not isinstance(binding, dict):
@@ -139,9 +141,19 @@ def load_binding_for(path: Path) -> tuple[dict[str, Any] | None, dict[str, Any] 
     rel = path.relative_to(ROOT).as_posix()
     if path.suffix == ".json":
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
-            fail(f"{rel}: unreadable JSON: {exc}")
+            # Resolve git-lfs pointers to content (or fail with oid context).
+            # When only the pointer is available and content cannot be fetched,
+            # lfs_pointer_oid still identifies the payload by sha256.
+            data = json.loads(read_evidence_text(path, ROOT))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, EvidenceBindingError) as exc:
+            oid = lfs_pointer_oid(path)
+            if oid:
+                fail(
+                    f"{rel}: unreadable JSON after LFS resolve "
+                    f"(oid sha256:{oid}): {exc}"
+                )
+            else:
+                fail(f"{rel}: unreadable JSON: {exc}")
             return None, None
         if isinstance(data, dict):
             if is_job_contract_payload(data):
