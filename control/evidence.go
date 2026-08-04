@@ -21,7 +21,7 @@ const sourceFingerprintSchema = 1
 
 func isGeneratedReleaseEvidencePath(path string) bool {
 	switch path {
-	case "census/CODEBASE_CENSUS.json", "census/CODEBASE_CENSUS.md",
+	case "evidence/census/CODEBASE_CENSUS.json", "evidence/census/CODEBASE_CENSUS.md",
 		"ops/readiness.json", "ops/go-no-go.json", "RELEASE_READINESS.md":
 		return true
 	default:

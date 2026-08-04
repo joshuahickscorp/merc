@@ -168,7 +168,7 @@ license-register:
 	python3 scripts/validate-license-register.py
 
 audit:
-	cd control && go run . audit codebase --out census
+	cd control && go run . audit codebase --out evidence/census
 
 loc: audit
 

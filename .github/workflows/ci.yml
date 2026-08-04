@@ -67,7 +67,7 @@ jobs:
         run: |
           cd control
           time go build -trimpath -o "$RUNNER_TEMP/merc" .
-          go run . audit codebase --out census
+          go run . audit codebase --out evidence/census
       - name: Package control evidence
         run: |
           mkdir -p "$RUNNER_TEMP/control-evidence"
