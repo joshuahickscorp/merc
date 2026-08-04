@@ -9,7 +9,7 @@ The package is not published on PyPI yet. Install it from a repository checkout:
 ```bash
 python3 -m venv .venv
 . .venv/bin/activate
-python -m pip install ./sdk/python
+python -m pip install ./clients/sdk/python
 python -c "from merc import Client; print(Client.__module__)"
 ```
 
@@ -40,7 +40,7 @@ server's error body  -  failures are surfaced, never swallowed.
 
 ```bash
 bash scripts/verify-python-sdk-package.sh
-python3 sdk/python/example.py --smoke  # builds + prints a request; no server
+python3 clients/sdk/python/example.py --smoke  # builds + prints a request; no server
 ```
 
 The verification script installs into a throwaway virtual environment, changes

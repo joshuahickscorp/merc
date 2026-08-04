@@ -6,7 +6,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PKG="$ROOT/scripts/package-agent-binary.sh"
-PROFILE="$ROOT/clients/clients/macapp/ComputeExchangeAgent/merc-agent.sb"
+PROFILE="$ROOT/clients/macapp/ComputeExchangeAgent/merc-agent.sb"
 INSTALL="$ROOT/scripts/install.sh"
 
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }

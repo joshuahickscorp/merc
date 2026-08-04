@@ -8,7 +8,7 @@
 > of them. Five are now flatly contradicted by the code: the public price board
 > (`pricing/board.json`, `control/pricing_governance.go`, `web/prices.html`),
 > image generation (`control/image_generation.go`), LoRA eval payment
-> (`control/lora_settlement.go`), the TypeScript SDK (`sdk/typescript/`, builds
+> (`control/lora_settlement.go`), the TypeScript SDK (`clients/sdk/typescript/`, builds
 > to `dist/`), and single-host multi-GPU (`control/multi_gpu_admission.go`) are
 > all marked "Not implemented" or validation-only here while the tree has
 > `IMPLEMENTED`-or-better evidence for each.
