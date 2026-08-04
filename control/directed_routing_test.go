@@ -5,11 +5,10 @@ import (
 	"testing"
 )
 
-const (
-	candleEmbedCell = "candle-metal-minilm-embed"
-	llamaEmbedCell  = "llama-cpp-metal-minilm-embed"
-	llamaInferCell  = "llama-cpp-metal-llama1-infer"
-)
+// candleEmbedCell and llamaEmbedCell moved to runtime_governed_comparison.go:
+// the comparison builder names them, and a non-test file cannot reference a
+// constant declared only under a test build.
+const llamaInferCell = "llama-cpp-metal-llama1-infer"
 
 func embedSubmit() jobSubmit {
 	return jobSubmit{
