@@ -1,0 +1,6 @@
+[lfs]
+	# Tier-1 (pointers, non-LFS source) is always in a plain clone.
+	# Tier-2 sample bodies under evidence/perf are opt-in:
+	#   git lfs pull --include="evidence/perf/**"
+	# CI sets lfs: true on actions/checkout so gates see full content.
+	fetchexclude = evidence/perf/**
