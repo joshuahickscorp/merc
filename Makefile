@@ -129,7 +129,7 @@ ci:
 	bash scripts/test-technical-exercises-fail-closed.sh
 	bash scripts/test-canary-gaming.sh
 	bash scripts/test-canary-scenario-receipt.sh
-	bash scripts/test-canary-database-corroboration.sh
+	MERC_TEST_DATABASE_URL="$(MERC_TEST_DATABASE_URL)" bash scripts/test-canary-database-corroboration.sh
 	MERC_TEST_DATABASE_URL="$(MERC_TEST_DATABASE_URL)" bash scripts/test-agent-restart-authority.sh
 	bash scripts/test-go-closure-soak-authority.sh
 	python3 scripts/test-go-closure-evidence-chain.py
@@ -137,6 +137,13 @@ ci:
 	bash scripts/test-governance-approval-authority.sh
 	MERC_STRIPE_WEBHOOK_VERSION_SELF_TEST=1 bash scripts/stripe-webhooks.sh
 	bash scripts/test-stripe-sandbox-contract.sh
+	# Placement readiness is allowed to print NOT_READY (exit 1) when preconditions
+	# are honestly unsatisfied. The pin test asserts the gate refuses correctly and
+	# cannot be env-bypassed; it does not require the programme to be READY.
+	python3 scripts/validate-placement-readiness.py; \
+	  pr_status=$$?; \
+	  if [ $$pr_status -ne 0 ] && [ $$pr_status -ne 1 ]; then exit $$pr_status; fi
+	python3 scripts/test-placement-readiness.py
 	node scripts/site-build.mjs
 	node scripts/test-supplier-console.mjs
 	bash -n scripts/*.sh
