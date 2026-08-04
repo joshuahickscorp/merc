@@ -148,6 +148,16 @@ MUTATIONS=(
 "runtime_shadow_selection.go|latency noise floor stops guarding the ratio band|s#return math.Abs(a-b)/mid < latencyNoiseFraction#return math.Abs(a-b)/mid < 0.0#"
 "runtime_governed_comparison.go|an unbound actual is allowed to rule on a prior claim|s#if !strings.EqualFold(binding, BindingBound) {#if false {#"
 "runtime_governed_comparison.go|provenance takes the strongest input instead of the weakest|s#if !strings.EqualFold(c.SourceBinding, BindingBound) {#if strings.EqualFold(c.SourceBinding, BindingBound) {#"
+
+# --- Frozen runtime-cell economics at admission (2026-08-04) ---
+# The block that binds a cell's accepted economics beside the money. Its whole
+# value is that it reproduces exactly and never reports an unknown as zero.
+"runtime_cell_admission_binding.go|frozen per-unit cost is taken from the raw accumulator|s#f.ExpectedVOCostUSDPerUnit = f.ExpectedVOCostUSD / f.BillableUnits#f.ExpectedVOCostUSDPerUnit = total / f.BillableUnits#"
+"runtime_cell_admission_binding.go|half a combined cost is reported as the whole cost|s#return unknownCost(name + \" is unknown because a component is unknown: \" + c.Basis)#continue#"
+"runtime_cell_admission_binding.go|true net is published while a category is unknown|s#if len(out.UnknownCategories) == 0 {#if true {#"
+"runtime_cell_admission_binding.go|a partial cost sum calls itself complete|s#f.ExpectedVOCostStatus = frozenVOCostPartial#f.ExpectedVOCostStatus = frozenVOCostComplete#"
+"runtime_cell_admission_binding.go|the block stops naming its own unknown terms|s#out.UnknownCategories = append(out.UnknownCategories, out.unknownNamedTerms()...)##"
+"pricing_decision.go|a legacy decision is retro-fitted with a frozen cell block|s#if decision.RuntimeCell == nil {#if false {#"
 )
 
 caught=0
