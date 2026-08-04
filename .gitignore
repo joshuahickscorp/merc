@@ -136,6 +136,10 @@ clients/sdk/typescript/node_modules/
 # RunPod intent markers (create-before-bind trail) and other local pod state.
 # Not evidence: a crash mid-run must not leave a committed spend claim.
 .merc-runpod/
+
+# Operator credential material under .tools — untracked; remains on disk for
+# local use. Still present in git history and requires rotation by the operator.
+.tools/rp-key/
 # Wildcard so a newly introduced .merc-*.env cannot be committed by accident.
 .merc-*.env
 .merc-release/
