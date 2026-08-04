@@ -268,13 +268,13 @@ func TestLiveServingMatrixCandleVsLlamaCppMetal(t *testing.T) {
 
 	hw := hostHardwareIdentity("metal")
 	scope := map[string]any{
-		"hardware_device":    "metal",
-		"model_digest":       pinnedGGUFDigest,
-		"precision":          "Q4_K_M",
-		"entered_engines":    []string{"candle", "llama_cpp"},
-		"comparable":         true,
-		"benchmark_status":   art.BenchmarkStatus,
-		"comparability_rule": "RefuseMismatchedModelDigests: one identical model sha256 across arms",
+		"hardware_device":     "metal",
+		"model_digest":        pinnedGGUFDigest,
+		"precision":           "Q4_K_M",
+		"entered_engines":     []string{"candle", "llama_cpp"},
+		"comparable":          true,
+		"benchmark_status":    art.BenchmarkStatus,
+		"comparability_rule":  "RefuseMismatchedModelDigests: one identical model sha256 across arms",
 		"comparison_refusals": []string{},
 		"not_entered": []map[string]any{
 			{"engine": "vllm", "reason": "CUDA-only; no NVIDIA device on this host"},
@@ -296,29 +296,29 @@ func TestLiveServingMatrixCandleVsLlamaCppMetal(t *testing.T) {
 			},
 		},
 		"selection_verdict": map[string]any{
-			"winner":                         winner,
-			"primary_metric":                 ranking.PrimaryMetric,
+			"winner":                          winner,
+			"primary_metric":                  ranking.PrimaryMetric,
 			"primary_ratio_winner_over_loser": ranking.PrimaryRatio,
-			"primary_ratio_lower_bound":      ranking.PrimaryRatioLowerBound,
-			"margin_survives_confidence":     marginSurvivesCI,
-			"all_paired_points_agree":        ranking.AllPairedPointsAgree,
-			"selects_by_measured_contract":   true,
-			"basis":                          ranking.Basis,
+			"primary_ratio_lower_bound":       ranking.PrimaryRatioLowerBound,
+			"margin_survives_confidence":      marginSurvivesCI,
+			"all_paired_points_agree":         ranking.AllPairedPointsAgree,
+			"selects_by_measured_contract":    true,
+			"basis":                           ranking.Basis,
 		},
 		"mlx_honest_entry": mlxHonestEntryArgument(),
 	}
 
 	type envelope struct {
 		ServingMatrixArtifact
-		Kind             string         `json:"kind"`
-		ProfileRevision  string         `json:"profile_revision"`
-		Hardware         map[string]any `json:"hardware"`
-		TournamentScope  map[string]any `json:"tournament_scope"`
-		Ranking          engineRanking  `json:"ranking"`
-		EnergyByEngine   map[string]armEnergyWindow `json:"energy_by_engine"`
-		DoesNotProve     []string       `json:"does_not_prove"`
-		Supersedes       []map[string]any `json:"supersedes"`
-		ProcessRSSBytes  map[string]int64 `json:"process_rss_bytes,omitempty"`
+		Kind            string                     `json:"kind"`
+		ProfileRevision string                     `json:"profile_revision"`
+		Hardware        map[string]any             `json:"hardware"`
+		TournamentScope map[string]any             `json:"tournament_scope"`
+		Ranking         engineRanking              `json:"ranking"`
+		EnergyByEngine  map[string]armEnergyWindow `json:"energy_by_engine"`
+		DoesNotProve    []string                   `json:"does_not_prove"`
+		Supersedes      []map[string]any           `json:"supersedes"`
+		ProcessRSSBytes map[string]int64           `json:"process_rss_bytes,omitempty"`
 	}
 	out := envelope{
 		ServingMatrixArtifact: art,
@@ -402,19 +402,19 @@ func TestLiveServingMatrixCandleVsLlamaCppMetal(t *testing.T) {
 // ── ranking ───────────────────────────────────────────────────────────────
 
 type engineRanking struct {
-	Winner                  string             `json:"winner"`
-	Loser                   string             `json:"loser"`
-	PrimaryMetric           string             `json:"primary_metric"`
-	PrimaryRatio            float64            `json:"primary_ratio_winner_over_loser"`
-	PrimaryRatioLowerBound  float64            `json:"primary_ratio_lower_bound"`
-	AllPairedPointsAgree    bool               `json:"all_paired_points_agree"`
-	Basis                   string             `json:"basis"`
-	ByPoint                 []pointComparison  `json:"by_point"`
-	WarmC1Summary           map[string]any     `json:"warm_c1_summary"`
-	AggregateOutTokPerSec   map[string]float64 `json:"aggregate_out_tok_per_sec_mean"`
-	AggregateTTFTp50Ms      map[string]float64 `json:"aggregate_ttft_p50_ms_mean"`
-	AggregateTPOTMs         map[string]float64 `json:"aggregate_tpot_ms_mean"`
-	FailureCounts           map[string]int     `json:"failure_counts"`
+	Winner                 string             `json:"winner"`
+	Loser                  string             `json:"loser"`
+	PrimaryMetric          string             `json:"primary_metric"`
+	PrimaryRatio           float64            `json:"primary_ratio_winner_over_loser"`
+	PrimaryRatioLowerBound float64            `json:"primary_ratio_lower_bound"`
+	AllPairedPointsAgree   bool               `json:"all_paired_points_agree"`
+	Basis                  string             `json:"basis"`
+	ByPoint                []pointComparison  `json:"by_point"`
+	WarmC1Summary          map[string]any     `json:"warm_c1_summary"`
+	AggregateOutTokPerSec  map[string]float64 `json:"aggregate_out_tok_per_sec_mean"`
+	AggregateTTFTp50Ms     map[string]float64 `json:"aggregate_ttft_p50_ms_mean"`
+	AggregateTPOTMs        map[string]float64 `json:"aggregate_tpot_ms_mean"`
+	FailureCounts          map[string]int     `json:"failure_counts"`
 }
 
 type pointComparison struct {
@@ -622,17 +622,17 @@ func rankServingMatrixEngines(cells []ServingMatrixCellResult, arms []ServingMat
 // ── energy sampling via scripts/bench-harness.py IOReport path ────────────
 
 type armEnergyWindow struct {
-	Engine              string   `json:"engine"`
-	Available           bool     `json:"available"`
-	Reason              string   `json:"reason,omitempty"`
-	WindowS             float64  `json:"window_s,omitempty"`
-	EnergyJoules        float64  `json:"energy_joules,omitempty"`
-	CompletionTokens    int      `json:"completion_tokens,omitempty"`
-	JoulesPerToken      *float64 `json:"joules_per_token,omitempty"`
-	JoulesPerOutcome    *float64 `json:"joules_per_verified_outcome,omitempty"`
-	MeanWatts           float64  `json:"mean_watts,omitempty"`
-	Boundary            string   `json:"boundary,omitempty"`
-	AuthorityReference  string   `json:"authority_reference"`
+	Engine             string   `json:"engine"`
+	Available          bool     `json:"available"`
+	Reason             string   `json:"reason,omitempty"`
+	WindowS            float64  `json:"window_s,omitempty"`
+	EnergyJoules       float64  `json:"energy_joules,omitempty"`
+	CompletionTokens   int      `json:"completion_tokens,omitempty"`
+	JoulesPerToken     *float64 `json:"joules_per_token,omitempty"`
+	JoulesPerOutcome   *float64 `json:"joules_per_verified_outcome,omitempty"`
+	MeanWatts          float64  `json:"mean_watts,omitempty"`
+	Boundary           string   `json:"boundary,omitempty"`
+	AuthorityReference string   `json:"authority_reference"`
 }
 
 // measureOneArmEnergy samples unprivileged IOReport GPU Energy while driving
@@ -847,7 +847,7 @@ func boundAuthorityJoulesPerOutcome() float64 {
 
 func mlxHonestEntryArgument() map[string]any {
 	return map[string]any{
-		"status": "not_entered",
+		"status":              "not_entered",
 		"why_not_this_digest": "MLX cannot load the pinned GGUF artifact; its runtime expects MLX-format (or safetensors) weights, not GGUF.",
 		"what_it_would_take": []string{
 			"Convert the same upstream source weights (Llama-3.2-1B-Instruct, same revision/commit of the unquantized model that produced the GGUF) into an MLX 4-bit artifact via a documented, reproducible converter.",
@@ -867,15 +867,15 @@ func sealTournamentHostScopeR2(t *testing.T, art ServingMatrixArtifact, ranking 
 		t.Fatalf("commit: %v", err)
 	}
 	payload := map[string]any{
-		"schema_version":     1,
-		"kind":               "engine_tournament_host_scope",
-		"harness":            servingMatrixHarnessID,
-		"measured_at":        time.Now().UTC().Format(time.RFC3339),
-		"merc_source_commit": commit,
-		"benchmark_status":   "TWO_ENGINE_RANKED",
-		"comparable":         true,
+		"schema_version":      1,
+		"kind":                "engine_tournament_host_scope",
+		"harness":             servingMatrixHarnessID,
+		"measured_at":         time.Now().UTC().Format(time.RFC3339),
+		"merc_source_commit":  commit,
+		"benchmark_status":    "TWO_ENGINE_RANKED",
+		"comparable":          true,
 		"comparison_refusals": []string{},
-		"profile_revision":   "r2",
+		"profile_revision":    "r2",
 		"profiles": map[string]any{
 			"candle_metal":    map[string]any{"engine": "candle", "role": "entered_metal_http_shim", "model_digest": pinnedGGUFDigest},
 			"llama_cpp_metal": map[string]any{"engine": "llama_cpp", "role": "entered_metal_http", "model_digest": pinnedGGUFDigest},

@@ -17,8 +17,8 @@ func TestWaveBlockRecomputeLocalMetalReceipt(t *testing.T) {
 		t.Skipf("receipt not present: %v", err)
 	}
 	var rec struct {
-		Claimed []int                                 `json:"claimed_concurrency_levels"`
-		Levels  map[string]GatewayParityLevelResult   `json:"levels"`
+		Claimed []int                               `json:"claimed_concurrency_levels"`
+		Levels  map[string]GatewayParityLevelResult `json:"levels"`
 	}
 	if err := json.Unmarshal(b, &rec); err != nil {
 		t.Fatal(err)

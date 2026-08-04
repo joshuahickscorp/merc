@@ -28,10 +28,10 @@ import (
 // Authority validity values that refuse any dependent cell for ordinary routing.
 // Empty or "VALID" means the receipt still stands.
 const (
-	authorityValidityValid      = "VALID"
+	authorityValidityValid       = "VALID"
 	authorityValidityInvalidated = "INVALIDATED"
-	authorityValidityWithdrawn  = "WITHDRAWN"
-	authorityValiditySuperseded = "SUPERSEDED"
+	authorityValidityWithdrawn   = "WITHDRAWN"
+	authorityValiditySuperseded  = "SUPERSEDED"
 )
 
 // hexObjectName is the shape of a git object name we will even try to resolve.

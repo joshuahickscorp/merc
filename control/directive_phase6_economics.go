@@ -57,32 +57,32 @@ const (
 
 // Directive cost category names — stable wire identifiers matching the programme list.
 const (
-	dirCatActualDuration      = "actual_duration"
-	dirCatUtilization         = "utilization"
+	dirCatActualDuration       = "actual_duration"
+	dirCatUtilization          = "utilization"
 	dirCatProviderSupplierRate = "provider_supplier_rate"
-	dirCatStartupResidency    = "startup_and_residency"
-	dirCatVerification        = "verification"
-	dirCatRetries             = "retries"
-	dirCatStorageEgress       = "storage_and_egress"
-	dirCatPaymentAllocation   = "payment_allocation"
-	dirCatEnergy              = "energy"
-	dirCatRefundRisk          = "refund_risk"
+	dirCatStartupResidency     = "startup_and_residency"
+	dirCatVerification         = "verification"
+	dirCatRetries              = "retries"
+	dirCatStorageEgress        = "storage_and_egress"
+	dirCatPaymentAllocation    = "payment_allocation"
+	dirCatEnergy               = "energy"
+	dirCatRefundRisk           = "refund_risk"
 )
 
 // DirectiveCostCategory is one named physical-cost term with knowledge state.
 type DirectiveCostCategory struct {
-	Name             string                `json:"name"`
-	Knowledge        CostCategoryKnowledge `json:"knowledge"`
-	Source           string                `json:"source,omitempty"`
-	WouldRequire     string                `json:"would_require,omitempty"`
-	Notes            string                `json:"notes,omitempty"`
+	Name         string                `json:"name"`
+	Knowledge    CostCategoryKnowledge `json:"knowledge"`
+	Source       string                `json:"source,omitempty"`
+	WouldRequire string                `json:"would_require,omitempty"`
+	Notes        string                `json:"notes,omitempty"`
 	// MoneyNanos is set only when Knowledge is KNOWN or DEFAULTED and a
 	// money amount is attributed. Zero with Knowledge==KNOWN is valid when
 	// the term is a non-money base (e.g. duration) — see NonMoney.
 	MoneyNanos int64 `json:"money_nanos,omitempty"`
 	// NonMoney carries the measured non-money value (seconds, fraction, joules).
-	NonMoney      float64 `json:"non_money,omitempty"`
-	NonMoneyUnit  string  `json:"non_money_unit,omitempty"`
+	NonMoney     float64 `json:"non_money,omitempty"`
+	NonMoneyUnit string  `json:"non_money_unit,omitempty"`
 }
 
 // UnavailableQuantity is intentionally not a number.
@@ -111,11 +111,11 @@ func unavailable(kind, reason string, blocking []string) UnavailableQuantity {
 // KnownQuantity is a number with mandatory provenance. Source must cite a
 // bound receipt path or a governed constant with its file and name.
 type KnownQuantity struct {
-	Status    string  `json:"status"` // always "known"
-	Value     float64 `json:"value"`
-	Unit      string  `json:"unit"`
-	Source    string  `json:"source"`
-	Basis     string  `json:"basis"`
+	Status string  `json:"status"` // always "known"
+	Value  float64 `json:"value"`
+	Unit   string  `json:"unit"`
+	Source string  `json:"source"`
+	Basis  string  `json:"basis"`
 	// Knowledge qualifies the dollar conversion or measurement path when the
 	// number itself is derived (e.g. joules measured, electricity defaulted).
 	Knowledge CostCategoryKnowledge `json:"knowledge,omitempty"`
@@ -140,11 +140,11 @@ func knownQty(value float64, unit, source, basis string, k CostCategoryKnowledge
 // to miss in JSON; there is no TrueNet alias and no conversion method to
 // MercTrueNetContribution.
 type GrossPlatformLedgerRow struct {
-	Label      string `json:"label"` // always gross_platform_ledger_row_not_true_net
-	Nanos      int64  `json:"nanos"`
-	Currency   string `json:"currency"`
-	Source     string `json:"source"`
-	Basis      string `json:"basis"`
+	Label    string `json:"label"` // always gross_platform_ledger_row_not_true_net
+	Nanos    int64  `json:"nanos"`
+	Currency string `json:"currency"`
+	Source   string `json:"source"`
+	Basis    string `json:"basis"`
 	// Explicit refusal to be read as true net.
 	NotTrueNet string `json:"not_true_net"`
 }
@@ -252,11 +252,11 @@ type Phase6EconomicsReceipt struct {
 	// quoted as cost_per_verified_outcome.
 	EnergyUSDPerVerifiedOutcome *KnownQuantity `json:"energy_usd_per_verified_outcome_partial"`
 
-	BuyerSavings         BuyerSavings             `json:"buyer_savings"`
-	SupplierContribution SupplierContribution     `json:"supplier_contribution"`
-	MercTrueNet          MercTrueNetContribution  `json:"merc_true_net_contribution"`
-	GrossPlatformRow     *GrossPlatformLedgerRow  `json:"gross_platform_ledger_row,omitempty"`
-	PrimaryMetric        PrimarySystemMetric      `json:"primary_system_metric"`
+	BuyerSavings         BuyerSavings            `json:"buyer_savings"`
+	SupplierContribution SupplierContribution    `json:"supplier_contribution"`
+	MercTrueNet          MercTrueNetContribution `json:"merc_true_net_contribution"`
+	GrossPlatformRow     *GrossPlatformLedgerRow `json:"gross_platform_ledger_row,omitempty"`
+	PrimaryMetric        PrimarySystemMetric     `json:"primary_system_metric"`
 
 	// Honest one-line programme answers.
 	MercTrueNetComputableToday bool   `json:"merc_true_net_computable_today"`
