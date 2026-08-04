@@ -1,0 +1,356 @@
+{
+  "schema_version": 1,
+  "kind": "cuda_embed_arm_measurement",
+  "label": "vLLM CUDA embed arm on the matched all-minilm-l6-v2 contract",
+  "measured_at": "2026-08-04T15:14:31Z",
+  "question": "On the one contract candle, llama.cpp and vLLM can all be held to, does the CUDA arm return the same vectors as Metal, and at what latency?",
+  "arm": {
+    "cell_id": "vllm-cuda-minilm-embed",
+    "runtime_id": "vllm_cuda",
+    "engine": "vllm",
+    "pod_id": "yau2bzybvhkb5y",
+    "endpoint_host": "yau2bzybvhkb5y-8000.proxy.runpod.net",
+    "served_model": "all-minilm-l6-v2",
+    "lifecycle": "DRAFT — identity only, never routable, never advertised"
+  },
+  "model_identity": {
+    "hf_repo": "sentence-transformers/all-MiniLM-L6-v2",
+    "hf_revision": "1110a243fdf4706b3f48f1d95db1a4f5529b4d41",
+    "model_artifact_path": "model.safetensors",
+    "model_artifact_sha256": "53aa51172d142c89d9012cce15ae4d6cc0ca6895895114379cacb4fab128d9db",
+    "same_file_as_candle_metal": true,
+    "note": "vLLM loads the same safetensors bytes candle does, so this is a same-file outcome comparison. llama.cpp's Metal arm loads the F16 GGUF and is a same-family, different-wire arm — see the placement readiness contract."
+  },
+  "corpus": {
+    "sha256": "01fcad50dcc300f12f31f91d3ae356746382ef9961594715563958829bad59f9",
+    "source": "EMBED_BENCH_CORPUS in agent/src/main.rs",
+    "texts": 8
+  },
+  "reference": {
+    "runtime": "candle_metal",
+    "artifact": "/private/tmp/claude-503/-Users-scammermike-Downloads-merc/b4581e00-4955-40df-86f9-a4d14b73412e/scratchpad/metal-candle-embeddings.json",
+    "artifact_sha256": null,
+    "dim": 384
+  },
+  "quality": {
+    "verification": "cosine",
+    "mean_threshold": 0.999,
+    "row_threshold": 0.999,
+    "mean_cosine": 0.9999993843815339,
+    "min_cosine": 0.99999924934572,
+    "per_text_cosine": [
+      0.9999994884950839,
+      0.9999993928291424,
+      0.99999924934572,
+      0.9999992777529808,
+      0.9999994654055271,
+      0.9999995169618213,
+      0.9999994155553306,
+      0.9999992687066648
+    ],
+    "passes": true,
+    "consequence": "a failed gate VOIDS the timings: a faster engine returning different vectors is a different product and its latency is not comparable"
+  },
+  "timing": {
+    "n": 40,
+    "ms_per_unit_p50": 30.642385434475727,
+    "ms_per_unit_p95": 37.69597911305017,
+    "ms_per_unit_p99": 94.72129140020112,
+    "ms_per_unit_mean": 33.91409479590948,
+    "units_per_sec_p50": 32.63453500179855
+  },
+  "timing_void_reason": null,
+  "raw_samples": [
+    {
+      "rep": 0,
+      "wall_ms": 238.8750829268247,
+      "ms_per_unit": 29.859385365853086,
+      "prompt_tokens": 126
+    },
+    {
+      "rep": 1,
+      "wall_ms": 243.83595818653703,
+      "ms_per_unit": 30.47949477331713,
+      "prompt_tokens": 126
+    },
+    {
+      "rep": 2,
+      "wall_ms": 250.43987506069243,
+      "ms_per_unit": 31.304984382586554,
+      "prompt_tokens": 126
+    },
+    {
+      "rep": 3,
+      "wall_ms": 246.88887502998114,
+      "ms_per_unit": 30.861109378747642,
+      "prompt_tokens": 126
+    },
+    {
+      "rep": 4,
+      "wall_ms": 243.33491688594222,
+      "ms_per_unit": 30.416864610742778,
+      "prompt_tokens": 126
+    },
+    {
+      "rep": 5,
+      "wall_ms": 247.90137517265975,
+      "ms_per_unit": 30.98767189658247,
+      "prompt_tokens": 126
+    },
+    {
+      "rep": 6,
+      "wall_ms": 255.42049994692206,
+      "ms_per_unit": 31.927562493365258,
+      "prompt_tokens": 126
+    },
+    {
+      "rep": 7,
+      "wall_ms": 267.9192090872675,
+      "ms_per_unit": 33.48990113590844,
+      "prompt_tokens": 126
+    },
+    {
+      "rep": 8,
+      "wall_ms": 243.41604206711054,
+      "ms_per_unit": 30.427005258388817,
+      "prompt_tokens": 126
+    },
+    {
+      "rep": 9,
+      "wall_ms": 238.4862918406725,
+      "ms_per_unit": 29.81078648008406,
+      "prompt_tokens": 126
+    },
+    {
+      "rep": 10,
+      "wall_ms": 245.7431668881327,
+      "ms_per_unit": 30.717895861016586,
+      "prompt_tokens": 126
+    },
+    {
+      "rep": 11,
+      "wall_ms": 241.76537501625717,
+      "ms_per_unit": 30.220671877032146,
+      "prompt_tokens": 126
+    },
+    {
+      "rep": 12,
+      "wall_ms": 244.8068328667432,
+      "ms_per_unit": 30.6008541083429,
+      "prompt_tokens": 126
+    },
+    {
+      "rep": 13,
+      "wall_ms": 877.8658751398325,
+      "ms_per_unit": 109.73323439247906,
+      "prompt_tokens": 126
+    },
+    {
+      "rep": 14,
+      "wall_ms": 287.4435828998685,
+      "ms_per_unit": 35.93044786248356,
+      "prompt_tokens": 126
+    },
+    {
+      "rep": 15,
+      "wall_ms": 252.70566693507135,
+      "ms_per_unit": 31.58820836688392,
+      "prompt_tokens": 126
+    },
+    {
+      "rep": 16,
+      "wall_ms": 245.2661250717938,
+      "ms_per_unit": 30.658265633974224,
+      "prompt_tokens": 126
+    },
+    {
+      "rep": 17,
+      "wall_ms": 245.01204187981784,
+      "ms_per_unit": 30.62650523497723,
+      "prompt_tokens": 126
+    },
+    {
+      "rep": 18,
+      "wall_ms": 231.28045815974474,
+      "ms_per_unit": 28.910057269968092,
+      "prompt_tokens": 126
+    },
+    {
+      "rep": 19,
+      "wall_ms": 239.290792029351,
+      "ms_per_unit": 29.911349003668875,
+      "prompt_tokens": 126
+    },
+    {
+      "rep": 20,
+      "wall_ms": 244.01120794937015,
+      "ms_per_unit": 30.50140099367127,
+      "prompt_tokens": 126
+    },
+    {
+      "rep": 21,
+      "wall_ms": 248.35700006224215,
+      "ms_per_unit": 31.04462500778027,
+      "prompt_tokens": 126
+    },
+    {
+      "rep": 22,
+      "wall_ms": 242.51358304172754,
+      "ms_per_unit": 30.314197880215943,
+      "prompt_tokens": 126
+    },
+    {
+      "rep": 23,
+      "wall_ms": 253.81320901215076,
+      "ms_per_unit": 31.726651126518846,
+      "prompt_tokens": 126
+    },
+    {
+      "rep": 24,
+      "wall_ms": 244.3292080424726,
+      "ms_per_unit": 30.541151005309075,
+      "prompt_tokens": 126
+    },
+    {
+      "rep": 25,
+      "wall_ms": 237.40491713397205,
+      "ms_per_unit": 29.675614641746506,
+      "prompt_tokens": 126
+    },
+    {
+      "rep": 26,
+      "wall_ms": 240.86554208770394,
+      "ms_per_unit": 30.108192760962993,
+      "prompt_tokens": 126
+    },
+    {
+      "rep": 27,
+      "wall_ms": 248.862124979496,
+      "ms_per_unit": 31.107765622437,
+      "prompt_tokens": 126
+    },
+    {
+      "rep": 28,
+      "wall_ms": 244.37225004658103,
+      "ms_per_unit": 30.54653125582263,
+      "prompt_tokens": 126
+    },
+    {
+      "rep": 29,
+      "wall_ms": 242.89391608908772,
+      "ms_per_unit": 30.361739511135966,
+      "prompt_tokens": 126
+    },
+    {
+      "rep": 30,
+      "wall_ms": 240.91508309356868,
+      "ms_per_unit": 30.114385386696085,
+      "prompt_tokens": 126
+    },
+    {
+      "rep": 31,
+      "wall_ms": 569.928582990542,
+      "ms_per_unit": 71.24107287381776,
+      "prompt_tokens": 126
+    },
+    {
+      "rep": 32,
+      "wall_ms": 278.4260839689523,
+      "ms_per_unit": 34.80326049611904,
+      "prompt_tokens": 126
+    },
+    {
+      "rep": 33,
+      "wall_ms": 245.44562492519617,
+      "ms_per_unit": 30.68070311564952,
+      "prompt_tokens": 126
+    },
+    {
+      "rep": 34,
+      "wall_ms": 245.2977921348065,
+      "ms_per_unit": 30.662224016850814,
+      "prompt_tokens": 126
+    },
+    {
+      "rep": 35,
+      "wall_ms": 251.94712495431304,
+      "ms_per_unit": 31.49339061928913,
+      "prompt_tokens": 126
+    },
+    {
+      "rep": 36,
+      "wall_ms": 244.81516587547958,
+      "ms_per_unit": 30.601895734434947,
+      "prompt_tokens": 126
+    },
+    {
+      "rep": 37,
+      "wall_ms": 240.62141706235707,
+      "ms_per_unit": 30.077677132794634,
+      "prompt_tokens": 126
+    },
+    {
+      "rep": 38,
+      "wall_ms": 253.18108312785625,
+      "ms_per_unit": 31.647635390982032,
+      "prompt_tokens": 126
+    },
+    {
+      "rep": 39,
+      "wall_ms": 246.8113750219345,
+      "ms_per_unit": 30.851421877741814,
+      "prompt_tokens": 126
+    }
+  ],
+  "warmup_reps": 5,
+  "cost_comparison": {
+    "status": "REFUSED_CROSS_HARDWARE",
+    "authority": "control/runtime_cell_cost.go:comparableHardwareFor",
+    "test": "control/runtime_cell_cost_test.go:TestComparableHardwareRefusesToMixMachines",
+    "why": "cost may not be compared across hardware classes: the difference between an M3 Ultra and a rented CUDA card is the machine, not the placement. The readiness contract records this as EXPLICIT_REFUSAL and this receipt does not work around it."
+  },
+  "can_prove": [
+    "that vLLM/CUDA serves the matched embed contract at all, on the pinned image and revision",
+    "cosine agreement (or disagreement) between the CUDA arm and the Metal candle reference on the same safetensors bytes",
+    "CUDA ms/unit at p50/p95/p99 on this corpus and batch, when the quality gate passes"
+  ],
+  "does_not_prove": [
+    "a cost comparison between Metal and CUDA — cross-hardware cost authority explicitly refuses one",
+    "that vllm-cuda-minilm-embed may be routed or advertised; it stays DRAFT and non-routable",
+    "a fleet claim: one pod, one GPU type, one run",
+    "anything at another batch size, sequence length, model or precision",
+    "that Merc selects between Metal and CUDA in production; ordinary admission remains a singleton"
+  ],
+  "limitations": [
+    "Latency includes the RunPod HTTPS proxy and the public internet round trip; it is not a device-local kernel time and is not comparable to an in-process Metal measurement without saying so.",
+    "One GPU type on secure cloud; no board-power measurement is taken here.",
+    "The quality gate is evaluated on the final measured response, not on every rep."
+  ],
+  "binding_status": "BOUND",
+  "producer_identity": {
+    "source_commit": {
+      "value": "0174279fe4fd9f7a17319fc11a4313fa63650836"
+    },
+    "build_digest": {
+      "value": "178453104469ddb0d06b688b7183dc662fe9b2c9e6885fe41c19de5a054ea34a"
+    },
+    "model_artifact_digest": {
+      "value": "53aa51172d142c89d9012cce15ae4d6cc0ca6895895114379cacb4fab128d9db"
+    },
+    "image_digest": {
+      "value": "sha256:3a1e7f5904e1a1192a02aa0086ceaffc33985d7044c7bb25b3a43d61bdbe3ac0"
+    },
+    "harness_revision": {
+      "value": "scripts/cuda-embed-arm-measure.py@178453104469ddb0"
+    },
+    "corpus_digest": {
+      "value": "01fcad50dcc300f12f31f91d3ae356746382ef9961594715563958829bad59f9"
+    },
+    "exact_config": {
+      "value": "MERC_WRITE_CUDA_EMBED_ARM=1; reps=40; warmup=5; model=all-minilm-l6-v2; pod=yau2bzybvhkb5y; image=vllm/vllm-openai@sha256:3a1e7f5904e1a1192a02aa0086ceaffc33985d7044c7bb25b3a43d61bdbe3ac0"
+    },
+    "raw_samples": {
+      "value": "reps=40"
+    }
+  }
+}
