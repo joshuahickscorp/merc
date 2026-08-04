@@ -227,9 +227,14 @@ type TaskCommit struct {
 	InferenceBackend string `json:"inference_backend,omitempty"`
 	// CachedPromptTokens is the engine-reported prefix-cache hit size from
 	// OpenAI-shaped usage.prompt_tokens_details.cached_tokens when the engine
-	// exposes it (vLLM does; llama.cpp / MLX / Candle typically do not).
-	// Nil means "no signal" — never treat absence as a miss. When present,
-	// CorrectPrefixBeliefFromObservation prefers this over Merc's belief.
+	// exposes it. vLLM does; llama.cpp Metal (b9430+, --cache-prompt default
+	// on) also reports it together with timings.cache_n — see
+	// evidence/perf/prefix-kv-physical-metal-latest.json. MLX / Candle typically
+	// do not. Nil means "no signal" — never treat absence as a miss. When
+	// present, CorrectPrefixBeliefFromObservation prefers this over Merc's
+	// belief. The batch agent openai_http path still only parses
+	// completion_tokens today, so TaskCommit may omit this field even when the
+	// engine put it on the wire.
 	CachedPromptTokens *uint64 `json:"cached_prompt_tokens,omitempty"`
 }
 

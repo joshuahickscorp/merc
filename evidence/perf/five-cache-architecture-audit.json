@@ -49,27 +49,39 @@
       }
     },
     "prefix_kv": {
-      "status": "WIRED_UNMEASURED",
+      "status": "WIRED_ENGINE_MEASURED_AGENT_UNWIRED",
       "paths": [
         "control/prefix_routing.go",
         "control/prefix_routing_path.go",
         "control/scheduler.go (warm_prefix_depth ORDER BY)",
-        "worker_prefix_state / job_prefix_chain"
+        "worker_prefix_state / job_prefix_chain",
+        "evidence/perf/prefix-kv-physical-metal-latest.json",
+        "scripts/prefix-physical-kv-measure.py"
       ],
-      "what_is_wired": "Scheduler prefers deeper warm prefixes within the same cost class; workers record warmth after serve; optional engine observation can correct stale belief via cached_prompt_tokens.",
+      "what_is_wired": "Scheduler prefers deeper warm prefixes within the same cost class; workers record warmth after serve; optional engine observation can correct stale belief via cached_prompt_tokens when TaskCommit carries it.",
+      "engine_physical_bound": {
+        "path": "evidence/perf/prefix-kv-physical-metal-latest.json",
+        "engine": "llama.cpp Metal b9430",
+        "signals": [
+          "usage.prompt_tokens_details.cached_tokens",
+          "timings.cache_n / timings.prompt_n / timings.prompt_ms (--perf / default timings on this build)",
+          "server logs: LCP similarity, graphs reused"
+        ],
+        "summary": "Confirmed cache hits; ~2618 prefill tokens avoided at p50; prompt_ms warm/cold ~0.045 (~410 ms absolute save at p50); GPU-domain energy warm/cold ~0.06 (~44 J absolute mean save on this workload)."
+      },
       "measurement_needed": {
-        "primary": "Engine-side TTFT saving: same model, same shared prefix P, two arms — cold (no prior KV for P) vs warm (prior completion that materialised KV for P) — report delta TTFT and optionally tokens reused.",
-        "required_signal": "A real engine with a live KV/prompt cache and a measurable hit. Preferred field is cached_prompt_tokens / usage.prompt_tokens_details.cached_tokens when the agent reports it; otherwise dual-arm wall TTFT under controlled isolation is the bound.",
-        "not_sufficient": "Stand-in pure-Go ranking (evidence/perf/prefix-affinity-routing.json) and withdrawn harness observations (evidence/prefix/live-proof.json WITHDRAWN) do not bind engine TTFT."
+        "primary": "DONE for engine-direct Metal: evidence/perf/prefix-kv-physical-metal-latest.json. Remaining: agent openai_http must forward cached_tokens into TaskCommit.CachedPromptTokens so CorrectPrefixBeliefFromObservation consumes the wire signal in production.",
+        "required_signal": "usage.prompt_tokens_details.cached_tokens (and/or timings.cache_n) — PRESENT on llama.cpp Metal b9430+; PRESENT on vLLM; ABSENT on MLX/Candle.",
+        "not_sufficient": "Stand-in pure-Go ranking (evidence/perf/prefix-affinity-routing.json) and withdrawn harness observations (evidence/prefix/live-proof.json WITHDRAWN) do not bind engine TTFT. Routing belief receipts (prefix-kv-hitrate-*) remain routing-only."
       },
       "obtainable_on_this_host": {
-        "answer": "PARTIALLY",
+        "answer": "YES (engine-direct; agent observation still unwired)",
         "detail": [
-          "llama-server and llama-cli are installed at /opt/homebrew/bin with Metal; --cache-prompt defaults enabled",
-          "This host can run a controlled cold-vs-warm shared-prefix TTFT pair against llama.cpp Metal and bind wall-clock TTFT delta",
-          "OpenAI-shaped completions from typical llama.cpp do NOT expose cached_tokens the way vLLM's usage.prompt_tokens_details.cached_tokens does; evidence/perf/prefix-affinity-routing.json already records that",
-          "Secondary signals: llama-server --slots / --metrics and internal --perf timings may expose cache behaviour but are not the OpenAI-compatible cached_prompt_tokens field Merc's observation path prefers",
-          "vLLM-style cached_tokens is not available on this Metal host without a CUDA/vLLM arm"
+          "llama-server at /opt/homebrew/bin with Metal; --cache-prompt defaults enabled",
+          "OpenAI-shaped completions on llama.cpp b9430 DO expose usage.prompt_tokens_details.cached_tokens and timings.cache_n (supersedes older ABSENT claims in this file and prefix-affinity-routing.json)",
+          "Physical cold-vs-warm bound: evidence/perf/prefix-kv-physical-metal-latest.json",
+          "Batch agent openai_http still parses only completion_tokens — production observation path cannot yet correct belief from the confirmed wire signal",
+          "vLLM/CUDA remains the multi-tenant follow-up when a selector consumer exists; not required to prove Metal reuse"
         ]
       }
     },
