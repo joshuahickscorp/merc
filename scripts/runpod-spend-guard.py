@@ -996,6 +996,24 @@ def main() -> int:
             if _scripts not in sys.path:
                 sys.path.insert(0, _scripts)
             from lib.evidence_binding import EvidenceBindingError, emit_bound_json
+            # Bind producer identity through the single write path. Image digests
+            # are lifted from the receipt's immutable image field so a BOUND
+            # placement spend receipt can name what ran, not only that something
+            # ran. Mutable tags never reach here admissible.
+            image_digest = ""
+            image_na = "no container image in this measurement"
+            image = str(args.image or "")
+            if "@sha256:" in image:
+                digest_hex = image.rsplit("@sha256:", 1)[-1].strip().lower()
+                if len(digest_hex) == 64 and all(c in "0123456789abcdef" for c in digest_hex):
+                    image_digest = f"sha256:{digest_hex}"
+                    image_na = ""
+            model_na = (
+                f"model field is a name/ref ({args.model}), not a weight digest; "
+                "weight pins live on the placement contract / runtime authority"
+                if args.model
+                else "no model weights declared on this spend receipt"
+            )
             try:
                 emit_bound_json(
                     path,
@@ -1003,8 +1021,15 @@ def main() -> int:
                     harness="scripts/runpod-spend-guard.py",
                     repo_root=ROOT,
                     build_binary_path=os.path.join(ROOT, "scripts", "runpod-spend-guard.py"),
-                    exact_config="spend guard args embedded in receipt",
+                    exact_config=(
+                        f"spend guard receipt: pod_id={args.pod_id} gpu={args.gpu} "
+                        f"image={args.image} model={args.model} "
+                        f"cap_usd={args.cap_usd} cost_per_hr={args.cost_per_hr}"
+                    ),
                     raw_samples="spend fields embedded; no sample array",
+                    image_digest=image_digest,
+                    image_na=image_na or "no container image in this measurement",
+                    model_na=model_na,
                 )
             except EvidenceBindingError as exc:
                 print(f"REFUSED evidence write: {exc}", file=sys.stderr)
