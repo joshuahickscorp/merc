@@ -90,6 +90,8 @@ EVIDENCE_SCAN_SKIP_PREFIXES = (
     "evidence/proof/",
     "evidence/census/",
     "evidence/artifacts/",
+    "evidence/immutable-fixtures/",
+    "evidence/workload-catalog/",
 )
 
 
