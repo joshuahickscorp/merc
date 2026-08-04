@@ -1778,7 +1778,9 @@ async fn run_bench_embed_parity(
     warmup: u32,
     out: &str,
 ) -> Result<()> {
-    use runtime_driver::{cosine, CandleDriver, LlamaCppDriver, LlamaServerSupervision, RuntimeDriver};
+    use runtime_driver::{
+        cosine, CandleDriver, LlamaCppDriver, LlamaServerSupervision, RuntimeDriver,
+    };
     use sha2::{Digest, Sha256};
 
     if batch == 0 {
@@ -1958,9 +1960,7 @@ async fn run_bench_embed_parity(
     eprintln!(
         "candle  p50={c_p50:.4} p95={c_p95:.4} p99={c_p99:.4} ms/unit (batch={batch}, n={timed_reps})"
     );
-    eprintln!(
-        "llama   p50={l_p50:.4} p95={l_p95:.4} p99={l_p99:.4} ms/unit"
-    );
+    eprintln!("llama   p50={l_p50:.4} p95={l_p95:.4} p99={l_p99:.4} ms/unit");
     eprintln!(
         "delta(llama-candle) p50={delta_p50:.4} p95={delta_p95:.4} p99={delta_p99:.4} ms/unit; ratio_p50={ratio_p50:.4}; mde≈{mde_ms_per_unit:.4}; faster={faster}"
     );
