@@ -1,17 +1,3 @@
-{
-  "schema_version": 1,
-  "kind": "evidence_binding_sidecar",
-  "target": "evidence/perf/runtime-benchmarks/llama-cpp-metal-raw.json",
-  "binding_status": "UNBOUND",
-  "missing_identity_fields": [
-    "source_commit",
-    "build_digest",
-    "model_artifact_digest",
-    "image_digest",
-    "harness_revision",
-    "corpus_digest",
-    "exact_config",
-    "raw_samples"
-  ],
-  "note": "non-object JSON"
-}
+version https://git-lfs.github.com/spec/v1
+oid sha256:08666f9d353f96b57b1866c5d0b4cc620747d242c91dc9c1cf48b7797f14844e
+size 406

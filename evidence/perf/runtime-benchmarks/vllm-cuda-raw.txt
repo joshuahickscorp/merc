@@ -1,6 +1,3 @@
-[2m2026-07-30T15:57:39.508167Z[0m [32m INFO[0m compute device: Metal
-== merc-agent bench-batch ==
-device=metal model=llama-3.2-1b-instruct-q4 max_tokens=48 mode=identical build_hash=e9796eeb069ba4b0 backends=["openai_http"]
-
--- backend=openai_http verified_work=false --
-Error: [openai_http] warmup: inference error in `openai_http`: engine returned HTTP 404 Not Found: 
+version https://git-lfs.github.com/spec/v1
+oid sha256:07e298c38d1d8bd63544b2707a465775a748f283c0698050a828e0a0a2d656cb
+size 375
