@@ -102,6 +102,12 @@ TestMercSegmentLatencyMeasure
 TestPrefixKVHitRateAgentRAGProductionClaim
 TestRealtimeAuthLatencyProbe
 #
+# Env-gated writer for the cell-economics census receipt. Arithmetic and the
+# still-tie prediction run unconditionally in TestCensusUnitsPerSecCancels and
+# TestCellEconomicsStillTiesWithoutBreakingCancellation; this test only emits
+# evidence/perf/selector/cell-economics-census.json when asked.
+TestWriteCellEconomicsCensusReceipt
+#
 # Live serving-matrix measurements against a real llama.cpp/Candle Metal server.
 # Require MERC_RUN_LIVE_SERVING_MATRIX=1 plus a local engine and a GGUF on disk;
 # CI has neither. These produce the bound engine-tournament receipts, so running
