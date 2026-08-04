@@ -318,7 +318,8 @@ ancestor of HEAD; nothing was missing and nothing needed rebuilding. The branch 
 clean and level with its upstream.
 
 Six subsystems were classified from source by independent readers and each
-classification was then adversarially re-checked. `evidence/state/current-execution-frontier.json`
+classification was then adversarially re-checked.
+`evidence/state/current-execution-frontier.json` (unbound frontier inventory)
 carries the machine-readable result; the runtime digests in it come from
 `merc dev authority`, which calls the same functions admission and dispatch call,
 so the receipt cannot restate a number a previous report chose.
@@ -348,7 +349,8 @@ authority and the classification agree.
 ### Claims the reconciliation had to withdraw
 
 Recorded in full in
-`evidence/state/correction-2026-07-31-coalescing-and-directed-routing.json`.
+`evidence/state/correction-2026-07-31-coalescing-and-directed-routing.json`
+(unbound correction record; lists withdrawn claims, not live proofs).
 
 - **Coalescing is wired but not economically proven.** The 128-way test drives
   `Store.ClaimInflightExecution` directly — it executes nothing and settles

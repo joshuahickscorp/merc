@@ -35,9 +35,13 @@ type governedProviderRate struct {
 // unresolvable, not free.
 //
 // Rates:
-//   - nvidia_24gb: $0.16/hr from evidence/runpod/spend-rr7b6uwmivaolh.json
-//     (RTX A5000, cost_per_hr_usd). That receipt is the spend-guard output for
-//     the CUDA-first pod this class maps to.
+//   - nvidia_24gb: $0.16/hr was taken from evidence/runpod/spend-rr7b6uwmivaolh.json
+//     (RTX A5000, cost_per_hr_usd). That receipt is WITHDRAWN (mutable image tag;
+//     runtime unidentifiable) and citable by nothing. Keeping the rate here is a
+//     known defect: a cost authority must not derive from a withdrawn receipt.
+//     Re-source from a bound spend receipt or published on-demand list before
+//     treating true-net figures as governed. Until then the number is retained
+//     only so existing tests do not silently invent a different rate.
 //   - nvidia_80gb: $1.19/hr from scripts/runpod-spend-guard.py --self-test
 //     (A100 reference used by the guard's own arithmetic tests).
 //
@@ -46,8 +50,9 @@ type governedProviderRate struct {
 var providerRatesByHWClass = map[string]governedProviderRate{
 	"nvidia_24gb": {
 		CostPerHrUSD: 0.16,
-		Provenance: "RunPod on-demand cost_per_hr_usd=0.16 for NVIDIA RTX A5000 as " +
-			"recorded by scripts/runpod-spend-guard.py in evidence/runpod/spend-rr7b6uwmivaolh.json",
+		Provenance: "DEFECT: $0.16/hr for NVIDIA RTX A5000 was recorded in withdrawn " +
+			"evidence/runpod/spend-rr7b6uwmivaolh.json (mutable tag; not citable). " +
+			"Must be re-sourced from a bound receipt or published price list.",
 	},
 	"nvidia_80gb": {
 		CostPerHrUSD: 1.19,

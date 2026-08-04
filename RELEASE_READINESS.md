@@ -42,12 +42,13 @@ for the remaining 16 points is `docs/FACET_EXTERNAL_ACTION_PACK.md`.
   rollback/forward recovery, a seeded nine-component restart storm, scoped
   DSAR/tombstone replay, technical incident scenarios, and 4,096 generated
   deterministic payment sequences also pass. The longest retained soak receipt is
-  `evidence/autonomous/local-soak-300s.json` (300 s); the only other is
-  `local-soak-60s.json`, which carries a single sample. No 15-minute, two-hour or
-  24-hour soak receipt exists, and `.artifacts/local-soak-failures/` records the
-  15-minute attempts that ended in an OOM kill and in a control restart. Soak
-  duration is therefore NOT EXECUTED beyond 300 s. Payment evidence is labelled
-  SIMULATED; Stripe test mode remains NOT EXECUTED.
+  `evidence/autonomous/local-soak-300s.json` (300 s; unbound historical soak, not
+  a bound qualifying soak); the only other is `local-soak-60s.json`, which
+  carries a single sample. No 15-minute, two-hour or 24-hour soak receipt exists,
+  and `.artifacts/local-soak-failures/` records the 15-minute attempts that ended
+  in an OOM kill and in a control restart. Soak duration is therefore NOT
+  EXECUTED beyond 300 s. Payment evidence is labelled SIMULATED; Stripe test mode
+  remains NOT EXECUTED.
 - Fourteen independent review domains contain the required scope, failure model,
   findings, severity, evidence, repair, verification, and residual risk fields in
   `ops/independent-reviews.json`.

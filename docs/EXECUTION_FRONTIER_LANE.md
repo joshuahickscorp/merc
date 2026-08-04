@@ -161,10 +161,10 @@ Four profiles are registered:
 
 | profile | lifecycle | routable | evidence |
 |---|---|---|---|
-| `candle_metal` | ACTIVE | yes | `evidence/canary/real-runtime-realtime.json` |
+| `candle_metal` | ACTIVE | yes | `evidence/canary/real-runtime-realtime.json` (unbound historical chain; not candidate-bound) |
 | `mlx_metal` | VALIDATED | no | `docs/SPEED_LANE_2026-07-27.md` |
 | `llama_cpp_metal` | VALIDATED | no | `docs/SPEED_LANE_2026-07-27.md` |
-| `vllm_cuda` | DRAFT | no | `evidence/runpod/cuda-first-proof.json` |
+| `vllm_cuda` | DRAFT | no | `evidence/runpod/cuda-first-proof.json` (unbound provider proof; not Merc-chain canary) |
 
 Only CANARY and ACTIVE profiles project into the advertised capability set, so
 registration widened nothing that is sellable. A benchmark that ran outside the
