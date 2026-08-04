@@ -1,7 +1,7 @@
 {
   "arm": "production_claim_path_agent_rag",
   "assessment": {
-    "blunt_view": "Production claim-path belief hit rate on the conservative agent/RAG corpus is 53.1% overall / 70.8% on family traffic / 73.9% family post-warmup (target 80–95%). Affinity lift vs random assignment is +39.6 pp. Ranking overhead is 0 ns/request — negligible against any TTFT save. Engine-side KV saving on llama.cpp/Metal is UNPROVEN (no consumable cached_tokens). Tool/schema 'preprocessing avoided' on divergent agent turns is 0.0% (target 90%+); the identity cache only amortises exact body replay, which is exact-reuse territory, not shared-tools-divergent-tails. Prefix locality is a real second lever for agent/RAG *routing concentration* when the queue is multi-job, but it is smaller and more conditional than the target assumes: it needs concurrent work to let warm workers prefer matching jobs, it is belief not engine truth on Metal, and it does not invent a tools-only preprocess tier.",
+    "blunt_view": "Production claim-path belief hit rate on the conservative agent/RAG corpus is 53.1% overall / 70.8% on family traffic / 73.9% family post-warmup (target 80\u201395%). Affinity lift vs random assignment is +39.6 pp. Ranking overhead is 0 ns/request. THIS RECEIPT IS ROUTING/BELIEF ONLY. Engine-side KV reuse on llama.cpp/Metal is separately BOUND in evidence/perf/prefix-kv-physical-metal-latest.json (confirmed cached_tokens + timings.cache_n, prefill/TTFT/energy deltas). Production observation still needs agent forwarding of cached_tokens. Tool/schema avoidance on divergent agent turns is 0.0% (target 90%+).",
     "hit_rate_vs_target_80_95": "PARTIAL_BELOW_80",
     "tool_schema_vs_target_90": "MEETS_TARGET_ONLY_ON_EXACT_BODY_REPLAY_NOT_AGENT_TURNS"
   },
@@ -17,11 +17,11 @@
     "cost rank still outranks warmth (unchanged; reasserted by existing tests)"
   ],
   "cannot_prove": [
-    "engine-side TTFT or prefill joule saving on llama.cpp/Metal (no cached_tokens signal)",
     "that Merc belief matches live engine KV without observation",
     "cross-supplier production traffic (lab fleet on one Postgres)",
     "cloud multi-tenant cache behaviour",
-    "vLLM cached_tokens end-to-end on this Metal host"
+    "vLLM cached_tokens end-to-end on this Metal host",
+    "that Merc belief matches live engine KV without observation (agent does not yet forward cached_tokens) \u2014 physical engine arm is bound separately in prefix-kv-physical-metal-latest.json"
   ],
   "corpus": {
     "conservative_by_design": [
@@ -44,20 +44,20 @@
   },
   "corpus_and_sample_digest": "e77ad3d0619eba2f2d10e472103ddc6827b78727589d61beb5b4aa9c75f738a8",
   "engine_cache_hit_signals": {
-    "engine_side_saving_status": "UNPROVEN on llama.cpp/Metal (no consumable cached_tokens signal in the observation path)",
+    "engine_side_saving_status": "BOUND engine-direct in evidence/perf/prefix-kv-physical-metal-latest.json; UNWIRED through batch agent observation path",
     "engines": {
       "Candle/Metal": "no standard cached_tokens field; belief + TTL + eviction only",
       "MLX/Metal": "no standard cached_tokens field; belief + TTL + eviction only",
-      "llama.cpp/Metal": "no OpenAI-shaped cached_tokens in typical completions; --cache-prompt defaults enabled server-side but Merc cannot observe a hit; belief + TTL + eviction only",
+      "llama.cpp/Metal": "PRESENT on wire (cached_tokens + timings.cache_n); physical deltas in prefix-kv-physical-metal-latest.json; agent does not forward yet",
       "vLLM/CUDA": "usage.prompt_tokens_details.cached_tokens present (preferred signal when agent reports it)"
     },
-    "honest_ceiling": "On this Metal host the honest ceiling for the prefix/KV claim is ROUTING BEHAVIOUR (belief hit rate through ClaimTasksTx). Engine-side KV saving is UNPROVEN until an engine exposes a consumable hit signal or a controlled cold-vs-warm TTFT pair is bound separately.",
+    "honest_ceiling": "This receipt is ROUTING BEHAVIOUR. Physical KV on Metal is bound separately. Production observation still needs agent forwarding.",
     "host_hardware": "arm64 / Apple M3 Ultra",
     "llama_cache_prompt_default": true,
     "llama_server_path": "/opt/homebrew/bin/llama-server",
     "merc_observation_path": "control/prefix_routing.go CorrectPrefixBeliefFromObservation; hasSignal must be true only when engine exposed the field",
     "metrics_endpoint_kv_hit": "prometheus --metrics may expose cache gauges; not the OpenAI-shaped field Merc's observation path consumes",
-    "openai_cached_tokens_field": "ABSENT on typical llama.cpp OpenAI-compat completions; present on vLLM as usage.prompt_tokens_details.cached_tokens",
+    "openai_cached_tokens_field": "PRESENT on llama.cpp Metal b9430+ (usage.prompt_tokens_details.cached_tokens + timings.cache_n); also present on vLLM; batch agent does not yet forward into TaskCommit",
     "slots_endpoint_kv_hit": "slots endpoint can expose per-slot prompt state for operators; not wired into Merc's CorrectPrefixBeliefFromObservation (which requires cached_tokens)"
   },
   "generated_at": "2026-08-03T19:05:29Z",
@@ -155,20 +155,26 @@
     "reason": "Prior artifact ranked candidates in pure Go against a simulated FIFO cache and never exercised ClaimTasksTx, worker_prefix_state, or job_prefix_chain. This receipt measures belief hit rate on the production claim path with an agent/RAG corpus. The stand-in is retained as a ranker unit curve; it is not deleted."
   },
   "target": {
-    "source": "scratchpad/TARGETS.md §3 Work elimination (superwave figures)",
+    "source": "scratchpad/TARGETS.md \u00a73 Work elimination (superwave figures)",
     "tool_schema_preprocess_avoid_min": 0.9,
     "useful_prefix_kv_hit_rate_max": 0.95,
     "useful_prefix_kv_hit_rate_min": 0.8
   },
   "tool_schema_preprocessing": {
-    "architecture_fit": "The prepared-identity cache keys on the full canonical body (tenant+profile+body hash). Same tools with divergent user messages are distinct keys and miss. There is no separate tools/schema-only preprocess cache. The 90% target describes amortising tool/schema compilation across turns that share tools; Merc does not perform that work on the control plane — it derives a semantic request identity for exact reuse and coalescing. Against agent traffic with shared tools and divergent tails, avoidance is ~0%, not 90%.",
+    "architecture_fit": "The prepared-identity cache keys on the full canonical body (tenant+profile+body hash). Same tools with divergent user messages are distinct keys and miss. There is no separate tools/schema-only preprocess cache. The 90% target describes amortising tool/schema compilation across turns that share tools; Merc does not perform that work on the control plane \u2014 it derives a semantic request identity for exact reuse and coalescing. Against agent traffic with shared tools and divergent tails, avoidance is ~0%, not 90%.",
     "exact_body_replay_hit_rate": 0.9950248756218906,
-    "fraction_of_merc_overhead_note": "ledger and five-cache audit cite ~0.3% of merc overhead; this run reconfirms hit≪miss but both are microseconds",
+    "fraction_of_merc_overhead_note": "ledger and five-cache audit cite ~0.3% of merc overhead; this run reconfirms hit\u226amiss but both are microseconds",
     "hit_ns_per_op": 720.584,
     "miss_ns_per_op": 14533.166,
     "same_tools_divergent_messages_hit_rate": 0,
     "saving_ns_per_hit": 13812.581999999999,
     "target_avoidance": 0.9,
     "verdict": "MEETS_TARGET_ONLY_ON_EXACT_BODY_REPLAY_NOT_AGENT_TURNS"
+  },
+  "engine_signal_correction": {
+    "corrected_at": "2026-08-04",
+    "superseding_physical_receipt": "evidence/perf/prefix-kv-physical-metal-latest.json",
+    "correction": "Earlier text in this receipt claimed llama.cpp lacks OpenAI-shaped cached_tokens. On llama.cpp Metal b9430 that is false: the engine reports usage.prompt_tokens_details.cached_tokens and timings.cache_n. This receipt remains valid as ROUTING / BELIEF evidence only. Physical KV reuse is bound in the superseding physical receipt. The batch agent openai_http path still does not forward the field into TaskCommit.",
+    "classification": "ROUTING_AFFINITY_ONLY \u2014 not physical KV saving"
   }
 }

@@ -946,35 +946,40 @@ func surveyEngineSignals(t *testing.T) engineSignalSurvey {
 			cachePromptDefault = true
 		}
 	}
-	// OpenAI-shaped completions from typical llama.cpp do not populate
-	// usage.prompt_tokens_details.cached_tokens. Merc's observation path requires
-	// hasSignal=true only when the field is actually present; without it the
-	// action is PrefixObsNoSignal and belief is untouched.
+	// llama.cpp Metal b9430+ DOES populate usage.prompt_tokens_details.cached_tokens
+	// and timings.cache_n on /v1/chat/completions (bound in
+	// evidence/perf/prefix-kv-physical-metal-latest.json). Merc's observation
+	// path still requires hasSignal=true only when TaskCommit carries the field;
+	// the batch agent openai_http path currently drops it. Without agent
+	// forwarding the action remains PrefixObsNoSignal and belief is untouched.
 	return engineSignalSurvey{
 		HostHardware:            runtime.GOARCH + " / " + hostHardwareName(),
 		LlamaServerPath:         llamaPath,
 		LlamaCachePromptDefault: cachePromptDefault,
-		OpenAICachedTokensField: "ABSENT on typical llama.cpp OpenAI-compat completions; " +
-			"present on vLLM as usage.prompt_tokens_details.cached_tokens",
-		SlotsEndpointExposesKVHit: "slots endpoint can expose per-slot prompt state for operators; " +
+		OpenAICachedTokensField: "PRESENT on llama.cpp Metal b9430+ OpenAI-compat completions " +
+			"(usage.prompt_tokens_details.cached_tokens + timings.cache_n); " +
+			"also present on vLLM; batch agent does not yet forward into TaskCommit",
+		SlotsEndpointExposesKVHit: "slots endpoint exposes n_prompt_tokens_processed (drops on reuse); " +
 			"not wired into Merc's CorrectPrefixBeliefFromObservation (which requires cached_tokens)",
-		MetricsEndpointExposesKVHit: "prometheus --metrics may expose cache gauges; not the " +
-			"OpenAI-shaped field Merc's observation path consumes",
+		MetricsEndpointExposesKVHit: "prometheus --metrics exposes prompt_tokens/seconds counters; " +
+			"not a per-request cache_hit field for CorrectPrefixBeliefFromObservation",
 		MercObservationPath: "control/prefix_routing.go CorrectPrefixBeliefFromObservation; " +
-			"hasSignal must be true only when engine exposed the field",
+			"hasSignal must be true only when engine field reached TaskCommit.CachedPromptTokens",
 		Engines: map[string]string{
-			"llama.cpp/Metal": "no OpenAI-shaped cached_tokens in typical completions; " +
-				"--cache-prompt defaults enabled server-side but Merc cannot observe a hit; " +
-				"belief + TTL + eviction only",
+			"llama.cpp/Metal": "PRESENT on wire (cached_tokens + timings.cache_n, --cache-prompt default on); " +
+				"physical prefill/TTFT/energy deltas bound in evidence/perf/prefix-kv-physical-metal-latest.json; " +
+				"agent openai_http does not forward yet so claim-path observation stays belief+TTL",
 			"MLX/Metal":    "no standard cached_tokens field; belief + TTL + eviction only",
 			"Candle/Metal": "no standard cached_tokens field; belief + TTL + eviction only",
 			"vLLM/CUDA":    "usage.prompt_tokens_details.cached_tokens present (preferred signal when agent reports it)",
 		},
-		HonestCeiling: "On this Metal host the honest ceiling for the prefix/KV claim is " +
-			"ROUTING BEHAVIOUR (belief hit rate through ClaimTasksTx). Engine-side KV " +
-			"saving is UNPROVEN until an engine exposes a consumable hit signal or a " +
-			"controlled cold-vs-warm TTFT pair is bound separately.",
-		EngineSideSaving: "UNPROVEN on llama.cpp/Metal (no consumable cached_tokens signal in the observation path)",
+		HonestCeiling: "Routing belief is measured by this harness (ClaimTasksTx). " +
+			"Engine-side KV saving on llama.cpp/Metal is separately BOUND in " +
+			"evidence/perf/prefix-kv-physical-metal-latest.json. Production observation " +
+			"still needs agent forwarding of cached_tokens into TaskCommit.",
+		EngineSideSaving: "BOUND on llama.cpp/Metal engine-direct " +
+			"(evidence/perf/prefix-kv-physical-metal-latest.json); " +
+			"UNWIRED through batch agent observation path",
 	}
 }
 
@@ -1184,11 +1189,12 @@ func TestPrefixKVHitRateAgentRAGProductionClaim(t *testing.T) {
 		"cost rank still outranks warmth (unchanged; reasserted by existing tests)",
 	}
 	art.CannotProve = []string{
-		"engine-side TTFT or prefill joule saving on llama.cpp/Metal (no cached_tokens signal)",
-		"that Merc belief matches live engine KV without observation",
+		"that Merc belief matches live engine KV without observation (agent does not yet forward cached_tokens)",
 		"cross-supplier production traffic (lab fleet on one Postgres)",
 		"cloud multi-tenant cache behaviour",
-		"vLLM cached_tokens end-to-end on this Metal host",
+		"vLLM cached_tokens end-to-end on this Metal host (no paid CUDA in this arm)",
+		// Engine-side TTFT/energy is now bound separately in
+		// evidence/perf/prefix-kv-physical-metal-latest.json — not in this routing receipt.
 	}
 
 	art.ProductionClaimArm = prodArm

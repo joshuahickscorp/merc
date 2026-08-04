@@ -281,7 +281,9 @@ func GatewayParityStateDefinitionsText() GatewayParityStateDefinitions {
 			"(3) measurement requests reuse the same leading prefix with a unique per-sample tail. " +
 			"Verification (hard): at least 80% of OK merc samples must report usage.prompt_tokens_details.cached_tokens > 0. " +
 			"Missing signal is NOT treated as a hit — the cell is REFUSED with an explicit reason. " +
-			"llama.cpp/MLX/Candle typically lack the OpenAI cached_tokens field; those engines refuse prefix-hit cells rather than invent a hit.",
+			"MLX/Candle typically lack the OpenAI cached_tokens field and refuse prefix-hit cells rather than invent a hit. " +
+			"llama.cpp Metal b9430+ does report usage.prompt_tokens_details.cached_tokens (and timings.cache_n); " +
+			"prefix-hit cells against that engine must still verify the field rather than assume a hit.",
 	}
 }
 
