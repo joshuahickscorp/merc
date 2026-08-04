@@ -128,7 +128,7 @@ cx.wait(job["job_id"])
 print(cx.results_records(job["job_id"]))
 ```
 
-Full request examples: [docs/QUICKSTART.md](docs/QUICKSTART.md).
+Full request examples: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Check the build
 
@@ -186,7 +186,7 @@ limitations. It is a register, not a certification.
 ## What's next
 
 Finishing the five external proofs above, then soak testing and the missing buyer
-account features. See [ROADMAP.md](ROADMAP.md).
+account features. See [docs/PROGRAMME.md](docs/PROGRAMME.md).
 
 Also: [runtime matrix](docs/RUNTIME_MATRIX.md) (what may run),
 [runbooks](docs/RUNBOOKS.md) (backup, restore, rollback, alerts), and the
