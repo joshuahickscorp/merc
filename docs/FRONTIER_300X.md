@@ -28,7 +28,7 @@ measurement shows the practical ceiling.
 
 ## Authoritative benchmark rebased on quality-approved 8-bit
 
-`bench/immutable/shared-prefix-v2.json` (sha256 `95341e33…`) supersedes v1,
+`evidence/immutable-fixtures/shared-prefix-v2.json` (sha256 `95341e33…`) supersedes v1,
 which pinned 4-bit.
 
 A representative suite — 12 prompts across 6 task classes, 64 greedy tokens each
@@ -61,7 +61,7 @@ it requires more arithmetic than the GPU can perform.**
 
 Both claims are measured, and the arithmetic is below so you can check it.
 
-Benchmark frozen at `bench/immutable/shared-prefix-v1.json`
+Benchmark frozen at `evidence/immutable-fixtures/shared-prefix-v1.json`
 (sha256 `159ecb4b…`). Any speed claim must cite that id.
 
 ---
