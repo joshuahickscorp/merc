@@ -148,7 +148,7 @@ mkdir -p "$ART"
 : >"$LEDGER"
 
 (cd control && go build -o "$ART/merc" .)
-"$ART/merc" audit codebase --out census
+"$ART/merc" audit codebase --out evidence/census
 SOURCE_START="$("$ART/merc" source-id --root "$ROOT" --field source_sha256)"
 record PASS source-bound "source_sha256=$SOURCE_START"
 record PASS census "authoritative census regenerated before source binding"

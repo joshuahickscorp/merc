@@ -50,7 +50,7 @@ FROZEN_PATHS = (
     ("ops/asset-provenance.json", "recorded receipt"),
     ("ops/readiness.json", "recorded receipt"),
     ("ops/legal-review.json", "recorded receipt"),
-    ("census/", "recorded receipt: file sha256 census"),
+    ("evidence/census/", "recorded receipt: file sha256 census"),
     ("docs/RENAME_REGISTER.md", "the register itself names what it freezes"),
     ("scripts/rename-residue-audit.py",
      "the audit must contain the patterns it searches for"),
