@@ -140,6 +140,11 @@ type PricingDecision struct {
 	BuyerPrice        float64 `json:"buyer_price"`
 	MaximumBuyerPrice float64 `json:"maximum_buyer_price"`
 
+	// RuntimeCell is the accepted runtime-cell economics, frozen. Nil on a
+	// decision taken before this binding existed; such a decision replays
+	// against its own composite authority and is never retro-fitted with one.
+	RuntimeCell *FrozenRuntimeCellEconomics `json:"runtime_cell,omitempty"`
+
 	PrimarySupplierCost  PricingCostComponent       `json:"primary_supplier_cost"`
 	VerificationCost     PricingCostComponent       `json:"verification_cost"`
 	PaymentCost          PricingCostComponent       `json:"payment_cost"`
@@ -1348,6 +1353,27 @@ func distributedPricingDecisionAtRate(
 			return PricingDecision{}, err
 		}
 	}
+
+	// The accepted runtime cell's economics, frozen beside the money.
+	//
+	// Last, deliberately: the contribution figure is only final after the
+	// fixed-point realignment above, and a frozen block quoting a number the
+	// decision then moved would be worse than no block. Every term is a function
+	// of the frozen inputs, so the deterministic rebuild in
+	// ValidateDistributedPricingDecisionSnapshot reproduces it exactly — which is
+	// what makes a later benchmark revalidation unable to move settled money.
+	frozenCell, fcerr := freezeRuntimeCellEconomics(
+		placement, catalogue, unitsPerSec, billableUnits, expectedSeconds,
+		economic.InitialBuyerChargeUSD, primarySupplier, supplierEntitlementPolicy, ceiling,
+		out.PrimarySupplierCost, out.ProviderCost, out.VerificationCost,
+		out.StorageCost, out.EgressCost, out.RiskReserve,
+		out.PlatformContribution.Amount, out.Unknowns, compute.Confidence,
+	)
+	if fcerr != nil {
+		return PricingDecision{}, fcerr
+	}
+	out.RuntimeCell = frozenCell
+
 	return out, validatePricingCostShape(out)
 }
 
@@ -1498,6 +1524,15 @@ func validatePricingCostShape(p PricingDecision) error {
 		p.PrimarySupplierCost, p.VerificationCost, p.PaymentCost,
 		p.ControlPlaneCost, p.StorageCost, p.EgressCost, p.ProviderCost,
 		p.RiskReserve, p.PlatformContribution,
+	}
+	if p.RuntimeCell != nil {
+		// The frozen block's terms obey the same rules: no unexplained zero, no
+		// amount on an unknown, no component without a basis.
+		components = append(components,
+			p.RuntimeCell.PhysicalCost, p.RuntimeCell.ProviderCost,
+			p.RuntimeCell.ReliabilityCost, p.RuntimeCell.VerificationCost,
+			p.RuntimeCell.StorageTransfer, p.RuntimeCell.EnergyPartial, p.RuntimeCell.RiskAllocation,
+			p.RuntimeCell.StartupResidency)
 	}
 	for _, component := range components {
 		if component.Status != pricingCostModeled &&
@@ -1698,6 +1733,14 @@ func ValidateDistributedPricingDecisionSnapshot(
 	)
 	if err != nil {
 		return err
+	}
+	// A decision frozen before runtime-cell economics existed carries no such
+	// block, and rebuilding one for it would fail every historical row on the
+	// day the field landed. The rebuild's block is dropped so the legacy decision
+	// is replayed against the authority it actually accepted. A decision that DID
+	// freeze one is compared in full, so a rewritten block still fails here.
+	if decision.RuntimeCell == nil {
+		rebuilt.RuntimeCell = nil
 	}
 	if !reflect.DeepEqual(decision, rebuilt) {
 		return errors.New("pricing decision does not match its deterministic composite authority")
