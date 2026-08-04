@@ -123,7 +123,8 @@ category and prove:
   still unavailable.
 
 The synthetic database protocol and the object-erasure integration test above
-drive `evidence/autonomous/technical-exercises.json`. The receipt field
+drive `evidence/autonomous/technical-exercises.json` (unbound local technical
+receipt; not production DSAR evidence). The receipt field
 `deletion.deletable_data_removed` is bound to the exit status of
 `TestBuyerObjectDeletionQueueAndSweep`, not a hardcoded literal. External
 subprocessor deletion, qualified human review and production operation are

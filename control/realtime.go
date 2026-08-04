@@ -681,7 +681,8 @@ func realtimeUpstreamURL(baseURL string) string {
 // streaming connections to one worker origin. With the default, finished
 // streams leave only two idle connections; the next wave redials. Free at
 // c=1 (one connection reused); expensive at c=32 (≈30 cold dials per wave).
-// Measured in evidence/perf/gateway-concurrency-sweep.json.
+// Measured in unbound evidence/perf/gateway-concurrency-sweep.json (stand-in
+// harness; not a bound engine receipt).
 const realtimeMaxIdleConnsPerHost = 128
 
 func newRealtimeHTTPClient() *http.Client {
