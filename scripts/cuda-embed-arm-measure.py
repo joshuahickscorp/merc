@@ -47,6 +47,16 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 WRITE_ENV = "MERC_WRITE_CUDA_EMBED_ARM"
 
+# RunPod's public pod proxy sits behind Cloudflare, and Cloudflare answers
+# `error code: 1010` -- "banned based on your browser's signature" -- to
+# Python-urllib's default User-Agent. The readiness probe never saw it because
+# it uses curl. Two ready pods were torn down on that 403 before the response
+# body was read; the body is the whole answer and it is four words long.
+#
+# This is not evasion of anything: it is our own rented pod, and the header is
+# the same identity the readiness check on the line above already sends.
+USER_AGENT = "curl/8.7.1"
+
 # The verification contract, from control/embedding_comparator.go.
 MEAN_COSINE_GATE = 0.999
 ROW_COSINE_GATE = 0.999
@@ -78,7 +88,8 @@ def cosine(a: list[float], b: list[float]) -> float:
 
 def _get(base: str, key: str, path: str, timeout: float = 30.0) -> tuple[int, str]:
     req = urllib.request.Request(
-        f"{base}{path}", headers={"Authorization": f"Bearer {key}"}, method="GET"
+        f"{base}{path}", headers={"Authorization": f"Bearer {key}", "User-Agent": USER_AGENT},
+        method="GET",
     )
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
@@ -94,7 +105,11 @@ def embed(base: str, key: str, model: str, texts: list[str], timeout: float = 12
     req = urllib.request.Request(
         f"{base}/embeddings",
         data=body,
-        headers={"Content-Type": "application/json", "Authorization": f"Bearer {key}"},
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {key}",
+            "User-Agent": USER_AGENT,
+        },
         method="POST",
     )
     t0 = time.perf_counter()
