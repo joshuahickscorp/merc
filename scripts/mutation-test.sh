@@ -47,7 +47,25 @@ cleanup() {
   fi
   rmdir "$MUTATION_LOCK" 2>/dev/null || true
 }
-trap cleanup EXIT INT TERM
+
+# A signal must restore AND STOP. Sharing one handler across EXIT and the
+# signals looked equivalent and was not: bash runs a TERM handler and then
+# RESUMES the loop, so cleanup deleted $BACKUP and every mutation after it was
+# written to a file whose backup no longer existed. Interrupting a run left the
+# working tree holding injected defects, with `cp: .../pricing_decision.go.bak:
+# No such file or directory` scrolling past as the only warning — observed on
+# 2026-08-04, eight files deep, recoverable only because they were committed.
+#
+# The trap that exists to protect the tree was corrupting it on the one path
+# people actually take, which is Ctrl-C.
+on_signal() {
+  echo "" >&2
+  echo "mutation-test: signal received; restoring the tree and stopping" >&2
+  cleanup
+  exit 130
+}
+trap cleanup EXIT
+trap on_signal INT TERM
 
 run_mutation_tests() {
   if [ "$MERC_MUTATION_UNIT_ONLY" = "1" ]; then
