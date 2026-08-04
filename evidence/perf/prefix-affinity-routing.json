@@ -96,5 +96,11 @@
     "corpus_digest",
     "exact_config",
     "raw_samples"
-  ]
+  ],
+  "engine_signal_correction": {
+    "corrected_at": "2026-08-04",
+    "superseding_physical_receipt": "evidence/perf/prefix-kv-physical-metal-latest.json",
+    "correction": "Earlier text in this receipt claimed llama.cpp lacks OpenAI-shaped cached_tokens. On llama.cpp Metal b9430 that is false: the engine reports usage.prompt_tokens_details.cached_tokens and timings.cache_n. This receipt remains valid as ROUTING / BELIEF evidence only. Physical KV reuse is bound in the superseding physical receipt. The batch agent openai_http path still does not forward the field into TaskCommit.",
+    "classification": "ROUTING_AFFINITY_ONLY \u2014 not physical KV saving"
+  }
 }

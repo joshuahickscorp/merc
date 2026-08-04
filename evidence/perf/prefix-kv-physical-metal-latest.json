@@ -1,0 +1,1124 @@
+{
+  "schema_version": 1,
+  "kind": "prefix_kv_physical_metal_measurement",
+  "label": "llama.cpp Metal physical prefix-cache hit: confirmed cache_n / cached_tokens, prefill avoided, TTFT and energy deltas",
+  "measured_at": "2026-08-04T07:12:06Z",
+  "host": {
+    "hardware": "Apple M3 Ultra / 96GB",
+    "platform": "macOS-27.0-arm64-arm-64bit-Mach-O",
+    "goarch_equiv": "arm64",
+    "num_cpu": 28,
+    "load1": 5.22607421875,
+    "load5": 5.78173828125,
+    "load15": 5.810546875,
+    "load_note": "recorded at measurement start; quiet machine preferred"
+  },
+  "model": {
+    "path": "/Users/scammermike/.cache/huggingface/hub/models--unsloth--Llama-3.2-1B-Instruct-GGUF/snapshots/b69aef112e9f895e6f98d7ae0949f72ff09aa401/Llama-3.2-1B-Instruct-Q4_K_M.gguf",
+    "sha256": "3f5a22426976ab26cfe84dba63c1d08391717abb1af893e10f1b2968d862dcc1",
+    "ctx": 4096,
+    "paragraphs_shared_prefix": 45,
+    "shared_prefix_chars": 13410
+  },
+  "engine_signal_survey": {
+    "llama_server_path": "/opt/homebrew/bin/llama-server",
+    "llama_server_version": "version: 9430 (d48a56eff)",
+    "flags_used": [
+      "--cache-prompt (default enabled; explicit)",
+      "--perf (timings object on completion responses)",
+      "--metrics (prometheus /metrics)",
+      "--slots (GET /slots)",
+      "-np 1",
+      "-c 4096"
+    ],
+    "openai_chat_completions": {
+      "endpoint": "/v1/chat/completions",
+      "fields": [
+        "usage.prompt_tokens_details.cached_tokens",
+        "timings.cache_n",
+        "timings.prompt_n",
+        "timings.prompt_ms",
+        "timings.predicted_n",
+        "timings.predicted_ms"
+      ],
+      "note": "Observed on llama.cpp b9430 Metal in this run when present"
+    },
+    "slots_endpoint": {
+      "endpoint": "GET /slots",
+      "fields": [
+        "n_prompt_tokens",
+        "n_prompt_tokens_processed",
+        "n_prompt_tokens_cache"
+      ],
+      "note": "n_prompt_tokens_processed drops on reuse; n_prompt_tokens_cache often stays 0 after slot release — use response timings/usage as the authoritative per-request hit signal"
+    },
+    "metrics_endpoint": {
+      "endpoint": "GET /metrics (requires --metrics)",
+      "fields": [
+        "llamacpp:prompt_tokens_total",
+        "llamacpp:prompt_seconds_total"
+      ],
+      "note": "Counters of processed prompt work; no dedicated cache_hit gauge"
+    },
+    "server_logs": {
+      "flag": "default info logs (or --verbose)",
+      "signals": [
+        "prompt cache is enabled",
+        "selected slot by LCP similarity",
+        "graphs reused = N"
+      ]
+    }
+  },
+  "signal_establishment": {
+    "prime_cold": {
+      "prompt_tokens": 2630,
+      "completion_tokens": 8,
+      "cached_tokens": 0,
+      "cached_tokens_field_present": true,
+      "timings_present": true,
+      "cache_n": 0,
+      "prompt_n": 2630,
+      "prompt_ms": 421.597,
+      "predicted_n": 8,
+      "predicted_ms": 21.568,
+      "wall_ms": 448.31341598182917,
+      "content": "I can't assist with this request."
+    },
+    "warm_probe": {
+      "prompt_tokens": 2633,
+      "completion_tokens": 16,
+      "cached_tokens": 2615,
+      "cached_tokens_field_present": true,
+      "timings_present": true,
+      "cache_n": 2615,
+      "prompt_n": 18,
+      "prompt_ms": 17.066,
+      "predicted_n": 16,
+      "predicted_ms": 57.228,
+      "wall_ms": 84.96570819988847,
+      "content": "Paragraph 5 is about Merc routes inference to independent suppliers, where share"
+    },
+    "signal_present": true,
+    "slots_after_warm_probe": [
+      {
+        "id": 0,
+        "n_prompt_tokens": 2648,
+        "n_prompt_tokens_processed": 18,
+        "n_prompt_tokens_cache": 0
+      }
+    ],
+    "metrics_snippet": "# HELP llamacpp:prompt_tokens_total Number of prompt tokens processed.\n# TYPE llamacpp:prompt_tokens_total counter\nllamacpp:prompt_tokens_total 2648\n# HELP llamacpp:prompt_seconds_total Prompt process time\n# TYPE llamacpp:prompt_seconds_total counter\nllamacpp:prompt_seconds_total 0.438\n# HELP llamacpp:tokens_predicted_total Number of generation tokens processed.\n# TYPE llamacpp:tokens_predicted_total counter\nllamacpp:tokens_predicted_total 24\n# HELP llamacpp:tokens_predicted_seconds_total Predict process time\n# TYPE llamacpp:tokens_predicted_seconds_total counter\nllamacpp:tokens_predicted_seconds_total 0.078\n# HELP llamacpp:n_tokens_max Largest observed n_tokens.\n# TYPE llamacpp:n_tokens_max counter\nllamacpp:n_tokens_max 2648\n# HELP llamacpp:prompt_tokens_seconds Average prompt throughput in tokens/s.\n# TYPE llamacpp:prompt_tokens_seconds gauge\nllamacpp:prompt_tokens_seconds 6045.66",
+    "verdict": "PRESENT"
+  },
+  "arms": {
+    "cold_unique": {
+      "n": 12,
+      "cache_n_p50": 46.0,
+      "cache_n_mean": 45.666666666666664,
+      "prompt_n_p50": 2731.0,
+      "prompt_n_mean": 2731.3333333333335,
+      "cached_tokens_p50": 46.0,
+      "cached_tokens_mean": 45.666666666666664,
+      "prompt_ms_p50": 429.7205,
+      "prompt_ms_p95": 430.4192,
+      "prompt_ms_mean": 429.65591666666666,
+      "wall_ms_p50": 478.4674374386668,
+      "wall_ms_p95": 487.1854517608881,
+      "wall_ms_mean": 480.3114305832423,
+      "completion_tokens_mean": 13.5,
+      "energy_joules_p50": 46.4524825,
+      "energy_joules_mean": 46.526874166666666,
+      "energy_runs": 12,
+      "all_hits_have_cached_tokens_gt_0": true,
+      "all_hits_have_cache_n_gt_0": true,
+      "raw_samples": [
+        {
+          "prompt_tokens": 2777,
+          "completion_tokens": 13,
+          "cached_tokens": 43,
+          "cached_tokens_field_present": true,
+          "timings_present": true,
+          "cache_n": 43,
+          "prompt_n": 2734,
+          "prompt_ms": 429.279,
+          "predicted_n": 13,
+          "predicted_ms": 36.903,
+          "wall_ms": 477.41845808923244,
+          "content": "Paragraph 1 is about Merc routes inference to independent suppliers."
+        },
+        {
+          "prompt_tokens": 2777,
+          "completion_tokens": 16,
+          "cached_tokens": 46,
+          "cached_tokens_field_present": true,
+          "timings_present": true,
+          "cache_n": 46,
+          "prompt_n": 2731,
+          "prompt_ms": 429.734,
+          "predicted_n": 16,
+          "predicted_ms": 45.446,
+          "wall_ms": 486.64708295837045,
+          "content": "Paragraph 2 is about Merc routes inference to independent suppliers, where share"
+        },
+        {
+          "prompt_tokens": 2777,
+          "completion_tokens": 13,
+          "cached_tokens": 46,
+          "cached_tokens_field_present": true,
+          "timings_present": true,
+          "cache_n": 46,
+          "prompt_n": 2731,
+          "prompt_ms": 429.707,
+          "predicted_n": 13,
+          "predicted_ms": 37.348,
+          "wall_ms": 478.44445891678333,
+          "content": "Paragraph 3 is about Merc routes inference to independent suppliers."
+        },
+        {
+          "prompt_tokens": 2777,
+          "completion_tokens": 13,
+          "cached_tokens": 46,
+          "cached_tokens_field_present": true,
+          "timings_present": true,
+          "cache_n": 46,
+          "prompt_n": 2731,
+          "prompt_ms": 429.311,
+          "predicted_n": 13,
+          "predicted_ms": 36.549,
+          "wall_ms": 480.98945897072554,
+          "content": "Paragraph 4 is about Merc routes inference to independent suppliers."
+        },
+        {
+          "prompt_tokens": 2777,
+          "completion_tokens": 13,
+          "cached_tokens": 46,
+          "cached_tokens_field_present": true,
+          "timings_present": true,
+          "cache_n": 46,
+          "prompt_n": 2731,
+          "prompt_ms": 430.25,
+          "predicted_n": 13,
+          "predicted_ms": 36.769,
+          "wall_ms": 478.39816589839756,
+          "content": "Paragraph 5 is about Merc routes inference to independent suppliers."
+        },
+        {
+          "prompt_tokens": 2777,
+          "completion_tokens": 13,
+          "cached_tokens": 46,
+          "cached_tokens_field_present": true,
+          "timings_present": true,
+          "cache_n": 46,
+          "prompt_n": 2731,
+          "prompt_ms": 430.036,
+          "predicted_n": 13,
+          "predicted_ms": 36.737,
+          "wall_ms": 480.37479212507606,
+          "content": "Paragraph 6 is about Merc routes inference to independent suppliers."
+        },
+        {
+          "prompt_tokens": 2777,
+          "completion_tokens": 13,
+          "cached_tokens": 46,
+          "cached_tokens_field_present": true,
+          "timings_present": true,
+          "cache_n": 46,
+          "prompt_n": 2731,
+          "prompt_ms": 429.403,
+          "predicted_n": 13,
+          "predicted_ms": 36.631,
+          "wall_ms": 477.7123329695314,
+          "content": "Paragraph 7 is about Merc routes inference to independent suppliers."
+        },
+        {
+          "prompt_tokens": 2777,
+          "completion_tokens": 13,
+          "cached_tokens": 46,
+          "cached_tokens_field_present": true,
+          "timings_present": true,
+          "cache_n": 46,
+          "prompt_n": 2731,
+          "prompt_ms": 430.626,
+          "predicted_n": 13,
+          "predicted_ms": 37.183,
+          "wall_ms": 482.0042089559138,
+          "content": "Paragraph 8 is about Merc routes inference to independent suppliers."
+        },
+        {
+          "prompt_tokens": 2777,
+          "completion_tokens": 13,
+          "cached_tokens": 46,
+          "cached_tokens_field_present": true,
+          "timings_present": true,
+          "cache_n": 46,
+          "prompt_n": 2731,
+          "prompt_ms": 429.951,
+          "predicted_n": 13,
+          "predicted_ms": 37.021,
+          "wall_ms": 478.4904159605503,
+          "content": "Paragraph 9 is about Merc routes inference to independent suppliers."
+        },
+        {
+          "prompt_tokens": 2777,
+          "completion_tokens": 13,
+          "cached_tokens": 46,
+          "cached_tokens_field_present": true,
+          "timings_present": true,
+          "cache_n": 46,
+          "prompt_n": 2731,
+          "prompt_ms": 428.991,
+          "predicted_n": 13,
+          "predicted_ms": 36.956,
+          "wall_ms": 477.42850007489324,
+          "content": "Paragraph 10 is about Merc routes inference to independent suppliers."
+        },
+        {
+          "prompt_tokens": 2777,
+          "completion_tokens": 13,
+          "cached_tokens": 45,
+          "cached_tokens_field_present": true,
+          "timings_present": true,
+          "cache_n": 45,
+          "prompt_n": 2732,
+          "prompt_ms": 428.716,
+          "predicted_n": 13,
+          "predicted_ms": 36.719,
+          "wall_ms": 477.98583400435746,
+          "content": "Paragraph 11 is about Merc routes inference to independent suppliers."
+        },
+        {
+          "prompt_tokens": 2777,
+          "completion_tokens": 16,
+          "cached_tokens": 46,
+          "cached_tokens_field_present": true,
+          "timings_present": true,
+          "cache_n": 46,
+          "prompt_n": 2731,
+          "prompt_ms": 429.867,
+          "predicted_n": 16,
+          "predicted_ms": 45.319,
+          "wall_ms": 487.84345807507634,
+          "content": "Paragraph 12 is about Merc routes inference to independent suppliers, where shar"
+        }
+      ],
+      "raw_energy": [
+        {
+          "power_source": "ioreport_gpu_energy",
+          "power_unavailable_reason": null,
+          "mean_watts": 57.785,
+          "peak_watts": 113.447,
+          "samples": 7,
+          "energy_joules": 46.447427,
+          "energy_boundary": "IOReport Energy Model channel 'GPU Energy' (AGX on-chip GPU domain only). Not package energy (CPU/DRAM/ANE excluded). Not wall-plug / PSU energy.",
+          "energy_measures": "AGX GPU Energy counter (integrated mJ over the sample window)",
+          "energy_excludes": "CPU cores/clusters, DRAM, GPU SRAM, ANE, display, PCIe, package total, wall AC draw, power-supply inefficiency",
+          "integration": "IOReport cumulative GPU Energy counter delta (mJ→J)",
+          "raw_watts_samples": [
+            2.7373,
+            90.7003,
+            105.9598,
+            113.4474,
+            81.6015,
+            7.1994,
+            2.8496
+          ],
+          "available": true
+        },
+        {
+          "power_source": "ioreport_gpu_energy",
+          "power_unavailable_reason": null,
+          "mean_watts": 57.181,
+          "peak_watts": 107.417,
+          "samples": 7,
+          "energy_joules": 46.982076,
+          "energy_boundary": "IOReport Energy Model channel 'GPU Energy' (AGX on-chip GPU domain only). Not package energy (CPU/DRAM/ANE excluded). Not wall-plug / PSU energy.",
+          "energy_measures": "AGX GPU Energy counter (integrated mJ over the sample window)",
+          "energy_excludes": "CPU cores/clusters, DRAM, GPU SRAM, ANE, display, PCIe, package total, wall AC draw, power-supply inefficiency",
+          "integration": "IOReport cumulative GPU Energy counter delta (mJ→J)",
+          "raw_watts_samples": [
+            3.0383,
+            92.902,
+            107.4165,
+            106.8641,
+            78.2848,
+            8.7621,
+            2.9959
+          ],
+          "available": true
+        },
+        {
+          "power_source": "ioreport_gpu_energy",
+          "power_unavailable_reason": null,
+          "mean_watts": 58.263,
+          "peak_watts": 106.916,
+          "samples": 7,
+          "energy_joules": 46.409396,
+          "energy_boundary": "IOReport Energy Model channel 'GPU Energy' (AGX on-chip GPU domain only). Not package energy (CPU/DRAM/ANE excluded). Not wall-plug / PSU energy.",
+          "energy_measures": "AGX GPU Energy counter (integrated mJ over the sample window)",
+          "energy_excludes": "CPU cores/clusters, DRAM, GPU SRAM, ANE, display, PCIe, package total, wall AC draw, power-supply inefficiency",
+          "integration": "IOReport cumulative GPU Energy counter delta (mJ→J)",
+          "raw_watts_samples": [
+            3.1611,
+            91.5078,
+            105.41,
+            106.916,
+            89.103,
+            9.2948,
+            2.4488
+          ],
+          "available": true
+        },
+        {
+          "power_source": "ioreport_gpu_energy",
+          "power_unavailable_reason": null,
+          "mean_watts": 59.179,
+          "peak_watts": 107.621,
+          "samples": 7,
+          "energy_joules": 46.457538,
+          "energy_boundary": "IOReport Energy Model channel 'GPU Energy' (AGX on-chip GPU domain only). Not package energy (CPU/DRAM/ANE excluded). Not wall-plug / PSU energy.",
+          "energy_measures": "AGX GPU Energy counter (integrated mJ over the sample window)",
+          "energy_excludes": "CPU cores/clusters, DRAM, GPU SRAM, ANE, display, PCIe, package total, wall AC draw, power-supply inefficiency",
+          "integration": "IOReport cumulative GPU Energy counter delta (mJ→J)",
+          "raw_watts_samples": [
+            0.0,
+            93.9767,
+            106.3372,
+            107.6208,
+            90.2079,
+            13.0432,
+            3.0678
+          ],
+          "available": true
+        },
+        {
+          "power_source": "ioreport_gpu_energy",
+          "power_unavailable_reason": null,
+          "mean_watts": 57.891,
+          "peak_watts": 106.15,
+          "samples": 7,
+          "energy_joules": 46.443712,
+          "energy_boundary": "IOReport Energy Model channel 'GPU Energy' (AGX on-chip GPU domain only). Not package energy (CPU/DRAM/ANE excluded). Not wall-plug / PSU energy.",
+          "energy_measures": "AGX GPU Energy counter (integrated mJ over the sample window)",
+          "energy_excludes": "CPU cores/clusters, DRAM, GPU SRAM, ANE, display, PCIe, package total, wall AC draw, power-supply inefficiency",
+          "integration": "IOReport cumulative GPU Energy counter delta (mJ→J)",
+          "raw_watts_samples": [
+            3.7199,
+            90.7527,
+            106.0339,
+            106.1497,
+            89.4545,
+            9.1249,
+            0.0
+          ],
+          "available": true
+        },
+        {
+          "power_source": "ioreport_gpu_energy",
+          "power_unavailable_reason": null,
+          "mean_watts": 58.554,
+          "peak_watts": 111.341,
+          "samples": 7,
+          "energy_joules": 46.509983,
+          "energy_boundary": "IOReport Energy Model channel 'GPU Energy' (AGX on-chip GPU domain only). Not package energy (CPU/DRAM/ANE excluded). Not wall-plug / PSU energy.",
+          "energy_measures": "AGX GPU Energy counter (integrated mJ over the sample window)",
+          "energy_excludes": "CPU cores/clusters, DRAM, GPU SRAM, ANE, display, PCIe, package total, wall AC draw, power-supply inefficiency",
+          "integration": "IOReport cumulative GPU Energy counter delta (mJ→J)",
+          "raw_watts_samples": [
+            2.582,
+            88.1051,
+            105.9177,
+            111.3411,
+            87.7672,
+            11.2109,
+            2.9574
+          ],
+          "available": true
+        },
+        {
+          "power_source": "ioreport_gpu_energy",
+          "power_unavailable_reason": null,
+          "mean_watts": 56.321,
+          "peak_watts": 106.87,
+          "samples": 7,
+          "energy_joules": 46.488455,
+          "energy_boundary": "IOReport Energy Model channel 'GPU Energy' (AGX on-chip GPU domain only). Not package energy (CPU/DRAM/ANE excluded). Not wall-plug / PSU energy.",
+          "energy_measures": "AGX GPU Energy counter (integrated mJ over the sample window)",
+          "energy_excludes": "CPU cores/clusters, DRAM, GPU SRAM, ANE, display, PCIe, package total, wall AC draw, power-supply inefficiency",
+          "integration": "IOReport cumulative GPU Energy counter delta (mJ→J)",
+          "raw_watts_samples": [
+            3.1956,
+            97.7348,
+            105.3483,
+            106.87,
+            75.2652,
+            3.3224,
+            2.5094
+          ],
+          "available": true
+        },
+        {
+          "power_source": "ioreport_gpu_energy",
+          "power_unavailable_reason": null,
+          "mean_watts": 57.11,
+          "peak_watts": 108.323,
+          "samples": 7,
+          "energy_joules": 46.472055,
+          "energy_boundary": "IOReport Energy Model channel 'GPU Energy' (AGX on-chip GPU domain only). Not package energy (CPU/DRAM/ANE excluded). Not wall-plug / PSU energy.",
+          "energy_measures": "AGX GPU Energy counter (integrated mJ over the sample window)",
+          "energy_excludes": "CPU cores/clusters, DRAM, GPU SRAM, ANE, display, PCIe, package total, wall AC draw, power-supply inefficiency",
+          "integration": "IOReport cumulative GPU Energy counter delta (mJ→J)",
+          "raw_watts_samples": [
+            2.7837,
+            91.6562,
+            106.5951,
+            108.3227,
+            80.459,
+            6.4906,
+            3.4595
+          ],
+          "available": true
+        },
+        {
+          "power_source": "ioreport_gpu_energy",
+          "power_unavailable_reason": null,
+          "mean_watts": 57.942,
+          "peak_watts": 107.399,
+          "samples": 7,
+          "energy_joules": 46.319348,
+          "energy_boundary": "IOReport Energy Model channel 'GPU Energy' (AGX on-chip GPU domain only). Not package energy (CPU/DRAM/ANE excluded). Not wall-plug / PSU energy.",
+          "energy_measures": "AGX GPU Energy counter (integrated mJ over the sample window)",
+          "energy_excludes": "CPU cores/clusters, DRAM, GPU SRAM, ANE, display, PCIe, package total, wall AC draw, power-supply inefficiency",
+          "integration": "IOReport cumulative GPU Energy counter delta (mJ→J)",
+          "raw_watts_samples": [
+            2.1785,
+            87.6901,
+            107.3993,
+            102.9806,
+            92.5871,
+            10.4375,
+            2.3203
+          ],
+          "available": true
+        },
+        {
+          "power_source": "ioreport_gpu_energy",
+          "power_unavailable_reason": null,
+          "mean_watts": 56.985,
+          "peak_watts": 110.924,
+          "samples": 7,
+          "energy_joules": 46.441717,
+          "energy_boundary": "IOReport Energy Model channel 'GPU Energy' (AGX on-chip GPU domain only). Not package energy (CPU/DRAM/ANE excluded). Not wall-plug / PSU energy.",
+          "energy_measures": "AGX GPU Energy counter (integrated mJ over the sample window)",
+          "energy_excludes": "CPU cores/clusters, DRAM, GPU SRAM, ANE, display, PCIe, package total, wall AC draw, power-supply inefficiency",
+          "integration": "IOReport cumulative GPU Energy counter delta (mJ→J)",
+          "raw_watts_samples": [
+            2.2772,
+            92.8846,
+            110.9244,
+            106.7479,
+            77.896,
+            5.6268,
+            2.5386
+          ],
+          "available": true
+        },
+        {
+          "power_source": "ioreport_gpu_energy",
+          "power_unavailable_reason": null,
+          "mean_watts": 56.406,
+          "peak_watts": 106.824,
+          "samples": 7,
+          "energy_joules": 46.403514,
+          "energy_boundary": "IOReport Energy Model channel 'GPU Energy' (AGX on-chip GPU domain only). Not package energy (CPU/DRAM/ANE excluded). Not wall-plug / PSU energy.",
+          "energy_measures": "AGX GPU Energy counter (integrated mJ over the sample window)",
+          "energy_excludes": "CPU cores/clusters, DRAM, GPU SRAM, ANE, display, PCIe, package total, wall AC draw, power-supply inefficiency",
+          "integration": "IOReport cumulative GPU Energy counter delta (mJ→J)",
+          "raw_watts_samples": [
+            2.7496,
+            100.3858,
+            106.8236,
+            106.8058,
+            73.0908,
+            3.1001,
+            1.8837
+          ],
+          "available": true
+        },
+        {
+          "power_source": "ioreport_gpu_energy",
+          "power_unavailable_reason": null,
+          "mean_watts": 57.37,
+          "peak_watts": 106.259,
+          "samples": 7,
+          "energy_joules": 46.947269,
+          "energy_boundary": "IOReport Energy Model channel 'GPU Energy' (AGX on-chip GPU domain only). Not package energy (CPU/DRAM/ANE excluded). Not wall-plug / PSU energy.",
+          "energy_measures": "AGX GPU Energy counter (integrated mJ over the sample window)",
+          "energy_excludes": "CPU cores/clusters, DRAM, GPU SRAM, ANE, display, PCIe, package total, wall AC draw, power-supply inefficiency",
+          "integration": "IOReport cumulative GPU Energy counter delta (mJ→J)",
+          "raw_watts_samples": [
+            2.3821,
+            89.154,
+            106.2588,
+            106.017,
+            82.9517,
+            12.1836,
+            2.6426
+          ],
+          "available": true
+        }
+      ],
+      "joules_per_completion_token_mean": 3.4464351234567903
+    },
+    "warm_shared_prefix": {
+      "n": 12,
+      "cache_n_p50": 2618.0,
+      "cache_n_mean": 2617.75,
+      "prompt_n_p50": 21.0,
+      "prompt_n_mean": 21.25,
+      "cached_tokens_p50": 2618.0,
+      "cached_tokens_mean": 2617.75,
+      "prompt_ms_p50": 19.451,
+      "prompt_ms_p95": 22.524449999999998,
+      "prompt_ms_mean": 19.49775,
+      "wall_ms_p50": 64.06645849347115,
+      "wall_ms_p95": 70.52213964052498,
+      "wall_ms_mean": 62.3581251129508,
+      "completion_tokens_mean": 13.0,
+      "energy_joules_p50": 2.842692,
+      "energy_joules_mean": 2.7770484166666667,
+      "energy_runs": 12,
+      "all_hits_have_cached_tokens_gt_0": true,
+      "all_hits_have_cache_n_gt_0": true,
+      "raw_samples": [
+        {
+          "prompt_tokens": 2639,
+          "completion_tokens": 13,
+          "cached_tokens": 2615,
+          "cached_tokens_field_present": true,
+          "timings_present": true,
+          "cache_n": 2615,
+          "prompt_n": 24,
+          "prompt_ms": 16.387,
+          "predicted_n": 13,
+          "predicted_ms": 36.896,
+          "wall_ms": 58.44566714949906,
+          "content": "Paragraph 1 is about Merc routes inference to independent suppliers."
+        },
+        {
+          "prompt_tokens": 2639,
+          "completion_tokens": 13,
+          "cached_tokens": 2618,
+          "cached_tokens_field_present": true,
+          "timings_present": true,
+          "cache_n": 2618,
+          "prompt_n": 21,
+          "prompt_ms": 20.977,
+          "predicted_n": 13,
+          "predicted_ms": 37.778,
+          "wall_ms": 63.9880420640111,
+          "content": "Paragraph 2 is about Merc routes inference to independent suppliers."
+        },
+        {
+          "prompt_tokens": 2639,
+          "completion_tokens": 13,
+          "cached_tokens": 2618,
+          "cached_tokens_field_present": true,
+          "timings_present": true,
+          "cache_n": 2618,
+          "prompt_n": 21,
+          "prompt_ms": 21.829,
+          "predicted_n": 13,
+          "predicted_ms": 37.456,
+          "wall_ms": 64.1448749229312,
+          "content": "Paragraph 3 is about Merc routes inference to independent suppliers."
+        },
+        {
+          "prompt_tokens": 2639,
+          "completion_tokens": 4,
+          "cached_tokens": 2618,
+          "cached_tokens_field_present": true,
+          "timings_present": true,
+          "cache_n": 2618,
+          "prompt_n": 21,
+          "prompt_ms": 22.479,
+          "predicted_n": 4,
+          "predicted_ms": 10.581,
+          "wall_ms": 40.78399995341897,
+          "content": "tag=W3"
+        },
+        {
+          "prompt_tokens": 2639,
+          "completion_tokens": 13,
+          "cached_tokens": 2618,
+          "cached_tokens_field_present": true,
+          "timings_present": true,
+          "cache_n": 2618,
+          "prompt_n": 21,
+          "prompt_ms": 19.388,
+          "predicted_n": 13,
+          "predicted_ms": 37.077,
+          "wall_ms": 63.219500007107854,
+          "content": "Paragraph 5 is about Merc routes inference to independent suppliers."
+        },
+        {
+          "prompt_tokens": 2639,
+          "completion_tokens": 16,
+          "cached_tokens": 2618,
+          "cached_tokens_field_present": true,
+          "timings_present": true,
+          "cache_n": 2618,
+          "prompt_n": 21,
+          "prompt_ms": 18.315,
+          "predicted_n": 16,
+          "predicted_ms": 45.952,
+          "wall_ms": 70.43170812539756,
+          "content": "Tagged as W5, paragraph 6 is about \"Merc routes inference to"
+        },
+        {
+          "prompt_tokens": 2639,
+          "completion_tokens": 13,
+          "cached_tokens": 2618,
+          "cached_tokens_field_present": true,
+          "timings_present": true,
+          "cache_n": 2618,
+          "prompt_n": 21,
+          "prompt_ms": 16.103,
+          "predicted_n": 13,
+          "predicted_ms": 36.606,
+          "wall_ms": 59.385665925219655,
+          "content": "Paragraph 7 is about Merc routes inference to independent suppliers."
+        },
+        {
+          "prompt_tokens": 2639,
+          "completion_tokens": 16,
+          "cached_tokens": 2618,
+          "cached_tokens_field_present": true,
+          "timings_present": true,
+          "cache_n": 2618,
+          "prompt_n": 21,
+          "prompt_ms": 17.567,
+          "predicted_n": 16,
+          "predicted_ms": 46.079,
+          "wall_ms": 68.63466696813703,
+          "content": "I can't answer that question as there is no paragraph 8 to refer to"
+        },
+        {
+          "prompt_tokens": 2639,
+          "completion_tokens": 16,
+          "cached_tokens": 2618,
+          "cached_tokens_field_present": true,
+          "timings_present": true,
+          "cache_n": 2618,
+          "prompt_n": 21,
+          "prompt_ms": 19.514,
+          "predicted_n": 16,
+          "predicted_ms": 45.998,
+          "wall_ms": 70.63266704790294,
+          "content": "I can't answer that question as there is no paragraph 9 to refer to"
+        },
+        {
+          "prompt_tokens": 2639,
+          "completion_tokens": 13,
+          "cached_tokens": 2618,
+          "cached_tokens_field_present": true,
+          "timings_present": true,
+          "cache_n": 2618,
+          "prompt_n": 21,
+          "prompt_ms": 21.273,
+          "predicted_n": 13,
+          "predicted_ms": 37.558,
+          "wall_ms": 64.23241714946926,
+          "content": "Paragraph 10 is about Merc routes inference to independent suppliers."
+        },
+        {
+          "prompt_tokens": 2639,
+          "completion_tokens": 13,
+          "cached_tokens": 2618,
+          "cached_tokens_field_present": true,
+          "timings_present": true,
+          "cache_n": 2618,
+          "prompt_n": 21,
+          "prompt_ms": 22.58,
+          "predicted_n": 13,
+          "predicted_ms": 37.6,
+          "wall_ms": 65.29791699722409,
+          "content": "Paragraph 11 is about Merc routes inference to independent suppliers."
+        },
+        {
+          "prompt_tokens": 2639,
+          "completion_tokens": 13,
+          "cached_tokens": 2618,
+          "cached_tokens_field_present": true,
+          "timings_present": true,
+          "cache_n": 2618,
+          "prompt_n": 21,
+          "prompt_ms": 17.561,
+          "predicted_n": 13,
+          "predicted_ms": 36.453,
+          "wall_ms": 59.100375045090914,
+          "content": "Paragraph 12 is about Merc routes inference to independent suppliers."
+        }
+      ],
+      "raw_energy": [
+        {
+          "power_source": "ioreport_gpu_energy",
+          "power_unavailable_reason": null,
+          "mean_watts": 8.06,
+          "peak_watts": 18.072,
+          "samples": 3,
+          "energy_joules": 3.045221,
+          "energy_boundary": "IOReport Energy Model channel 'GPU Energy' (AGX on-chip GPU domain only). Not package energy (CPU/DRAM/ANE excluded). Not wall-plug / PSU energy.",
+          "energy_measures": "AGX GPU Energy counter (integrated mJ over the sample window)",
+          "energy_excludes": "CPU cores/clusters, DRAM, GPU SRAM, ANE, display, PCIe, package total, wall AC draw, power-supply inefficiency",
+          "integration": "IOReport cumulative GPU Energy counter delta (mJ→J)",
+          "raw_watts_samples": [
+            3.1412,
+            18.0723,
+            2.9672
+          ],
+          "available": true
+        },
+        {
+          "power_source": "ioreport_gpu_energy",
+          "power_unavailable_reason": null,
+          "mean_watts": 7.656,
+          "peak_watts": 20.475,
+          "samples": 3,
+          "energy_joules": 2.87528,
+          "energy_boundary": "IOReport Energy Model channel 'GPU Energy' (AGX on-chip GPU domain only). Not package energy (CPU/DRAM/ANE excluded). Not wall-plug / PSU energy.",
+          "energy_measures": "AGX GPU Energy counter (integrated mJ over the sample window)",
+          "energy_excludes": "CPU cores/clusters, DRAM, GPU SRAM, ANE, display, PCIe, package total, wall AC draw, power-supply inefficiency",
+          "integration": "IOReport cumulative GPU Energy counter delta (mJ→J)",
+          "raw_watts_samples": [
+            2.4927,
+            0.0,
+            20.4751
+          ],
+          "available": true
+        },
+        {
+          "power_source": "ioreport_gpu_energy",
+          "power_unavailable_reason": null,
+          "mean_watts": 6.871,
+          "peak_watts": 17.1,
+          "samples": 3,
+          "energy_joules": 2.652054,
+          "energy_boundary": "IOReport Energy Model channel 'GPU Energy' (AGX on-chip GPU domain only). Not package energy (CPU/DRAM/ANE excluded). Not wall-plug / PSU energy.",
+          "energy_measures": "AGX GPU Energy counter (integrated mJ over the sample window)",
+          "energy_excludes": "CPU cores/clusters, DRAM, GPU SRAM, ANE, display, PCIe, package total, wall AC draw, power-supply inefficiency",
+          "integration": "IOReport cumulative GPU Energy counter delta (mJ→J)",
+          "raw_watts_samples": [
+            1.5899,
+            17.1002,
+            1.9225
+          ],
+          "available": true
+        },
+        {
+          "power_source": "ioreport_gpu_energy",
+          "power_unavailable_reason": null,
+          "mean_watts": 4.147,
+          "peak_watts": 7.611,
+          "samples": 3,
+          "energy_joules": 1.697834,
+          "energy_boundary": "IOReport Energy Model channel 'GPU Energy' (AGX on-chip GPU domain only). Not package energy (CPU/DRAM/ANE excluded). Not wall-plug / PSU energy.",
+          "energy_measures": "AGX GPU Energy counter (integrated mJ over the sample window)",
+          "energy_excludes": "CPU cores/clusters, DRAM, GPU SRAM, ANE, display, PCIe, package total, wall AC draw, power-supply inefficiency",
+          "integration": "IOReport cumulative GPU Energy counter delta (mJ→J)",
+          "raw_watts_samples": [
+            2.0798,
+            7.6113,
+            2.7496
+          ],
+          "available": true
+        },
+        {
+          "power_source": "ioreport_gpu_energy",
+          "power_unavailable_reason": null,
+          "mean_watts": 7.209,
+          "peak_watts": 18.583,
+          "samples": 3,
+          "energy_joules": 2.840947,
+          "energy_boundary": "IOReport Energy Model channel 'GPU Energy' (AGX on-chip GPU domain only). Not package energy (CPU/DRAM/ANE excluded). Not wall-plug / PSU energy.",
+          "energy_measures": "AGX GPU Energy counter (integrated mJ over the sample window)",
+          "energy_excludes": "CPU cores/clusters, DRAM, GPU SRAM, ANE, display, PCIe, package total, wall AC draw, power-supply inefficiency",
+          "integration": "IOReport cumulative GPU Energy counter delta (mJ→J)",
+          "raw_watts_samples": [
+            0.5895,
+            18.5831,
+            2.4537
+          ],
+          "available": true
+        },
+        {
+          "power_source": "ioreport_gpu_energy",
+          "power_unavailable_reason": null,
+          "mean_watts": 8.316,
+          "peak_watts": 21.068,
+          "samples": 3,
+          "energy_joules": 2.973863,
+          "energy_boundary": "IOReport Energy Model channel 'GPU Energy' (AGX on-chip GPU domain only). Not package energy (CPU/DRAM/ANE excluded). Not wall-plug / PSU energy.",
+          "energy_measures": "AGX GPU Energy counter (integrated mJ over the sample window)",
+          "energy_excludes": "CPU cores/clusters, DRAM, GPU SRAM, ANE, display, PCIe, package total, wall AC draw, power-supply inefficiency",
+          "integration": "IOReport cumulative GPU Energy counter delta (mJ→J)",
+          "raw_watts_samples": [
+            1.467,
+            21.0675,
+            2.4128
+          ],
+          "available": true
+        },
+        {
+          "power_source": "ioreport_gpu_energy",
+          "power_unavailable_reason": null,
+          "mean_watts": 7.06,
+          "peak_watts": 18.524,
+          "samples": 3,
+          "energy_joules": 2.673075,
+          "energy_boundary": "IOReport Energy Model channel 'GPU Energy' (AGX on-chip GPU domain only). Not package energy (CPU/DRAM/ANE excluded). Not wall-plug / PSU energy.",
+          "energy_measures": "AGX GPU Energy counter (integrated mJ over the sample window)",
+          "energy_excludes": "CPU cores/clusters, DRAM, GPU SRAM, ANE, display, PCIe, package total, wall AC draw, power-supply inefficiency",
+          "integration": "IOReport cumulative GPU Energy counter delta (mJ→J)",
+          "raw_watts_samples": [
+            0.9125,
+            18.5242,
+            1.7442
+          ],
+          "available": true
+        },
+        {
+          "power_source": "ioreport_gpu_energy",
+          "power_unavailable_reason": null,
+          "mean_watts": 8.426,
+          "peak_watts": 21.237,
+          "samples": 3,
+          "energy_joules": 3.374017,
+          "energy_boundary": "IOReport Energy Model channel 'GPU Energy' (AGX on-chip GPU domain only). Not package energy (CPU/DRAM/ANE excluded). Not wall-plug / PSU energy.",
+          "energy_measures": "AGX GPU Energy counter (integrated mJ over the sample window)",
+          "energy_excludes": "CPU cores/clusters, DRAM, GPU SRAM, ANE, display, PCIe, package total, wall AC draw, power-supply inefficiency",
+          "integration": "IOReport cumulative GPU Energy counter delta (mJ→J)",
+          "raw_watts_samples": [
+            1.6929,
+            21.2367,
+            2.3492
+          ],
+          "available": true
+        },
+        {
+          "power_source": "ioreport_gpu_energy",
+          "power_unavailable_reason": null,
+          "mean_watts": 7.849,
+          "peak_watts": 19.801,
+          "samples": 3,
+          "energy_joules": 3.030276,
+          "energy_boundary": "IOReport Energy Model channel 'GPU Energy' (AGX on-chip GPU domain only). Not package energy (CPU/DRAM/ANE excluded). Not wall-plug / PSU energy.",
+          "energy_measures": "AGX GPU Energy counter (integrated mJ over the sample window)",
+          "energy_excludes": "CPU cores/clusters, DRAM, GPU SRAM, ANE, display, PCIe, package total, wall AC draw, power-supply inefficiency",
+          "integration": "IOReport cumulative GPU Energy counter delta (mJ→J)",
+          "raw_watts_samples": [
+            1.9402,
+            19.8006,
+            1.8054
+          ],
+          "available": true
+        },
+        {
+          "power_source": "ioreport_gpu_energy",
+          "power_unavailable_reason": null,
+          "mean_watts": 6.805,
+          "peak_watts": 16.299,
+          "samples": 3,
+          "energy_joules": 2.580993,
+          "energy_boundary": "IOReport Energy Model channel 'GPU Energy' (AGX on-chip GPU domain only). Not package energy (CPU/DRAM/ANE excluded). Not wall-plug / PSU energy.",
+          "energy_measures": "AGX GPU Energy counter (integrated mJ over the sample window)",
+          "energy_excludes": "CPU cores/clusters, DRAM, GPU SRAM, ANE, display, PCIe, package total, wall AC draw, power-supply inefficiency",
+          "integration": "IOReport cumulative GPU Energy counter delta (mJ→J)",
+          "raw_watts_samples": [
+            2.0936,
+            16.2991,
+            2.0227
+          ],
+          "available": true
+        },
+        {
+          "power_source": "ioreport_gpu_energy",
+          "power_unavailable_reason": null,
+          "mean_watts": 6.988,
+          "peak_watts": 17.0,
+          "samples": 3,
+          "energy_joules": 2.736584,
+          "energy_boundary": "IOReport Energy Model channel 'GPU Energy' (AGX on-chip GPU domain only). Not package energy (CPU/DRAM/ANE excluded). Not wall-plug / PSU energy.",
+          "energy_measures": "AGX GPU Energy counter (integrated mJ over the sample window)",
+          "energy_excludes": "CPU cores/clusters, DRAM, GPU SRAM, ANE, display, PCIe, package total, wall AC draw, power-supply inefficiency",
+          "integration": "IOReport cumulative GPU Energy counter delta (mJ→J)",
+          "raw_watts_samples": [
+            1.5419,
+            16.9997,
+            2.4214
+          ],
+          "available": true
+        },
+        {
+          "power_source": "ioreport_gpu_energy",
+          "power_unavailable_reason": null,
+          "mean_watts": 7.685,
+          "peak_watts": 19.135,
+          "samples": 3,
+          "energy_joules": 2.844437,
+          "energy_boundary": "IOReport Energy Model channel 'GPU Energy' (AGX on-chip GPU domain only). Not package energy (CPU/DRAM/ANE excluded). Not wall-plug / PSU energy.",
+          "energy_measures": "AGX GPU Energy counter (integrated mJ over the sample window)",
+          "energy_excludes": "CPU cores/clusters, DRAM, GPU SRAM, ANE, display, PCIe, package total, wall AC draw, power-supply inefficiency",
+          "integration": "IOReport cumulative GPU Energy counter delta (mJ→J)",
+          "raw_watts_samples": [
+            1.739,
+            19.1346,
+            2.1829
+          ],
+          "available": true
+        }
+      ],
+      "joules_per_completion_token_mean": 0.21361910897435898
+    }
+  },
+  "deltas": {
+    "prefill_tokens_avoided_p50": 2618.0,
+    "prompt_ms_delta_p50_ms": 410.2695,
+    "prompt_ms_delta_p95_ms": 407.89475,
+    "prompt_ms_warm_over_cold_ratio_p50": 0.04526430551951792,
+    "wall_ms_delta_p50_ms": 414.4009789451957,
+    "wall_ms_delta_p95_ms": 416.6633121203631,
+    "wall_ms_warm_over_cold_ratio_p50": 0.13389930741458997,
+    "energy_joules_delta_mean": 43.74982575,
+    "energy_warm_over_cold_ratio_mean": 0.059686975890940734,
+    "joules_per_completion_token_delta_mean": 3.2328160144824314,
+    "notes": [
+      "prompt_ms is engine-reported prefill time (authoritative TTFT-prefill).",
+      "wall_ms is non-stream end-to-end (prefill+decode+HTTP); absolute TTFT for streaming would be lower by decode tail.",
+      "energy is IOReport AGX GPU Energy domain only — not wall-plug.",
+      "usage.prompt_tokens still counts the full prompt on hits; buyer token billing may not shrink even when prefill work does. Physical saving is prefill time and GPU joules."
+    ]
+  },
+  "cost_dominance": {
+    "rank_order": [
+      "CostRank ASC (hw class)",
+      "AskUSDHr ASC (supplier ask within class)",
+      "WarmPrefixDepth DESC",
+      "WarmModel DESC",
+      "WorkerID ASC"
+    ],
+    "claim_sql_order_prefix": "cheaper_class_online ASC, cheaper_ask_online ASC, ... worker_tps DESC, warm_prefix_depth DESC, warm_for_task DESC",
+    "cheaper_ask_hard_deferral": "WHERE NOT cheaper_ask_online OR task older than askDeferralWindow — an expensive ask is refused while a cheaper capable ask is online",
+    "can_affinity_outrank_cost_class": false,
+    "can_affinity_outrank_cheaper_ask_within_class": false,
+    "gap_at_which_affinity_wins": "Never while a cheaper cost class or cheaper ask is eligible. Within a cost class, any AskUSDHr difference — including the smallest positive float the ranker compares — beats any WarmPrefixDepth. Affinity only breaks ties at equal CostRank AND equal AskUSDHr.",
+    "measured_gap": {
+      "cost_class": "discrete hwClassCostRank steps; warmth never crosses",
+      "ask_usd_hr": "any epsilon > 0 in AskUSDHr outranks infinite WarmPrefixDepth within the same CostRank"
+    },
+    "tests_that_pin_this": [
+      "TestPrefixAffinityNeverPromotesMoreExpensiveCostClass",
+      "TestPrefixAffinityCostRankGateIsLoadBearing",
+      "TestPrefixAffinityBreaksTiesWithinSameCostClass",
+      "TestWarmExpensiveClassDoesNotBeatColdCheapClass",
+      "prefix_routing_wiring_test cheaper_ask hard-deferral"
+    ]
+  },
+  "server_log_cache_lines": [
+    "0.11.798.533 I srv        update:  - cache state: 11 prompts, 954.760 MiB (limits: 8192.000 MiB, 4096 tokens, 262046 est)",
+    "0.12.264.007 I slot print_timing: id  0 | task 193 |    graphs reused =        144",
+    "0.12.822.134 I srv        update:  - cache state: 12 prompts, 1041.949 MiB (limits: 8192.000 MiB, 4096 tokens, 262046 est)",
+    "0.13.297.364 I slot print_timing: id  0 | task 209 |    graphs reused =        158",
+    "0.13.640.515 I srv        update:  - cache state: 12 prompts, 1046.450 MiB (limits: 8192.000 MiB, 4096 tokens, 262046 est)",
+    "0.13.665.169 I slot print_timing: id  0 | task 228 |    graphs reused =        160",
+    "0.14.049.065 I slot get_availabl: id  0 | task -1 | selected slot by LCP similarity, sim_best = 0.991 (> 0.100 thold), f_keep = 0.994",
+    "0.14.102.376 I slot print_timing: id  0 | task 233 |    graphs reused =        171",
+    "0.14.649.266 I slot get_availabl: id  0 | task -1 | selected slot by LCP similarity, sim_best = 0.992 (> 0.100 thold), f_keep = 0.988",
+    "0.14.708.055 I slot print_timing: id  0 | task 247 |    graphs reused =        182",
+    "0.15.265.777 I slot get_availabl: id  0 | task -1 | selected slot by LCP similarity, sim_best = 0.992 (> 0.100 thold), f_keep = 0.988",
+    "0.15.325.091 I slot print_timing: id  0 | task 261 |    graphs reused =        193",
+    "0.15.890.519 I slot get_availabl: id  0 | task -1 | selected slot by LCP similarity, sim_best = 0.992 (> 0.100 thold), f_keep = 0.988",
+    "0.15.923.617 I slot print_timing: id  0 | task 275 |    graphs reused =        195",
+    "0.16.481.822 I slot get_availabl: id  0 | task -1 | selected slot by LCP similarity, sim_best = 0.992 (> 0.100 thold), f_keep = 0.991",
+    "0.16.538.317 I slot print_timing: id  0 | task 280 |    graphs reused =        206",
+    "0.17.095.754 I slot get_availabl: id  0 | task -1 | selected slot by LCP similarity, sim_best = 0.992 (> 0.100 thold), f_keep = 0.988",
+    "0.17.160.045 I slot print_timing: id  0 | task 294 |    graphs reused =        220",
+    "0.17.717.106 I slot get_availabl: id  0 | task -1 | selected slot by LCP similarity, sim_best = 0.992 (> 0.100 thold), f_keep = 0.986",
+    "0.17.769.842 I slot print_timing: id  0 | task 311 |    graphs reused =        231",
+    "0.18.330.480 I slot get_availabl: id  0 | task -1 | selected slot by LCP similarity, sim_best = 0.992 (> 0.100 thold), f_keep = 0.988",
+    "0.18.394.149 I slot print_timing: id  0 | task 325 |    graphs reused =        245",
+    "0.18.951.785 I slot get_availabl: id  0 | task -1 | selected slot by LCP similarity, sim_best = 0.992 (> 0.100 thold), f_keep = 0.986",
+    "0.19.017.324 I slot print_timing: id  0 | task 342 |    graphs reused =        259",
+    "0.19.569.273 I slot get_availabl: id  0 | task -1 | selected slot by LCP similarity, sim_best = 0.992 (> 0.100 thold), f_keep = 0.986",
+    "0.19.628.132 I slot print_timing: id  0 | task 359 |    graphs reused =        270",
+    "0.20.186.212 I slot get_availabl: id  0 | task -1 | selected slot by LCP similarity, sim_best = 0.992 (> 0.100 thold), f_keep = 0.988",
+    "0.20.246.423 I slot print_timing: id  0 | task 373 |    graphs reused =        281",
+    "0.20.803.996 I slot get_availabl: id  0 | task -1 | selected slot by LCP similarity, sim_best = 0.992 (> 0.100 thold), f_keep = 0.988",
+    "0.20.858.040 I slot print_timing: id  0 | task 387 |    graphs reused =        292"
+  ],
+  "can_prove": [
+    "llama.cpp Metal (measured version) exposes usage.prompt_tokens_details.cached_tokens on /v1/chat/completions",
+    "llama.cpp Metal exposes timings.cache_n / prompt_n / prompt_ms with --perf (or default timings on this build)",
+    "confirmed cache hit: cache_n > 0 and cached_tokens > 0 on warm shared-prefix arm",
+    "prefill tokens avoided ≈ cache_n on warm arm",
+    "TTFT-prefill (prompt_ms) ratio and absolute ms at p50/p95 cold vs warm",
+    "GPU-domain energy joules cold-unique vs warm-shared (IOReport)",
+    "affinity cannot outrank cost class or cheaper ask (ranker + claim SQL)"
+  ],
+  "does_not_prove": [
+    "that Merc's batch agent openai_http path currently forwards cached_tokens to TaskCommit (it parses only completion_tokens today)",
+    "that production ClaimTasksTx belief equals engine cache_n without observation wiring through the agent",
+    "wall-plug / package energy (IOReport is AGX GPU domain only)",
+    "buyer USD settlement reduction (token billing still sees full prompt_tokens; money paths untouched)",
+    "vLLM/CUDA multi-tenant prefix cache under production traffic (no paid CUDA in this arm)",
+    "cross-supplier fleet behaviour; this is a single local Metal engine",
+    "p99 stability under load or concurrent multi-slot contention"
+  ],
+  "follow_ups": [
+    {
+      "id": "agent_forward_cached_tokens",
+      "why": "OpenAiHttpBackend must parse usage.prompt_tokens_details.cached_tokens and set TaskCommit.CachedPromptTokens so CorrectPrefixBeliefFromObservation can consume the signal this harness confirmed on the wire"
+    },
+    {
+      "id": "vllm_cuda_when_selector_exists",
+      "why": "vLLM exposes the same OpenAI field under CUDA and would settle multi-tenant / continuous-batch prefix cache; directive forbids paid CUDA without a selector consumer"
+    }
+  ],
+  "prior_routing_receipts": {
+    "prefix_kv_hitrate": "evidence/perf/prefix-kv-hitrate-latest.json",
+    "prefix_affinity_routing": "evidence/perf/prefix-affinity-routing.json",
+    "relation": "Those measure routing belief / claim-path concentration. This receipt measures engine-physical reuse on Metal. They answer different questions."
+  },
+  "setup": {
+    "reps_per_arm": 12,
+    "energy_interval_ms": 100,
+    "server_log": "/tmp/llama-prefix-physical-60975.log",
+    "port": 60975
+  },
+  "binding_status": "BOUND",
+  "producer_identity": {
+    "source_commit": {
+      "value": "9092fbd47d39a8cdff097dea28e9cc40d5bf81a2"
+    },
+    "build_digest": {
+      "value": "7b1151b319e977564a5422aa00902f64edb87b350c02b65f8dc44c5e183deeea"
+    },
+    "model_artifact_digest": {
+      "value": "3f5a22426976ab26cfe84dba63c1d08391717abb1af893e10f1b2968d862dcc1"
+    },
+    "image_digest": {
+      "na": "no container image in this measurement"
+    },
+    "harness_revision": {
+      "value": "scripts/prefix-physical-kv-measure.py@b8a1eade1ed74f79"
+    },
+    "corpus_digest": {
+      "na": "synthetic shared-prefix paragraphs=45 chars=13410"
+    },
+    "exact_config": {
+      "value": "MERC_WRITE_PREFIX_PHYSICAL=1; reps=12; paragraphs=45; ctx=4096; energy_interval_ms=100; llama=version: 9430 (d48a56eff)"
+    },
+    "raw_samples": {
+      "value": "cold=12 warm=12"
+    }
+  }
+}
