@@ -214,7 +214,7 @@ start_agent() {
   local model_cache="${MERC_MODEL_CACHE:-${HF_HOME:-$HOME/.cache/huggingface}}"
   HOME="$ART/topology/home" MERC_MODEL_CACHE="$model_cache" \
     MERC_TLS_CA_FILE="$ART/topology/tls/ca.crt" MERC_REQUIRE_SANDBOX=1 \
-    MERC_SANDBOX_PROFILE="$ROOT/macapp/ComputeExchangeAgent/merc-agent.sb" \
+    MERC_SANDBOX_PROFILE="$ROOT/clients/macapp/ComputeExchangeAgent/merc-agent.sb" \
     "$ROOT/.artifacts/local-production-cargo-target/release/merc-agent" run \
     --config "$ART/topology/agent$n/config.toml" > "$output" 2>&1 &
   STARTED_PID=$!

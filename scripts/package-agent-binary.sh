@@ -30,7 +30,7 @@ if [[ "$OS" == "darwin" ]]; then
   # (agent/src/main.rs resolve_sandbox_profile). A stock install without this
   # file runs buyer payload with no containment at all — ship it next to the
   # binary so sibling resolution finds it with no env override.
-  SB_PROFILE="$ROOT/macapp/ComputeExchangeAgent/merc-agent.sb"
+  SB_PROFILE="$ROOT/clients/macapp/ComputeExchangeAgent/merc-agent.sb"
   [[ -f "$SB_PROFILE" ]] || { echo "missing seatbelt profile: $SB_PROFILE" >&2; exit 1; }
   install -m 0644 "$SB_PROFILE" "$STAGE/merc-agent.sb"
 fi

@@ -169,7 +169,7 @@ The SDK has no runtime dependency outside the Python standard library. Smoke
 without a server:
 
 ```bash
-python sdk/python/example.py --smoke
+python clients/sdk/python/example.py --smoke
 ```
 
 ## Step count

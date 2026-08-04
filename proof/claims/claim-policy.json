@@ -19,7 +19,7 @@
   },
   "active_surfaces": [
     "README.md",
-    "cli/README.md",
+    "clients/cli/README.md",
     "docs/QUICKSTART.md",
     "docs/RUNBOOKS.md",
     "docs/RUNTIME_MATRIX.md",
@@ -39,9 +39,9 @@
         "(?i)macOS menu bar app builds today",
         "(?i)macOS menu bar app are optional layers",
         "(?i)buyer CLI and macOS menu bar app",
-        "(?i)swift build --package-path macapp"
+        "(?i)swift build --package-path clients/macapp"
       ],
-      "required_path": "macapp/ComputeExchangeAgent/Package.swift"
+      "required_path": "clients/macapp/ComputeExchangeAgent/Package.swift"
     },
     "embeddings_price_matches_boot_reprice": {
       "surface": "web/index.html",

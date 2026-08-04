@@ -72,7 +72,7 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/control-evidence"
           cp "$RUNNER_TEMP/merc" control/schema.sql control/runtime-authority.json \
-            proto/manifest.schema.json "$RUNNER_TEMP/control-evidence/"
+            clients/proto/manifest.schema.json "$RUNNER_TEMP/control-evidence/"
           cd "$RUNNER_TEMP/control-evidence"
           sha256sum merc schema.sql runtime-authority.json manifest.schema.json > SHA256SUMS
       - name: Upload control evidence
@@ -110,7 +110,7 @@ jobs:
           cd agent
           time cargo build --release
           cd ..
-          bash macapp/ComputeExchangeAgent/sandbox-profile-test.sh
+          bash clients/macapp/ComputeExchangeAgent/sandbox-profile-test.sh
       - name: Package agent evidence
         run: |
           mkdir -p "$RUNNER_TEMP/agent-evidence"
@@ -173,7 +173,7 @@ jobs:
           sudo apt-get install -y age
       - name: schema and generated artifacts
         run: |
-          python3 -m json.tool proto/manifest.schema.json >/dev/null
+          python3 -m json.tool clients/proto/manifest.schema.json >/dev/null
           python3 -m json.tool control/runtime-authority.json >/dev/null
           python3 -m json.tool ops/governance-approval-bundle.schema.json >/dev/null
           python3 scripts/validate-authorization-matrix.py
@@ -202,7 +202,7 @@ jobs:
           bash scripts/build-cli-release.sh v0.1.0-rc.1 "$BUNDLE/cli"
           cp web/index.html web/admin.html web/favicon.ico "$BUNDLE/website/"
           cp control/schema.sql control/runtime-authority.json \
-            proto/manifest.schema.json .env.example "$BUNDLE/contracts/"
+            clients/proto/manifest.schema.json .env.example "$BUNDLE/contracts/"
           cp RELEASE_READINESS.md docs/RUNBOOKS.md docs/SECURITY.md \
             "$BUNDLE/docs/"
           printf '%s\n' "$CANDIDATE_SHA" > "$BUNDLE/SOURCE_COMMIT"

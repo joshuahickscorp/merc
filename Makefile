@@ -102,7 +102,7 @@ ci:
 	@bash scripts/test-release-image-boots.sh
 	@bash scripts/test-release-image-contents.sh
 	cd agent && cargo fmt --all -- --check && cargo clippy --all-targets -- -D warnings && cargo test
-	python3 -m json.tool proto/manifest.schema.json >/dev/null
+	python3 -m json.tool clients/proto/manifest.schema.json >/dev/null
 	python3 -m json.tool ops/governance-approval-bundle.schema.json >/dev/null
 	python3 -m json.tool ops/live-payment-activation.schema.json >/dev/null
 	python3 scripts/runpod-spend-guard.py --self-test

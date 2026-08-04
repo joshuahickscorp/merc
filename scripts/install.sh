@@ -233,7 +233,7 @@ install_darwin_seatbelt_profile() {
   # (then MERC_SANDBOX_PROFILE). Install it next to $BIN so a stock macOS
   # install is contained without any LaunchAgent env. Source builds read the
   # checkout profile; prebuilt archives stage merc-agent.sb next to the binary.
-  profile="$(find "$source_root" -type f \( -name merc-agent.sb -o -path "*/macapp/ComputeExchangeAgent/merc-agent.sb" \) | head -n 1)"
+  profile="$(find "$source_root" -type f \( -name merc-agent.sb -o -path "*/clients/macapp/ComputeExchangeAgent/merc-agent.sb" \) | head -n 1)"
   [[ -n "$profile" && -f "$profile" ]] || die "seatbelt profile merc-agent.sb not found under $source_root (containment cannot be installed)"
   dest="$PREFIX/merc-agent.sb"
   install -m 0644 "$profile" "$dest"

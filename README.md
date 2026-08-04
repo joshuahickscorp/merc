@@ -20,8 +20,8 @@ Exactly two kinds of work, on exactly two models:
 ```text
 control/                  control plane, cx command, embedded schema
 agent/                    Candle batch agent and CUDA/vLLM realtime adapter
-proto/                    runtime matrix and manifest schema
-sdk/python/               dependency-free buyer SDK
+clients/proto/            runtime matrix and manifest schema
+clients/sdk/python/               dependency-free buyer SDK
 web/                      public alpha site
 scripts/prove-local.sh    repeatable two-agent proof
 docs/                     operator and security notes
@@ -44,7 +44,7 @@ four audited.
   claimed from an ordinary table with `FOR UPDATE SKIP LOCKED`. No Kafka or Redis.
 - **S3-compatible storage** (MinIO locally) - holds inputs and results. Agents
   never get storage credentials, only short-lived URLs scoped to their one task.
-- **`sdk/python/`** - a buyer SDK using nothing outside the Python standard library.
+- **`clients/sdk/python/`** - a buyer SDK using nothing outside the Python standard library.
 
 ## Run it locally
 
@@ -101,7 +101,7 @@ the rest.
 
 The Python SDK wraps the same API. Its package name is `merc`, and it is not on
 PyPI — install it from the checkout with
-`python3 -m pip install ./sdk/python`.
+`python3 -m pip install ./clients/sdk/python`.
 
 The media transcode private canary uses the same quote/submit identity. A small
 local file may be passed through the CLI (bounded base64); larger objects should
