@@ -95,6 +95,27 @@ impl GenerateParams {
 pub struct BackendCompletion {
     pub text: String,
     pub tokens: usize,
+    /// Engine-reported prefix-cache hit size for this completion, from
+    /// OpenAI-shaped `usage.prompt_tokens_details.cached_tokens`.
+    ///
+    /// `None` means the engine did not expose the field, and that is NOT a miss:
+    /// the control plane's belief correction treats a missing signal and an
+    /// observed zero completely differently, because treating absence as a miss
+    /// would invalidate the prefix index on every local-engine completion. Only
+    /// backends that actually report it set this — vLLM and llama.cpp do, candle
+    /// in-process does not.
+    pub cached_prompt_tokens: Option<u64>,
+}
+
+impl BackendCompletion {
+    /// A completion from a backend with no cache-hit signal to report.
+    pub fn without_cache_signal(text: String, tokens: usize) -> Self {
+        Self {
+            text,
+            tokens,
+            cached_prompt_tokens: None,
+        }
+    }
 }
 
 /// Batch-oriented inference engine. The task/checkpoint/commit contract above
@@ -175,7 +196,7 @@ impl InferenceBackend for CandleBackend {
         })??;
         Ok(results
             .into_iter()
-            .map(|(text, tokens)| BackendCompletion { text, tokens })
+            .map(|(text, tokens)| BackendCompletion::without_cache_signal(text, tokens))
             .collect())
     }
 
@@ -199,11 +220,49 @@ impl InferenceBackend for CandleBackend {
             backend: "candle",
             msg: format!("worker thread failed: {e}"),
         })??;
-        Ok(BackendCompletion { text, tokens })
+        Ok(BackendCompletion::without_cache_signal(text, tokens))
     }
 }
 
 // ── OpenAI-compatible HTTP engine ──────────────────────────────────────────
+
+/// The subset of an OpenAI-shaped chat completion this agent reads.
+///
+/// At module scope so the wire contract can be tested against real engine
+/// bodies. It lived inside the request method, which meant the one field that
+/// matters for prefix routing had no test and no way to get one.
+#[derive(Deserialize)]
+struct ChoiceMsg {
+    content: Option<String>,
+}
+#[derive(Deserialize)]
+struct Choice {
+    message: ChoiceMsg,
+}
+#[derive(Deserialize)]
+struct PromptTokensDetails {
+    cached_tokens: Option<u64>,
+}
+#[derive(Deserialize)]
+struct Usage {
+    completion_tokens: Option<u64>,
+    /// Prefix-cache hit size, OpenAI-shaped. vLLM populates it, and
+    /// llama.cpp Metal (b9430+, --cache-prompt on by default) does too.
+    ///
+    /// This used to be dropped on the floor. The control plane has had
+    /// TaskCommit.cached_prompt_tokens and
+    /// CorrectPrefixBeliefFromObservation for as long as the prefix index
+    /// has existed, but nothing ever put a value on the wire, so the
+    /// correction path could not fire in production: every observation
+    /// was "no signal", and a stale warm belief could only expire by TTL
+    /// rather than be contradicted by the engine that just served it.
+    prompt_tokens_details: Option<PromptTokensDetails>,
+}
+#[derive(Deserialize)]
+struct Response {
+    choices: Vec<Choice>,
+    usage: Option<Usage>,
+}
 
 /// Fronts llama-server / vLLM / SGLang via `/v1/chat/completions`.
 ///
@@ -277,23 +336,6 @@ impl OpenAiHttpBackend {
             seed: u64,
             stream: bool,
         }
-        #[derive(Deserialize)]
-        struct ChoiceMsg {
-            content: Option<String>,
-        }
-        #[derive(Deserialize)]
-        struct Choice {
-            message: ChoiceMsg,
-        }
-        #[derive(Deserialize)]
-        struct Usage {
-            completion_tokens: Option<u64>,
-        }
-        #[derive(Deserialize)]
-        struct Response {
-            choices: Vec<Choice>,
-            usage: Option<Usage>,
-        }
 
         let body = RequestBody {
             model: &self.model,
@@ -347,12 +389,21 @@ impl OpenAiHttpBackend {
             .unwrap_or_default()
             .trim()
             .to_string();
+        let cached_prompt_tokens = parsed
+            .usage
+            .as_ref()
+            .and_then(|u| u.prompt_tokens_details.as_ref())
+            .and_then(|d| d.cached_tokens);
         let tokens = parsed
             .usage
             .and_then(|u| u.completion_tokens)
             .map(|n| n as usize)
             .unwrap_or_else(|| estimate_tokens(&text));
-        Ok(BackendCompletion { text, tokens })
+        Ok(BackendCompletion {
+            text,
+            tokens,
+            cached_prompt_tokens,
+        })
     }
 }
 
@@ -477,5 +528,64 @@ mod tests {
     fn estimate_tokens_empty_and_nonempty() {
         assert_eq!(estimate_tokens(""), 0);
         assert!(estimate_tokens("hello world") >= 1);
+    }
+
+    /// The prefix-cache signal is read off the wire, and absence is not a miss.
+    ///
+    /// The control plane distinguishes three states — no signal, observed miss,
+    /// observed hit — and acts differently on each. Until this parsed, every
+    /// production observation was "no signal" regardless of what the engine
+    /// said, so a stale warm belief could only expire by TTL. The bodies below
+    /// are the shapes llama.cpp and vLLM actually send.
+    #[test]
+    fn cached_tokens_is_read_from_usage_and_absence_is_not_a_miss() {
+        let hit = br#"{"choices":[{"message":{"content":"ok"}}],
+            "usage":{"completion_tokens":8,"prompt_tokens":2731,
+            "prompt_tokens_details":{"cached_tokens":2618}}}"#;
+        let parsed: Response = serde_json::from_slice(hit).unwrap();
+        let cached = parsed
+            .usage
+            .as_ref()
+            .and_then(|u| u.prompt_tokens_details.as_ref())
+            .and_then(|d| d.cached_tokens);
+        assert_eq!(cached, Some(2618), "a reported hit must survive parsing");
+
+        // Reported and zero: a real observed miss, not an absent signal.
+        let miss = br#"{"choices":[{"message":{"content":"ok"}}],
+            "usage":{"completion_tokens":8,
+            "prompt_tokens_details":{"cached_tokens":0}}}"#;
+        let parsed: Response = serde_json::from_slice(miss).unwrap();
+        let cached = parsed
+            .usage
+            .as_ref()
+            .and_then(|u| u.prompt_tokens_details.as_ref())
+            .and_then(|d| d.cached_tokens);
+        assert_eq!(
+            cached,
+            Some(0),
+            "an observed miss must not collapse to None"
+        );
+
+        // Engine says nothing: no observation. Candle and older engines land
+        // here, and reading this as a miss would invalidate the prefix index on
+        // every local completion.
+        for body in [
+            &br#"{"choices":[{"message":{"content":"ok"}}],"usage":{"completion_tokens":8}}"#[..],
+            &br#"{"choices":[{"message":{"content":"ok"}}]}"#[..],
+        ] {
+            let parsed: Response = serde_json::from_slice(body).unwrap();
+            let cached = parsed
+                .usage
+                .as_ref()
+                .and_then(|u| u.prompt_tokens_details.as_ref())
+                .and_then(|d| d.cached_tokens);
+            assert_eq!(cached, None, "a missing signal must stay None");
+        }
+    }
+
+    #[test]
+    fn candle_completions_report_no_cache_signal() {
+        let c = BackendCompletion::without_cache_signal("hi".into(), 1);
+        assert_eq!(c.cached_prompt_tokens, None);
     }
 }

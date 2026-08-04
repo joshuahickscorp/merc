@@ -316,6 +316,15 @@ pub struct TaskCommit {
     /// it is not evidence.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub inference_backend: String,
+    /// Engine-reported prefix-cache hit size for this task, when the engine
+    /// exposed it (`usage.prompt_tokens_details.cached_tokens`).
+    ///
+    /// Omitted means "no signal", and the control plane must not read that as a
+    /// miss. Present-and-zero is an observed miss, which is what lets
+    /// CorrectPrefixBeliefFromObservation contradict a stale warm belief with
+    /// what the engine just did rather than waiting out a TTL.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cached_prompt_tokens: Option<u64>,
 }
 
 /// Per-model residency measurement carried on the worker heartbeat. These are
