@@ -46,18 +46,18 @@ type measuredThroughput struct {
 // unpricedThroughputUntilBound.
 var repricingBenchmarks = []measuredThroughput{
 	{
-		ModelID:        "all-minilm-l6-v2",
-		JobType:        "embed",
-		UnitsPerSec:    1967.3141,
-		HWClass:        "apple_silicon_pro",
+		ModelID:     "all-minilm-l6-v2",
+		JobType:     "embed",
+		UnitsPerSec: 1967.3141,
+		HWClass:     "apple_silicon_pro",
 		// unbound receipt; resolvable under legacy pricing gate, not BOUND identity
 		SourceCitation: "evidence/benchmarks/2026-07-01-m3-pro.json#embed",
 	},
 	{
-		ModelID:        "llama-3.2-1b-instruct-q4",
-		JobType:        "batch_infer",
-		UnitsPerSec:    138.7,
-		HWClass:        "apple_silicon_pro",
+		ModelID:     "llama-3.2-1b-instruct-q4",
+		JobType:     "batch_infer",
+		UnitsPerSec: 138.7,
+		HWClass:     "apple_silicon_pro",
 		// unbound receipt; resolvable under legacy pricing gate, not BOUND identity
 		SourceCitation: "evidence/benchmarks/2026-07-01-m3-pro.json#batch_infer",
 	},
@@ -75,18 +75,18 @@ var repricingBenchmarks = []measuredThroughput{
 // only as the measured numbers that must not become catalogue prices.
 var unpricedThroughputUntilBound = []measuredThroughput{
 	{
-		ModelID:        "ffmpeg-transcode-v1",
-		JobType:        "media_transcode",
-		UnitsPerSec:    14423.640930216638,
-		HWClass:        "apple_silicon_ultra",
+		ModelID:     "ffmpeg-transcode-v1",
+		JobType:     "media_transcode",
+		UnitsPerSec: 14423.640930216638,
+		HWClass:     "apple_silicon_ultra",
 		// unbound and unbindable for pricing; retained measurement only
 		SourceCitation: "evidence/perf/runtime-benchmarks/candle-metal-ffmpeg-media-r1.json#physical_throughput",
 	},
 	{
-		ModelID:        "svg-scene-render-v1",
-		JobType:        "media_rendering",
-		UnitsPerSec:    148271490.0,
-		HWClass:        "apple_silicon_ultra",
+		ModelID:     "svg-scene-render-v1",
+		JobType:     "media_rendering",
+		UnitsPerSec: 148271490.0,
+		HWClass:     "apple_silicon_ultra",
 		// unbound and unbindable for pricing; retained measurement only
 		SourceCitation: "evidence/perf/runtime-benchmarks/candle-metal-rendering-r1.json#physical_throughput",
 	},
