@@ -378,13 +378,13 @@ func TestGatewayParityBareSHAStandInRefuses(t *testing.T) {
 		levels[fmt.Sprintf("merc@c=%d", c)] = GatewayParityLevelResult{
 			Arm: "merc", Concurrency: c, RequestsAttempted: n, RequestsOK: n,
 			Status: "MEASURED", MeanInFlight: float64(c), PeakInFlight: c,
-			TTFTp95: &GatewayParityPointEstimate{Point: 11, CI95Low: 10.5, CI95High: 11.5, N: n},
+			TTFTp95:    &GatewayParityPointEstimate{Point: 11, CI95Low: 10.5, CI95High: 11.5, N: n},
 			RawSamples: samples, TotalTokens: n * 5, MeanCompletionTok: 5, AggregateTokPerSec: &tps,
 		}
 		levels[fmt.Sprintf("direct@c=%d", c)] = GatewayParityLevelResult{
 			Arm: "direct", Concurrency: c, RequestsAttempted: n, RequestsOK: n,
 			Status: "MEASURED", MeanInFlight: float64(c), PeakInFlight: c,
-			TTFTp95: &GatewayParityPointEstimate{Point: 10, CI95Low: 9.5, CI95High: 10.5, N: n},
+			TTFTp95:     &GatewayParityPointEstimate{Point: 10, CI95Low: 9.5, CI95High: 10.5, N: n},
 			TotalTokens: n * 5, MeanCompletionTok: 5, AggregateTokPerSec: &tps,
 		}
 	}
@@ -583,13 +583,13 @@ func TestGatewayParityIncompleteLadderRefuses(t *testing.T) {
 		"merc@c=1": {
 			Arm: "merc", Concurrency: 1, RequestsAttempted: n, RequestsOK: n,
 			Status: "MEASURED", MeanInFlight: 1, PeakInFlight: 1,
-			TTFTp95: &GatewayParityPointEstimate{Point: 11, CI95Low: 10.5, CI95High: 11.5, N: n},
+			TTFTp95:            &GatewayParityPointEstimate{Point: 11, CI95Low: 10.5, CI95High: 11.5, N: n},
 			AggregateTokPerSec: &tps, TotalTokens: n * 5, MeanCompletionTok: 5,
 		},
 		"direct@c=1": {
 			Arm: "direct", Concurrency: 1, RequestsAttempted: n, RequestsOK: n,
 			Status: "MEASURED", MeanInFlight: 1, PeakInFlight: 1,
-			TTFTp95: &GatewayParityPointEstimate{Point: 10, CI95Low: 9.5, CI95High: 10.5, N: n},
+			TTFTp95:            &GatewayParityPointEstimate{Point: 10, CI95Low: 9.5, CI95High: 10.5, N: n},
 			AggregateTokPerSec: &tps, TotalTokens: n * 5, MeanCompletionTok: 5,
 		},
 	}

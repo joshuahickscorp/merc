@@ -222,25 +222,25 @@ func buildConservativeAgentRAGCorpus() []agentRAGRequest {
 // ---------------------------------------------------------------------------
 
 type prefixKVSample struct {
-	Index            int    `json:"index"`
-	Class            string `json:"class"`
-	Family           int    `json:"family"`
-	Label            string `json:"label"`
-	WinnerWorker     int    `json:"winner_worker_slot"`
-	BeliefDepth      int    `json:"belief_depth_before_claim"`
-	BeliefHit        bool   `json:"belief_hit"`
-	AnyWorkerWarm    bool   `json:"any_worker_warm_before_claim"`
-	SharedDepthWant  int    `json:"shared_depth_want"`
-	ClaimAttempts    int    `json:"claim_attempts"`
-	ClaimLatencyNs   int64  `json:"claim_latency_ns"`
+	Index           int    `json:"index"`
+	Class           string `json:"class"`
+	Family          int    `json:"family"`
+	Label           string `json:"label"`
+	WinnerWorker    int    `json:"winner_worker_slot"`
+	BeliefDepth     int    `json:"belief_depth_before_claim"`
+	BeliefHit       bool   `json:"belief_hit"`
+	AnyWorkerWarm   bool   `json:"any_worker_warm_before_claim"`
+	SharedDepthWant int    `json:"shared_depth_want"`
+	ClaimAttempts   int    `json:"claim_attempts"`
+	ClaimLatencyNs  int64  `json:"claim_latency_ns"`
 }
 
 type prefixKVArm struct {
-	Name                 string  `json:"name"`
-	Requests             int     `json:"requests"`
-	BeliefHitRate        float64 `json:"belief_hit_rate"`
-	BeliefHitRateFamily  float64 `json:"belief_hit_rate_family_only"`
-	BeliefHitRateUnique  float64 `json:"belief_hit_rate_unique_only"`
+	Name                string  `json:"name"`
+	Requests            int     `json:"requests"`
+	BeliefHitRate       float64 `json:"belief_hit_rate"`
+	BeliefHitRateFamily float64 `json:"belief_hit_rate_family_only"`
+	BeliefHitRateUnique float64 `json:"belief_hit_rate_unique_only"`
 	// Post-warmup excludes the first window (all cold by construction).
 	BeliefHitRateFamilyPostWarmup float64 `json:"belief_hit_rate_family_post_warmup"`
 	MeanBeliefDepthHit            float64 `json:"mean_belief_depth_on_hit"`
@@ -267,7 +267,7 @@ type toolSchemaMeasure struct {
 }
 
 type engineSignalSurvey struct {
-	HostHardware              string            `json:"host_hardware"`
+	HostHardware                string            `json:"host_hardware"`
 	LlamaServerPath             string            `json:"llama_server_path"`
 	LlamaCachePromptDefault     bool              `json:"llama_cache_prompt_default"`
 	OpenAICachedTokensField     string            `json:"openai_cached_tokens_field"`
@@ -292,17 +292,17 @@ type prefixKVArtifact struct {
 		Source           string  `json:"source"`
 	} `json:"target"`
 	Corpus struct {
-		ID              string  `json:"id"`
-		Representativeness string `json:"representativeness"`
-		Workers         int     `json:"workers"`
-		Families        int     `json:"families"`
-		TailsPerFamily  int     `json:"tails_per_family"`
-		Waves           int     `json:"waves"`
-		WindowSize      int     `json:"window_size"`
-		UniquesPerWave  int     `json:"uniques_per_wave"`
-		SharedDepthWant int     `json:"shared_depth_tokens_want"`
-		SharedFraction  float64 `json:"shared_fraction"`
-		ConservativeBy  []string `json:"conservative_by_design"`
+		ID                 string   `json:"id"`
+		Representativeness string   `json:"representativeness"`
+		Workers            int      `json:"workers"`
+		Families           int      `json:"families"`
+		TailsPerFamily     int      `json:"tails_per_family"`
+		Waves              int      `json:"waves"`
+		WindowSize         int      `json:"window_size"`
+		UniquesPerWave     int      `json:"uniques_per_wave"`
+		SharedDepthWant    int      `json:"shared_depth_tokens_want"`
+		SharedFraction     float64  `json:"shared_fraction"`
+		ConservativeBy     []string `json:"conservative_by_design"`
 	} `json:"corpus"`
 	Host struct {
 		Hardware string  `json:"hardware"`
@@ -314,12 +314,12 @@ type prefixKVArtifact struct {
 		LoadNote string  `json:"load_note"`
 	} `json:"host"`
 	Setup struct {
-		Workers         int    `json:"workers"`
-		HWClass         string `json:"hw_class"`
+		Workers         int     `json:"workers"`
+		HWClass         string  `json:"hw_class"`
 		AskUSDHr        float64 `json:"ask_usd_hr"`
-		CostClasses     int    `json:"cost_classes"`
-		ClaimPath       string `json:"claim_path"`
-		WarmBookkeeping string `json:"warm_bookkeeping"`
+		CostClasses     int     `json:"cost_classes"`
+		ClaimPath       string  `json:"claim_path"`
+		WarmBookkeeping string  `json:"warm_bookkeeping"`
 	} `json:"setup"`
 	CanProve    []string `json:"can_prove"`
 	CannotProve []string `json:"cannot_prove"`
@@ -362,9 +362,9 @@ type prefixKVArtifact struct {
 // ---------------------------------------------------------------------------
 
 type kvFleetWorker struct {
-	slot                 int
-	w                    prefixClaimWorker
-	believedFamilies     map[int]int // family -> deepest depth we marked
+	slot             int
+	w                prefixClaimWorker
+	believedFamilies map[int]int // family -> deepest depth we marked
 }
 
 func seedKVHitRateEnv(t *testing.T) (context.Context, *Store, *pgxpool.Pool, uuid.UUID) {
@@ -422,7 +422,10 @@ func claimWindow(
 
 	// Pre-compute belief depth for every (worker, job) before any claim so the
 	// hit signal is not polluted by mid-window marks.
-	type key struct{ wi int; job uuid.UUID }
+	type key struct {
+		wi  int
+		job uuid.UUID
+	}
 	belief := make(map[key]int, len(fleet)*len(pend))
 	for wi := range fleet {
 		for _, p := range pend {
@@ -837,7 +840,7 @@ func measureToolSchemaAvoidance(t *testing.T) toolSchemaMeasure {
 		payload := map[string]any{
 			"model": "cx-chat-1b", "temperature": 0.0, "top_p": 1.0,
 			"messages": []any{map[string]any{"role": "user", "content": msg}},
-			"tools": tools, "response_format": schema,
+			"tools":    tools, "response_format": schema,
 		}
 		b, err := canonicalJSON(payload)
 		if err != nil {
@@ -948,7 +951,7 @@ func surveyEngineSignals(t *testing.T) engineSignalSurvey {
 	// hasSignal=true only when the field is actually present; without it the
 	// action is PrefixObsNoSignal and belief is untouched.
 	return engineSignalSurvey{
-		HostHardware:          runtime.GOARCH + " / " + hostHardwareName(),
+		HostHardware:            runtime.GOARCH + " / " + hostHardwareName(),
 		LlamaServerPath:         llamaPath,
 		LlamaCachePromptDefault: cachePromptDefault,
 		OpenAICachedTokensField: "ABSENT on typical llama.cpp OpenAI-compat completions; " +
@@ -963,9 +966,9 @@ func surveyEngineSignals(t *testing.T) engineSignalSurvey {
 			"llama.cpp/Metal": "no OpenAI-shaped cached_tokens in typical completions; " +
 				"--cache-prompt defaults enabled server-side but Merc cannot observe a hit; " +
 				"belief + TTL + eviction only",
-			"MLX/Metal":  "no standard cached_tokens field; belief + TTL + eviction only",
+			"MLX/Metal":    "no standard cached_tokens field; belief + TTL + eviction only",
 			"Candle/Metal": "no standard cached_tokens field; belief + TTL + eviction only",
-			"vLLM/CUDA": "usage.prompt_tokens_details.cached_tokens present (preferred signal when agent reports it)",
+			"vLLM/CUDA":    "usage.prompt_tokens_details.cached_tokens present (preferred signal when agent reports it)",
 		},
 		HonestCeiling: "On this Metal host the honest ceiling for the prefix/KV claim is " +
 			"ROUTING BEHAVIOUR (belief hit rate through ClaimTasksTx). Engine-side KV " +

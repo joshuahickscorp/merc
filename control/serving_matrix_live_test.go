@@ -407,22 +407,22 @@ func TestEngineTournamentIncomparableArmsAndHostScope(t *testing.T) {
 		t.Fatalf("resolve source commit: %v", err)
 	}
 	type envelope struct {
-		SchemaVersion      int                `json:"schema_version"`
-		Kind               string             `json:"kind"`
-		Harness            string             `json:"harness"`
-		MeasuredAt         string             `json:"measured_at"`
-		MercSourceCommit   string             `json:"merc_source_commit"`
-		BenchmarkStatus    string             `json:"benchmark_status"`
-		Comparable         bool               `json:"comparable"`
-		ComparisonRefusals []string           `json:"comparison_refusals"`
+		SchemaVersion      int      `json:"schema_version"`
+		Kind               string   `json:"kind"`
+		Harness            string   `json:"harness"`
+		MeasuredAt         string   `json:"measured_at"`
+		MercSourceCommit   string   `json:"merc_source_commit"`
+		BenchmarkStatus    string   `json:"benchmark_status"`
+		Comparable         bool     `json:"comparable"`
+		ComparisonRefusals []string `json:"comparison_refusals"`
 		// profiles names every runtime the tournament considered so the
 		// embedded evidence-manifest can bind a multi-engine refusal receipt.
-		Profiles           map[string]any     `json:"profiles"`
-		Arms               []ServingMatrixArm `json:"arms"`
-		Notes              []string           `json:"notes"`
-		Hardware           map[string]any     `json:"hardware"`
-		TournamentScope    map[string]any     `json:"tournament_scope"`
-		Gate               ServingMatrixGate  `json:"gate"`
+		Profiles        map[string]any     `json:"profiles"`
+		Arms            []ServingMatrixArm `json:"arms"`
+		Notes           []string           `json:"notes"`
+		Hardware        map[string]any     `json:"hardware"`
+		TournamentScope map[string]any     `json:"tournament_scope"`
+		Gate            ServingMatrixGate  `json:"gate"`
 	}
 	llamaRole := "entered_if_metal_http"
 	if metalUsable {
@@ -519,13 +519,13 @@ func resolvePinnedGGUF() string {
 // It does not claim attestation or a supplier hw_class pin.
 func hostHardwareIdentity(deviceLabel string) map[string]any {
 	hw := map[string]any{
-		"device":       deviceLabel,
-		"goos":         runtime.GOOS,
-		"goarch":       runtime.GOARCH,
-		"nvidia_smi":   "absent",
-		"hw_class":     "apple_silicon_ultra",
-		"hw_attested":  false,
-		"note":         "Apple Silicon host; Metal is Supported at the OS level (vendor 0x106b). Seatbelt sandboxes may still fail ggml_metal_init command-queue creation — that is a process restriction, not hardware absence.",
+		"device":      deviceLabel,
+		"goos":        runtime.GOOS,
+		"goarch":      runtime.GOARCH,
+		"nvidia_smi":  "absent",
+		"hw_class":    "apple_silicon_ultra",
+		"hw_attested": false,
+		"note":        "Apple Silicon host; Metal is Supported at the OS level (vendor 0x106b). Seatbelt sandboxes may still fail ggml_metal_init command-queue creation — that is a process restriction, not hardware absence.",
 	}
 	if runtime.GOOS == "darwin" {
 		hw["gpu"] = "Apple M3 Ultra"
@@ -725,4 +725,3 @@ func trimTail(s string, n int) string {
 	}
 	return s[len(s)-n:]
 }
-
