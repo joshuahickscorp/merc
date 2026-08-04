@@ -99,7 +99,22 @@ def vllm_args(settings: dict) -> list[str]:
         # This is also why the embed arm cannot inherit the generation profile's
         # 32768 context: MiniLM's position embeddings stop at 512, and asking for
         # more is refused before the first request.
-        return ["--task", "embed", *args]
+        #
+        # `--runner pooling`, NOT `--task embed`. The pinned image is vLLM
+        # 0.23.0, which removed --task entirely; vllm/config/model.py says it in
+        # so many words -- "Use `--runner pooling` or `--runner auto` for
+        # embedding models". An unrecognised argument makes argparse exit before
+        # the server binds, and RunPod's proxy then answers 404 with nothing
+        # behind it for the whole readiness window. That is indistinguishable
+        # from the GGUF failure recorded above, and it cost $0.07 and 9 minutes
+        # on an A40 to see once. The flag set is verifiable for free against the
+        # pinned image:
+        #
+        #   docker run --rm --platform linux/amd64 --entrypoint bash <image> \
+        #     -lc "grep -n 'runner' .../vllm/engine/arg_utils.py"
+        #
+        # Do that before changing engine flags rather than after renting a GPU.
+        return ["--runner", "pooling", *args]
     return [*args, "--enable-prefix-caching", "--enable-chunked-prefill"]
 
 
