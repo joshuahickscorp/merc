@@ -38,6 +38,10 @@ jobs:
         with:
           lfs: true
           ref: ${{ env.CANDIDATE_SHA }}
+      # .lfsconfig fetchexclude skips evidence/perf/**; checkout's plain
+      # git lfs pull honours it. Tests read release-critical perf receipts.
+      - name: Hydrate release-critical LFS evidence
+        run: bash scripts/hydrate-release-lfs.sh
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: "1.26.5"
@@ -159,6 +163,11 @@ jobs:
         with:
           lfs: true
           ref: ${{ env.CANDIDATE_SHA }}
+      # Gates (validate-evidence-binding, claim surfaces, readiness) resolve
+      # evidence/perf/** bodies. Without this, .lfsconfig fetchexclude leaves
+      # pointers and the suite either false-passes or fails opaquely.
+      - name: Hydrate release-critical LFS evidence
+        run: bash scripts/hydrate-release-lfs.sh
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: "1.26.5"

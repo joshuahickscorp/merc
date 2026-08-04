@@ -91,7 +91,8 @@ FROZEN_PATHS = (
 )
 
 FROZEN_TOKENS = {
-    "computexchange-source-fingerprint-v1": "hash domain separator (control/evidence.go)",
+    "computexchange-source-fingerprint-v1": "hash domain separator (control/evidence.go); historical v1 scheme",
+    "computexchange-source-fingerprint-v2": "hash domain separator (control/evidence.go); LFS OID+size binding",
     "computeexchange-control-schema-v1": "advisory lock domain (schema migration)",
     "computeexchange-background-workers-v1": "advisory lock domain (leader election)",
     "CXEM": "4-byte binary magic, prefixes embedding blobs already in object storage",
