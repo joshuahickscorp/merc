@@ -32,5 +32,12 @@
     "corpus_digest",
     "exact_config",
     "raw_samples"
+  ],
+  "validity": "WITHDRAWN",
+  "withdrawn_reason": [
+    "image is a mutable tag (vllm/vllm-openai:v0.26.0-cu129-ubuntu2404), not an immutable OCI digest, so the runtime this receipt describes cannot be identified again",
+    "the immutable-digest rule was tightened after this receipt was written; the guard deliberately does not grandfather, and re-taking the receipt is impossible because the pod is long gone",
+    "the run itself was real and disciplined -- teardown_verified true, no orphan pods, $0.01 against an $18000s budget -- but a spend receipt whose runtime cannot be identified cannot back a cost or performance claim",
+    "WITHDRAWN rather than deleted: the paid experiment happened and the record of it stays on disk. It may not be cited as evidence for anything."
   ]
 }

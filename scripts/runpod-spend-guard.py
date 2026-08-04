@@ -206,10 +206,41 @@ def build_receipt(args) -> dict:
     }
 
 
+def receipt_withdrawal(receipt: dict):
+    """Return the withdrawal reason for a retained receipt, or None.
+
+    A receipt written before a rule existed is not grandfathered -- it fails.
+    The only honest exits are to re-take it under today's rules, or to WITHDRAW
+    it with a stated reason, which is what the parity receipt does with
+    validity: INVALIDATED_PENDING_RERUN.
+
+    Withdrawal is not a softer pass. A withdrawn receipt may never back a claim
+    again, which is strictly stronger than one that quietly satisfies a rule it
+    predates. The reason is mandatory: a reasonless withdrawal is indistinguishable
+    from deleting an inconvenient result, so it still fails.
+    """
+    validity = str(receipt.get("validity", "")).upper()
+    if validity not in {"WITHDRAWN", "INVALIDATED", "INVALIDATED_PENDING_RERUN"}:
+        return None
+    reason = receipt.get("withdrawn_reason") or receipt.get("superseded_reason")
+    if isinstance(reason, list):
+        reason = "; ".join(str(r) for r in reason if str(r).strip())
+    reason = str(reason or "").strip()
+    return reason or None
+
+
 def revalidate_stored_receipt(path: str, receipt: dict) -> list:
     """Re-apply today's rules to a retained receipt. Does not rewrite the file."""
     if receipt.get("kind") != "runpod_spend_receipt":
         return [f"not a runpod_spend_receipt (kind={receipt.get('kind')!r})"]
+    validity = str(receipt.get("validity", "")).upper()
+    if validity in {"WITHDRAWN", "INVALIDATED", "INVALIDATED_PENDING_RERUN"}:
+        if not receipt_withdrawal(receipt):
+            return [
+                "withdrawn without a stated reason: set withdrawn_reason, or "
+                "re-take the receipt under today's rules"
+            ]
+        return []
     try:
         cost = float(receipt["cost_per_hr_usd"])
         cap = float(receipt["cap_usd"])
@@ -244,6 +275,7 @@ def revalidate_retained_receipts() -> int:
         print("runpod-spend-guard revalidate: no spend-*.json receipts retained")
         return 0
     failed = 0
+    withdrawn_count = 0
     for path in paths:
         rel = os.path.relpath(path, ROOT)
         try:
@@ -259,6 +291,12 @@ def revalidate_retained_receipts() -> int:
             for reason in refusals:
                 # Name the rule and the receipt; leave the artifact untouched.
                 print(f"FAIL {rel}: {reason}", file=sys.stderr)
+        elif (withdrawn := receipt_withdrawal(receipt)) is not None:
+            # Never print PASS for a withdrawn receipt. It did not satisfy the
+            # rules; it was retired from evidence, and a reader skimming for
+            # green must not mistake one for the other.
+            withdrawn_count += 1
+            print(f"WITHDRAWN {rel}: {withdrawn}")
         else:
             print(f"PASS {rel}")
     if failed:
@@ -267,7 +305,14 @@ def revalidate_retained_receipts() -> int:
             file=sys.stderr,
         )
         return 1
-    print(f"runpod-spend-guard revalidate: {len(paths)} receipt(s) PASS")
+    passing = len(paths) - withdrawn_count
+    if withdrawn_count:
+        print(
+            f"runpod-spend-guard revalidate: {passing} receipt(s) PASS, "
+            f"{withdrawn_count} WITHDRAWN and citable by nothing"
+        )
+    else:
+        print(f"runpod-spend-guard revalidate: {len(paths)} receipt(s) PASS")
     return 0
 
 
