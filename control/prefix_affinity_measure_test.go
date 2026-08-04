@@ -357,8 +357,12 @@ func TestPrefixAffinityControlledCorpusMeasurement(t *testing.T) {
 			"cloud multi-tenant cache behaviour",
 		},
 		EngineSignals: map[string]string{
-			"vLLM":      "usage.prompt_tokens_details.cached_tokens present on OpenAI-shaped responses (observed in onboarding evidence); preferred over belief when the agent reports cached_prompt_tokens",
-			"llama.cpp": "no OpenAI-shaped cached_tokens in typical completions; belief + TTL + eviction only",
+			"vLLM": "usage.prompt_tokens_details.cached_tokens present on OpenAI-shaped responses (observed in onboarding evidence); preferred over belief when the agent reports cached_prompt_tokens",
+			// llama.cpp Metal b9430+ exposes the same OpenAI field plus timings.cache_n
+			// (see evidence/perf/prefix-kv-physical-metal-latest.json). Older receipts
+			// that said ABSENT were wrong about the engine; the batch agent still does
+			// not forward the field into TaskCommit.CachedPromptTokens.
+			"llama.cpp": "PRESENT on Metal b9430+ (/v1/chat/completions: cached_tokens + timings.cache_n); agent openai_http does not yet forward it",
 			"MLX":       "no standard cached_tokens field; belief + TTL + eviction only",
 			"Candle":    "no standard cached_tokens field; belief + TTL + eviction only",
 		},
