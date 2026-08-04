@@ -739,6 +739,30 @@ def evaluate() -> tuple[list[Check], list[str]]:
     return checks, []
 
 
+# What the money buys, stated before it is spent.
+#
+# READY is a claim about preconditions, not about answers. An operator reading
+# it should already know which questions the resulting measurement can settle,
+# because the most expensive failure available here is a funded run that comes
+# back refusing the question it was funded to answer.
+YIELDS = [
+    "per-hardware-class latency at p50/p95/p99 with an absolute delta, on one matched contract",
+    "throughput per hardware class on that contract",
+    "cosine outcome equivalence between the CUDA arm and the Metal pair, or a voided timing",
+    "a bounded spend receipt with producer identity and verified teardown",
+    "a shadow selector decision that records eligibility, exclusions, winners and regret",
+]
+
+CANNOT_YIELD = [
+    "a cross-hardware cost comparison -- comparableHardwareFor refuses to mix machines, "
+    "and the difference between an M3 Ultra and a rented A40 is the machine rather than the placement",
+    "a promotion: the promotion gate wants production decisions, twenty samples on one "
+    "hardware class, zero verification failures and a margin, and one experiment is none of that",
+    "a fleet claim, a TP>1 claim, or a claim at any other batch, quantisation or model",
+    "closure of any of the eight external readiness gates",
+]
+
+
 def summary_line(checks: list[Check]) -> tuple[str, int]:
     unsat = [c for c in checks if c.state == STATE_UNSATISFIED]
     blocked = [c for c in checks if c.state == STATE_BLOCKED_SPEND]
@@ -796,6 +820,8 @@ def main(argv: list[str]) -> int:
             "the precondition can only complete with authorized spend (not used to "
             "hide identity gaps). Ready = no UNSATISFIED; only authorized spend remains."
         ),
+        "a_valid_test_yields": YIELDS,
+        "a_valid_test_cannot_yield": CANNOT_YIELD,
     }
 
     if json_out:
@@ -818,8 +844,20 @@ def main(argv: list[str]) -> int:
                 "placement-readiness: identities and gates are offline-ready; "
                 "only authorized spend remains (do not spend from this gate)"
             )
+            print("  a valid test yields:")
+            for y in YIELDS:
+                print(f"    + {y}")
+            print("  a valid test cannot yield:")
+            for n in CANNOT_YIELD:
+                print(f"    - {n}")
         else:
             print("placement-readiness: ready for a valid test pending authorized spend only")
+            print("  a valid test yields:")
+            for y in YIELDS:
+                print(f"    + {y}")
+            print("  a valid test cannot yield:")
+            for n in CANNOT_YIELD:
+                print(f"    - {n}")
 
     return code
 
