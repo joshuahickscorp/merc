@@ -1,0 +1,122 @@
+{
+  "schema_version": 1,
+  "kind": "embed_throughput_sweep",
+  "label": "metal_llama_cpp: embed throughput at concurrency on the matched contract",
+  "measured_at": "2026-08-04T15:41:29Z",
+  "arm": {
+    "label": "metal_llama_cpp",
+    "hw_class": "apple_silicon_ultra",
+    "endpoint_host": "127.0.0.1:8399",
+    "served_model": "all-MiniLM-L6-v2.F16.gguf"
+  },
+  "corpus": {
+    "sha256": "01fcad50dcc300f12f31f91d3ae356746382ef9961594715563958829bad59f9",
+    "source": "EMBED_BENCH_CORPUS in agent/src/main.rs",
+    "texts": 8
+  },
+  "quality": {
+    "verification": "cosine",
+    "mean_threshold": 0.999,
+    "row_threshold": 0.999,
+    "mean_cosine": 0.9999990694224972,
+    "min_cosine": 0.9999985448781364,
+    "per_text_cosine": [
+      0.9999990719511559,
+      0.9999989094962427,
+      0.9999989530078942,
+      0.9999985448781364,
+      0.9999990789145283,
+      0.9999993426591818,
+      0.9999992790602035,
+      0.9999993754126341
+    ],
+    "passes": true,
+    "reference_runtime": "candle_metal"
+  },
+  "levels": [
+    {
+      "concurrency": 1,
+      "rounds": 6,
+      "requests_completed": 6,
+      "requests_failed": 0,
+      "errors": [],
+      "wall_seconds": 0.029790500178933144,
+      "units": 48,
+      "units_per_sec": 1611.251899487878,
+      "requests_per_sec": 201.40648743598476,
+      "request_latency_ms_p50": 4.4368329690769315,
+      "request_latency_ms_p95": 4.690521338488907,
+      "request_latency_ms_mean": 4.339840146712959
+    },
+    {
+      "concurrency": 4,
+      "rounds": 6,
+      "requests_completed": 24,
+      "requests_failed": 0,
+      "errors": [],
+      "wall_seconds": 0.15752695896662772,
+      "units": 192,
+      "units_per_sec": 1218.838992763616,
+      "requests_per_sec": 152.354874095452,
+      "request_latency_ms_p50": 8.193333516828716,
+      "request_latency_ms_p95": 105.22654831875116,
+      "request_latency_ms_mean": 24.259621733411525
+    },
+    {
+      "concurrency": 16,
+      "rounds": 6,
+      "requests_completed": 96,
+      "requests_failed": 0,
+      "errors": [],
+      "wall_seconds": 0.17407766683027148,
+      "units": 768,
+      "units_per_sec": 4411.823836936029,
+      "requests_per_sec": 551.4779796170036,
+      "request_latency_ms_p50": 19.35733389109373,
+      "request_latency_ms_p95": 28.609749977476895,
+      "request_latency_ms_mean": 18.684155414424215
+    },
+    {
+      "concurrency": 64,
+      "rounds": 6,
+      "requests_completed": 384,
+      "requests_failed": 0,
+      "errors": [],
+      "wall_seconds": 0.7872809588443488,
+      "units": 3072,
+      "units_per_sec": 3902.0377229869687,
+      "requests_per_sec": 487.7547153733711,
+      "request_latency_ms_p50": 71.63941650651395,
+      "request_latency_ms_p95": 117.19431525561957,
+      "request_latency_ms_mean": 70.82806901235017
+    }
+  ],
+  "void_reason": null,
+  "peak_units_per_sec": 4411.823836936029,
+  "peak_at_concurrency": 16,
+  "engine_metrics": {
+    "before": {
+      "available": true,
+      "series": {
+        "llamacpp:prompt_tokens_total": 0.0
+      }
+    },
+    "after": {
+      "available": true,
+      "series": {
+        "llamacpp:prompt_tokens_total": 0.0
+      }
+    },
+    "note": "server-published counters where the engine exposes them; absent metrics are recorded absent rather than inferred"
+  },
+  "reading_this": [
+    "units_per_sec is the comparable quantity across hardware classes: it is computed from wall clock over the whole level, so overlapped requests are not double-counted.",
+    "request_latency_ms at concurrency > 1 includes queueing AND the network round trip. It is not engine latency and must not be quoted as one.",
+    "candle is the outcome reference, not an arm: it is in-process and has no socket, so putting it on this axis would compare a function call to a web request."
+  ],
+  "does_not_prove": [
+    "a cost comparison across hardware classes \u2014 comparableHardwareFor refuses one",
+    "a promotion; the CUDA cell stays DRAFT and non-routable",
+    "a fleet claim, or behaviour at another batch size, model or precision"
+  ]
+}
