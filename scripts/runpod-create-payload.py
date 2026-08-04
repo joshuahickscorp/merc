@@ -56,7 +56,13 @@ def runtime_settings() -> dict:
         "max_model_len": os.environ.get("MERC_VLLM_MAX_MODEL_LEN", "32768"),
         "gpu_memory_utilization": os.environ.get("MERC_VLLM_GPU_MEMORY_UTILIZATION", "0.9"),
         "max_num_seqs": os.environ.get("MERC_VLLM_MAX_NUM_SEQS", "128"),
+        # "" (default) serves a generator; "embed" serves a pooling model
+        # through /v1/embeddings. The distinction changes which vLLM flags are
+        # even legal — see vllm_args.
+        "task": os.environ.get("MERC_VLLM_TASK", ""),
     }
+    if settings["task"] not in ("", "embed"):
+        raise ValueError("MERC_VLLM_TASK must be empty (generation) or 'embed'")
     if not REVISION.fullmatch(settings["model_revision"]):
         raise ValueError("MERC_VLLM_MODEL_REVISION must be an exact 40-character revision")
     if not REVISION.fullmatch(settings["tokenizer_revision"]):
@@ -76,16 +82,25 @@ def runtime_settings() -> dict:
 
 
 def vllm_args(settings: dict) -> list[str]:
-    return [
-    "--host", "0.0.0.0",
-    "--port", "8000",
-    "--max-model-len", settings["max_model_len"],
-    "--served-model-name", settings["served_model"],
-    "--gpu-memory-utilization", settings["gpu_memory_utilization"],
-    "--enable-prefix-caching",
-    "--enable-chunked-prefill",
-    "--max-num-seqs", settings["max_num_seqs"],
+    args = [
+        "--host", "0.0.0.0",
+        "--port", "8000",
+        "--max-model-len", settings["max_model_len"],
+        "--served-model-name", settings["served_model"],
+        "--gpu-memory-utilization", settings["gpu_memory_utilization"],
+        "--max-num-seqs", settings["max_num_seqs"],
     ]
+    if settings["task"] == "embed":
+        # A pooling model is not a generator, and vLLM refuses the generation
+        # tuning flags for one: prefix caching and chunked prefill both assume a
+        # decode loop that an embedding runner does not have. Passing them anyway
+        # fails at startup, which on a rented pod costs money to discover.
+        #
+        # This is also why the embed arm cannot inherit the generation profile's
+        # 32768 context: MiniLM's position embeddings stop at 512, and asking for
+        # more is refused before the first request.
+        return ["--task", "embed", *args]
+    return [*args, "--enable-prefix-caching", "--enable-chunked-prefill"]
 
 
 def gguf_start_command(repo: str, filename: str, tokenizer: str, key: str, settings: dict) -> str:
