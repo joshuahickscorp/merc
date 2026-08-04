@@ -76,6 +76,19 @@ def cosine(a: list[float], b: list[float]) -> float:
     return num / (na * nb)
 
 
+def _get(base: str, key: str, path: str, timeout: float = 30.0) -> tuple[int, str]:
+    req = urllib.request.Request(
+        f"{base}{path}", headers={"Authorization": f"Bearer {key}"}, method="GET"
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.status, resp.read().decode("utf-8", "replace")[:800]
+    except urllib.error.HTTPError as exc:
+        return exc.code, exc.read().decode("utf-8", "replace")[:800]
+    except Exception as exc:  # noqa: BLE001
+        return 0, f"{type(exc).__name__}: {exc}"
+
+
 def embed(base: str, key: str, model: str, texts: list[str], timeout: float = 120.0):
     body = json.dumps({"model": model, "input": texts}).encode()
     req = urllib.request.Request(
@@ -85,8 +98,18 @@ def embed(base: str, key: str, model: str, texts: list[str], timeout: float = 12
         method="POST",
     )
     t0 = time.perf_counter()
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        raw = resp.read()
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            raw = resp.read()
+    except urllib.error.HTTPError as exc:
+        # The server's own explanation is the diagnosis. Swallowing it turns a
+        # one-line answer into another rented GPU: the first 403 from this
+        # harness reported only "HTTP Error 403: Forbidden" and the pod was torn
+        # down before anyone could ask why.
+        detail = exc.read().decode("utf-8", "replace")[:1000]
+        raise RuntimeError(
+            f"POST {base}/embeddings failed HTTP {exc.code}: {detail}"
+        ) from exc
     wall_ms = (time.perf_counter() - t0) * 1000.0
     doc = json.loads(raw)
     vectors = [d["embedding"] for d in sorted(doc["data"], key=lambda d: d["index"])]
@@ -125,6 +148,25 @@ def main() -> int:
         return 2
 
     started = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+    # Say what the server thinks it is serving before asking it for anything.
+    # Pod time is the expensive place to discover a name mismatch, and /v1/models
+    # answers that in one request.
+    models_status, models_body = _get(base, key, "/models")
+    print(f"# GET /v1/models -> HTTP {models_status}: {models_body}", file=sys.stderr)
+    served_names: list[str] = []
+    if models_status == 200:
+        try:
+            served_names = [m["id"] for m in json.loads(models_body).get("data", [])]
+        except Exception:  # noqa: BLE001
+            pass
+    if served_names and args.model not in served_names:
+        print(
+            f"# NOTE: requested model {args.model!r} is not in {served_names}; "
+            f"using {served_names[0]!r} as the served name",
+            file=sys.stderr,
+        )
+        args.model = served_names[0]
 
     # Warmup is not measured. A cold CUDA graph is not the steady state either
     # engine is being asked about.
