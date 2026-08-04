@@ -1,7 +1,7 @@
 /**
  * Dependency-free TypeScript client for the merc buyer API.
  *
- * Mirrors sdk/python/merc so the two SDKs describe the same product. No runtime
+ * Mirrors clients/sdk/python/merc so the two SDKs describe the same product. No runtime
  * dependencies: it uses the platform `fetch`, so it runs on Node 18+, Deno,
  * Bun and browsers without a bundler deciding anything for you.
  */
