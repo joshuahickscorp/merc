@@ -116,22 +116,64 @@ near the floor.
 is no ranked blocker list. These were raised and their three verifiers all failed
 — they are neither confirmed nor refuted:
 
-| finding | why it matters |
+| finding | status |
 |---|---|
-| `PAYLOAD-GUARD-GOES-VACUOUS-SILENTLY` | the exact failure this wave was designed to catch — a gate that passes on a pointer |
-| `PRICING-QUARANTINE-GATE-HOLLOWED` | pricing authority resolution against LFS-backed receipts |
-| `SOURCE-FINGERPRINT-NOT-A-FUNCTION-OF-COMMIT` | fingerprint now hashes pointers; does the oid transitively attest? |
-| `RAW-SAMPLES-SHA256-UNVERIFIED` | the L2 dual-form branch — can a tampered old receipt validate through it? |
-| `CI-LFS-TRUE-IS-A-NO-OP` | does CI actually fetch LFS, or validate pointers? |
-| `IMMOVABLES-COST-THE-TARGET` | do the protected paths eat the margin? |
-| `L4-GOTESTS-FAIL` | **REFUTED by hand** — `go test ./...` passes, 20.382s |
-| G1–G10, F3, F4, F7, F8 | docs-phase findings, all verifiers killed |
+| `PAYLOAD-GUARD-GOES-VACUOUS-SILENTLY` | **REFUTED** — see §4a-i |
+| `L4-GOTESTS-FAIL` | **REFUTED** — `go test ./...` passes, 20.382 s |
+| `CI-LFS-TRUE-IS-A-NO-OP` | **CONFIRMED, P0** — see §4a-ii |
+| `PRICING-QUARANTINE-GATE-HOLLOWED` | open — pricing authority resolution against LFS-backed receipts |
+| `SOURCE-FINGERPRINT-NOT-A-FUNCTION-OF-COMMIT` | open — fingerprint now hashes pointers; does the oid transitively attest? |
+| `RAW-SAMPLES-SHA256-UNVERIFIED` | open — can a tampered old receipt validate through the L2 dual-form branch? |
+| `IMMOVABLES-COST-THE-TARGET` | open — moot, target met at 295,239 |
+| G1–G10, F3, F4, F7, F8 | open — docs-phase findings, all verifiers killed |
 
-**`PAYLOAD-GUARD-GOES-VACUOUS-SILENTLY` and `SOURCE-FINGERPRINT-NOT-A-FUNCTION-OF-COMMIT`
-are the two to settle first.** Both ask whether a gate now passes on a 3-line
-pointer while believing it validated a receipt. `validate-evidence-binding.py`
-still reports `total_files: 166`, which is consistent with pre-split behaviour —
-but consistent is not the same as verified.
+#### §4a-i — `PAYLOAD-GUARD-GOES-VACUOUS-SILENTLY` is REFUTED
+
+The design is sound. Cloned with `GIT_LFS_SKIP_SMUDGE=1` so every tier-2 body was
+absent, then ran the gate:
+
+```
+REAL EXIT (no-LFS clone): 1
+  - evidence/perf/arrival-batching.json: unreadable JSON after LFS resolve
+    (oid sha256:0684258dc2d0ff…): cannot resolve LFS pointer
+```
+
+It fails **loud**, and names the payload by digest. It does not pass on a pointer.
+
+One real artefact, worth knowing but not a defect: the census classification
+drifts by environment — with bodies `BOUND 48 / UNBOUND 108 / OTHER 0`, without
+them `BOUND 48 / UNBOUND 107 / OTHER 2`. Both exit 1 because 2 `MISSING_STATUS`
+failures are pre-existing and were red on `main` before any of this.
+
+#### §4a-ii — `CI-LFS-TRUE-IS-A-NO-OP` is CONFIRMED. **CI will go red on the next push.**
+
+All 10 `actions/checkout` steps across the three workflows set `lfs: true`. But
+`.lfsconfig` sets:
+
+```
+fetchexclude = evidence/perf/**
+```
+
+`actions/checkout` runs a plain `git lfs pull`, which **honours fetchexclude**. So
+CI dutifully fetches LFS and skips precisely the tier-2 files the gates need.
+Reproduced:
+
+```
+git lfs pull                                  → arrival-batching.json still a pointer
+git lfs pull --include="evidence/perf/**"     → still a pointer (include does NOT override exclude)
+git lfs pull --exclude="" --include="…"       → resolves; LFS failures 84 → 2
+```
+
+The comment inside `.lfsconfig` — *"CI sets lfs: true on actions/checkout so gates
+see full content"* — is false, and the file it sits in is what makes it false.
+
+**Fix**: add a step after every checkout that clears the exclude explicitly —
+`git lfs pull --exclude="" --include="evidence/perf/**"` — or drop `fetchexclude`
+and accept full-fetch clones. `--include` alone is not sufficient.
+
+*(The 2 residual failures in the probe are objects absent from the local source
+repo, not a config problem — but confirm every object exists on `origin` before
+pushing, or CI fails for that reason instead.)*
 
 ### 4b. Reduction-loop gaps
 
