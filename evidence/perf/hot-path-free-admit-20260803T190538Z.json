@@ -1,5 +1,5 @@
 {
-  "binding_status": "UNBOUND_PROBE",
+  "binding_status": "UNBOUND",
   "can_prove": [
     "envelope path authorize latency vs legacy at c=1,8,32",
     "envelope + direct offer claim (lease stand-in) authorize latency",
@@ -343,5 +343,16 @@
       "reachable_with_zero_durable_sync": false
     }
   },
-  "warmup": 10
+  "warmup": 10,
+  "missing_identity_fields": [
+    "source_commit",
+    "build_digest",
+    "model_artifact_digest",
+    "image_digest",
+    "harness_revision",
+    "corpus_digest",
+    "exact_config",
+    "raw_samples"
+  ],
+  "binding_status_note": "was UNBOUND_PROBE, which is not one of the four valid statuses; a bespoke value is invisible to the gate and reads as bound to a human skimming"
 }

@@ -30,9 +30,20 @@
   },
   "power": null,
   "runpod_util_corroboration": null,
-  "pricing_go_note": "control/pricing.go labels nvidia_48gb as ASSUMED ~300 W. This receipt is the measured replacement candidate; another lane owns pricing.go \u2014 do not edit it here.",
+  "pricing_go_note": "control/pricing.go labels nvidia_48gb as ASSUMED ~300 W. This receipt is the measured replacement candidate; another lane owns pricing.go — do not edit it here.",
   "admissible": false,
   "refusals": [
     "no nvidia-smi power.draw samples collected (remote shell unavailable or failed)"
+  ],
+  "binding_status": "UNBOUND",
+  "missing_identity_fields": [
+    "source_commit",
+    "build_digest",
+    "model_artifact_digest",
+    "image_digest",
+    "harness_revision",
+    "corpus_digest",
+    "exact_config",
+    "raw_samples"
   ]
 }
