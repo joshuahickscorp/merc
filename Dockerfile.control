@@ -37,6 +37,12 @@ COPY --from=build /merc-healthcheck /merc-healthcheck
 # /version. Not another fallback: the more places a file can be found, the less a
 # successful start says about which one was loaded.
 COPY pricing/board.json /etc/merc/pricing/board.json
+# Cited price receipts. The catalogue price authority resolves every
+# SourceCitation at startup and refuses to publish a price whose receipt is
+# missing or whose throughput disagrees, so the image must carry the receipts it
+# cites or it cannot boot. 16K, and shipping them keeps that check live in
+# production rather than only in a dev tree with git.
+COPY evidence/benchmarks/ /etc/merc/evidence/benchmarks/
 
 # The whole web surface, not the three pages that happened to be listed. The
 # router serves /prices, /supplier, /assets/site/{path...} and
