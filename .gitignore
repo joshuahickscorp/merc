@@ -46,14 +46,14 @@ agent/agent.toml
 *~
 
 # ── Design sources ───────────────────────────────────────────────────────────
-# The layered logo master (logo/cx_logo.psd, ~8 MB) is the editable brand source,
+# The layered logo master (web/logo/cx_logo.psd, ~8 MB) is the editable brand source,
 # kept local to keep clones lean. The flat source PNG + the flat masters
 # (cx-mark-white, cx-app-icon) ARE committed; scripts/cx_trace.py + cx_logo.py
 # regenerate the metal render from the PNG. The full-res 1080px render master stays
-# local (logo/cx-metal*); the right-sized served copies live in web/assets and ARE
+# local (web/logo/cx-metal*); the right-sized served copies live in web/assets and ARE
 # committed.
 *.psd
-logo/cx-metal*
+web/logo/cx-metal*
 
 # ── PROTECTED ASSETS (SACRED — see BLACKHOLE.md) ─────────────────────────────
 # Models, weights, datasets, and caches are expensive or impossible to
