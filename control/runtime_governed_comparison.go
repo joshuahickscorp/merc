@@ -489,8 +489,8 @@ func BuildGovernedComparison(
 			"absolute_delta_ms_per_unit":         latencyDelta,
 			"ratio_llama_over_candle":            latencyRatio,
 			"throughput_ratio_candle_over_llama": throughputRatioCandleOverLlama,
-			"scale_note":                         "absolute delta is sub-millisecond; contrast with prefix work measuring ~−410 ms prefill at p50/p95 — that is the scale at which a latency claim is worth making",
-			"rank_by":                            "p50 median_ms_per_unit from MeasuredCellCost (chain tasks); p95/p99 require a wider cohort and are not invented here",
+			"scale_note":                         latencyScaleNote(latencyDelta),
+			"rank_by":                            "p50 median_ms_per_unit from MeasuredCellCost; p95/p99 live in the parity receipt and are not re-derived here",
 		},
 		CostComparison: map[string]any{
 			"candle_verified_outcome_usd_per_unit": candleActualCost,
@@ -523,7 +523,7 @@ func BuildGovernedComparison(
 			"Host load is recorded because the machine is not perfectly quiet.",
 			"Energy partial uses ASSUMED watts and defaulted electricity.",
 			"Storage, egress, utilization, refund risk remain unknown.",
-			"Sub-millisecond absolute latency deltas must not be led by ratio alone.",
+			"A latency ratio is never the headline; the absolute delta is stated first.",
 		},
 	}
 	return out, nil
@@ -568,9 +568,8 @@ func actualsBinding(costs map[string]MeasuredCellCost) string {
 // is not a falsification and it must not be recorded as one.
 //
 // The second gate is the noise floor, applied to a falsification and not only
-// to a tie. The absolute deltas on this contract are sub-millisecond on a host
-// that is not quiet; overturning a prior claim on a point estimate that thin is
-// how a measurement artifact becomes a finding.
+// to a tie. Overturning a prior claim on a point estimate thinner than the
+// host's own noise is how a measurement artifact becomes a finding.
 func priorClaimStatus(candleMs, llamaMs float64, binding string) string {
 	if !strings.EqualFold(binding, BindingBound) {
 		return "UNRESOLVED_UNBOUND_ACTUALS"
@@ -667,4 +666,27 @@ func runSysctlLoadavg() ([]float64, error) {
 		vals[i] = v
 	}
 	return vals, nil
+}
+
+// latencyScaleNote states the size of the delta rather than asserting one. The
+// note was hardcoded to "sub-millisecond" while the numbers were cohort figures
+// around 0.2 ms; the bound interleaved measurement puts the delta near 1.2 ms,
+// and a receipt that describes its own headline wrongly is worse than one that
+// omits it.
+func latencyScaleNote(deltaMs float64) string {
+	abs := math.Abs(deltaMs)
+	const prefixSavingMs = 410.0
+	switch {
+	case abs < 1.0:
+		return fmt.Sprintf(
+			"absolute delta %.4f ms per unit is sub-millisecond; the prefix work measured "+
+				"~%.0f ms of prefill saved at p50 and p95, which is the scale at which a "+
+				"latency claim is worth leading with", abs, prefixSavingMs)
+	default:
+		return fmt.Sprintf(
+			"absolute delta %.4f ms per unit is real and reproducible, and is still "+
+				"%.0fx smaller than the ~%.0f ms prefill saving the prefix work measured; "+
+				"engine choice on this contract matters and is not where the large latency lives",
+			abs, prefixSavingMs/abs, prefixSavingMs)
+	}
 }

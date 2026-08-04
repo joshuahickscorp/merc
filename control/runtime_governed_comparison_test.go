@@ -39,6 +39,71 @@ func cohortEmbedCosts(t *testing.T) map[string]MeasuredCellCost {
 	}
 }
 
+// boundEmbedCosts reads the interleaved engine-parity measurement and returns
+// cost rows that may rule on the prior claim, because every timing in them
+// traces to a named merc-agent binary, a named llama-server binary, and two
+// named weight digests.
+//
+// Returns nil when the receipt is absent or not BOUND. Callers fall back to the
+// cohort fixture, which exercises the same decision structure and is refused a
+// verdict -- the point of the gate is that the fallback stays visibly weaker
+// rather than silently standing in for a measurement.
+func boundEmbedCosts(t *testing.T) map[string]MeasuredCellCost {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("..", "evidence", "perf", "selector",
+		"engine-parity-metal-embed-latest.json"))
+	if err != nil {
+		return nil
+	}
+	var doc struct {
+		BindingStatus string `json:"binding_status"`
+		Batch         int    `json:"batch"`
+		Arms          map[string]struct {
+			Engine     string    `json:"engine"`
+			MsPerUnit  float64   `json:"ms_per_unit_p50"`
+			N          int       `json:"n"`
+			RawSamples []float64 `json:"raw_ms_per_unit"`
+		} `json:"arms"`
+		Quality struct {
+			Passes bool `json:"passes"`
+		} `json:"quality"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return nil
+	}
+	// A failed cosine gate means the arms were not serving the same product, so
+	// the timings compare two different things and must not rank anything.
+	if !strings.EqualFold(doc.BindingStatus, BindingBound) || !doc.Quality.Passes {
+		return nil
+	}
+	byArm := map[string]string{
+		"candle_metal":    candleEmbedCell,
+		"llama_cpp_metal": llamaEmbedCell,
+	}
+	const supplier = 0.0060625
+	out := map[string]MeasuredCellCost{}
+	for arm, cell := range byArm {
+		a, ok := doc.Arms[arm]
+		if !ok || a.MsPerUnit <= 0 || a.N < minCellCostSamples {
+			return nil
+		}
+		out[cell] = MeasuredCellCost{
+			CellID: cell, RuntimeID: arm, Engine: a.Engine,
+			JobType: "embed", ModelRef: "all-minilm-l6-v2", HWClass: "apple_silicon_ultra",
+			Samples: a.N, Units: int64(a.N * doc.Batch), MedianMsPerUnit: a.MsPerUnit,
+			SupplierUSDPerUnit: supplier,
+			// The parity harness embeds and times; it does not run the
+			// verification contract that a chain task would, so reliability is
+			// recorded as clean rather than measured. Equal on both arms, which
+			// is what keeps the cost tie a tie.
+			VerificationSamples: a.N, TerminalAttempts: a.N,
+			Measured: true, SourceBinding: BindingBound,
+			Unknown: unknownCostComponents(),
+		}
+	}
+	return out
+}
+
 func catalogueMinilm() CataloguePriceAuthority {
 	return CataloguePriceAuthority{
 		ModelID: "all-minilm-l6-v2", JobType: "embed",
@@ -321,7 +386,15 @@ func TestWriteGovernedComparisonReceipt(t *testing.T) {
 	if os.Getenv("MERC_GOVERNED_COMPARISON_RECEIPT") != "1" {
 		t.Skip("MERC_GOVERNED_COMPARISON_RECEIPT is not 1; receipt writer is env-gated")
 	}
-	costs := cohortEmbedCosts(t)
+	// Prefer the bound interleaved measurement. The cohort fixture only stands
+	// in when no bound receipt exists, and it is refused a verdict when it does.
+	costs := boundEmbedCosts(t)
+	actualsSource := "evidence/perf/selector/engine-parity-metal-embed-latest.json (BOUND interleaved parity)"
+	if costs == nil {
+		costs = cohortEmbedCosts(t)
+		actualsSource = "evidence/perf/selector/paired-cohort-embed.json (UNBOUND cohort; verdict withheld)"
+	}
+	t.Logf("actuals source: %s", actualsSource)
 	// Plan a real shadow selection so eligibility / exclusions are live.
 	withActivationRestored(t)
 	decision, err := buildWorkloadDecision(jobSubmit{
