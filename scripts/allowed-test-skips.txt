@@ -108,6 +108,13 @@ TestRealtimeAuthLatencyProbe
 # evidence/perf/selector/cell-economics-census.json when asked.
 TestWriteCellEconomicsCensusReceipt
 #
+# Env-gated writer for the governed Candle-vs-llama.cpp comparison and one
+# shadow selector decision. Ranking honesty and prior-claim falsification run
+# unconditionally in TestDecideMeasuredShadow* and
+# TestGovernedComparisonFalsifiesPriorThroughputClaim; this test only seals
+# evidence/perf/selector/governed-candle-vs-llama-shadow-decision.json when asked.
+TestWriteGovernedComparisonReceipt
+#
 # Live serving-matrix measurements against a real llama.cpp/Candle Metal server.
 # Require MERC_RUN_LIVE_SERVING_MATRIX=1 plus a local engine and a GGUF on disk;
 # CI has neither. These produce the bound engine-tournament receipts, so running
