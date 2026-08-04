@@ -128,6 +128,86 @@ func TestDecideMeasuredShadowNamesThroughputOnCostTie(t *testing.T) {
 	}
 }
 
+// TestDecideMeasuredShadowRefusesAWinnerOnAnAbsolutelyTinyGap covers the
+// absolute noise floor specifically, which the exact-tie test above cannot
+// reach.
+//
+// A mutation that deleted the floor survived the suite, because every existing
+// tie case used identical latencies and the ratio band caught those on its own.
+// The floor only earns its place on fast cells: 0.100 against 0.109 ms per unit
+// is a 0.009 ms difference and an 8.6% ratio, so the ratio band would happily
+// declare a winner over a gap far below what this host can resolve. That is a
+// manufactured selection, and on a cost tie it is the only term deciding.
+func TestDecideMeasuredShadowRefusesAWinnerOnAnAbsolutelyTinyGap(t *testing.T) {
+	const supplier = 0.0060625
+	costs := map[string]MeasuredCellCost{
+		candleEmbedCell: {
+			CellID: candleEmbedCell, Samples: minCellCostSamples, Measured: true,
+			MedianMsPerUnit: 0.109, SupplierUSDPerUnit: supplier,
+			VerificationSamples: 20,
+		},
+		llamaEmbedCell: {
+			CellID: llamaEmbedCell, Samples: minCellCostSamples, Measured: true,
+			MedianMsPerUnit: 0.100, SupplierUSDPerUnit: supplier,
+			VerificationSamples: 20,
+		},
+	}
+	// Sanity: the gap really is outside the ratio band, so only the absolute
+	// floor can refuse it. If this stops holding the test is no longer covering
+	// what it claims to.
+	if ratio := (0.109 - 0.100) / ((0.109 + 0.100) / 2); ratio < latencyNoiseFraction {
+		t.Fatalf("gap ratio %.4f is inside the %.4f band; this test no longer exercises the absolute floor",
+			ratio, latencyNoiseFraction)
+	}
+	d := decideMeasuredShadow(costs, []string{candleEmbedCell, llamaEmbedCell}, candleEmbedCell)
+	if d.Basis != selectionBasisTieNoDecision {
+		t.Fatalf("basis = %q, want %s; a 0.009 ms gap is not capacity",
+			d.Basis, selectionBasisTieNoDecision)
+	}
+	if d.Winner != candleEmbedCell {
+		t.Fatalf("winner = %q, want the routed cell retained", d.Winner)
+	}
+}
+
+// TestDecideMeasuredShadowRefusesAWinnerOnAProportionallyTinyGap covers the
+// ratio band, which the absolute floor cannot reach.
+//
+// The floor and the band guard opposite ends. A 0.02 ms gap between two cells
+// near 3.0 ms per unit clears the absolute floor easily and is still only 0.7%
+// of the measurement — well inside run-to-run drift on this host, where two
+// bound runs of the same arm landed 0.02 ms apart. Those are the real numbers
+// from the engine parity receipt, which is why this case is worth pinning: at
+// that scale the absolute floor alone would hand out a winner.
+func TestDecideMeasuredShadowRefusesAWinnerOnAProportionallyTinyGap(t *testing.T) {
+	const supplier = 0.0060625
+	costs := map[string]MeasuredCellCost{
+		candleEmbedCell: {
+			CellID: candleEmbedCell, Samples: minCellCostSamples, Measured: true,
+			MedianMsPerUnit: 3.02, SupplierUSDPerUnit: supplier,
+			VerificationSamples: 20,
+		},
+		llamaEmbedCell: {
+			CellID: llamaEmbedCell, Samples: minCellCostSamples, Measured: true,
+			MedianMsPerUnit: 3.00, SupplierUSDPerUnit: supplier,
+			VerificationSamples: 20,
+		},
+	}
+	// Sanity: the gap clears the absolute floor, so only the ratio band can
+	// refuse it.
+	if 3.02-3.00 < latencyNoiseAbsMs {
+		t.Fatalf("gap is inside the %.4f ms absolute floor; this test no longer exercises the ratio band",
+			latencyNoiseAbsMs)
+	}
+	d := decideMeasuredShadow(costs, []string{candleEmbedCell, llamaEmbedCell}, candleEmbedCell)
+	if d.Basis != selectionBasisTieNoDecision {
+		t.Fatalf("basis = %q, want %s; 0.7%% of a 3 ms measurement is drift, not capacity",
+			d.Basis, selectionBasisTieNoDecision)
+	}
+	if d.Winner != candleEmbedCell {
+		t.Fatalf("winner = %q, want the routed cell retained", d.Winner)
+	}
+}
+
 // TestDecideMeasuredShadowRecordsTrueTie refuses to manufacture a winner when
 // cost and latency both tie.
 func TestDecideMeasuredShadowRecordsTrueTie(t *testing.T) {
