@@ -142,6 +142,14 @@ mod tests {
         }
 
         let client = client_builder().expect("builder").build().expect("client");
+
+        // The client baked the proxy config in at construction, so the env lock
+        // has done its job and must be released before the first await: holding
+        // a std MutexGuard across .await parks the guard with the task and can
+        // wedge the runtime (clippy::await_holding_lock). Env is restored below
+        // regardless, since no other test can interleave until we re-acquire.
+        drop(_guard);
+
         let url = format!("http://127.0.0.1:{origin_port}/v1/worker/register");
         let resp = client
             .post(&url)
