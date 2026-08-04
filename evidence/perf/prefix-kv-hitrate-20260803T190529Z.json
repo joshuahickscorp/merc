@@ -1,7 +1,7 @@
 {
   "arm": "production_claim_path_agent_rag",
   "assessment": {
-    "blunt_view": "Production claim-path belief hit rate on the conservative agent/RAG corpus is 53.1% overall / 70.8% on family traffic / 73.9% family post-warmup (target 80–95%). Affinity lift vs random assignment is +39.6 pp. Ranking overhead is 0 ns/request — negligible against any TTFT save. Engine-side KV saving on llama.cpp/Metal is UNPROVEN (no consumable cached_tokens). Tool/schema 'preprocessing avoided' on divergent agent turns is 0.0% (target 90%+); the identity cache only amortises exact body replay, which is exact-reuse territory, not shared-tools-divergent-tails. Prefix locality is a real second lever for agent/RAG *routing concentration* when the queue is multi-job, but it is smaller and more conditional than the target assumes: it needs concurrent work to let warm workers prefer matching jobs, it is belief not engine truth on Metal, and it does not invent a tools-only preprocess tier.",
+    "blunt_view": "Production claim-path belief hit rate on the conservative agent/RAG corpus is 53.1% overall / 70.8% on family traffic / 73.9% family post-warmup (target 80\u201395%). Affinity lift vs random assignment is +39.6 pp. Ranking overhead is 0 ns/request \u2014 negligible against any TTFT save. Engine-side KV saving on llama.cpp/Metal is UNPROVEN (no consumable cached_tokens). Tool/schema 'preprocessing avoided' on divergent agent turns is 0.0% (target 90%+); the identity cache only amortises exact body replay, which is exact-reuse territory, not shared-tools-divergent-tails. Prefix locality is a real second lever for agent/RAG *routing concentration* when the queue is multi-job, but it is smaller and more conditional than the target assumes: it needs concurrent work to let warm workers prefer matching jobs, it is belief not engine truth on Metal, and it does not invent a tools-only preprocess tier.",
     "hit_rate_vs_target_80_95": "PARTIAL_BELOW_80",
     "tool_schema_vs_target_90": "MEETS_TARGET_ONLY_ON_EXACT_BODY_REPLAY_NOT_AGENT_TURNS"
   },
@@ -155,20 +155,26 @@
     "reason": "Prior artifact ranked candidates in pure Go against a simulated FIFO cache and never exercised ClaimTasksTx, worker_prefix_state, or job_prefix_chain. This receipt measures belief hit rate on the production claim path with an agent/RAG corpus. The stand-in is retained as a ranker unit curve; it is not deleted."
   },
   "target": {
-    "source": "scratchpad/TARGETS.md §3 Work elimination (superwave figures)",
+    "source": "scratchpad/TARGETS.md \u00a73 Work elimination (superwave figures)",
     "tool_schema_preprocess_avoid_min": 0.9,
     "useful_prefix_kv_hit_rate_max": 0.95,
     "useful_prefix_kv_hit_rate_min": 0.8
   },
   "tool_schema_preprocessing": {
-    "architecture_fit": "The prepared-identity cache keys on the full canonical body (tenant+profile+body hash). Same tools with divergent user messages are distinct keys and miss. There is no separate tools/schema-only preprocess cache. The 90% target describes amortising tool/schema compilation across turns that share tools; Merc does not perform that work on the control plane — it derives a semantic request identity for exact reuse and coalescing. Against agent traffic with shared tools and divergent tails, avoidance is ~0%, not 90%.",
+    "architecture_fit": "The prepared-identity cache keys on the full canonical body (tenant+profile+body hash). Same tools with divergent user messages are distinct keys and miss. There is no separate tools/schema-only preprocess cache. The 90% target describes amortising tool/schema compilation across turns that share tools; Merc does not perform that work on the control plane \u2014 it derives a semantic request identity for exact reuse and coalescing. Against agent traffic with shared tools and divergent tails, avoidance is ~0%, not 90%.",
     "exact_body_replay_hit_rate": 0.9950248756218906,
-    "fraction_of_merc_overhead_note": "ledger and five-cache audit cite ~0.3% of merc overhead; this run reconfirms hit≪miss but both are microseconds",
+    "fraction_of_merc_overhead_note": "ledger and five-cache audit cite ~0.3% of merc overhead; this run reconfirms hit\u226amiss but both are microseconds",
     "hit_ns_per_op": 720.584,
     "miss_ns_per_op": 14533.166,
     "same_tools_divergent_messages_hit_rate": 0,
     "saving_ns_per_hit": 13812.581999999999,
     "target_avoidance": 0.9,
     "verdict": "MEETS_TARGET_ONLY_ON_EXACT_BODY_REPLAY_NOT_AGENT_TURNS"
+  },
+  "engine_signal_correction": {
+    "corrected_at": "2026-08-04",
+    "superseding_physical_receipt": "evidence/perf/prefix-kv-physical-metal-latest.json",
+    "correction": "Earlier text claimed llama.cpp lacks OpenAI-shaped cached_tokens. On llama.cpp Metal b9430 the engine reports cached_tokens + timings.cache_n. This dated routing receipt remains ROUTING/BELIEF only; physical KV is bound separately.",
+    "classification": "ROUTING_AFFINITY_ONLY \u2014 not physical KV saving"
   }
 }
