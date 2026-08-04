@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "matrix_version": "2026-08-02.12",
+  "matrix_version": "2026-08-04.1",
   "engines": [
     {
       "engine": "candle",
@@ -388,7 +388,7 @@
     },
     {
       "runtime_id": "vllm_cuda",
-      "revision": "r3",
+      "revision": "r4",
       "superseded_by": "",
       "engine": "vllm",
       "engine_revision": "",
@@ -434,6 +434,18 @@
           "runner": "batch_infer",
           "min_memory_gb": 4,
           "verification": "byte_exact",
+          "cloud_backed": true
+        },
+        {
+          "id": "vllm-cuda-minilm-embed",
+          "job": "embed",
+          "model": "all-minilm-l6-v2",
+          "runner": "embed",
+          "wire_kind": "hf",
+          "min_memory_gb": 2,
+          "verification": "cosine",
+          "lifecycle": "DRAFT",
+          "quality_tier": "UNPROVEN",
           "cloud_backed": true
         }
       ]

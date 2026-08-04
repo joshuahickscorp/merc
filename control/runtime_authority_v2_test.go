@@ -290,7 +290,7 @@ func TestRuntimeProfileContentDigestsArePinned(t *testing.T) {
 		"candle_metal":      "b9f27c5095194d97ed6a48fca5bf6f3dce56de9ab912ad6177d400c43e1718c3",
 		"mlx_metal":         "caa99a2d13e1a742d757500c22aa073c3a3514f4f6e034aea7ec8d8c9b755086",
 		"llama_cpp_metal":   "4f3da7514fca79fe5a1f25a57a5333df3eb0a091ff9179da70eeb0a3ab223efe",
-		"vllm_cuda":         "9f4a241f9c3a0bb017303cf50b036aaf31ace5934e9d6562051c887e1d42f5e3",
+		"vllm_cuda":         "05347fc781c456bb7ea697a66f7bc32431f5b256c87b488860aa3969bd44634d",
 		"sglang_cuda":       "e6762ad45654e3756b98b75b89779e23009914590a8f8ce15a11c674665a08f8",
 		"tensorrt_llm_cuda": "3f5b97cf14da1671983f8f265f7619ee54c56b6c9efdb0d1e491ace8efac3e17",
 		"lmdeploy_cuda":     "d31ba7d54d55691f3e43073d9e5df00a11c91a34607b1966b89f5c73fab65650",
