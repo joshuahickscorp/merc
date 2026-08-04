@@ -72,7 +72,7 @@ an image that was never built.
 **Hash domain separators.** Renaming any of these silently changes every value
 derived from it, with nothing failing:
 
-- `control/evidence.go` — `computexchange-source-fingerprint-v1`
+- `control/evidence.go` — `computexchange-source-fingerprint-v2` (v1 retained as historical domain; see evidence/state/fingerprint-supersession.json)
 - `control/store.go` — `computeexchange-control-schema-v1` (schema migration advisory lock)
 - `control/worker_leader.go` — `computeexchange-background-workers-v1` (leader election)
 - `control/schema.sql` — the matching `hashtextextended(...)` call

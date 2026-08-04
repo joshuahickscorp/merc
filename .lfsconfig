@@ -1,6 +1,12 @@
 [lfs]
 	# Tier-1 (pointers, non-LFS source) is always in a plain clone.
-	# Tier-2 sample bodies under evidence/perf are opt-in:
+	# Tier-2 sample bodies under evidence/perf are excluded from the default
+	# fetch to keep ordinary clones light:
 	#   git lfs pull --include="evidence/perf/**"
-	# CI sets lfs: true on actions/checkout so gates see full content.
+	# IMPORTANT: actions/checkout lfs:true runs a plain `git lfs pull`, which
+	# honours fetchexclude. Gates that read evidence/perf must therefore run
+	# an explicit hydrate after checkout:
+	#   git lfs pull --exclude="" --include="evidence/perf/**"
+	# (--include alone does NOT override fetchexclude; only --exclude="" does.)
+	# See scripts/hydrate-release-lfs.sh (fail-closed on unresolved pointers).
 	fetchexclude = evidence/perf/**
