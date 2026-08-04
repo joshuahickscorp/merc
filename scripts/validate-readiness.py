@@ -95,7 +95,7 @@ def auth_matrix_complete(doc: Any) -> bool:
     # that adding a route forces someone to look at the matrix. It had gone stale
     # at 118 while those two routes were already serving buyer traffic, which
     # silently cost this domain 11 readiness points and made `make ci` red.
-    return routes == 121 and doc.get("policy", {}).get("default") == "deny"
+    return routes == 123 and doc.get("policy", {}).get("default") == "deny"
 
 
 def technical_break_glass(doc: Any) -> bool:
