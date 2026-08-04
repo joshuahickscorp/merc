@@ -105,9 +105,8 @@ mod tests {
             if let Ok((mut stream, _)) = proxy_listener.accept() {
                 let mut buf = [0u8; 512];
                 let _ = stream.read(&mut buf);
-                let _ = stream.write_all(
-                    b"HTTP/1.1 405 Method Not Allowed\r\nConnection: close\r\n\r\n",
-                );
+                let _ = stream
+                    .write_all(b"HTTP/1.1 405 Method Not Allowed\r\nConnection: close\r\n\r\n");
             }
         });
 
@@ -142,10 +141,7 @@ mod tests {
             std::env::remove_var("no_proxy");
         }
 
-        let client = client_builder()
-            .expect("builder")
-            .build()
-            .expect("client");
+        let client = client_builder().expect("builder").build().expect("client");
         let url = format!("http://127.0.0.1:{origin_port}/v1/worker/register");
         let resp = client
             .post(&url)
