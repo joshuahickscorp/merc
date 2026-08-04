@@ -93,7 +93,7 @@ MUTATIONS=(
 "realtime_reuse_pricing_decision.go|realtime reuse accepts a divergent embedded profile|s#!reflect.DeepEqual(governed, in.Profile)#reflect.DeepEqual(governed, in.Profile)#"
 "realtime_reuse_pricing_decision.go|realtime reuse accepts a currency mismatch|s#if err := RequireSettlementCurrency(in.Currency.Code()); err != nil {#if err := RequireSettlementCurrency(in.Currency.Code()); err != nil \&\& false {#"
 "realtime_reuse_pricing_decision.go|realtime reuse ignores the buyer ceiling|s#charge.Nanos > a.BuyerDeclaredCeilingNanos#false#"
-"realtime_store.go|physical contract persistence drops PricingDecision authority|s#pricing.Realtime.BuyerDeclaredCeilingNanos, pricingJSON, pricingSHA256)#pricing.Realtime.BuyerDeclaredCeilingNanos, pricingJSON[:0], pricingSHA256)#"
+"realtime_store.go|physical contract persistence drops PricingDecision authority|s#pricing.Realtime.BuyerDeclaredCeilingNanos, pricingJSON, pricingSHA256, marketJSON)#pricing.Realtime.BuyerDeclaredCeilingNanos, pricingJSON[:0], pricingSHA256, marketJSON)#"
 "realtime_store.go|reuse contract persistence drops PricingDecision authority|s#money.DeliveredTokens, pricingJSON, pricingSHA256)#money.DeliveredTokens, pricingJSON[:0], pricingSHA256)#"
 "realtime_store.go|persisted realtime PricingDecision digest mismatch is ignored|s#digest != contract.PricingDecisionSHA256#digest != digest#"
 "realtime_store.go|legacy supplier projection may diverge from PricingDecision|s#SupplierInputRate:[[:space:]]*contract.SupplierInputUSDPerMillionTokens,#SupplierInputRate: float64(pricing.Realtime.SupplierInputNanosPerMillion) / float64(NanosPerMajorUnit),#"
@@ -103,8 +103,8 @@ MUTATIONS=(
 "realtime_store.go|reuse idempotency replay is bypassed|/func (s \*Store) SettleRealtimeExactReuse/,/Same fund gate/ s#if auth.IdempotencyKey != \"\" {#if false {#"
 "realtime_store.go|verified usage may exceed frozen PricingDecision bounds|s#if evidence.PromptTokens > contract.MaximumPromptTokens ||#if false \&\&#"
 "realtime_store.go|settlement substitutes buyer authority for supplier floor|s#authority.SupplierInputNanosPerMillion),#authority.BuyerInputNanosPerMillion),#"
-"supplier_accrual.go|accrual adds instead of carrying the remainder|s|carryOut = effective % microUSDPerCent|carryOut = 0|"
-"supplier_accrual.go|accrual rounds up instead of flooring cents|s|cashCents = effective / microUSDPerCent|cashCents = (effective + microUSDPerCent - 1) / microUSDPerCent|"
+"supplier_accrual.go|accrual adds instead of carrying the remainder|s|carryOut = effective % factor|carryOut = 0|"
+"supplier_accrual.go|accrual rounds up instead of flooring cents|s|cashCents = effective / factor|cashCents = (effective + factor - 1) / factor|"
 "supplier_accrual.go|supplier accrual lock removed|s| FOR UPDATE||"
 "billing_classes.go|reused input counted as physical work|s|ClassPrefixReusedInput: false|ClassPrefixReusedInput: true|"
 "billing_classes.go|reused tokens billed at the full rate|s|retained := 1.0 - reuseDiscountShare|retained := 1.0|"
@@ -153,6 +153,14 @@ MUTATIONS=(
 caught=0
 survived=0
 declare -a SURVIVORS=()
+# A pattern that no longer matches its source tests nothing, and used to say so
+# in a lower-case "skip" nobody read. Three had rotted that way — two through a
+# currency-generalising rename (microUSDPerCent -> factor) and one through an
+# added INSERT column — while the run still reported "0 survived". Silent
+# coverage loss and a survivor are the same defect; only one of them announced
+# itself. Stale patterns now fail the run.
+stale=0
+declare -a STALE=()
 
 printf '%-58s %s\n' "mutation" "result"
 printf '%-58s %s\n' "--------" "------"
@@ -167,7 +175,11 @@ for entry in "${MUTATIONS[@]}"; do
   fi
 
   src="$CONTROL/$file"
-  [ -f "$src" ] || { printf '%-58s %s\n' "$desc" "SKIP (missing $file)"; continue; }
+  [ -f "$src" ] || {
+    printf '%-58s %s\n' "$desc" "STALE (missing $file)"
+    stale=$((stale+1)); STALE+=("$desc — control/$file no longer exists")
+    continue
+  }
 
   cp "$src" "$BACKUP/${file//\//__}.bak"
   sed -i '' "$expr" "$src" 2>/dev/null || sed -i "$expr" "$src" 2>/dev/null
@@ -185,17 +197,24 @@ for entry in "${MUTATIONS[@]}"; do
       caught=$((caught+1))
     fi
   else
-    printf '%-58s %s\n' "$desc" "skip (pattern did not apply)"
+    printf '%-58s %s\n' "$desc" "STALE (pattern did not apply)"
+    stale=$((stale+1)); STALE+=("$desc — sed pattern no longer matches control/$file")
   fi
 
   cp "$BACKUP/${file//\//__}.bak" "$src"
 done
 
 echo
-echo "mutation-test: $caught caught, $survived survived"
+echo "mutation-test: $caught caught, $survived survived, $stale stale"
+status=0
 if [ "$survived" -gt 0 ]; then
   echo "surviving mutations are gaps in the suite:"
   for s in "${SURVIVORS[@]}"; do echo "  - $s"; done
-  exit 1
+  status=1
 fi
-exit 0
+if [ "$stale" -gt 0 ]; then
+  echo "stale mutations tested nothing and must be repointed at the current source:"
+  for s in "${STALE[@]}"; do echo "  - $s"; done
+  status=1
+fi
+exit "$status"
