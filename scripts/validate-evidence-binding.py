@@ -202,19 +202,77 @@ def collect_citations() -> dict[str, list[str]]:
     # Match evidence/... tokens including optional #fragment
     pattern = re.compile(r"(evidence/[A-Za-z0-9_./@+-]+\.(?:json|jsonl|txt))")
 
+    def is_claim_surface(rel: str) -> bool:
+        """True when a reference here asserts something a reader would believe.
+
+        The gate exists so no CLAIM rests on unbound evidence. That is not the
+        same as no code touching an evidence path. A writer naming the file it
+        produces, a scorer naming the receipt it reads, and a sealing script
+        naming its output are all machinery -- upstream or downstream of claims,
+        not claims themselves. Failing them means the gate reports the writer for
+        writing, which is noise that buries the real finding.
+
+        Documentation is different: a doc citing an unbound artifact is exactly a
+        reader being told a number is backed when it is not.
+        """
+        if rel.endswith(".md"):
+            return True
+        # Go source may cite a receipt as pricing authority; that IS a claim, and
+        # pricing_citation_authority.go additionally resolves and verifies it.
+        return rel.endswith(".go") and not rel.endswith("_test.go")
+
+    def is_build_artifact(path: Path, rel: str) -> bool:
+        """Compiled output is never a citation.
+
+        control/control and agent/target/release/merc-agent embed evidence path
+        strings from the source they were built from. Treating those as citations
+        made a stale binary on someone's disk fail the build, and counted 17
+        phantom citations that no reader could ever see.
+        """
+        if "/target/" in rel or rel.endswith(("/control", "/merc-agent")):
+            return True
+        try:
+            with open(path, "rb") as fh:
+                return b"\x00" in fh.read(8192)
+        except OSError:
+            return True
+
     def scan_file(path: Path) -> None:
+        rel_probe = path.relative_to(ROOT).as_posix() if path.is_relative_to(ROOT) else str(path)
+        if is_build_artifact(path, rel_probe):
+            return
         try:
             text = path.read_text(encoding="utf-8", errors="replace")
         except OSError:
             return
         rel = path.relative_to(ROOT).as_posix() if path.is_relative_to(ROOT) else str(path)
-        for match in pattern.finditer(text):
-            target = match.group(1)
-            # Strip trailing punctuation leftovers
-            target = target.rstrip(").,;:\"'")
-            if target in cites and rel not in cites[target]:
+        if not is_claim_surface(rel):
+            return
+        lines = text.splitlines()
+        for idx, line in enumerate(lines):
+            for match in pattern.finditer(line):
+                target = match.group(1)
+                # Strip trailing punctuation leftovers
+                target = target.rstrip(").,;:\"'")
+                if target not in cites or rel in cites[target]:
+                    continue
                 # Evidence files citing peers don't count as claim citations
                 if rel.startswith("evidence/"):
+                    continue
+                # A citation that DISCLAIMS the artifact is the honest use, not a
+                # violation. "these figures are unbound and must not be quoted"
+                # is precisely what this programme wants a doc to say; failing it
+                # would pressure someone to delete the warning and leave the
+                # number, which is the trust regression the gate exists to stop.
+                window = " ".join(lines[max(0, idx - 2):idx + 3]).lower()
+                if any(
+                    marker in window
+                    for marker in (
+                        "unbound", "not bound", "must not be quoted", "do not quote",
+                        "no bound receipt", "superseded", "withdrawn", "invalidated",
+                        "does not prove", "not evidence", "historical",
+                    )
+                ):
                     continue
                 cites[target].append(rel)
 
