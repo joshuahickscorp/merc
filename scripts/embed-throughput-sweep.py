@@ -125,6 +125,63 @@ def scrape_metrics(base: str, key: str) -> dict:
     return {"available": True, "series": keep}
 
 
+def derive_engine_side(before: dict, after: dict, texts_per_request: int) -> dict:
+    """Engine-published timings, which is the only network-free number here.
+
+    A client on a laptop cannot measure a remote engine's throughput: with a new
+    TCP+TLS connection per request over a ~100ms link, what the client observes
+    is its own connection handling. The engine's own histograms are not subject
+    to that, and the gap between the two is the size of the confound -- which is
+    worth publishing, because it is what stops someone reading client throughput
+    as a hardware verdict.
+
+    Returns available=False rather than guessing when the engine publishes no
+    such series (llama.cpp exposes far less than vLLM here).
+    """
+    if not (before.get("available") and after.get("available")):
+        return {"available": False, "why": "engine published no /metrics"}
+    a, b = after.get("series") or {}, before.get("series") or {}
+
+    def delta(substr: str):
+        av = next((v for k, v in a.items() if substr in k), None)
+        bv = next((v for k, v in b.items() if substr in k), 0.0)
+        return None if av is None else av - (bv or 0.0)
+
+    n = delta("request_inference_time_seconds_count")
+    infer = delta("request_inference_time_seconds_sum")
+    queue = delta("request_queue_time_seconds_sum")
+    e2e = delta("e2e_request_latency_seconds_sum")
+    if not n or infer is None:
+        return {"available": False, "why": "no request_inference_time series"}
+
+    per_req_infer_ms = infer / n * 1000.0
+    out = {
+        "available": True,
+        "requests": n,
+        "inference_ms_per_request": per_req_infer_ms,
+        "inference_ms_per_unit": per_req_infer_ms / texts_per_request,
+        "queue_ms_per_request": (queue / n * 1000.0) if queue is not None else None,
+        "e2e_ms_per_request": (e2e / n * 1000.0) if e2e is not None else None,
+        "boundary": "engine-published; excludes the client link entirely",
+    }
+    if e2e is not None:
+        out["non_inference_ms_per_request"] = e2e / n * 1000.0 - per_req_infer_ms
+    # Queue time is how the engine says whether it was ever the bottleneck. Near
+    # zero means the load generator never saturated it, so no throughput ceiling
+    # for this hardware was established and none may be claimed.
+    if out["queue_ms_per_request"] is not None:
+        out["saturated"] = out["queue_ms_per_request"] > per_req_infer_ms
+        out["saturation_note"] = (
+            "queue time exceeds inference time: the engine was the bottleneck and "
+            "the throughput figures describe it"
+            if out["saturated"] else
+            "queue time is far below inference time: the engine was NEVER saturated, "
+            "so the client-observed throughput is a property of the load generator "
+            "and the link, and NO throughput ceiling for this hardware was established"
+        )
+    return out
+
+
 def run_level(base: str, key: str, model: str, corpus: list[str],
               concurrency: int, rounds: int) -> dict:
     """Fire `concurrency` requests at a time, `rounds` times. Wall clock over the
@@ -251,6 +308,7 @@ def main() -> int:
         "engine_metrics": {"before": before, "after": after,
                            "note": "server-published counters where the engine exposes them; "
                                    "absent metrics are recorded absent rather than inferred"},
+        "engine_side": derive_engine_side(before, after, len(corpus)),
         "reading_this": [
             "units_per_sec is the comparable quantity across hardware classes: it is "
             "computed from wall clock over the whole level, so overlapped requests are "
