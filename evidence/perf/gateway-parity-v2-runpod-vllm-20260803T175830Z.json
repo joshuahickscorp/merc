@@ -122364,5 +122364,13 @@
     "validateVLLMRuntimeProfile was not relaxed; Metal run is scoped via evidence_class, not profile rewrite",
     "primary_metric=ttft_overhead_p95_ms; throughput is secondary and never dual-refuses a primary TTFT FAIL",
     "interleaved schedule uses alternating batches at concurrency c (engine peak ≤ c); per-arm wall clocks for throughput"
+  ],
+  "binding_status": "UNBOUND",
+  "missing_identity_fields": [
+    "build_digest",
+    "model_artifact_digest",
+    "image_digest",
+    "corpus_digest",
+    "exact_config"
   ]
 }

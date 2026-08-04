@@ -9,7 +9,7 @@
         "p50": 0.000125,
         "p95": 0.000208,
         "p99": 0.004208,
-        "min": 0.000083,
+        "min": 8.3e-05,
         "max": 0.004208,
         "mean": 0.00016767500000000008,
         "n": 80
@@ -83,7 +83,7 @@
       ],
       "cause_hint": "pool_ok: pool_p95=0.000ms empty_count=0 | lookup_cold_ok: p95=0.119ms",
       "pg_wait_events_during_auth": {
-        "\u003cnone\u003e:\u003cnone\u003e": 23,
+        "<none>:<none>": 23,
         "IO:DataFileExtend": 1,
         "IO:WalWrite": 2
       }
@@ -96,7 +96,7 @@
         "p50": 0.000167,
         "p95": 0.042,
         "p99": 6.186792,
-        "min": 0.000083,
+        "min": 8.3e-05,
         "max": 6.186792,
         "mean": 0.24021260000000005,
         "n": 80
@@ -168,9 +168,9 @@
       "slow_sample_notes": [
         "same_buyer max=56.072ms p95=36.069ms p50=14.538ms ratio_p95/p50=2.48"
       ],
-      "cause_hint": "POOL_ACQUIRE_WAIT: empty_acquire_count_delta=4 empty_wait_ms_delta=19.134 pool_p95=0.042ms (c=8 max_conns=20) | OFFER_ROW_LOCK: multi_buyer_1offer p95=24.683 p50=2.741 (same-buyer funding excluded) | MULTI_OFFER_HELPS: N-offer p95=3.112 \u003c\u003c 1-offer p95=24.683 (unexpected under current rank-1 SQL) | BUYER_FUNDING_LOCK: same_buyer p95=36.069 \u003e multi_buyer_1offer p95=24.683 | lookup_cold_ok: p95=0.202ms",
+      "cause_hint": "POOL_ACQUIRE_WAIT: empty_acquire_count_delta=4 empty_wait_ms_delta=19.134 pool_p95=0.042ms (c=8 max_conns=20) | OFFER_ROW_LOCK: multi_buyer_1offer p95=24.683 p50=2.741 (same-buyer funding excluded) | MULTI_OFFER_HELPS: N-offer p95=3.112 << 1-offer p95=24.683 (unexpected under current rank-1 SQL) | BUYER_FUNDING_LOCK: same_buyer p95=36.069 > multi_buyer_1offer p95=24.683 | lookup_cold_ok: p95=0.202ms",
       "pg_wait_events_during_auth": {
-        "\u003cnone\u003e:\u003cnone\u003e": 72,
+        "<none>:<none>": 72,
         "IO:WalWrite": 5,
         "Lock:advisory": 560
       }
@@ -255,9 +255,9 @@
       "slow_sample_notes": [
         "same_buyer max=120.133ms p95=119.239ms p50=56.493ms ratio_p95/p50=2.11"
       ],
-      "cause_hint": "pool_ok: pool_p95=0.017ms empty_count=0 | MULTI_OFFER_HELPS: N-offer p95=7.210 \u003c\u003c 1-offer p95=55.881 (unexpected under current rank-1 SQL) | BUYER_FUNDING_LOCK: same_buyer p95=119.239 \u003e multi_buyer_1offer p95=55.881 | lookup_cold_ok: p95=0.185ms",
+      "cause_hint": "pool_ok: pool_p95=0.017ms empty_count=0 | MULTI_OFFER_HELPS: N-offer p95=7.210 << 1-offer p95=55.881 (unexpected under current rank-1 SQL) | BUYER_FUNDING_LOCK: same_buyer p95=119.239 > multi_buyer_1offer p95=55.881 | lookup_cold_ok: p95=0.185ms",
       "pg_wait_events_during_auth": {
-        "\u003cnone\u003e:\u003cnone\u003e": 14,
+        "<none>:<none>": 14,
         "Client:ClientRead": 1,
         "IO:WalWrite": 2,
         "Lock:advisory": 225,
@@ -272,7 +272,7 @@
         "p50": 0.000125,
         "p95": 0.000208,
         "p99": 0.004542,
-        "min": 0.000083,
+        "min": 8.3e-05,
         "max": 0.004542,
         "mean": 0.0001714000000000001,
         "n": 80
@@ -346,7 +346,7 @@
       ],
       "cause_hint": "pool_ok: pool_p95=0.000ms empty_count=0 | lookup_cold_ok: p95=0.116ms",
       "pg_wait_events_during_auth": {
-        "\u003cnone\u003e:\u003cnone\u003e": 23,
+        "<none>:<none>": 23,
         "Client:ClientRead": 4,
         "IO:WalWrite": 4,
         "LWLock:LockManager": 1
@@ -360,7 +360,7 @@
         "p50": 0.000167,
         "p95": 4.376834,
         "p99": 9.211292,
-        "min": 0.000083,
+        "min": 8.3e-05,
         "max": 9.211292,
         "mean": 0.4760411624999996,
         "n": 80
@@ -432,9 +432,9 @@
       "slow_sample_notes": [
         "same_buyer max=45.052ms p95=37.025ms p50=13.137ms ratio_p95/p50=2.82"
       ],
-      "cause_hint": "POOL_ACQUIRE_WAIT: empty_acquire_count_delta=6 empty_wait_ms_delta=38.058 pool_p95=4.377ms (c=8 max_conns=64) | OFFER_ROW_LOCK: multi_buyer_1offer p95=16.607 p50=3.371 (same-buyer funding excluded) | MULTI_OFFER_HELPS: N-offer p95=3.124 \u003c\u003c 1-offer p95=16.607 (unexpected under current rank-1 SQL) | BUYER_FUNDING_LOCK: same_buyer p95=37.025 \u003e multi_buyer_1offer p95=16.607 | lookup_cold_ok: p95=0.245ms",
+      "cause_hint": "POOL_ACQUIRE_WAIT: empty_acquire_count_delta=6 empty_wait_ms_delta=38.058 pool_p95=4.377ms (c=8 max_conns=64) | OFFER_ROW_LOCK: multi_buyer_1offer p95=16.607 p50=3.371 (same-buyer funding excluded) | MULTI_OFFER_HELPS: N-offer p95=3.124 << 1-offer p95=16.607 (unexpected under current rank-1 SQL) | BUYER_FUNDING_LOCK: same_buyer p95=37.025 > multi_buyer_1offer p95=16.607 | lookup_cold_ok: p95=0.245ms",
       "pg_wait_events_during_auth": {
-        "\u003cnone\u003e:\u003cnone\u003e": 56,
+        "<none>:<none>": 56,
         "Client:ClientRead": 1,
         "IO:WalWrite": 4,
         "Lock:advisory": 487
@@ -448,7 +448,7 @@
         "p50": 0.000708,
         "p95": 0.015958,
         "p99": 0.048834,
-        "min": 0.000083,
+        "min": 8.3e-05,
         "max": 0.048834,
         "mean": 0.0026499875,
         "n": 80
@@ -520,9 +520,9 @@
       "slow_sample_notes": [
         "same_buyer max=228.459ms p95=197.040ms p50=109.384ms ratio_p95/p50=1.80"
       ],
-      "cause_hint": "pool_ok: pool_p95=0.016ms empty_count=0 | OFFER_ROW_LOCK: multi_buyer_1offer p95=75.556 p50=22.088 (same-buyer funding excluded) | MULTI_OFFER_HELPS: N-offer p95=9.988 \u003c\u003c 1-offer p95=75.556 (unexpected under current rank-1 SQL) | BUYER_FUNDING_LOCK: same_buyer p95=197.040 \u003e multi_buyer_1offer p95=75.556 | lookup_cold_ok: p95=0.396ms",
+      "cause_hint": "pool_ok: pool_p95=0.016ms empty_count=0 | OFFER_ROW_LOCK: multi_buyer_1offer p95=75.556 p50=22.088 (same-buyer funding excluded) | MULTI_OFFER_HELPS: N-offer p95=9.988 << 1-offer p95=75.556 (unexpected under current rank-1 SQL) | BUYER_FUNDING_LOCK: same_buyer p95=197.040 > multi_buyer_1offer p95=75.556 | lookup_cold_ok: p95=0.396ms",
       "pg_wait_events_during_auth": {
-        "\u003cnone\u003e:\u003cnone\u003e": 144,
+        "<none>:<none>": 144,
         "Client:ClientRead": 4,
         "Lock:advisory": 3922
       }
@@ -554,7 +554,7 @@
       "load_n": 28,
       "num_cpu": 28,
       "quiet": true,
-      "quiet_reason": "1-min load 10.34 \u003c half of 28 CPUs"
+      "quiet_reason": "1-min load 10.34 < half of 28 CPUs"
     },
     "max_conns_levels": [
       20,
@@ -595,16 +595,16 @@
   "schema_version": 1,
   "synthesis": {
     "buyer_funding_lock_cells": 4,
-    "how_to_read": "If pool_acquire_ms.p95 rises when max_conns=20 and c=32 but not at max_conns=64, the tail is connection-pool starvation. If authorize_multi_buyer_1offer_ms tails with pool_ok, the tail is offer-row lock. If authorize_multi_buyer_Noffer_ms ≈ 1offer, the SQL always piles onto selected_rank=1 (FOR UPDATE without SKIP LOCKED across candidates). If same_buyer \u003e\u003e multi_buyer_1offer, buyer funding advisory lock dominates.",
+    "how_to_read": "If pool_acquire_ms.p95 rises when max_conns=20 and c=32 but not at max_conns=64, the tail is connection-pool starvation. If authorize_multi_buyer_1offer_ms tails with pool_ok, the tail is offer-row lock. If authorize_multi_buyer_Noffer_ms ≈ 1offer, the SQL always piles onto selected_rank=1 (FOR UPDATE without SKIP LOCKED across candidates). If same_buyer >> multi_buyer_1offer, buyer funding advisory lock dominates.",
     "lookup_cold_tail_cells": 0,
     "offer_row_lock_cells": 3,
     "per_cell_cause_hints": [
       "max_conns=20 c=1: pool_ok: pool_p95=0.000ms empty_count=0 | lookup_cold_ok: p95=0.119ms",
-      "max_conns=20 c=8: POOL_ACQUIRE_WAIT: empty_acquire_count_delta=4 empty_wait_ms_delta=19.134 pool_p95=0.042ms (c=8 max_conns=20) | OFFER_ROW_LOCK: multi_buyer_1offer p95=24.683 p50=2.741 (same-buyer funding excluded) | MULTI_OFFER_HELPS: N-offer p95=3.112 \u003c\u003c 1-offer p95=24.683 (unexpected under current rank-1 SQL) | BUYER_FUNDING_LOCK: same_buyer p95=36.069 \u003e multi_buyer_1offer p95=24.683 | lookup_cold_ok: p95=0.202ms",
-      "max_conns=20 c=32: pool_ok: pool_p95=0.017ms empty_count=0 | MULTI_OFFER_HELPS: N-offer p95=7.210 \u003c\u003c 1-offer p95=55.881 (unexpected under current rank-1 SQL) | BUYER_FUNDING_LOCK: same_buyer p95=119.239 \u003e multi_buyer_1offer p95=55.881 | lookup_cold_ok: p95=0.185ms",
+      "max_conns=20 c=8: POOL_ACQUIRE_WAIT: empty_acquire_count_delta=4 empty_wait_ms_delta=19.134 pool_p95=0.042ms (c=8 max_conns=20) | OFFER_ROW_LOCK: multi_buyer_1offer p95=24.683 p50=2.741 (same-buyer funding excluded) | MULTI_OFFER_HELPS: N-offer p95=3.112 << 1-offer p95=24.683 (unexpected under current rank-1 SQL) | BUYER_FUNDING_LOCK: same_buyer p95=36.069 > multi_buyer_1offer p95=24.683 | lookup_cold_ok: p95=0.202ms",
+      "max_conns=20 c=32: pool_ok: pool_p95=0.017ms empty_count=0 | MULTI_OFFER_HELPS: N-offer p95=7.210 << 1-offer p95=55.881 (unexpected under current rank-1 SQL) | BUYER_FUNDING_LOCK: same_buyer p95=119.239 > multi_buyer_1offer p95=55.881 | lookup_cold_ok: p95=0.185ms",
       "max_conns=64 c=1: pool_ok: pool_p95=0.000ms empty_count=0 | lookup_cold_ok: p95=0.116ms",
-      "max_conns=64 c=8: POOL_ACQUIRE_WAIT: empty_acquire_count_delta=6 empty_wait_ms_delta=38.058 pool_p95=4.377ms (c=8 max_conns=64) | OFFER_ROW_LOCK: multi_buyer_1offer p95=16.607 p50=3.371 (same-buyer funding excluded) | MULTI_OFFER_HELPS: N-offer p95=3.124 \u003c\u003c 1-offer p95=16.607 (unexpected under current rank-1 SQL) | BUYER_FUNDING_LOCK: same_buyer p95=37.025 \u003e multi_buyer_1offer p95=16.607 | lookup_cold_ok: p95=0.245ms",
-      "max_conns=64 c=32: pool_ok: pool_p95=0.016ms empty_count=0 | OFFER_ROW_LOCK: multi_buyer_1offer p95=75.556 p50=22.088 (same-buyer funding excluded) | MULTI_OFFER_HELPS: N-offer p95=9.988 \u003c\u003c 1-offer p95=75.556 (unexpected under current rank-1 SQL) | BUYER_FUNDING_LOCK: same_buyer p95=197.040 \u003e multi_buyer_1offer p95=75.556 | lookup_cold_ok: p95=0.396ms"
+      "max_conns=64 c=8: POOL_ACQUIRE_WAIT: empty_acquire_count_delta=6 empty_wait_ms_delta=38.058 pool_p95=4.377ms (c=8 max_conns=64) | OFFER_ROW_LOCK: multi_buyer_1offer p95=16.607 p50=3.371 (same-buyer funding excluded) | MULTI_OFFER_HELPS: N-offer p95=3.124 << 1-offer p95=16.607 (unexpected under current rank-1 SQL) | BUYER_FUNDING_LOCK: same_buyer p95=37.025 > multi_buyer_1offer p95=16.607 | lookup_cold_ok: p95=0.245ms",
+      "max_conns=64 c=32: pool_ok: pool_p95=0.016ms empty_count=0 | OFFER_ROW_LOCK: multi_buyer_1offer p95=75.556 p50=22.088 (same-buyer funding excluded) | MULTI_OFFER_HELPS: N-offer p95=9.988 << 1-offer p95=75.556 (unexpected under current rank-1 SQL) | BUYER_FUNDING_LOCK: same_buyer p95=197.040 > multi_buyer_1offer p95=75.556 | lookup_cold_ok: p95=0.396ms"
     ],
     "pool_starvation_cells": 2,
     "rank1_pile_on_cells": 0

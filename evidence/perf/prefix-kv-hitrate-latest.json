@@ -25,7 +25,7 @@
   ],
   "corpus": {
     "conservative_by_design": [
-      "families (12) \u003e workers (8)",
+      "families (12) > workers (8)",
       "only 6 tails per family before wrap",
       "25% unique/cold mixed into each wave",
       "shared depth capped near 512 surrogate tokens",

@@ -9770,7 +9770,7 @@
         "cached_tokens_max": 16,
         "cached_tokens_min": 16,
         "claimed_state": "prefix-hit",
-        "detail": "prefix-hit verified: prime OK; cached_tokens\u003e0 on 24/24 OK merc samples (fraction=1.000, min=16 max=16); signal present on 24",
+        "detail": "prefix-hit verified: prime OK; cached_tokens>0 on 24/24 OK merc samples (fraction=1.000, min=16 max=16); signal present on 24",
         "hit_fraction": 1,
         "prefix_prime_ok": true,
         "samples_ok": 24,
@@ -19545,7 +19545,7 @@
     "matrix cells=7 selection=self-test subset: exercise prompt/output/state dimensions + concurrency ladder; not a parity claim",
     "matrix mode: each cell is independently gated; a claim about one cell is not a claim about another",
     "state definitions: cold=No discarded warm-up is issued. A fresh GatewayParityClient (new TCP pool) is built for the cell so first-sample connection setup is included. Cold is a harness…",
-    "state definitions: warm=At least one discarded warm-up completion is issued on BOTH arms (same model, short max_tokens) and must finish with ttft_ms\u003e0 and a finish_reason before measur…",
+    "state definitions: warm=At least one discarded warm-up completion is issued on BOTH arms (same model, short max_tokens) and must finish with ttft_ms>0 and a finish_reason before measur…",
     "state definitions: prefix-hit=Arrangement: (1) a shared leading prefix of target prompt size containing [merc-parity-shared-prefix-v1]; (2) a prime request with that prefix on both arms; (3) measurement requests reuse the same lea…",
     "selection rationale: self-test subset: exercise prompt/output/state dimensions + concurrency ladder; not a parity claim",
     "traffic class (interactive|throughput|background) is a non-acting label on the parity path today; the harness does not vary it because nothing would change. When a class becomes an admission/scheduling input, re-add it as a refused-until-wired axis rather than a free label.",
@@ -19725,8 +19725,8 @@
   },
   "state_definitions": {
     "cold": "No discarded warm-up is issued. A fresh GatewayParityClient (new TCP pool) is built for the cell so first-sample connection setup is included. Cold is a harness path, not a claim that the remote engine's model weights were unloaded — engines rarely expose a force-evict API. The receipt records cold_no_warmup=true and cold_fresh_client=true; that is the definition, not an assumption about engine KV emptiness.",
-    "prefix_hit": "Arrangement: (1) a shared leading prefix of target prompt size containing [merc-parity-shared-prefix-v1]; (2) a prime request with that prefix on both arms; (3) measurement requests reuse the same leading prefix with a unique per-sample tail. Verification (hard): at least 80% of OK merc samples must report usage.prompt_tokens_details.cached_tokens \u003e 0. Missing signal is NOT treated as a hit — the cell is REFUSED with an explicit reason. llama.cpp/MLX/Candle typically lack the OpenAI cached_tokens field; those engines refuse prefix-hit cells rather than invent a hit.",
-    "warm": "At least one discarded warm-up completion is issued on BOTH arms (same model, short max_tokens) and must finish with ttft_ms\u003e0 and a finish_reason before measurement samples start. Warmth is verified by warmup_requests_ok\u003e=2 (one per arm) and warmup_verified=true. Conn_reused on later samples is reported but not required (a load balancer may still open a new socket)."
+    "prefix_hit": "Arrangement: (1) a shared leading prefix of target prompt size containing [merc-parity-shared-prefix-v1]; (2) a prime request with that prefix on both arms; (3) measurement requests reuse the same leading prefix with a unique per-sample tail. Verification (hard): at least 80% of OK merc samples must report usage.prompt_tokens_details.cached_tokens > 0. Missing signal is NOT treated as a hit — the cell is REFUSED with an explicit reason. llama.cpp/MLX/Candle typically lack the OpenAI cached_tokens field; those engines refuse prefix-hit cells rather than invent a hit.",
+    "warm": "At least one discarded warm-up completion is issued on BOTH arms (same model, short max_tokens) and must finish with ttft_ms>0 and a finish_reason before measurement samples start. Warmth is verified by warmup_requests_ok>=2 (one per arm) and warmup_verified=true. Conn_reused on later samples is reported but not required (a load balancer may still open a new socket)."
   },
   "traffic_class_note": "traffic class (interactive|throughput|background) is a non-acting label on the parity path today; the harness does not vary it because nothing would change. When a class becomes an admission/scheduling input, re-add it as a refused-until-wired axis rather than a free label."
 }

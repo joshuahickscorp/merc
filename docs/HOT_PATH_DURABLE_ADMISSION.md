@@ -1,7 +1,10 @@
 # Can admission be durable without being synchronous on the first token?
 
 Status: design conclusion with measured floors (2026-08-03).  
-Probe: `control/hot_path_free_admit_probe_test.go` → `evidence/perf/hot-path-free-admit-latest.json`.  
+Probe: `control/hot_path_free_admit_probe_test.go` → `evidence/perf/hot-path-free-admit-latest.json`.
+That receipt is **UNBOUND** — it carries no producer identity, so it records what a
+probe observed on one machine and cannot be reproduced from it. Treat the numbers
+below as a design investigation, not as evidence for a latency claim.  
 Does not change production admit behaviour.
 
 ## Plain answer

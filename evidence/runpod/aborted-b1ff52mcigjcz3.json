@@ -7,5 +7,16 @@
   "outcome": "process SIGKILL during readiness wait; pod not present on subsequent list; no spend receipt emitted by guard (trap may not have run under SIGKILL)",
   "balance_observation": "clientBalance fell from ~16.667 to ~16.646 (~$0.02); currentSpendPerHr=0; pods=[]",
   "teardown_status": "verified_absent_via_list_and_graphql",
-  "measured_at": "2026-08-03T18:05:59.473667+00:00"
+  "measured_at": "2026-08-03T18:05:59.473667+00:00",
+  "binding_status": "UNBOUND",
+  "missing_identity_fields": [
+    "source_commit",
+    "build_digest",
+    "model_artifact_digest",
+    "image_digest",
+    "harness_revision",
+    "corpus_digest",
+    "exact_config",
+    "raw_samples"
+  ]
 }
