@@ -1,0 +1,9 @@
+# git-lfs tracking (PLAN_300K L1). Bodies convert at L4/L5 — this commit
+# installs the substrate only; existing files stay as ordinary git blobs until
+# they are re-added under these rules.
+#
+# Nested perf receipts (selector/, runtime-benchmarks/) need **; a single-level
+# evidence/perf/*.json pattern would miss them.
+evidence/perf/**/*.json filter=lfs diff=lfs merge=lfs -text
+evidence/perf/*.json filter=lfs diff=lfs merge=lfs -text
+.tools/runpodctl filter=lfs diff=lfs merge=lfs -text
