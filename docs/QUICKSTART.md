@@ -136,7 +136,7 @@ curl -fsS -X DELETE "$MERC_URL/v1/jobs/$JOB_ID" \
 ```bash
 python3 -m venv .venv
 . .venv/bin/activate
-python -m pip install ./sdk/python
+python -m pip install ./clients/sdk/python
 ```
 
 The package is **not** published to PyPI (this repository has no LICENSE, so
