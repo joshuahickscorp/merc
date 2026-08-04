@@ -80,9 +80,14 @@ type GovernedComparisonCell struct {
 	Confidence            float64 `json:"confidence"`
 
 	// Merc true net is structurally unavailable; the projection records why.
-	MercTrueNetUnavailable bool     `json:"merc_true_net_unavailable"`
-	MercTrueNetReason      string   `json:"merc_true_net_reason,omitempty"`
-	UnknownComponents      []string `json:"unknown_components"`
+	// MercGrossPlatformUSDUnit is the buyer-minus-supplier residual per unit and
+	// is a GROSS figure — it is what the platform keeps before every unknown cost
+	// category, and must never be read as, or renamed to, contribution or net.
+	MercTrueNetUnavailable   bool     `json:"merc_true_net_unavailable"`
+	MercTrueNetReason        string   `json:"merc_true_net_reason,omitempty"`
+	MercGrossPlatformUSDUnit float64  `json:"merc_gross_platform_usd_per_unit"`
+	MercGrossPlatformBasis   string   `json:"merc_gross_platform_basis"`
+	UnknownComponents        []string `json:"unknown_components"`
 
 	// Per-cell prediction error: predicted − actual. Positive means the
 	// prediction overstated the figure (predicted slower / more expensive than
@@ -146,6 +151,12 @@ type GovernedCellComparison struct {
 
 	Cells    map[string]GovernedComparisonCell `json:"cells"`
 	Decision GovernedShadowDecision            `json:"shadow_selector_decision"`
+
+	// CostTieAuthority names and quantifies why the cost side came out the way
+	// it did. A receipt that only says "the costs tie" cannot be argued with:
+	// it does not say which authority forced it, nor how close it came to
+	// breaking. See runtime_cost_tie_authority.go.
+	CostTie CostTieAuthority `json:"cost_tie_authority"`
 
 	// Aggregate prediction errors across the two cells (mean of |predicted−actual|
 	// is not used; each cell's signed regret is already on the cell row).
@@ -320,6 +331,11 @@ func BuildGovernedComparison(
 			MercTrueNetUnavailable: !p.MercTrueNet.IsAvailable(),
 			UnknownComponents:      append([]string(nil), p.UnknownComponents...),
 
+			MercGrossPlatformUSDUnit: mercGrossPlatformPerUnit(p),
+			MercGrossPlatformBasis: "buyer price per unit less supplier entitlement per unit; " +
+				"GROSS platform residual before storage, egress, utilization, refund risk and " +
+				"every other unknown category — never true net, never contribution",
+
 			LatencyRegretMsPerUnit: predictedMs - actualMs,
 			CostRegretUSDPerUnit:   predictedCost - actualCost,
 		}
@@ -483,6 +499,7 @@ func BuildGovernedComparison(
 		},
 		Cells:    cells,
 		Decision: decision,
+		CostTie:  ExplainCostTie(projections[candleEmbedCell], projections[llamaEmbedCell], catalogue),
 		LatencyComparison: map[string]any{
 			"candle_actual_ms_per_unit":          candleActualMs,
 			"llama_actual_ms_per_unit":           llamaActualMs,
@@ -527,6 +544,16 @@ func BuildGovernedComparison(
 		},
 	}
 	return out, nil
+}
+
+// mercGrossPlatformPerUnit is buyer price per unit less supplier entitlement per
+// unit. Gross, and named gross everywhere it appears: every unknown cost
+// category still sits between this number and anything anyone could call net.
+func mercGrossPlatformPerUnit(p CellEconomicsProjection) float64 {
+	if p.BuyerPricePer1KUnits <= 0 || p.SupplierUSDPerUnit <= 0 {
+		return 0
+	}
+	return p.BuyerPricePer1KUnits/1000.0 - p.SupplierUSDPerUnit
 }
 
 func candleActualBaseline(costs map[string]MeasuredCellCost) float64 {
