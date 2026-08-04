@@ -60,7 +60,7 @@ case "$MODE" in
       echo 'release-staging: mutable image or build directive found' >&2
       exit 1
     fi
-    for required in scripts/backup.sh scripts/go-closure-rollback-rehearsal.sh monitoring/alertmanager.yml; do
+    for required in scripts/backup.sh scripts/go-closure-rollback-rehearsal.sh ops/monitoring/alertmanager.yml; do
       [ -f "$ROOT/$required" ] || { echo "release-staging: missing $required" >&2; exit 1; }
     done
     jq -n '{schema_version:1,status:"PASS",supported_deployment_system:"Docker Compose v2",

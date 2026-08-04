@@ -15,7 +15,7 @@ cx_prod_compose() {
 cx_require_alert_receiver_secret() {
   local path="${MERC_ALERT_RECEIVER_URL_FILE:-}"
   if [ -z "$path" ]; then
-    echo "deploy: MERC_ALERT_RECEIVER_URL_FILE is required (absolute path to a file containing the HTTPS alert webhook URL). See monitoring/README.md." >&2
+    echo "deploy: MERC_ALERT_RECEIVER_URL_FILE is required (absolute path to a file containing the HTTPS alert webhook URL). See ops/monitoring/README.md." >&2
     return 1
   fi
   if [ ! -f "$path" ]; then

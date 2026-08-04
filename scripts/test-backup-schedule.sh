@@ -15,8 +15,8 @@ grep -q 'scripts/backup.sh' "$ROOT/ops/systemd/merc-backup.service" \
   || die "service unit does not invoke scripts/backup.sh"
 grep -q 'OnCalendar=' "$ROOT/ops/systemd/merc-backup.timer" \
   || die "timer unit missing OnCalendar="
-grep -Eq 'merc_backup_age_seconds|93600' "$ROOT/monitoring/alerts.yml" \
-  || die "stale-backup alert threshold missing from monitoring/alerts.yml"
+grep -Eq 'merc_backup_age_seconds|93600' "$ROOT/ops/monitoring/alerts.yml" \
+  || die "stale-backup alert threshold missing from ops/monitoring/alerts.yml"
 
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/merc-backup-schedule.XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT

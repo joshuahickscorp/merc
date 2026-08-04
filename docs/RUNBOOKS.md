@@ -210,7 +210,7 @@ all schema changes are additive and old binaries must be compatibility-tested.
 
 ## Alert mapping
 
-`monitoring/alerts.yml` maps each alert to these sections. Before release, load
+`ops/monitoring/alerts.yml` maps each alert to these sections. Before release, load
 the rules in the actual monitoring system, route `severity=page` to the on-call
 receiver, fire one synthetic alert, acknowledge it, and record the delivery and
 resolution timestamps. A checked-in rule that has never paged is not a proven
