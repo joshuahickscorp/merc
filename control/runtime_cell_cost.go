@@ -427,9 +427,18 @@ func (s *Server) handleAdminSelectorRegret(w http.ResponseWriter, r *http.Reques
 		writeErr(w, http.StatusInternalServerError, "selector regret unavailable")
 		return
 	}
+	// Per-cell economics projections for the same measured rows. Selector
+	// evidence only: not a PricingDecision and never freezes money. Ranking
+	// still uses verified-outcome cost (catalogue supplier × reliability);
+	// duration-sensitive partials are reported beside it.
+	projections := ProjectCellEconomicsMap(costs, CataloguePriceAuthority{
+		ModelID: scope.ModelRef, JobType: scope.JobType,
+	}, "batch")
 	writeJSON(w, http.StatusOK, map[string]any{
-		"regret":         regret,
-		"measured_costs": costs,
+		"regret":            regret,
+		"measured_costs":    costs,
+		"cell_economics":    projections,
+		"pricing_authority": "PricingDecision remains the sole frozen money authority; cell_economics is a re-derivable selector projection",
 	})
 }
 
