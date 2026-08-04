@@ -1,17 +1,3 @@
-{
-  "schema_version": 1,
-  "kind": "evidence_binding_sidecar",
-  "target": "evidence/perf/runtime-benchmarks/vllm-cuda-raw.txt",
-  "binding_status": "UNBOUND",
-  "missing_identity_fields": [
-    "source_commit",
-    "build_digest",
-    "model_artifact_digest",
-    "image_digest",
-    "harness_revision",
-    "corpus_digest",
-    "exact_config",
-    "raw_samples"
-  ],
-  "note": "sidecar for non-object evidence; content left untouched"
-}
+version https://git-lfs.github.com/spec/v1
+oid sha256:3e33a9c1f8da10cd5570b637a85405040ff38376a9a415c9346b835abf5a3458
+size 439
