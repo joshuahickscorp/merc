@@ -239,6 +239,27 @@ def lfs_local_object_path(repo_root: str | Path, oid: str) -> Path | None:
     return None
 
 
+def _git_indexed_lfs_oid(repo_root: str | Path, path: Path) -> str | None:
+    """The LFS oid git's index actually records for `path`, or None.
+
+    None covers both "not an LFS path" and "not in a git repo" -- callers
+    already treat a non-pointer working tree as authoritative in those cases,
+    so this only tightens the pointer-vs-pointer comparison, never widens it.
+    """
+    try:
+        rel = os.path.relpath(str(path), str(repo_root))
+        out = subprocess.run(
+            ["git", "-C", str(repo_root), "cat-file", "blob", f":{rel}"],
+            capture_output=True, text=True, timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if out.returncode != 0:
+        return None
+    parsed = parse_lfs_pointer(out.stdout)
+    return parsed[0] if parsed is not None else None
+
+
 def read_evidence_bytes(path: str | Path, repo_root: str | Path | None = None) -> bytes:
     """Read file bytes, resolving a git-lfs pointer to content when present.
 
@@ -261,6 +282,24 @@ def read_evidence_bytes(path: str | Path, repo_root: str | Path | None = None) -
     # Prefer validating from the pointer oid alone when content is not needed —
     # callers that only need the digest can use oid directly. Here we resolve.
     root = Path(repo_root) if repo_root is not None else p.resolve().parent
+
+    # The working-tree pointer's oid must match what git actually tracks for
+    # this path. Without this check a worktree-only edit -- copy another
+    # object's index pointer bytes over this path, no .git write required --
+    # silently changes which payload every reader after this one resolves,
+    # while control/evidence.go's v2 source fingerprint (composed from the
+    # INDEX oid+size, not the disk pointer) stays byte-identical. Reproduced:
+    # repointing a FAIL receipt at a PASS receipt's object left source_sha256
+    # unchanged and flipped every downstream verdict. Refuse the mismatch
+    # here, at the other reader named in that finding.
+    indexed_oid = _git_indexed_lfs_oid(root, p)
+    if indexed_oid is not None and indexed_oid.lower() != oid.lower():
+        raise EvidenceBindingError(
+            f"working-tree pointer for {p} names LFS oid {oid} but git's index "
+            f"names {indexed_oid}; refusing rather than resolving a payload "
+            f"the tree does not actually track at this path"
+        )
+
     obj = lfs_local_object_path(root, oid)
     if obj is not None:
         data = obj.read_bytes()

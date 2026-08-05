@@ -24,9 +24,7 @@ func embedSubmit() jobSubmit {
 // every job would carry a claim about routing authority that nobody made.
 func TestOrdinaryAdmissionRecordsNoDirectedCell(t *testing.T) {
 	decision, err := buildWorkloadDecision(embedSubmit(), strings.Repeat("a", 64))
-	if err != nil {
-		t.Fatalf("build decision: %v", err)
-	}
+	mustf(t, err, "build decision: %v")
 	if decision.DirectedCellID != "" {
 		t.Fatalf("ordinary admission recorded directed cell %q", decision.DirectedCellID)
 	}
@@ -44,9 +42,7 @@ func TestDirectedRoutingReachesEitherEmbedCell(t *testing.T) {
 	for _, cellID := range []string{candleEmbedCell, llamaEmbedCell} {
 		decision, err := buildWorkloadDecisionDirected(
 			embedSubmit(), strings.Repeat("b", 64), cellID)
-		if err != nil {
-			t.Fatalf("directed decision for %s: %v", cellID, err)
-		}
+		mustf(t, err, "directed decision for %s: %v", cellID)
 		if decision.DirectedCellID != cellID {
 			t.Errorf("decision recorded directed cell %q, want %q",
 				decision.DirectedCellID, cellID)
@@ -61,9 +57,7 @@ func TestDirectedRoutingReachesEitherEmbedCell(t *testing.T) {
 		// executions would not be comparable and the whole comparison would be
 		// measuring the admission path rather than the runtimes.
 		ordinary, err := buildWorkloadDecision(embedSubmit(), strings.Repeat("b", 64))
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		if decision.BindingSHA256 != ordinary.BindingSHA256 {
 			t.Errorf("%s changed the binding digest; the workloads are not comparable", cellID)
 		}
@@ -152,12 +146,8 @@ func TestDirectedSetIsASupersetThatDoesNotWidenTheCatalogue(t *testing.T) {
 func TestStoredDirectedDecisionValidatesAsItself(t *testing.T) {
 	decision, err := buildWorkloadDecisionDirected(
 		embedSubmit(), strings.Repeat("e", 64), llamaEmbedCell)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := ValidateWorkloadDecisionSnapshot(decision); err != nil {
-		t.Fatalf("a directed decision did not validate as itself: %v", err)
-	}
+	must(t, err)
+	mustf(t, ValidateWorkloadDecisionSnapshot(decision), "a directed decision did not validate as itself: %v")
 
 	// And the directed cell is covered by the tamper check: swapping it must be
 	// caught, or an attacker could redirect a frozen job to another runtime.

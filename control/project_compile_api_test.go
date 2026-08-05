@@ -20,16 +20,12 @@ func projectTarArchive(t *testing.T, files map[string]string) []byte {
 	var out bytes.Buffer
 	tw := tar.NewWriter(&out)
 	for name, content := range files {
-		if err := tw.WriteHeader(&tar.Header{Name: name, Mode: 0o600, Size: int64(len(content)), Typeflag: tar.TypeReg}); err != nil {
-			t.Fatal(err)
-		}
+		must(t, tw.WriteHeader(&tar.Header{Name: name, Mode: 0o600, Size: int64(len(content)), Typeflag: tar.TypeReg}))
 		if _, err := tw.Write([]byte(content)); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := tw.Close(); err != nil {
-		t.Fatal(err)
-	}
+	must(t, tw.Close())
 	return out.Bytes()
 }
 
@@ -50,9 +46,7 @@ func renderProjectTarArchive(t *testing.T) []byte {
 		files[path] = contents
 	}
 	declarationRaw, err := json.Marshal(declaration)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	files[projectDeclarationName] = string(declarationRaw)
 	return projectTarArchive(t, files)
 }
@@ -65,9 +59,7 @@ func TestProjectCompileProductionRouteBindsProposalAndProbe(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, buyerKey, _, err := store.CreateAPIKey(ctx, buyerID, "project-compile", true)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	handler := NewServer(store, nil, nil, nil).Routes()
 	archive := projectTarArchive(t, map[string]string{
 		"Dockerfile":        "FROM alpine:3.20\n",
@@ -108,9 +100,7 @@ func TestProjectCompileProductionRouteBindsProposalAndProbe(t *testing.T) {
 		t.Fatal("database allowed an immutable project compile receipt to mutate")
 	}
 	var proposal ProjectWorkloadIR
-	if err := json.Unmarshal(proposalRec.Body.Bytes(), &proposal); err != nil {
-		t.Fatal(err)
-	}
+	must(t, json.Unmarshal(proposalRec.Body.Bytes(), &proposal))
 	if proposal.Status != "PROPOSED_NOT_ADMISSIBLE" || proposal.IRSHA256 == "" || proposal.ProjectSHA256 == "" ||
 		len(proposal.Detections) == 0 || proposal.Probe.Executed || proposal.Economics.PricingDecisionSHA256 != "" ||
 		proposal.Estimate.State != "UNCALIBRATED_REFUSE" {
@@ -125,9 +115,7 @@ func TestProjectCompileProductionRouteBindsProposalAndProbe(t *testing.T) {
 		t.Fatalf("probe status=%d headers=%v body=%s", probeRec.Code, probeRec.Header(), probeRec.Body.String())
 	}
 	var probed ProjectWorkloadIR
-	if err := json.Unmarshal(probeRec.Body.Bytes(), &probed); err != nil {
-		t.Fatal(err)
-	}
+	must(t, json.Unmarshal(probeRec.Body.Bytes(), &probed))
 	if !probed.Probe.Executed || probed.Probe.ApprovedIRSHA256 != proposal.IRSHA256 ||
 		probed.ProjectSHA256 != proposal.ProjectSHA256 || probed.IRSHA256 == proposal.IRSHA256 {
 		t.Fatalf("probe did not bind the approved proposal and fresh probe digest: %+v proposal=%+v", probed.Probe, proposal)
@@ -147,12 +135,8 @@ func TestProjectCompileProductionRouteBindsProposalAndProbe(t *testing.T) {
 
 	var linkArchive bytes.Buffer
 	tw := tar.NewWriter(&linkArchive)
-	if err := tw.WriteHeader(&tar.Header{Name: "link.py", Typeflag: tar.TypeSymlink, Linkname: "outside.py"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := tw.Close(); err != nil {
-		t.Fatal(err)
-	}
+	must(t, tw.WriteHeader(&tar.Header{Name: "link.py", Typeflag: tar.TypeSymlink, Linkname: "outside.py"}))
+	must(t, tw.Close())
 	linkRec := post(linkArchive.Bytes(), nil)
 	if linkRec.Code != http.StatusBadRequest || !strings.Contains(linkRec.Body.String(), "not allowed") {
 		t.Fatalf("symlink archive status=%d body=%s", linkRec.Code, linkRec.Body.String())
@@ -167,9 +151,7 @@ func TestProjectCompileRenderUnitRouteExpandsDurableIROnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, buyerKey, _, err := store.CreateAPIKey(ctx, buyerID, "render-unit", true)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	handler := NewServer(store, nil, nil, nil).Routes()
 	post := httptest.NewRequest(http.MethodPost, "/v1/projects/compile", bytes.NewReader(renderProjectTarArchive(t)))
 	post.Header.Set("Authorization", "Bearer "+buyerKey)
@@ -180,9 +162,7 @@ func TestProjectCompileRenderUnitRouteExpandsDurableIROnly(t *testing.T) {
 		t.Fatalf("render compile status=%d body=%s", posted.Code, posted.Body.String())
 	}
 	receiptID, err := uuid.Parse(posted.Header().Get("X-Merc-Project-Compile-Receipt"))
-	if err != nil {
-		t.Fatalf("render compile omitted receipt id: %v", err)
-	}
+	mustf(t, err, "render compile omitted receipt id: %v")
 	get := httptest.NewRequest(http.MethodGet,
 		"/v1/projects/compile/"+receiptID.String()+"/render/render/units/0", nil)
 	get.Header.Set("Authorization", "Bearer "+buyerKey)
@@ -215,9 +195,7 @@ func TestProjectCompileRenderAssemblyRoutePersistsReplacementReceipt(t *testing.
 		t.Fatal(err)
 	}
 	_, buyerKey, _, err := store.CreateAPIKey(ctx, buyerID, "render-assembly", true)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	handler := NewServer(store, nil, nil, nil).Routes()
 	postCompile := func(headers map[string]string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(http.MethodPost, "/v1/projects/compile", bytes.NewReader(renderProjectTarArchive(t)))
@@ -235,9 +213,7 @@ func TestProjectCompileRenderAssemblyRoutePersistsReplacementReceipt(t *testing.
 		t.Fatalf("render proposal status=%d body=%s", proposal.Code, proposal.Body.String())
 	}
 	var proposalIR ProjectWorkloadIR
-	if err := json.Unmarshal(proposal.Body.Bytes(), &proposalIR); err != nil {
-		t.Fatal(err)
-	}
+	must(t, json.Unmarshal(proposal.Body.Bytes(), &proposalIR))
 	probe := postCompile(map[string]string{
 		"X-Merc-Bounded-Probe":      "true",
 		"X-Merc-Approved-IR-SHA256": proposalIR.IRSHA256,
@@ -246,13 +222,9 @@ func TestProjectCompileRenderAssemblyRoutePersistsReplacementReceipt(t *testing.
 		t.Fatalf("render probe status=%d body=%s", probe.Code, probe.Body.String())
 	}
 	var probed ProjectWorkloadIR
-	if err := json.Unmarshal(probe.Body.Bytes(), &probed); err != nil {
-		t.Fatal(err)
-	}
+	must(t, json.Unmarshal(probe.Body.Bytes(), &probed))
 	compileID, err := uuid.Parse(probe.Header().Get("X-Merc-Project-Compile-Receipt"))
-	if err != nil {
-		t.Fatalf("probe omitted compile receipt id: %v", err)
-	}
+	mustf(t, err, "probe omitted compile receipt id: %v")
 	var render *ProjectIRRendering
 	for i := range probed.Steps {
 		if probed.Steps[i].ID == "render" {
@@ -279,9 +251,7 @@ func TestProjectCompileRenderAssemblyRoutePersistsReplacementReceipt(t *testing.
 		})
 	}
 	manifest, err := json.Marshal(ProjectRenderAssemblyManifest{Units: units})
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	assemblyReq := httptest.NewRequest(http.MethodPost,
 		"/v1/projects/compile/"+compileID.String()+"/render/render/assembly", bytes.NewReader(manifest))
 	assemblyReq.Header.Set("Authorization", "Bearer "+buyerKey)
@@ -292,9 +262,7 @@ func TestProjectCompileRenderAssemblyRoutePersistsReplacementReceipt(t *testing.
 		t.Fatalf("assembly status=%d body=%s", assemblyRec.Code, assemblyRec.Body.String())
 	}
 	var receipt ProjectRenderAssemblyReceipt
-	if err := json.Unmarshal(assemblyRec.Body.Bytes(), &receipt); err != nil {
-		t.Fatal(err)
-	}
+	must(t, json.Unmarshal(assemblyRec.Body.Bytes(), &receipt))
 	if receipt.Version != renderAssemblyReceiptVersion || receipt.Status != "ASSEMBLY_MANIFEST_VERIFIED_NOT_EXECUTABLE" ||
 		receipt.CompileReceiptID != compileID.String() || receipt.UnitCount != 960 || receipt.SucceededUnits != 960 ||
 		receipt.FailedAttempts != 1 || receipt.ReplacedOrdinals != 1 || len(receipt.Units) != 961 ||
@@ -309,9 +277,7 @@ func TestProjectCompileRenderAssemblyRoutePersistsReplacementReceipt(t *testing.
 		t.Fatalf("assembly receipt read status=%d body=%s", getRec.Code, getRec.Body.String())
 	}
 	var replay ProjectRenderAssemblyReceipt
-	if err := json.Unmarshal(getRec.Body.Bytes(), &replay); err != nil {
-		t.Fatal(err)
-	}
+	must(t, json.Unmarshal(getRec.Body.Bytes(), &replay))
 	if replay.ManifestSHA256 != receipt.ManifestSHA256 || replay.FailedAttempts != 1 || replay.ReplacedOrdinals != 1 {
 		t.Fatalf("assembly receipt replay changed identity: got=%+v want=%+v", replay, receipt)
 	}
@@ -320,9 +286,7 @@ func TestProjectCompileRenderAssemblyRoutePersistsReplacementReceipt(t *testing.
 	}
 	missing := ProjectRenderAssemblyManifest{Units: units[2:]}
 	missingRaw, err := json.Marshal(missing)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	badReq := httptest.NewRequest(http.MethodPost,
 		"/v1/projects/compile/"+compileID.String()+"/render/render/assembly", bytes.NewReader(missingRaw))
 	badReq.Header.Set("Authorization", "Bearer "+buyerKey)

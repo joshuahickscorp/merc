@@ -68,13 +68,9 @@ func TestProductionRealtimeCoalescing128DeliveriesOnePhysicalSettlement(t *testi
 	suffix := uuid.NewString()
 	buyerID, err := store.CreateBuyerAccount(ctx,
 		"coalesced-"+suffix+"@example.test", "integration-password", 5)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	_, buyerKey, _, err := store.CreateAPIKey(ctx, buyerID, "128 coalescing integration", true)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	supplierID := uuid.New()
 	if _, err := pool.Exec(ctx, `INSERT INTO suppliers (id,email,status) VALUES ($1,$2,'active')`,
 		supplierID, "coalesced-supplier-"+suffix+"@example.test"); err != nil {
@@ -110,9 +106,7 @@ func TestProductionRealtimeCoalescing128DeliveriesOnePhysicalSettlement(t *testi
 			"total_tokens":      76,
 		},
 	})
-	if err != nil {
-		t.Fatalf("encode upstream completion: %v", err)
-	}
+	mustf(t, err, "encode upstream completion: %v")
 	upstreamToken := "coalesced-upstream-token"
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/chat/completions" {
@@ -214,9 +208,7 @@ func TestProductionRealtimeCoalescing128DeliveriesOnePhysicalSettlement(t *testi
 	followersDeadline := time.Now().Add(15 * time.Second)
 	for {
 		var count int64
-		if err := pool.QueryRow(ctx, `SELECT COALESCE(sum(followers),0) FROM inflight_executions`).Scan(&count); err != nil {
-			t.Fatalf("count inflight followers: %v", err)
-		}
+		mustf(t, pool.QueryRow(ctx, `SELECT COALESCE(sum(followers),0) FROM inflight_executions`).Scan(&count), "count inflight followers: %v")
 		if count == coalescedFollowers-1 {
 			break
 		}
@@ -242,9 +234,7 @@ func TestProductionRealtimeCoalescing128DeliveriesOnePhysicalSettlement(t *testi
 			t.Fatal("overlapping request took the exact-result cache path")
 		}
 		contractID, err := uuid.Parse(got.header.Get("X-Merc-Contract-ID"))
-		if err != nil {
-			t.Fatalf("missing delivery contract id: %v", err)
-		}
+		mustf(t, err, "missing delivery contract id: %v")
 		if contractIDs[contractID] {
 			t.Fatalf("two deliveries shared contract authority %s", contractID)
 		}
@@ -268,9 +258,7 @@ func TestProductionRealtimeCoalescing128DeliveriesOnePhysicalSettlement(t *testi
 	var followerReceiptAuthorities []RealtimeReceipt
 	for contractID := range contractIDs {
 		receipt, err := store.RealtimeReceipt(ctx, buyerID, contractID)
-		if err != nil {
-			t.Fatalf("read receipt %s: %v", contractID, err)
-		}
+		mustf(t, err, "read receipt %s: %v", contractID)
 		if receipt.ContractID != contractID.String() || receipt.State != "VERIFIED" ||
 			receipt.Verification != "PASSED" || receipt.PricingAuthorityStatus != "verified" ||
 			receipt.SettlementCurrency != "cad" || receipt.PricingDecision == nil {
@@ -382,9 +370,7 @@ func TestProductionRealtimeCoalescing128DeliveriesOnePhysicalSettlement(t *testi
 
 	// Metrics HTTP surface agrees with the process counters for this server.
 	metricsResp, err := http.Get(control.URL + "/metrics")
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	metricsBody, err := io.ReadAll(metricsResp.Body)
 	metricsResp.Body.Close()
 	if err != nil || metricsResp.StatusCode != http.StatusOK {
@@ -416,9 +402,7 @@ func TestProductionRealtimeCoalescing128DeliveriesOnePhysicalSettlement(t *testi
 	var physicalBuyerChargeNanos int64
 	for contractID := range contractIDs {
 		receipt, err := store.RealtimeReceipt(ctx, buyerID, contractID)
-		if err != nil {
-			t.Fatalf("receipt for artifact %s: %v", contractID, err)
-		}
+		mustf(t, err, "receipt for artifact %s: %v", contractID)
 		coalesced := receipt.PricingDecision != nil && receipt.PricingDecision.RealtimeReuse != nil
 		entry := deliveryReceipt{
 			ContractID:                 receipt.ContractID,
@@ -536,9 +520,7 @@ func TestProductionRealtimeCoalescing128DeliveriesOnePhysicalSettlement(t *testi
 		"control/coalesced_cluster_money_test.go#TestProductionRealtimeCoalescing128DeliveriesOnePhysicalSettlement",
 		"temperature=0 top_p=1 seed=42 max_tokens=64 stream=false concurrent 128 same body",
 		"embedded deliveries[] + counter_deltas + ledger micros")
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	outPath := filepath.Join("..", "evidence", "reuse", "public-path-coalescing-128-to-1.json")
 	if err := WriteBoundEvidenceJSON(EvidenceWriteRequest{
 		RepoRoot: "..", Path: outPath, Payload: out,
@@ -594,29 +576,17 @@ func TestOneExecutionWith128FollowersWritesNoSupplierCreditAndOneAuthorityEach(t
 	leaderResultSHA := "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
 	currency := MustParseCurrency("cad")
 	buyerInput, err := nanoRatePerMillionFromFloat(profile.BuyerInputUSDPerMillionTokens)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	buyerOutput, err := nanoRatePerMillionFromFloat(profile.BuyerOutputUSDPerMillionTokens)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	leaderExpected, err := BuyerRealtimeTokenChargeNanos(currency, promptTokens, deliveredTokens, buyerInput, buyerOutput)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	leaderMaximum, err := BuyerRealtimeTokenChargeNanos(currency, 100, deliveredTokens, buyerInput, buyerOutput)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	leaderExpectedMicros, err := LedgerMicrosFromNanos(leaderExpected)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	leaderMaximumMicros, err := LedgerMicrosFromNanos(leaderMaximum)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	leader, _, err := store.AuthorizeRealtimeContract(ctx, RealtimeContractAuthorization{
 		RequestID: "req-coalesced-leader-" + uuid.NewString(), BuyerID: buyerID, Profile: profile,
 		InputCommitment: strings.Repeat("c", 64), RequestSHA256: strings.Repeat("d", 64),
@@ -625,9 +595,7 @@ func TestOneExecutionWith128FollowersWritesNoSupplierCreditAndOneAuthorityEach(t
 		MaximumPromptTokens: 100, MaximumCompletionTokens: deliveredTokens,
 		EstimatedPromptTokens: promptTokens, EstimatedCompletionTokens: deliveredTokens,
 	})
-	if err != nil {
-		t.Fatalf("authorize physical leader: %v", err)
-	}
+	mustf(t, err, "authorize physical leader: %v")
 	leaderSettlement, err := store.FinalizeRealtimeSuccess(ctx, leader.ID, RealtimeExecutionEvidence{
 		ID: uuid.New(), HTTPStatus: http.StatusOK, StreamRootSHA256: strings.Repeat("a", 64),
 		OutputCommitment: leaderResultSHA, PromptTokens: promptTokens, CompletionTokens: deliveredTokens,
@@ -646,9 +614,7 @@ func TestOneExecutionWith128FollowersWritesNoSupplierCreditAndOneAuthorityEach(t
 	}, fullPer1K)
 
 	currency, err = SettlementCurrency()
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	money, err := SettleRealtimeReuseHitMoney(currency, deliveredTokens,
 		profile.BuyerInputUSDPerMillionTokens, profile.BuyerOutputUSDPerMillionTokens)
 	if err != nil || !money.Conserved() || !money.ConservedExact() || money.SupplierLiabilityMicros != 0 {
@@ -680,9 +646,7 @@ func TestOneExecutionWith128FollowersWritesNoSupplierCreditAndOneAuthorityEach(t
 		MaximumPriceUSD: microsToUSD(money.BuyerDebitMicros), EstimatedPriceUSD: microsToUSD(money.BuyerDebitMicros),
 		ReuseClass: ClassExactResultReuse,
 	}, ExactCacheHit{ResultRef: leaderResultRef, OutputTokens: deliveredTokens}, money, leaderResultSHA)
-	if err != nil {
-		t.Fatalf("create reuse-backed negative source: %v", err)
-	}
+	mustf(t, err, "create reuse-backed negative source: %v")
 	rejectCoalescedSource("reuse-backed", buyerID, reuseBackedSource.ID, leaderResultSHA)
 	var rejectedContracts int
 	if err := pool.QueryRow(ctx, `
@@ -709,9 +673,7 @@ func TestOneExecutionWith128FollowersWritesNoSupplierCreditAndOneAuthorityEach(t
 				ReuseClass:                ClassCoalescedDelivery,
 				CoalescedLeaderContractID: leader.ID,
 			}, hit, money, leaderResultSHA)
-		if err != nil {
-			t.Fatalf("follower %d: settle: %v", i, err)
-		}
+		mustf(t, err, "follower %d: settle: %v", i)
 		if contract.Pricing == nil || contract.Pricing.RealtimeReuse == nil ||
 			contract.Pricing.RealtimeReuse.ReuseClass != ClassCoalescedDelivery ||
 			settlement.SupplierPayableNanos != 0 ||
@@ -769,9 +731,7 @@ func TestOneExecutionWith128FollowersWritesNoSupplierCreditAndOneAuthorityEach(t
 		t.Fatalf("read cluster ledger: %v", err)
 	}
 	leaderSupplierMicros, err := LedgerMicrosFromNanos(MoneyNanos{Currency: currency, Nanos: leaderSettlement.SupplierPayableNanos})
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if supplierRows != 1 || supplierMicros != leaderSupplierMicros {
 		t.Fatalf("%d supplier credits worth %d micros across %d followers; the supplier "+
 			"must be paid once by the leader for the one execution",
@@ -796,9 +756,7 @@ func TestOneExecutionWith128FollowersWritesNoSupplierCreditAndOneAuthorityEach(t
 	fetched := 0
 	for id := range authorities {
 		receipt, err := store.RealtimeReceipt(ctx, buyerID, id)
-		if err != nil {
-			t.Fatalf("receipt for %s: %v", id, err)
-		}
+		mustf(t, err, "receipt for %s: %v", id)
 		if receipt.ContractID != id.String() {
 			t.Fatalf("receipt for %s reported contract %s", id, receipt.ContractID)
 		}
@@ -819,9 +777,7 @@ func TestOneExecutionWith128FollowersWritesNoSupplierCreditAndOneAuthorityEach(t
 		t.Fatalf("fetched %d receipts for %d followers", fetched, coalescedFollowers)
 	}
 	leaderReceipt, err := store.RealtimeReceipt(ctx, buyerID, leader.ID)
-	if err != nil {
-		t.Fatalf("leader receipt: %v", err)
-	}
+	mustf(t, err, "leader receipt: %v")
 	if leaderReceipt.Coalescing == nil || leaderReceipt.Coalescing.Role != "LEADER" ||
 		leaderReceipt.Coalescing.LeaderContractID != leader.ID.String() ||
 		leaderReceipt.Coalescing.CoalescedFollowerDeliveries != coalescedFollowers ||

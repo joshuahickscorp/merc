@@ -25,9 +25,7 @@ func TestStripeCashOutcomeProvesOutOfOrderNonRegressionAndReplay(t *testing.T) {
 			eventID, eventType, created, object,
 		))
 		event, err := parseStripeCashEvent(eventID, eventType, created, object, payload)
-		if err != nil {
-			t.Fatalf("parse %s: %v", eventType, err)
-		}
+		mustf(t, err, "parse %s: %v", eventType)
 		return event
 	}
 
@@ -37,25 +35,19 @@ func TestStripeCashOutcomeProvesOutOfOrderNonRegressionAndReplay(t *testing.T) {
 	created := makeEvent(createdID, stripeEventDisputeCreated, "needs_response", 1_700_000_001)
 
 	first, err := store.ApplyPaymentEventTx(ctx, closed)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if !first.CashEffectApplied || first.CurrentCashEffectRank != 30 || first.Duplicate {
 		t.Fatalf("terminal-first outcome=%+v, want applied rank 30", first)
 	}
 
 	stale, err := store.ApplyPaymentEventTx(ctx, created)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if stale.CashEffectApplied || stale.CurrentCashEffectRank != 30 || stale.Duplicate {
 		t.Fatalf("older opening outcome=%+v, want stale ignored behind rank 30", stale)
 	}
 
 	replay, err := store.ApplyPaymentEventTx(ctx, closed)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if !replay.Duplicate || replay.CashEffectApplied {
 		t.Fatalf("terminal replay outcome=%+v, want duplicate", replay)
 	}

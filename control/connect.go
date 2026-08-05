@@ -79,18 +79,6 @@ func validateConnectURLPair(returnURL, refreshURL, siteHost string) error {
 	return nil
 }
 
-func validateLiveConnectURLConfig(cxEnv, stripeSecret, returnURL, refreshURL, siteHost string) error {
-	liveStripe := isLiveStripeCredential(stripeSecret)
-	production := strings.EqualFold(cxEnv, "production") || strings.EqualFold(cxEnv, "prod")
-	if !production && !liveStripe {
-		return nil
-	}
-	if err := validateConnectURLPair(returnURL, refreshURL, siteHost); err != nil {
-		return fmt.Errorf("live Stripe Connect configuration invalid: %w; refusing to start", err)
-	}
-	return nil
-}
-
 func (s *Server) handleWorkerConnectStatus(w http.ResponseWriter, r *http.Request) {
 	auth := r.Context().Value(ctxWorker).(*WorkerAuth)
 	acct, _ := s.store.SupplierStripeAcct(r.Context(), auth.SupplierID)

@@ -275,10 +275,6 @@ func readAndCloseBounded(r io.ReadCloser, limit int64) ([]byte, error) {
 	return data, nil
 }
 
-func readSynchronousInput(r io.ReadCloser) ([]byte, error) {
-	return readAndCloseBounded(r, maxSynchronousInputBytes)
-}
-
 func capBody(limitFor func(*http.Request) int64, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, limitFor(r))
@@ -777,7 +773,7 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 	// admission remains only for explicitly deferred collection and non-batch
 	// tiers; the durable field on jobRow freezes this choice at acceptance.
 	prepaidRequired := stripeKey() != "" && sub.Tier == "batch" && prepaidBalanceRequired()
-	if stripeKey() != "" && !prepaidRequired {
+	if !prepaidRequired {
 		_, pm, berr := s.store.GetBillingCustomer(ctx, buyerID)
 		switch {
 		case berr != nil && !errors.Is(berr, errNotFound):
@@ -4217,14 +4213,6 @@ func adaptiveSplitSize(jobType string, params json.RawMessage, avgLineBytes floa
 	return n
 }
 
-func (s *Server) adaptiveSplitSizeLive(ctx context.Context, jobType, modelRef string, minMemGB float32, maxTokens uint32, avgLineBytes float64, staticSize, totalRecords int) int {
-	return s.adaptiveSplitSizeLiveFor(
-		ctx,
-		normalizedSupplyRequirements(jobType, modelRef, QuoteSupplyRequirements{MinMemoryGB: minMemGB}),
-		maxTokens, avgLineBytes, staticSize, totalRecords,
-	)
-}
-
 func (s *Server) adaptiveSplitSizeLiveFor(
 	ctx context.Context,
 	req QuoteSupplyRequirements,
@@ -4284,14 +4272,6 @@ func (s *Server) adaptiveSplitSizeLiveFor(
 	return size
 }
 
-func (s *Server) plannerETASecs(ctx context.Context, jobType, modelRef string, minMemGB float32, nTasks, queuedAhead, perTaskSecs int) (eta, conservative int, ok bool) {
-	return s.plannerETASecsFor(
-		ctx,
-		normalizedSupplyRequirements(jobType, modelRef, QuoteSupplyRequirements{MinMemoryGB: minMemGB}),
-		nTasks, queuedAhead, perTaskSecs,
-	)
-}
-
 func (s *Server) plannerETASecsFor(
 	ctx context.Context,
 	req QuoteSupplyRequirements,
@@ -4344,15 +4324,6 @@ func perTaskSecsFromP90(p90ms int64) int {
 		secs = 1
 	}
 	return secs
-}
-
-func (s *Server) etaBandSecs(ctx context.Context, jobType, modelRef string, minMemGB float32, nTasks int, inputDepthBand string) (eta, conservative int, plannerBacked bool) {
-	return s.etaBandSecsFor(
-		ctx,
-		normalizedSupplyRequirements(jobType, modelRef, QuoteSupplyRequirements{MinMemoryGB: minMemGB}),
-		nTasks,
-		inputDepthBand,
-	)
 }
 
 func (s *Server) etaBandSecsFor(

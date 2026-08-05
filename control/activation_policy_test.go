@@ -34,9 +34,7 @@ func seedPassedPromotionGate(t *testing.T, ctx context.Context, store *Store, ce
 	// Stamp the digest that ReceiptRef would compute only if we used Digest();
 	// here we write the row directly so the ref is under our control.
 	raw, err := json.Marshal(evidence)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	_, err = store.pool.Exec(ctx, `
 		INSERT INTO runtime_cell_promotion_evaluations
 		  (evidence_sha256, promotion_receipt_ref, gate_version, scope_json,
@@ -46,9 +44,7 @@ func seedPassedPromotionGate(t *testing.T, ctx context.Context, store *Store, ce
 		digest, ref, promotionGateVersion, `{"cell_id":"`+cellID+`"}`,
 		evidence.IncumbentCell, cellID, generatedRuntimeMatrixSHA256,
 		evidence.EvaluatedAt, string(raw))
-	if err != nil {
-		t.Fatalf("seed promotion gate verdict: %v", err)
-	}
+	mustf(t, err, "seed promotion gate verdict: %v")
 	return ref
 }
 
@@ -75,13 +71,9 @@ func TestActivationPolicySeedsFromTheDocumentAndProjectsBack(t *testing.T) {
 	ctx, store, pool := openActivationStore(t)
 
 	entries, err := store.CurrentActivationPolicy(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	want, err := documentActivationEntries()
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if len(entries) != len(want) {
 		t.Fatalf("policy holds %d statements, document declares %d", len(entries), len(want))
 	}
@@ -121,9 +113,7 @@ func TestPromotionIsAPolicyWriteAndLeavesCapabilityIdentityUntouched(t *testing.
 		t.Fatal("llama_cpp_metal is not registered")
 	}
 	before, err := profile.CapabilityDigest(runtimeAuthorityModels)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if got := lifecycleOfCell(t, ctx, pool, "llama_cpp_metal", llamaEmbedCell); got != runtimeLifecycleRealRuntimeProven {
 		t.Fatalf("the embed cell starts at %s, not REAL_RUNTIME_PROVEN", got)
 	}
@@ -152,9 +142,7 @@ func TestPromotionIsAPolicyWriteAndLeavesCapabilityIdentityUntouched(t *testing.
 			CanaryTrafficPct: 5,
 		},
 	}, "bounded canary for the proven embed cell")
-	if err != nil {
-		t.Fatalf("apply promotion: %v", err)
-	}
+	mustf(t, err, "apply promotion: %v")
 	if revision < 2 {
 		t.Fatalf("promotion took revision %d, want a revision after the document seed", revision)
 	}
@@ -170,9 +158,7 @@ func TestPromotionIsAPolicyWriteAndLeavesCapabilityIdentityUntouched(t *testing.
 
 	// The identity every agent compares did not.
 	after, err := profile.CapabilityDigest(runtimeAuthorityModels)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if after != before {
 		t.Fatal("a promotion moved the profile capability digest")
 	}
@@ -187,9 +173,7 @@ func TestPromotionIsAPolicyWriteAndLeavesCapabilityIdentityUntouched(t *testing.
 
 	// Rollback restores the earlier state by writing forward.
 	rolled, err := store.RollbackActivationPolicy(ctx, revision-1, "canary withdrawn")
-	if err != nil {
-		t.Fatalf("rollback: %v", err)
-	}
+	mustf(t, err, "rollback: %v")
 	if rolled <= revision {
 		t.Fatalf("rollback took revision %d, which is not after %d", rolled, revision)
 	}
@@ -256,9 +240,7 @@ func TestPromotingOutOfDraftNeedsNoNewAgentBuild(t *testing.T) {
 	}
 
 	projected, err := projectWorkerRuntimeCapabilities(cuda)
-	if err != nil {
-		t.Fatalf("after promotion the same worker still cannot enrol: %v", err)
-	}
+	mustf(t, err, "after promotion the same worker still cannot enrol: %v")
 	if len(projected) != 1 || projected[0].ID != "vllm-cuda-llama1-infer" {
 		t.Fatalf("projected %+v", projected)
 	}
@@ -314,9 +296,7 @@ func TestPolicyWrittenAgainstAnotherCapabilityIsRefusedAtWriteAndAtRead(t *testi
 		CapabilityDigest: "00000000000000000000000000000000000000000000000000000000000000ff",
 		Lifecycle:        runtimeLifecycleActive,
 	}})
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if len(stale.Stale) != 1 {
 		t.Fatalf("a stale statement produced %d warnings: %v", len(stale.Stale), stale.Stale)
 	}
@@ -335,9 +315,7 @@ func TestPolicyWrittenAgainstAnotherCapabilityIsRefusedAtWriteAndAtRead(t *testi
 		CapabilityDigest: "00000000000000000000000000000000000000000000000000000000000000ff",
 		Lifecycle:        runtimeLifecycleActive,
 	}})
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if len(superseded.Stale) != 1 {
 		t.Fatalf("a superseded-revision statement produced %v", superseded.Stale)
 	}
@@ -418,9 +396,7 @@ func TestPriorCapabilityDigestsAreRetained(t *testing.T) {
 		 WHERE runtime_profile_id='llama_cpp_metal' AND is_current`, legacy); err != nil {
 		t.Fatal(err)
 	}
-	if err := NewStore(pool).Migrate(ctx); err != nil {
-		t.Fatalf("re-migration over a v1 registry: %v", err)
-	}
+	mustf(t, NewStore(pool).Migrate(ctx), "re-migration over a v1 registry: %v")
 
 	var current string
 	var version int
@@ -457,18 +433,14 @@ func assertRegistryMatchesPolicy(t *testing.T, ctx context.Context, pool *pgxpoo
 		  JOIN runtime_profiles p
 		    ON p.runtime_profile_id = m.runtime_profile_id AND p.revision = m.revision
 		 WHERE p.is_current`)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	defer rows.Close()
 	snapshot := currentActivation()
 	seen := 0
 	for rows.Next() {
 		var runtimeID, cellID, lifecycle string
 		var routable bool
-		if err := rows.Scan(&runtimeID, &cellID, &lifecycle, &routable); err != nil {
-			t.Fatal(err)
-		}
+		must(t, rows.Scan(&runtimeID, &cellID, &lifecycle, &routable))
 		seen++
 		profile, ok := runtimeProfileByID(runtimeID)
 		if !ok {
@@ -490,9 +462,7 @@ func assertRegistryMatchesPolicy(t *testing.T, ctx context.Context, pool *pgxpoo
 			}
 		}
 	}
-	if err := rows.Err(); err != nil {
-		t.Fatal(err)
-	}
+	must(t, rows.Err())
 	if seen == 0 {
 		t.Fatal("the registry holds no current cells")
 	}

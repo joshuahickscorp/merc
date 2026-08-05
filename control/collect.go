@@ -399,17 +399,7 @@ func (s *Store) FormChargeBatch(ctx context.Context, buyerID uuid.UUID) (batch C
 	return batch, true, nil
 }
 
-func (s *Store) TerminalUnattemptedJobs(ctx context.Context, limit int) ([]uuid.UUID, error) {
-	rows, err := s.pool.Query(ctx,
-		`SELECT id FROM jobs
-		 WHERE status IN ('complete','failed','cancelled')
-		   AND `+firmChargeAmountSQL+` > 0
-		   AND charge_status = 'not_attempted'
-		   AND currency = $2
-		 ORDER BY created_at ASC LIMIT $1`, limit, SettlementCurrencyCode())
-	if err != nil {
-		return nil, err
-	}
+func scanJobIDs(rows pgx.Rows) ([]uuid.UUID, error) {
 	defer rows.Close()
 	var out []uuid.UUID
 	for rows.Next() {
@@ -422,6 +412,22 @@ func (s *Store) TerminalUnattemptedJobs(ctx context.Context, limit int) ([]uuid.
 	return out, rows.Err()
 }
 
+func (s *Store) TerminalUnattemptedJobs(ctx context.Context, limit int) ([]uuid.UUID, error) {
+	// Predicate is money-gated (firm charge + charge_status + currency). Must stay
+	// distinct from the SLA undecided queue below — unifying WHERE mixes work.
+	rows, err := s.pool.Query(ctx,
+		`SELECT id FROM jobs
+		 WHERE status IN ('complete','failed','cancelled')
+		   AND `+firmChargeAmountSQL+` > 0
+		   AND charge_status = 'not_attempted'
+		   AND currency = $2
+		 ORDER BY created_at ASC LIMIT $1`, limit, SettlementCurrencyCode())
+	if err != nil {
+		return nil, err
+	}
+	return scanJobIDs(rows)
+}
+
 func (s *Store) FailedChargesDue(ctx context.Context, limit int) ([]uuid.UUID, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT id FROM jobs
@@ -432,16 +438,7 @@ func (s *Store) FailedChargesDue(ctx context.Context, limit int) ([]uuid.UUID, e
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	var out []uuid.UUID
-	for rows.Next() {
-		var id uuid.UUID
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		out = append(out, id)
-	}
-	return out, rows.Err()
+	return scanJobIDs(rows)
 }
 
 func (s *Store) IncrementChargeAttempts(ctx context.Context, jobID uuid.UUID) (int, error) {
@@ -734,6 +731,7 @@ func (s *Store) SettleJobSLA(ctx context.Context, jobID uuid.UUID) (SLASettleRes
 }
 
 func (s *Store) SLAUndecidedCompleteJobs(ctx context.Context, limit int) ([]uuid.UUID, error) {
+	// SLA predicate is intentionally separate from charge queues (money gates).
 	rows, err := s.pool.Query(ctx,
 		`SELECT id FROM jobs
 		 WHERE COALESCE(sla_guarantee_secs,0) > 0
@@ -744,16 +742,7 @@ func (s *Store) SLAUndecidedCompleteJobs(ctx context.Context, limit int) ([]uuid
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	var out []uuid.UUID
-	for rows.Next() {
-		var id uuid.UUID
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		out = append(out, id)
-	}
-	return out, rows.Err()
+	return scanJobIDs(rows)
 }
 
 func settleSLAOutcome(ctx context.Context, store *Store, jobID uuid.UUID) {

@@ -112,45 +112,35 @@ func TestUnicodeEstimatorConsistencyInDepthProfile(t *testing.T) {
 		t.Fatalf("estimateTokens=%d, want %d", tokens, want)
 	}
 	p, err := buildInputDepthProfileFromJSONL(bodyJSONL(body))
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if p.EstimatedTokens != tokens {
 		t.Fatalf("profile estimated_tokens=%d, want %d from estimator", p.EstimatedTokens, tokens)
 	}
 	if p.BodyRunes != int64(utf8.RuneCountInString(body)) || p.BodyASCIIBytes != 0 {
 		t.Fatalf("profile body stats runes=%d ascii=%d unexpected", p.BodyRunes, p.BodyASCIIBytes)
 	}
-	if err := validateInputDepthProfile(p); err != nil {
-		t.Fatalf("self-validation failed: %v", err)
-	}
+	mustf(t, validateInputDepthProfile(p), "self-validation failed: %v")
 }
 
 func TestTextPrecedenceMatchesRunner(t *testing.T) {
 	// text wins over prompt when both present.
 	line := []byte(`{"text":"from-text","prompt":"from-prompt"}`)
 	body, err := selectJSONLBodyFromLine(line)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if body != "from-text" {
 		t.Fatalf("body=%q, want from-text", body)
 	}
 	// prompt used when text absent.
 	line = []byte(`{"prompt":"from-prompt"}`)
 	body, err = selectJSONLBodyFromLine(line)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if body != "from-prompt" {
 		t.Fatalf("body=%q, want from-prompt", body)
 	}
 	// text:null falls through to prompt (serde Option::None).
 	line = []byte(`{"text":null,"prompt":"from-prompt"}`)
 	body, err = selectJSONLBodyFromLine(line)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if body != "from-prompt" {
 		t.Fatalf("null text body=%q, want from-prompt", body)
 	}
@@ -201,13 +191,9 @@ func TestQuoteScanAndStreamProfileIdentical(t *testing.T) {
 	input := bodyJSONL(short, short, medium, short, medium)
 
 	scan := scanJSONL(input)
-	if err := validateInputDepthProfile(scan.InputDepth); err != nil {
-		t.Fatalf("scan profile invalid: %v", err)
-	}
+	mustf(t, validateInputDepthProfile(scan.InputDepth), "scan profile invalid: %v")
 	built, err := buildInputDepthProfileFromJSONL(input)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if !inputDepthProfilesEqual(scan.InputDepth, built) {
 		t.Fatalf("scan profile %+v != build profile %+v", scan.InputDepth, built)
 	}
@@ -220,15 +206,11 @@ func TestQuoteScanAndStreamProfileIdentical(t *testing.T) {
 			continue
 		}
 		body, err := parseWorkloadJSONLRecord("embed", line, 1)
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		acc.addBody(body)
 	}
 	streamed, err := acc.profile()
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if !inputDepthProfilesEqual(scan.InputDepth, streamed) {
 		t.Fatalf("quote scan profile %+v != stream profile %+v", scan.InputDepth, streamed)
 	}
@@ -236,9 +218,7 @@ func TestQuoteScanAndStreamProfileIdentical(t *testing.T) {
 
 func TestProfileRejectsTamperedBandAndCounts(t *testing.T) {
 	p, err := buildInputDepthProfileFromJSONL(bodyJSONL("hello", "world"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	mutant := p
 	mutant.P90DepthBand = inputDepthBandLong
 	if err := validateInputDepthProfile(mutant); err == nil {

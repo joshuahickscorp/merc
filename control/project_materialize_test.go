@@ -53,9 +53,7 @@ func TestMaterializeProjectStepBindsReceiptAndWritesDeclaredOutput(t *testing.T)
 	root := t.TempDir()
 	now := time.Date(2026, 8, 1, 22, 0, 0, 0, time.UTC)
 	result, err := materializeProjectStep(c, root, ir, submission, "extract", now)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	stored, err := os.ReadFile(filepath.Join(root, "generated", "scene.json"))
 	if err != nil || string(stored) != string(payload) {
 		t.Fatalf("materialized output = %q err=%v", stored, err)
@@ -97,9 +95,7 @@ func TestMaterializeProjectStepFailsClosedBeforeWritingOutput(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			ir, submission, c, _ := materializationFixture(t, tc.receiptSHA, tc.resultsURL)
 			stepRoot := filepath.Join(root, strings.ReplaceAll(tc.name, " ", "-"))
-			if err := os.Mkdir(stepRoot, 0700); err != nil {
-				t.Fatal(err)
-			}
+			must(t, os.Mkdir(stepRoot, 0700))
 			_, err := materializeProjectStep(c, stepRoot, ir, submission, "extract", time.Now())
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("error = %v, want %q", err, tc.want)
@@ -114,9 +110,7 @@ func TestMaterializeProjectStepFailsClosedBeforeWritingOutput(t *testing.T) {
 		ir, submission, c, _ := materializationFixture(t, pricing, true)
 		stepRoot := filepath.Join(root, "symlink-parent")
 		outside := t.TempDir()
-		if err := os.Mkdir(stepRoot, 0700); err != nil {
-			t.Fatal(err)
-		}
+		must(t, os.Mkdir(stepRoot, 0700))
 		if err := os.Symlink(outside, filepath.Join(stepRoot, "generated")); err != nil {
 			t.Skipf("cannot create symlink fixture: %v", err)
 		}

@@ -32,9 +32,7 @@ func TestSubCentCreditsAccrueAndEventuallyPay(t *testing.T) {
 			supplierID: supplier,
 		})
 		claimed, ok, err := store.ClaimPayout(ctx, f.entryID)
-		if err != nil {
-			t.Fatalf("claim %d: %v", i, err)
-		}
+		mustf(t, err, "claim %d: %v", i)
 		paidCents += claimed.RequestedCents
 
 		switch i {
@@ -56,9 +54,7 @@ func TestSubCentCreditsAccrueAndEventuallyPay(t *testing.T) {
 	}
 
 	acc, err := store.SupplierAccrual(ctx, supplier)
-	if err != nil {
-		t.Fatalf("read accrual: %v", err)
-	}
+	mustf(t, err, "read accrual: %v")
 	// Nothing invented, nothing lost.
 	if acc.LifetimeAbsorbed != 3*usdToMicros(subCentCreditUSD) {
 		t.Fatalf("absorbed %d micro-USD, want %d", acc.LifetimeAbsorbed, 3*usdToMicros(subCentCreditUSD))
@@ -94,9 +90,7 @@ func TestSupplierAccrualUsesConfiguredZeroDecimalMinorUnit(t *testing.T) {
 		t.Fatalf("JPY claim omitted currency-aware authority: %+v", claimed)
 	}
 	accrual, err := store.SupplierAccrual(ctx, f.supplierID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if accrual.Currency != "jpy" || accrual.LifetimePaidCent != 1 ||
 		accrual.AccruedMicros != 250_000 || accrual.LifetimeAbsorbed != 1_250_000 {
 		t.Fatalf("JPY accrual lost its minor-unit identity: %+v", accrual)
@@ -105,9 +99,7 @@ func TestSupplierAccrualUsesConfiguredZeroDecimalMinorUnit(t *testing.T) {
 		t.Fatalf("JPY accrual did not conserve: %+v", accrual)
 	}
 	earnings, err := store.WorkerEarnings(ctx, f.supplierID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if earnings.Currency != "jpy" || earnings.BalanceUSD != 0 || earnings.CarriedUSD != 0.25 {
 		t.Fatalf("JPY earnings view invented cash before payout finalization: %+v", earnings)
 	}
@@ -117,9 +109,7 @@ func TestSupplierAccrualUsesConfiguredZeroDecimalMinorUnit(t *testing.T) {
 		t.Fatalf("FinalizePayout JPY: %v", err)
 	}
 	earnings, err = store.WorkerEarnings(ctx, f.supplierID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if earnings.Currency != "jpy" || earnings.BalanceUSD != 1 ||
 		earnings.LastPayoutUSD == nil || *earnings.LastPayoutUSD != 1 || earnings.CarriedUSD != 0.25 {
 		t.Fatalf("JPY earnings view did not preserve paid/carry split: %+v", earnings)
@@ -143,17 +133,13 @@ func TestAccrualConservesEveryMicroUSD(t *testing.T) {
 			supplierID: supplier,
 		})
 		claimed, _, err := store.ClaimPayout(ctx, f.entryID)
-		if err != nil {
-			t.Fatalf("claim %d (%v USD): %v", i, usd, err)
-		}
+		mustf(t, err, "claim %d (%v USD): %v", i, usd)
 		absorbed += usdToMicros(usd)
 		paid += claimed.RequestedCents
 	}
 
 	acc, err := store.SupplierAccrual(ctx, supplier)
-	if err != nil {
-		t.Fatalf("read accrual: %v", err)
-	}
+	mustf(t, err, "read accrual: %v")
 	if acc.LifetimeAbsorbed != absorbed {
 		t.Fatalf("absorbed %d, expected %d", acc.LifetimeAbsorbed, absorbed)
 	}
@@ -187,16 +173,12 @@ func TestAccrualIsIdempotentPerEntry(t *testing.T) {
 		t.Fatalf("first claim: %v", err)
 	}
 	first, err := store.SupplierAccrual(ctx, supplier)
-	if err != nil {
-		t.Fatalf("read accrual: %v", err)
-	}
+	mustf(t, err, "read accrual: %v")
 	// A carried entry is no longer 'held', so a replay is refused upstream; the
 	// accrual must be unchanged either way.
 	_, _, _ = store.ClaimPayout(ctx, f.entryID)
 	second, err := store.SupplierAccrual(ctx, supplier)
-	if err != nil {
-		t.Fatalf("re-read accrual: %v", err)
-	}
+	mustf(t, err, "re-read accrual: %v")
 	if first != second {
 		t.Fatalf("replaying a claim changed the accrual: %+v -> %+v", first, second)
 	}
@@ -273,9 +255,7 @@ func TestAccrualConservesMoneyUnderConcurrentClaims(t *testing.T) {
 	}
 
 	acc, err := store.SupplierAccrual(ctx, supplier)
-	if err != nil {
-		t.Fatalf("read accrual: %v", err)
-	}
+	mustf(t, err, "read accrual: %v")
 
 	// The invariant that matters: nothing minted, nothing lost.
 	if acc.LifetimeAbsorbed != expectedMicros {
@@ -324,9 +304,7 @@ func TestAccrualHasNoDriftOverALongRun(t *testing.T) {
 	}
 
 	acc, err := store.SupplierAccrual(ctx, supplier)
-	if err != nil {
-		t.Fatalf("read accrual: %v", err)
-	}
+	mustf(t, err, "read accrual: %v")
 	if acc.LifetimeAbsorbed != expected {
 		t.Fatalf("drift after %d entries: absorbed %d, expected %d",
 			len(amounts)*4, acc.LifetimeAbsorbed, expected)

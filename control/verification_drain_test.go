@@ -67,9 +67,7 @@ func TestVerificationDrainUsesEverySafeSlotWithoutExceedingBudget(t *testing.T) 
 		return VerificationProcessResult{Outcome: OutcomePass}, nil
 	}
 
-	if err := processor.Drain(context.Background(), total); err != nil {
-		t.Fatal(err)
-	}
+	must(t, processor.Drain(context.Background(), total))
 	processed := 0
 	seen.Range(func(_, _ any) bool {
 		processed++
@@ -145,17 +143,13 @@ func TestVerificationDrainCancellationReturnsEveryClaimToRetry(t *testing.T) {
 func TestVerificationChunkLockSerializesSameChunkOnly(t *testing.T) {
 	databaseURL := requireTestDatabase(t)
 	pool, err := pgxpool.New(context.Background(), databaseURL)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	defer pool.Close()
 	processor := NewVerificationProcessor(NewStore(pool), nil, nil)
 	jobID := uuid.New()
 
 	unlockFirst, err := processor.lockChunk(context.Background(), jobID, 7)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	defer unlockFirst()
 	if unlock, err := processor.lockChunk(context.Background(), jobID, 7); !errors.Is(err, ErrVerificationChunkBusy) {
 		if err == nil {
@@ -164,9 +158,7 @@ func TestVerificationChunkLockSerializesSameChunkOnly(t *testing.T) {
 		t.Fatalf("same chunk lock error=%v want busy", err)
 	}
 	unlockOther, err := processor.lockChunk(context.Background(), jobID, 8)
-	if err != nil {
-		t.Fatalf("different chunk was unnecessarily serialized: %v", err)
-	}
+	mustf(t, err, "different chunk was unnecessarily serialized: %v")
 	unlockOther()
 }
 

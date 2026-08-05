@@ -70,9 +70,7 @@ func TestWorktreeDigestNoticesAContentChange(t *testing.T) {
 		}
 	}
 	path := filepath.Join(root, "source.go")
-	if err := os.WriteFile(path, []byte("package main // original\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	must(t, os.WriteFile(path, []byte("package main // original\n"), 0o644))
 	for _, argv := range [][]string{{"add", "."}, {"commit", "-qm", "base"}} {
 		cmd := exec.Command("git", argv...)
 		cmd.Dir = root
@@ -82,39 +80,25 @@ func TestWorktreeDigestNoticesAContentChange(t *testing.T) {
 	}
 
 	before, err := worktreeContentDigest(root)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	// The same byte count, so anything comparing sizes would miss it.
-	if err := os.WriteFile(path, []byte("package main // MUTATED!\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	must(t, os.WriteFile(path, []byte("package main // MUTATED!\n"), 0o644))
 	mutated, err := worktreeContentDigest(root)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if mutated == before {
 		t.Fatal("a same-length content mutation did not move the worktree digest")
 	}
-	if err := os.WriteFile(path, []byte("package main // original\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	must(t, os.WriteFile(path, []byte("package main // original\n"), 0o644))
 	restored, err := worktreeContentDigest(root)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if restored != before {
 		t.Fatal("a correctly restored tree did not reproduce its digest")
 	}
 
 	// A tracked file deleted rather than modified is also a difference.
-	if err := os.Remove(path); err != nil {
-		t.Fatal(err)
-	}
+	must(t, os.Remove(path))
 	deleted, err := worktreeContentDigest(root)
-	if err != nil {
-		t.Fatalf("digest failed on a missing tracked file instead of recording it: %v", err)
-	}
+	mustf(t, err, "digest failed on a missing tracked file instead of recording it: %v")
 	if deleted == before {
 		t.Fatal("deleting a tracked file did not move the worktree digest")
 	}
@@ -142,13 +126,9 @@ func TestCheckpointReceiptRoundTrips(t *testing.T) {
 		Steps:                  []devCheckpointStep{{Name: "full-ci", Command: "make ci", DurationMS: 1}},
 	}
 	blob, err := json.Marshal(receipt)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	var back DevCheckpointReceipt
-	if err := json.Unmarshal(blob, &back); err != nil {
-		t.Fatal(err)
-	}
+	must(t, json.Unmarshal(blob, &back))
 	if back.Head != receipt.Head || !back.MutationRestored ||
 		len(back.Steps) != 1 || back.CapabilityMatrixSHA256 != generatedRuntimeMatrixSHA256 {
 		t.Fatalf("receipt did not round-trip: %+v", back)
@@ -170,9 +150,7 @@ func TestCheckpointReadsTheMutationScriptsOwnLock(t *testing.T) {
 		t.Skipf("not inside a git repository: %v", err)
 	}
 	script, err := os.ReadFile(filepath.Join(root, "scripts", "mutation-test.sh"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	// The script derives it as:
 	//   repo_lock_id="$(printf '%s' "$PWD" | shasum -a 256 | cut -c1-16)"
 	//   MUTATION_LOCK="${TMPDIR:-/tmp}/merc-mutation-${repo_lock_id}.lock"
@@ -189,9 +167,7 @@ func TestCheckpointReadsTheMutationScriptsOwnLock(t *testing.T) {
 	sum := sha256.Sum256([]byte(root))
 	want := filepath.Join(os.TempDir(),
 		"merc-mutation-"+hex.EncodeToString(sum[:])[:16]+".lock")
-	if err := os.MkdirAll(want, 0o755); err != nil {
-		t.Fatalf("could not create the lock the script would: %v", err)
-	}
+	mustf(t, os.MkdirAll(want, 0o755), "could not create the lock the script would: %v")
 	t.Cleanup(func() { _ = os.Remove(want) })
 
 	got, held := mutationLockHeld(root)

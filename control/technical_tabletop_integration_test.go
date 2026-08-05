@@ -41,9 +41,7 @@ func TestSupportAndSecurityTechnicalTabletops(t *testing.T) {
 	}
 
 	proposal, err := store.ProposeDisplayedSettlementCorrection(ctx, jobID, 1.10)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if !proposal.MismatchDetected || proposal.LedgerUSD != 1.00 || proposal.LedgerMutated ||
 		proposal.CommunicationDraft == "" || !proposal.PostmortemRequired {
 		t.Fatalf("unsafe or incomplete support proposal: %+v", proposal)
@@ -89,9 +87,7 @@ func TestSupportAndSecurityTechnicalTabletops(t *testing.T) {
 		t.Fatalf("revoked artifact reference remained retrievable: %v %v", outputRef, err)
 	}
 	actions, err := store.ListAdminActions(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	foundPauseAudit := false
 	for _, action := range actions {
 		if action.Kind == adminActionControlChanged && action.CorrelationRef == pauseRef &&

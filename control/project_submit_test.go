@@ -27,13 +27,9 @@ func executableProjectQuoteFixture(t *testing.T, root string, now time.Time, han
 	digest := sha256.Sum256(input)
 	serverQuote.InputSHA256 = hex.EncodeToString(digest[:])
 	currency, err := ParseCurrency(serverQuote.Currency)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	maximum, err := MoneyNanosFromUSDFloat(currency, serverQuote.Cost.MaxUSD)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	ir := projectQuoteIRFixture(serverQuote, maximum.Nanos+1)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -91,9 +87,7 @@ func TestSubmitCompiledProjectPreservesReviewedAuthority(t *testing.T) {
 	defer server.Close()
 	c := &client{base: server.URL, key: "test-project-key", hc: server.Client()}
 	result, err := submitCompiledProject(c, root, ir, artifact, now)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if calls != 1 || result.Status != "ACCEPTED" || result.ExecutionMode != "INDEPENDENT_FINITE_STEPS" ||
 		result.ProjectID == "" || len(result.Steps) != 1 || !result.Steps[0].IdempotentReplay ||
 		result.Steps[0].QuoteID != artifact.Steps[0].QuoteID ||
@@ -160,15 +154,11 @@ func TestProjectCompilerCADAdmissionThroughPublicAPI(t *testing.T) {
 	artifacts := newArtifactHarness(t)
 	ctx, store, pool := openIsolatedTestStore(t)
 	schedule, err := BuildCataloguePriceSchedule()
-	if err != nil {
-		t.Fatalf("build catalogue price schedule: %v", err)
-	}
+	mustf(t, err, "build catalogue price schedule: %v")
 	if _, err := store.ApplyRepricing(ctx, schedule); err != nil {
 		t.Fatalf("publish catalogue price schedule: %v", err)
 	}
-	if err := seedDemo(ctx, pool, artifacts.storage); err != nil {
-		t.Fatalf("seed verification floor: %v", err)
-	}
+	mustf(t, seedDemo(ctx, pool, artifacts.storage), "seed verification floor: %v")
 	server := httptest.NewServer(NewServer(store, artifacts.storage, NewVerifier(store).WithStorage(artifacts.storage), nil).Routes())
 	t.Cleanup(server.Close)
 
@@ -184,9 +174,7 @@ func TestProjectCompilerCADAdmissionThroughPublicAPI(t *testing.T) {
 	}
 
 	contracts, err := advertisedProjectRuntimeContracts()
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	var embed ProjectRuntimeContract
 	for _, candidate := range contracts {
 		if candidate.WorkloadKind == "embeddings" {
@@ -221,38 +209,28 @@ func TestProjectCompilerCADAdmissionThroughPublicAPI(t *testing.T) {
 	})
 
 	proposal, err := compileProject(projectCompileOptions{Root: root})
-	if err != nil {
-		t.Fatalf("compile unprobed project: %v", err)
-	}
+	mustf(t, err, "compile unprobed project: %v")
 	ir, err := compileProject(projectCompileOptions{
 		Root: root, ProbeRequested: true, BuyerApprovedIRSHA256: proposal.IRSHA256,
 	})
-	if err != nil {
-		t.Fatalf("compile buyer-approved probe: %v", err)
-	}
+	mustf(t, err, "compile buyer-approved probe: %v")
 	if !ir.Probe.Executed || !ir.Probe.BuyerAuthorized || ir.Probe.ApprovedIRSHA256 != proposal.IRSHA256 {
 		t.Fatalf("project probe was not bound to buyer approval: %+v", ir.Probe)
 	}
 
 	c := &client{base: server.URL, key: buyerKey, hc: server.Client()}
 	artifact, err := quoteCompiledProject(c, root, ir)
-	if err != nil {
-		t.Fatalf("quote through public API: %v", err)
-	}
+	mustf(t, err, "quote through public API: %v")
 	if artifact.Currency != "cad" || len(artifact.Steps) != 1 || artifact.Steps[0].PricingDecisionSHA256 == "" {
 		t.Fatalf("public quote lost CAD PricingDecision authority: %+v", artifact)
 	}
 	result, err := submitCompiledProject(c, root, ir, artifact, time.Now().UTC())
-	if err != nil {
-		t.Fatalf("firm submit through public API: %v", err)
-	}
+	mustf(t, err, "firm submit through public API: %v")
 	if result.Status != "ACCEPTED" || result.ProjectID == "" || len(result.Steps) != 1 || !strings.HasPrefix(result.Steps[0].IdempotencyKey, "project:") {
 		t.Fatalf("project public submission was not accepted with its deterministic authority: %+v", result)
 	}
 	jobID, err := uuid.Parse(result.Steps[0].JobID)
-	if err != nil {
-		t.Fatalf("submitted job id: %v", err)
-	}
+	mustf(t, err, "submitted job id: %v")
 
 	var quoteID *uuid.UUID
 	var projectID *uuid.UUID
@@ -270,9 +248,7 @@ func TestProjectCompilerCADAdmissionThroughPublicAPI(t *testing.T) {
 		t.Fatalf("job did not freeze the reviewed CAD firm quote/project reservation: quote=%v project=%v step=%q firm=%t currency=%q", quoteID, projectID, projectStep, firmQuote, currency)
 	}
 	var frozen PricingDecision
-	if err := json.Unmarshal(pricingJSON, &frozen); err != nil {
-		t.Fatalf("decode frozen PricingDecision: %v", err)
-	}
+	mustf(t, json.Unmarshal(pricingJSON, &frozen), "decode frozen PricingDecision: %v")
 	var ceiling, reserved, remaining int64
 	if err := pool.QueryRow(ctx, `
 		SELECT p.buyer_ceiling_nanos, COALESCE(SUM(s.accepted_ceiling_nanos),0),
@@ -311,9 +287,7 @@ func TestProjectCompilerCADExecutionThroughPublicAPI(t *testing.T) {
 	artifacts := newArtifactHarness(t)
 	ctx, store, pool := openIsolatedTestStore(t)
 	schedule, err := BuildCataloguePriceSchedule()
-	if err != nil {
-		t.Fatalf("build catalogue price schedule: %v", err)
-	}
+	mustf(t, err, "build catalogue price schedule: %v")
 	if _, err := store.ApplyRepricing(ctx, schedule); err != nil {
 		t.Fatalf("publish catalogue price schedule: %v", err)
 	}
@@ -331,16 +305,12 @@ func TestProjectCompilerCADExecutionThroughPublicAPI(t *testing.T) {
 		stopWorkers()
 		<-workersDone
 	})
-	if err := seedDemo(ctx, pool, artifacts.storage); err != nil {
-		t.Fatalf("seed verification floor: %v", err)
-	}
+	mustf(t, seedDemo(ctx, pool, artifacts.storage), "seed verification floor: %v")
 	agent := launchAgent(t, ctx, store, pool, server.URL, "candle", "candle_metal", llamaURL)
 	waitForEnrolment(t, ctx, pool, agent)
 
 	contracts, err := advertisedProjectRuntimeContracts()
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	var embed ProjectRuntimeContract
 	for _, candidate := range contracts {
 		if candidate.WorkloadKind == "embeddings" {
@@ -369,13 +339,9 @@ func TestProjectCompilerCADExecutionThroughPublicAPI(t *testing.T) {
 			SupplierFloor: "UNRESOLVED_REFUSE", MercContribution: "UNRESOLVED_REFUSE"},
 	})
 	proposal, err := compileProject(projectCompileOptions{Root: root})
-	if err != nil {
-		t.Fatalf("compile unprobed project: %v", err)
-	}
+	mustf(t, err, "compile unprobed project: %v")
 	ir, err := compileProject(projectCompileOptions{Root: root, ProbeRequested: true, BuyerApprovedIRSHA256: proposal.IRSHA256})
-	if err != nil {
-		t.Fatalf("compile buyer-approved probe: %v", err)
-	}
+	mustf(t, err, "compile buyer-approved probe: %v")
 
 	signup := postJSON(t, server.URL+"/v1/signup", "", map[string]any{
 		"email": "project-execution-" + uuid.NewString() + "@example.test", "password": "a-stranger-password-1234",
@@ -389,17 +355,13 @@ func TestProjectCompilerCADExecutionThroughPublicAPI(t *testing.T) {
 	}
 	c := &client{base: server.URL, key: buyerKey, hc: server.Client()}
 	artifact, err := quoteCompiledProject(c, root, ir)
-	if err != nil {
-		t.Fatalf("quote through public API: %v", err)
-	}
+	mustf(t, err, "quote through public API: %v")
 	submission, err := submitCompiledProject(c, root, ir, artifact, time.Now().UTC())
 	if err != nil || submission.Status != "ACCEPTED" || len(submission.Steps) != 1 {
 		t.Fatalf("firm project submit: result=%+v err=%v", submission, err)
 	}
 	jobID, err := uuid.Parse(submission.Steps[0].JobID)
-	if err != nil {
-		t.Fatalf("submitted job id: %v", err)
-	}
+	mustf(t, err, "submitted job id: %v")
 	loopCtx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	waitForJobSettled(t, loopCtx, pool, jobID, "project-ir")
@@ -407,9 +369,7 @@ func TestProjectCompilerCADExecutionThroughPublicAPI(t *testing.T) {
 	var status, currency, verification string
 	var resultCount, supplierCredits int
 	var platformTakeMicros int64
-	if err := pool.QueryRow(loopCtx, `SELECT status, currency FROM jobs WHERE id=$1`, jobID).Scan(&status, &currency); err != nil {
-		t.Fatalf("read project job: %v", err)
-	}
+	mustf(t, pool.QueryRow(loopCtx, `SELECT status, currency FROM jobs WHERE id=$1`, jobID).Scan(&status, &currency), "read project job: %v")
 	if status != "complete" || currency != "cad" {
 		t.Fatalf("project job status/currency = %q/%q, want complete/cad", status, currency)
 	}

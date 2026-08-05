@@ -119,9 +119,7 @@ func buildCallGraph(t *testing.T) *callGraph {
 		file:      map[string]string{},
 	}
 	entries, err := filepath.Glob("*.go")
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	fset := token.NewFileSet()
 	parsed := map[string]*ast.File{}
 	for _, name := range entries {
@@ -129,9 +127,7 @@ func buildCallGraph(t *testing.T) *callGraph {
 			continue
 		}
 		file, err := parser.ParseFile(fset, name, nil, 0)
-		if err != nil {
-			t.Fatalf("parse %s: %v", name, err)
-		}
+		mustf(t, err, "parse %s: %v", name)
 		parsed[name] = file
 		for _, decl := range file.Decls {
 			fn, ok := decl.(*ast.FuncDecl)

@@ -339,14 +339,10 @@ func TestProjectionIsNotAPricingDecision(t *testing.T) {
 		t.Fatal("projection looks like a PricingDecision")
 	}
 	raw, err := json.Marshal(p)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	// Must not carry fixed_point buyer/supplier nanos — that is settlement.
 	var probe map[string]any
-	if err := json.Unmarshal(raw, &probe); err != nil {
-		t.Fatal(err)
-	}
+	must(t, json.Unmarshal(raw, &probe))
 	for _, forbidden := range []string{
 		"fixed_point", "buyer_charge_nanos", "supplier_entitlements_nanos",
 		"accepted_ceiling_nanos", "pricing_decision_sha256",
@@ -481,9 +477,7 @@ func TestWriteCellEconomicsCensusReceipt(t *testing.T) {
 	}
 
 	dir := filepath.Join("..", "evidence", "perf", "selector")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
-	}
+	must(t, os.MkdirAll(dir, 0o755))
 	path := filepath.Join(dir, "cell-economics-census.json")
 	// Prefer bound writer when available; fall back to plain JSON so the
 	// receipt still lands in environments without identity tooling.
@@ -508,12 +502,8 @@ func TestWriteCellEconomicsCensusReceipt(t *testing.T) {
 func writePlainJSON(t *testing.T, path string, out any) {
 	t.Helper()
 	raw, err := json.MarshalIndent(out, "", "  ")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, append(raw, '\n'), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
+	must(t, os.WriteFile(path, append(raw, '\n'), 0o644))
 }
 
 func containsCI(s, sub string) bool {

@@ -36,16 +36,12 @@ func TestCreateAPIKeyNeverMintsAdmin(t *testing.T) {
 		t.Fatal(err)
 	}
 	id, raw, _, err := store.CreateAPIKey(ctx, buyerID, "ordinary", true)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if raw == "" || id == uuid.Nil {
 		t.Fatal("expected a minted buyer key")
 	}
 	var isAdmin bool
-	if err := pool.QueryRow(ctx, `SELECT is_admin FROM api_keys WHERE id=$1`, id).Scan(&isAdmin); err != nil {
-		t.Fatal(err)
-	}
+	must(t, pool.QueryRow(ctx, `SELECT is_admin FROM api_keys WHERE id=$1`, id).Scan(&isAdmin))
 	if isAdmin {
 		t.Fatal("CreateAPIKey minted an admin key through the ordinary buyer path")
 	}
@@ -75,9 +71,7 @@ func TestAuthenticateAdminPrefersOperatorCredentialsOverBreakGlass(t *testing.T)
 		t.Fatal(err)
 	}
 	actor, err := store.AuthenticateAdmin(ctx, raw)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if actor.Mode != AdminAuthOperatorKey || actor.PrincipalID != opID {
 		t.Fatalf("expected operator_key principal %s, got mode=%s id=%s", opID, actor.Mode, actor.PrincipalID)
 	}
@@ -98,9 +92,7 @@ func TestAuthenticateAdminBreakGlassMigrationPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	actor, err := store.AuthenticateAdmin(ctx, raw)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if actor.Mode != AdminAuthBreakGlassAPIKey || actor.PrincipalID != id {
 		t.Fatalf("expected break-glass principal %s, got mode=%s id=%s", id, actor.Mode, actor.PrincipalID)
 	}
@@ -146,12 +138,8 @@ func TestValidateAdminAccessConfigRequiresCIDRsInProduction(t *testing.T) {
 	if err := validateAdminAccessConfig("production", ""); err == nil {
 		t.Fatal("production without MERC_ADMIN_CIDRS must refuse to start")
 	}
-	if err := validateAdminAccessConfig("production", "10.0.0.0/8"); err != nil {
-		t.Fatal(err)
-	}
-	if err := validateAdminAccessConfig("development", ""); err != nil {
-		t.Fatal(err)
-	}
+	must(t, validateAdminAccessConfig("production", "10.0.0.0/8"))
+	must(t, validateAdminAccessConfig("development", ""))
 	if err := validateAdminAccessConfig("development", "bad"); err == nil {
 		t.Fatal("malformed CIDRs must be refused in any env")
 	}
@@ -165,14 +153,10 @@ func TestAuthAdminEnforcesIPAllowlistAndSeparatePrincipal(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	t.Cleanup(cancel)
 	pool, err := pgxpool.New(ctx, databaseURL)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	t.Cleanup(pool.Close)
 	store := NewStore(pool)
-	if err := store.Migrate(ctx); err != nil {
-		t.Fatal(err)
-	}
+	must(t, store.Migrate(ctx))
 
 	raw := "cx_admin_http_" + uuid.NewString()
 	sum := sha256.Sum256([]byte(raw))

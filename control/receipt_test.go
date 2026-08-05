@@ -30,9 +30,7 @@ func TestAssembleClearingReceipt(t *testing.T) {
 		taskReceiptRow(0, "complete", true, "candle", "abc123", "honeypot_pass", "pass"),
 	}
 	workload, err := buildWorkloadDecision(validBatchWorkloadSubmit(t), strings.Repeat("e", 64))
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	computePlan, err := newDistributedComputePlan(
 		workload,
 		1,
@@ -49,9 +47,7 @@ func TestAssembleClearingReceipt(t *testing.T) {
 		QuoteConfidence{Score: 0.9, Reasons: []string{"receipt fixture"}},
 		nil,
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 
 	rc := assembleClearingReceipt(
 		jobID, "complete", &workload, &computePlan, nil, nil,
@@ -125,9 +121,7 @@ func TestClearingReceiptExposesExactCompositePricingAndReconciliation(t *testing
 		invoice, Verification{}, nil, nil,
 	)
 	wantPricingSHA, err := pricingDecisionDigest(pricing)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if receipt.AuthorityStatus != "verified" ||
 		receipt.Authority.PricingDecisionSHA256 != wantPricingSHA ||
 		receipt.Authority.PlacementRequirementSHA256 !=

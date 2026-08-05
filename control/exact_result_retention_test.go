@@ -19,13 +19,9 @@ func seedExactCacheRow(
 ) (identity, ref string) {
 	t.Helper()
 	id, err := detIdentity("exact-ret-" + uuid.NewString()).Compute()
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	ref, err = store.StoreExactResultBytes(ctx, storage, id, body, 16)
-	if err != nil {
-		t.Fatalf("store: %v", err)
-	}
+	mustf(t, err, "store: %v")
 	if age > 0 {
 		if _, err := store.pool.Exec(ctx, `
 			UPDATE exact_result_cache
@@ -62,9 +58,7 @@ func TestExactResultRetentionPurgesAgedEntryAndObject(t *testing.T) {
 		t.Fatalf("seeded row missing: n=%d err=%v", n, err)
 	}
 
-	if err := wk.sweepExactResultCache(ctx); err != nil {
-		t.Fatalf("sweep: %v", err)
-	}
+	mustf(t, wk.sweepExactResultCache(ctx), "sweep: %v")
 	if err := store.pool.QueryRow(ctx,
 		`SELECT count(*) FROM exact_result_cache WHERE request_identity=$1`, id).Scan(&n); err != nil || n != 0 {
 		t.Fatalf("aged row survived sweep: n=%d err=%v", n, err)
@@ -76,13 +70,9 @@ func TestExactResultRetentionPurgesAgedEntryAndObject(t *testing.T) {
 
 	// Idempotent: second pass must not error and must not re-delete anything
 	// meaningful (no remaining row to claim).
-	if err := wk.sweepExactResultCache(ctx); err != nil {
-		t.Fatalf("second sweep: %v", err)
-	}
+	mustf(t, wk.sweepExactResultCache(ctx), "second sweep: %v")
 	aged, err := store.ClaimExactResultsForAgeRetention(ctx, retention, 100)
-	if err != nil {
-		t.Fatalf("re-claim: %v", err)
-	}
+	mustf(t, err, "re-claim: %v")
 	for _, e := range aged {
 		if e.Identity == id {
 			t.Fatal("already-purged identity was claimed again")
@@ -98,9 +88,7 @@ func TestExactResultRetentionHoldsFreshEntries(t *testing.T) {
 	body := []byte(`{"id":"chatcmpl-fresh","choices":[{"message":{"role":"assistant","content":"ok"}}]}`)
 	id, ref := seedExactCacheRow(t, ctx, store, storage, 0, body)
 
-	if err := wk.sweepExactResultCache(ctx); err != nil {
-		t.Fatalf("sweep: %v", err)
-	}
+	mustf(t, wk.sweepExactResultCache(ctx), "sweep: %v")
 	if _, ok, err := store.LookupExactResult(ctx, id); err != nil || !ok {
 		t.Fatalf("fresh row was purged: ok=%v err=%v", ok, err)
 	}
@@ -132,18 +120,14 @@ func TestExactResultSizeRetentionTrimsOverBudget(t *testing.T) {
 	}
 
 	evicted, err := store.ClaimExactResultsForSizeRetention(ctx, bodySize+100, 10)
-	if err != nil {
-		t.Fatalf("size claim: %v", err)
-	}
+	mustf(t, err, "size claim: %v")
 	if len(evicted) < 2 {
 		t.Fatalf("want at least 2 size evictions to fit under budget, got %d", len(evicted))
 	}
 	// Clean up orphaned objects the claim left behind (sweep would remove them).
 	for _, e := range evicted {
 		still, err := store.exactResultRefStillReferenced(ctx, e.ResultRef)
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		if !still {
 			_ = storage.RemoveObjects(ctx, []string{e.ResultRef})
 		}

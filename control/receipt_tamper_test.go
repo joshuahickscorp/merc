@@ -16,12 +16,8 @@ import (
 func TestReceiptAuthorityRefusesEveryTamper(t *testing.T) {
 	base, err := buildWorkloadDecisionDirected(
 		embedSubmit(), strings.Repeat("9", 64), llamaEmbedCell)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := ValidateWorkloadDecisionSnapshot(base); err != nil {
-		t.Fatalf("the untampered authority does not validate: %v", err)
-	}
+	must(t, err)
+	mustf(t, ValidateWorkloadDecisionSnapshot(base), "the untampered authority does not validate: %v")
 
 	for name, mutate := range map[string]func(*WorkloadDecision){
 		// The runtime cell: the single most valuable thing to forge, because it
@@ -78,14 +74,10 @@ func TestReceiptAuthorityRefusesEveryTamper(t *testing.T) {
 func TestReceiptBindingDigestTracksTheRequest(t *testing.T) {
 	a, err := buildWorkloadDecisionDirected(
 		embedSubmit(), strings.Repeat("1", 64), llamaEmbedCell)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	b, err := buildWorkloadDecisionDirected(
 		embedSubmit(), strings.Repeat("2", 64), llamaEmbedCell)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if a.BindingSHA256 == b.BindingSHA256 {
 		t.Fatal("two different input commitments produced one binding digest")
 	}
@@ -94,9 +86,7 @@ func TestReceiptBindingDigestTracksTheRequest(t *testing.T) {
 	// comparable and still distinguishable.
 	onCandle, err := buildWorkloadDecisionDirected(
 		embedSubmit(), strings.Repeat("1", 64), candleEmbedCell)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if onCandle.BindingSHA256 != a.BindingSHA256 {
 		t.Fatal("directing the same request to another cell changed its binding")
 	}

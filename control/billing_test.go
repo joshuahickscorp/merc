@@ -86,9 +86,7 @@ func TestChargePaymentIntentRequiresExactTerminalCashFact(t *testing.T) {
 			_, _ = w.Write([]byte(good))
 		}))
 		got, err := chargePaymentIntent(context.Background(), "cus_test", "pm_test", 123, "usd", "job-stable")
-		if err != nil {
-			t.Fatalf("chargePaymentIntent: %v", err)
-		}
+		mustf(t, err, "chargePaymentIntent: %v")
 		want := (ChargeResult{PaymentIntentID: "pi_exact", ChargeID: "ch_exact", RequestedCents: 123, ReceivedCents: 123, Currency: "usd"})
 		if got != want {
 			t.Fatalf("result = %+v, want %+v", got, want)
@@ -157,9 +155,7 @@ func TestChargePaymentIntentResponseLossKeepsIdempotencyKey(t *testing.T) {
 		t.Fatal("lost first response must surface as an ambiguous error")
 	}
 	got, err := chargePaymentIntent(context.Background(), "cus_test", "pm_test", 321, "usd", key)
-	if err != nil {
-		t.Fatalf("idempotent retry: %v", err)
-	}
+	mustf(t, err, "idempotent retry: %v")
 	if got.PaymentIntentID != "pi_replayed" || got.ReceivedCents != 321 {
 		t.Fatalf("retry result = %+v", got)
 	}
@@ -260,9 +256,7 @@ func TestStripeWebhookRetriesSavedCardDatabaseFailures(t *testing.T) {
 }
 
 func TestValidateBillingPMUpdateCount(t *testing.T) {
-	if err := validateBillingPMUpdateCount(1); err != nil {
-		t.Fatalf("one updated customer rejected: %v", err)
-	}
+	mustf(t, validateBillingPMUpdateCount(1), "one updated customer rejected: %v")
 	if err := validateBillingPMUpdateCount(0); !errors.Is(err, errNotFound) {
 		t.Fatalf("zero updated customers error=%v, want errNotFound", err)
 	}

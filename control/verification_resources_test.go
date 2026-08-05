@@ -68,14 +68,10 @@ func TestExecutionDBCapacityFailsClosedAtUnsafeWorkerSizes(t *testing.T) {
 func TestVerificationCapacityLeavesLiveConnectionsForAPIAndRenewal(t *testing.T) {
 	databaseURL := requireTestDatabase(t)
 	cfg, err := pgxpool.ParseConfig(databaseURL)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	cfg.MaxConns = 6
 	pool, err := pgxpool.NewWithConfig(context.Background(), cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	defer pool.Close()
 	store := NewStoreWithWorkerLeader(pool)
 	if got := store.verificationResources.processCapacity(); got != 1 {
@@ -85,34 +81,22 @@ func TestVerificationCapacityLeavesLiveConnectionsForAPIAndRenewal(t *testing.T)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	leader, err := pool.Acquire(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	defer leader.Release()
 	lockConn, err := pool.Acquire(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	defer lockConn.Release()
 	verificationQuery, err := pool.Acquire(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	defer verificationQuery.Release()
 	heartbeatConn, err := pool.Acquire(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	defer heartbeatConn.Release()
 	apiConn, err := pool.Acquire(ctx)
-	if err != nil {
-		t.Fatalf("API headroom unavailable at peak verification load: %v", err)
-	}
+	mustf(t, err, "API headroom unavailable at peak verification load: %v")
 	defer apiConn.Release()
 	backgroundConn, err := pool.Acquire(ctx)
-	if err != nil {
-		t.Fatalf("background headroom unavailable at peak verification load: %v", err)
-	}
+	mustf(t, err, "background headroom unavailable at peak verification load: %v")
 	defer backgroundConn.Release()
 
 	fullCtx, fullCancel := context.WithTimeout(context.Background(), 50*time.Millisecond)

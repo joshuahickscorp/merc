@@ -86,17 +86,11 @@ func TestMoneyInvariantsHoldUnderRandomOperationOrderings(t *testing.T) {
 				pending = append(pending[:i], pending[i+1:]...)
 
 				before, err := store.SupplierAccrual(ctx, m.supplier)
-				if err != nil {
-					t.Fatalf("seed %d step %d: read accrual: %v", seed, step, err)
-				}
+				mustf(t, err, "seed %d step %d: read accrual: %v", seed, step)
 				out, _, err := store.ClaimPayout(ctx, entry)
-				if err != nil {
-					t.Fatalf("seed %d step %d: claim: %v", seed, step, err)
-				}
+				mustf(t, err, "seed %d step %d: claim: %v", seed, step)
 				after, err := store.SupplierAccrual(ctx, m.supplier)
-				if err != nil {
-					t.Fatalf("seed %d step %d: re-read accrual: %v", seed, step, err)
-				}
+				mustf(t, err, "seed %d step %d: re-read accrual: %v", seed, step)
 
 				// The model learns the absorbed amount from the store's own
 				// delta, then verifies the delta is internally consistent --
@@ -120,9 +114,7 @@ func TestMoneyInvariantsHoldUnderRandomOperationOrderings(t *testing.T) {
 				})
 				before, _ := store.SupplierAccrual(ctx, m.supplier)
 				out, _, err := store.ClaimPayout(ctx, f.entryID)
-				if err != nil {
-					t.Fatalf("seed %d step %d: first claim: %v", seed, step, err)
-				}
+				mustf(t, err, "seed %d step %d: first claim: %v", seed, step)
 				mid, _ := store.SupplierAccrual(ctx, m.supplier)
 				m.absorbedMicro += mid.LifetimeAbsorbed - before.LifetimeAbsorbed
 				m.claimedCents += out.RequestedCents
@@ -137,9 +129,7 @@ func TestMoneyInvariantsHoldUnderRandomOperationOrderings(t *testing.T) {
 			}
 
 			acc, err := store.SupplierAccrual(ctx, m.supplier)
-			if err != nil {
-				t.Fatalf("seed %d step %d: read accrual: %v", seed, step, err)
-			}
+			mustf(t, err, "seed %d step %d: read accrual: %v", seed, step)
 			m.checkInvariants(t, step, acc)
 		}
 

@@ -21,9 +21,7 @@ func identityFor(t *testing.T, tenant uuid.UUID, input string) string {
 		TopP:        1,
 		Policy:      "coalescing-test",
 	}.Compute()
-	if err != nil {
-		t.Fatalf("compute identity: %v", err)
-	}
+	mustf(t, err, "compute identity: %v")
 	return id
 }
 
@@ -72,9 +70,7 @@ func TestOneLeaderUnderConcurrency(t *testing.T) {
 		t.Fatalf("%d followers, want %d", followers, callers-1)
 	}
 	counted, err := store.InflightFollowers(ctx, identity)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if counted != int64(callers-1) {
 		t.Fatalf("the row counted %d followers, want %d", counted, callers-1)
 	}
@@ -102,9 +98,7 @@ func TestIdenticalRequestsInDifferentTenantsNeverCoalesce(t *testing.T) {
 		t.Fatalf("tenant A did not lead: %+v %v", roleA, err)
 	}
 	roleB, err := store.ClaimInflightExecution(ctx, identityB, tenantB, "b")
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if !roleB.Leader {
 		t.Fatal("tenant B followed tenant A's execution across a tenant boundary")
 	}
@@ -203,18 +197,14 @@ func TestExpiredLeaseIsTakenOverAndReElectionIsBounded(t *testing.T) {
 	for election := 2; election <= inflightMaxElections; election++ {
 		expire()
 		role, err := store.ClaimInflightExecution(ctx, identity, tenant, fmt.Sprintf("leader-%d", election))
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		if !role.Leader || role.Elections != election {
 			t.Fatalf("election %d produced %+v", election, role)
 		}
 	}
 	expire()
 	role, err := store.ClaimInflightExecution(ctx, identity, tenant, "leader-last")
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if !role.Ineligible {
 		t.Fatalf("re-election was unbounded: %+v", role)
 	}
@@ -242,9 +232,7 @@ func TestFollowerIsReleasedWhenTheLeaderStopsReporting(t *testing.T) {
 	waitCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	result, ok, err := store.AwaitInflightResult(waitCtx, identity, tenant)
-	if err != nil {
-		t.Fatalf("await: %v", err)
-	}
+	mustf(t, err, "await: %v")
 	if ok {
 		t.Fatalf("a follower got a result from a leader that stopped reporting: %+v", result)
 	}
@@ -303,15 +291,11 @@ func TestLeaderFailureReleasesFollowersPromptly(t *testing.T) {
 	if _, err := store.ClaimInflightExecution(ctx, identity, tenant, "leader"); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.ResolveInflightFailure(ctx, identity, "leader", "upstream returned 503"); err != nil {
-		t.Fatal(err)
-	}
+	must(t, store.ResolveInflightFailure(ctx, identity, "leader", "upstream returned 503"))
 	waitCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	result, ok, err := store.AwaitInflightResult(waitCtx, identity, tenant)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if ok {
 		t.Fatal("a failed execution was delivered as a result")
 	}
@@ -335,9 +319,7 @@ func TestExpiredInflightRowsAreSwept(t *testing.T) {
 		t.Fatal(err)
 	}
 	removed, err := store.sweepExpiredInflight(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if removed < 1 {
 		t.Fatal("the sweep removed nothing")
 	}
@@ -447,9 +429,7 @@ func TestARenewedLeaseSurvivesItsTTLAndKeepsThePublishRight(t *testing.T) {
 	identity := identityFor(t, tenant, "slow-leader")
 
 	role, err := store.ClaimInflightExecution(ctx, identity, tenant, "leader-1")
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if !role.Leader {
 		t.Fatal("the first caller did not lead")
 	}
@@ -469,9 +449,7 @@ func TestARenewedLeaseSurvivesItsTTLAndKeepsThePublishRight(t *testing.T) {
 	// behaviour that was shipping.
 	expire()
 	stolen, err := store.ClaimInflightExecution(ctx, identity, tenant, "leader-2")
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if !stolen.Leader {
 		t.Fatal("an expired lease was not taken over; this test no longer " +
 			"reproduces the condition the renewal exists for")
@@ -494,13 +472,9 @@ func TestARenewedLeaseSurvivesItsTTLAndKeepsThePublishRight(t *testing.T) {
 		 WHERE request_identity=$1`, fresh); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.RenewInflightLease(ctx, fresh, "leader-3"); err != nil {
-		t.Fatalf("renew: %v", err)
-	}
+	mustf(t, store.RenewInflightLease(ctx, fresh, "leader-3"), "renew: %v")
 	joined, err := store.ClaimInflightExecution(ctx, fresh, tenant, "leader-4")
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if joined.Leader {
 		t.Fatal("a renewed lease was still taken over; the renewal did not extend it")
 	}

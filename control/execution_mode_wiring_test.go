@@ -15,14 +15,10 @@ func TestRecordedShadowSelectionCarriesItsExecutionMode(t *testing.T) {
 	tasks := makeTasks(f, 1)
 	f.TaskIDs = []uuid.UUID{tasks[0].ID}
 	job := validJobRowDirected(t, f, tasks, candleEmbedCell)
-	if err := store.SubmitJobTx(ctx, job, tasks); err != nil {
-		t.Fatalf("submit: %v", err)
-	}
+	mustf(t, store.SubmitJobTx(ctx, job, tasks), "submit: %v")
 
 	shadow, err := planShadowSelection(job.WorkloadDecision)
-	if err != nil {
-		t.Fatalf("plan shadow selection: %v", err)
-	}
+	mustf(t, err, "plan shadow selection: %v")
 	shadow = shadow.withExecutionMode(job.WorkloadDecision)
 	if shadow.ExecutionMode != string(ModePool) {
 		t.Fatalf("execution mode = %q, want POOL: independent task fan-out over "+
@@ -38,9 +34,7 @@ func TestRecordedShadowSelectionCarriesItsExecutionMode(t *testing.T) {
 			shadow.ExecutionModeReason)
 	}
 
-	if err := store.RecordShadowSelection(ctx, f.JobID.String(), shadow); err != nil {
-		t.Fatalf("record: %v", err)
-	}
+	mustf(t, store.RecordShadowSelection(ctx, f.JobID.String(), shadow), "record: %v")
 	var mode, reason, topology string
 	if err := pool.QueryRow(ctx, `
 		SELECT execution_mode, execution_mode_reason, topology_plan::text

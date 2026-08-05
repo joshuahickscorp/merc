@@ -18,9 +18,7 @@ import (
 // production INSERT INTO ledger_entries must live in ledger_write.go.
 func TestNoRawLedgerInsertsOutsideWriter(t *testing.T) {
 	entries, err := os.ReadDir(".")
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	const needle = "INSERT INTO ledger_entries"
 	var offenders []string
 	for _, entry := range entries {
@@ -32,9 +30,7 @@ func TestNoRawLedgerInsertsOutsideWriter(t *testing.T) {
 			continue
 		}
 		body, err := os.ReadFile(name)
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		if strings.Contains(string(body), needle) {
 			offenders = append(offenders, name)
 		}
@@ -115,13 +111,9 @@ func TestStripeTransferReversalHTTPIdempotentShape(t *testing.T) {
 	}
 	key := uuid.NewString()
 	first, err := p.ReverseTransfer(context.Background(), "tr_sim", 125, "usd", key)
-	if err != nil {
-		t.Fatalf("first reverse: %v", err)
-	}
+	mustf(t, err, "first reverse: %v")
 	second, err := p.ReverseTransfer(context.Background(), "tr_sim", 125, "usd", key)
-	if err != nil {
-		t.Fatalf("idempotent reverse: %v", err)
-	}
+	mustf(t, err, "idempotent reverse: %v")
 	if first.Ref != "trr_sim_1" || second.Ref != first.Ref {
 		t.Fatalf("results = %+v %+v", first, second)
 	}
@@ -166,9 +158,7 @@ func TestStripeChargeRefundHTTPShape(t *testing.T) {
 		})},
 	}
 	got, err := p.RefundCharge(context.Background(), "pi_sim", 50, "usd", "entry-1")
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if got.Ref != "re_sim_1" || got.Instrument != "charge_refund" {
 		t.Fatalf("got = %+v", got)
 	}
@@ -183,35 +173,19 @@ func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { retu
 func TestSimulatorPayoutReversalIdempotent(t *testing.T) {
 	sim := newDeterministicStripeSimulator(42)
 	intent, err := sim.createPaymentIntent("rev-key", 1000, "attempt-rev", true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := sim.authorize(intent.ID); err != nil {
-		t.Fatal(err)
-	}
-	if err := sim.capture(intent.ID); err != nil {
-		t.Fatal(err)
-	}
-	if err := sim.transfer(intent.ID, "xfer-1", "attempt-rev", 400); err != nil {
-		t.Fatal(err)
-	}
-	if err := sim.payout(intent.ID, "release-1", "released"); err != nil {
-		t.Fatal(err)
-	}
-	if err := sim.payout(intent.ID, "reverse-1", "reversed"); err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
+	must(t, sim.authorize(intent.ID))
+	must(t, sim.capture(intent.ID))
+	must(t, sim.transfer(intent.ID, "xfer-1", "attempt-rev", 400))
+	must(t, sim.payout(intent.ID, "release-1", "released"))
+	must(t, sim.payout(intent.ID, "reverse-1", "reversed"))
 	snap, _, err := sim.snapshot(intent.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if snap.PayoutState != "reversed" {
 		t.Fatalf("payout state = %q", snap.PayoutState)
 	}
 	// Idempotent reverse effect key does not double-book the ledger.
-	if err := sim.payout(intent.ID, "reverse-1", "reversed"); err != nil {
-		t.Fatalf("idempotent reverse: %v", err)
-	}
+	mustf(t, sim.payout(intent.ID, "reverse-1", "reversed"), "idempotent reverse: %v")
 	// A second distinct reverse from already-reversed is rejected.
 	if err := sim.payout(intent.ID, "reverse-2", "reversed"); err == nil {
 		t.Fatal("second reverse effect from reversed state should fail")
@@ -254,9 +228,7 @@ func TestReversalPayoutPauseAndResumeIntegration(t *testing.T) {
 	}
 	beforePause := metrics.payoutsPausedReversalRequired.Load()
 	wk := NewWorkers(store, nil, stubPayout{})
-	if err := wk.releasePayouts(ctx); err != nil {
-		t.Fatalf("paused sweep: %v", err)
-	}
+	mustf(t, wk.releasePayouts(ctx), "paused sweep: %v")
 	if metrics.payoutsPausedReversalRequired.Load() != beforePause+1 {
 		t.Fatal("expected pause metric bump")
 	}
@@ -279,25 +251,19 @@ func TestReversalPayoutPauseAndResumeIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	n, err := store.CountReversalRequired(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if n != 0 {
 		t.Fatalf("outstanding after clear = %d, want 0 on an isolated database", n)
 	}
 	entries, err := store.DuePayouts(ctx, 100)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if !dueContains(entries, due) {
 		t.Fatal("due credit not visible after clearing reversal_required")
 	}
 	// Re-run sweep: must not bump pause metric, and must advance the due row
 	// out of held (no funding → awaiting_funding is still a successful claim CAS).
 	beforeResume := metrics.payoutsPausedReversalRequired.Load()
-	if err := wk.releasePayouts(ctx); err != nil {
-		t.Fatalf("resumed sweep: %v", err)
-	}
+	mustf(t, wk.releasePayouts(ctx), "resumed sweep: %v")
 	if metrics.payoutsPausedReversalRequired.Load() != beforeResume {
 		t.Fatal("pause metric bumped after reversal_required cleared")
 	}
@@ -399,9 +365,7 @@ func TestReversalCASTerminalIntegration(t *testing.T) {
 	}
 
 	claimed, err := store.ClaimReversals(ctx, time.Minute, 10)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	// ClaimReversals is platform-wide, so assert on THIS entry rather than on the
 	// size of the whole result: a sibling test's pending row is not this test's
 	// failure, and asserting an absolute count only holds on a database nobody
@@ -417,9 +381,7 @@ func TestReversalCASTerminalIntegration(t *testing.T) {
 	}
 	// Second claim while reversing must not re-lease this entry (lease unexpired).
 	again, err := store.ClaimReversals(ctx, time.Hour, 10)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	for _, c := range again {
 		if c.ID == entryID {
 			t.Fatalf("entry re-leased while still reversing: %+v", c)
@@ -461,9 +423,7 @@ func TestReversalCASTerminalIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	wk := NewWorkers(store, nil, fakeReverserPayout{})
-	if err := wk.processReversals(ctx); err != nil {
-		t.Fatal(err)
-	}
+	must(t, wk.processReversals(ctx))
 	var status string
 	if err := pool.QueryRow(ctx, `SELECT payout_status FROM ledger_entries WHERE id=$1`, entry2).
 		Scan(&status); err != nil {

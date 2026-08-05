@@ -34,9 +34,7 @@ func TestRealtimeMarketLiquidityRetainsOfferAndCapacityEvidence(t *testing.T) {
 
 	buyerID, err := store.CreateBuyerAccount(ctx,
 		"liquidity-"+uuid.NewString()+"@example.test", "integration-password", 5)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	supplierID, workerID := uuid.New(), uuid.New()
 	if _, err := pool.Exec(ctx, `INSERT INTO suppliers (id,email,status) VALUES ($1,$2,'active')`,
 		supplierID, "liquidity-supplier-"+uuid.NewString()+"@example.test"); err != nil {
@@ -64,9 +62,7 @@ func TestRealtimeMarketLiquidityRetainsOfferAndCapacityEvidence(t *testing.T) {
 		MaximumPromptTokens: 8_330, MaximumCompletionTokens: 1,
 		EstimatedPromptTokens: 4_163, EstimatedCompletionTokens: 1,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if err := store.RecordRealtimeAdmissionEvent(ctx, buyerID, profile.RuntimeProfileID,
 		contract.PlacementPlan.HWClass, realtimeAdmissionAdmitted, contract.ID); err != nil {
 		t.Fatal(err)
@@ -98,9 +94,7 @@ func TestRealtimeMarketLiquidityRetainsOfferAndCapacityEvidence(t *testing.T) {
 	}
 
 	receipt, err := store.RealtimeMarketLiquidity(ctx, time.Hour)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if receipt.RegionScope != "UNSPECIFIED_NO_GOVERNED_REGION_AUTHORITY" {
 		t.Fatalf("region scope=%q; report must not infer residency", receipt.RegionScope)
 	}
@@ -150,9 +144,7 @@ func TestRealtimeMarketClearingReceiptBindsOfferBookAndPricing(t *testing.T) {
 
 	buyerID, err := store.CreateBuyerAccount(ctx,
 		"market-clearing-"+uuid.NewString()+"@example.test", "integration-password", 5)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	profile := sortedVLLMProfiles()[0]
 	newOffer := func(warmth string, input, output float64) WorkerAuth {
 		supplierID, workerID := uuid.New(), uuid.New()
@@ -188,9 +180,7 @@ func TestRealtimeMarketClearingReceiptBindsOfferBookAndPricing(t *testing.T) {
 		MaximumPromptTokens: 8_330, MaximumCompletionTokens: 1,
 		EstimatedPromptTokens: 4_163, EstimatedCompletionTokens: 1, BuyerDeclaredCeilingUSD: 0.0011,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	market := contract.MarketClearing
 	if market == nil || market.Version != 1 || market.CandidateCount != 2 || market.SelectedRank != 1 ||
 		market.SelectedWorkerID != cheapWorker.WorkerID || market.SelectedSupplierID != cheapWorker.SupplierID ||
@@ -204,9 +194,7 @@ func TestRealtimeMarketClearingReceiptBindsOfferBookAndPricing(t *testing.T) {
 			market, contract, hotWorker)
 	}
 	receipt, err := store.RealtimeReceipt(ctx, buyerID, contract.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if receipt.MarketClearing == nil || receipt.MarketClearing.SelectedWorkerID != cheapWorker.WorkerID ||
 		receipt.MarketClearing.CandidateCount != 2 || receipt.MarketClearing.RankingInputs == nil {
 		t.Fatalf("buyer receipt omitted market clearing authority: %+v", receipt.MarketClearing)
@@ -232,13 +220,9 @@ func TestServiceLeaseMarketLiquidityUsesRealOfferAndBuyerAdmissionPaths(t *testi
 	if _, err := pool.Exec(ctx, `INSERT INTO buyers (id,email) VALUES ($1,$2)`, buyerID, buyerID.String()+"@service-liquidity.invalid"); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.SeedPrepaidBalance(ctx, buyerID, 1_000_000, "service-liquidity-"+buyerID.String()); err != nil {
-		t.Fatal(err)
-	}
+	must(t, store.SeedPrepaidBalance(ctx, buyerID, 1_000_000, "service-liquidity-"+buyerID.String()))
 	_, buyerKey, _, err := store.CreateAPIKey(ctx, buyerID, "service-liquidity", true)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	worker, workerToken := newFabricMeasurementWorker(t, ctx, store)
 	profile := sortedVLLMProfiles()[0]
 	seedMeasuredWarmResidency(t, ctx, pool, worker.WorkerID, profile.ModelAlias)
@@ -247,9 +231,7 @@ func TestServiceLeaseMarketLiquidityUsesRealOfferAndBuyerAdmissionPaths(t *testi
 	handler := NewServer(store, nil, nil, nil).Routes()
 	post := func(path, token string, body any) *httptest.ResponseRecorder {
 		raw, err := json.Marshal(body)
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		req := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(raw))
 		if token == workerToken {
 			req.Header.Set("X-Worker-Token", token)
@@ -273,9 +255,7 @@ func TestServiceLeaseMarketLiquidityUsesRealOfferAndBuyerAdmissionPaths(t *testi
 		t.Fatalf("second service admission status=%d body=%s", denied.Code, denied.Body.String())
 	}
 	receipt, err := store.ServiceLeaseMarketLiquidity(ctx, time.Hour)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if receipt.RegionScope != "SUPPLIER_DECLARED_OPERATIONAL_REGION_ONLY" {
 		t.Fatalf("service liquidity promoted supplier region: %q", receipt.RegionScope)
 	}
@@ -327,9 +307,7 @@ func TestNetworkMarketLiquidityComposesBoundedLaneReceipts(t *testing.T) {
 	installSettlementCurrencyForTest(t, "cad")
 	ctx, store, _ := openPayoutTestStore(t)
 	receipt, err := store.NetworkMarketLiquidity(ctx, time.Hour)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if receipt.Version != 1 || receipt.Window != time.Hour.String() ||
 		receipt.MarketScope != "MERC_RETAINED_REALTIME_AND_WARM_SERVICE_LANES_ONLY_NO_GLOBAL_OR_LEGAL_REGION_CLAIM" ||
 		receipt.Realtime.Version != 1 || receipt.Services.Version != 1 ||

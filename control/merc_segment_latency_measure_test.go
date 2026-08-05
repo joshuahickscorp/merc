@@ -112,13 +112,9 @@ func TestMercSegmentLatencyMeasure(t *testing.T) {
 	// and for serial decomp/settlement probes.
 	buyerID, err := store.CreateBuyerAccount(ctx,
 		"seg-lat-"+uuid.NewString()+"@example.test", "integration-password", 100_000)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	_, buyerKey, _, err := store.CreateAPIKey(ctx, buyerID, "segment latency", true)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	// E2E concurrent buyers: one per max concurrency slot. Concurrent full-path
 	// streams with a single buyer deadlocked (offer row lock vs buyer funding
 	// lock vs settlement) in pilot runs; multi-buyer keeps the measurement of
@@ -217,9 +213,7 @@ func TestMercSegmentLatencyMeasure(t *testing.T) {
 
 			// Warmup (serial) so cold caches do not dominate the first sample.
 			for i := 0; i < warmupPerCell; i++ {
-				if err := doSegmentStreamRequest(httpClient, server.URL, buyerKey, requestBody); err != nil {
-					t.Fatalf("warmup c=%d: %v", c, err)
-				}
+				mustf(t, doSegmentStreamRequest(httpClient, server.URL, buyerKey, requestBody), "warmup c=%d: %v", c)
 			}
 			logWriter.Reset() // discard warmup path-timing lines
 
@@ -512,9 +506,7 @@ func TestMercSegmentLatencyMeasure(t *testing.T) {
 	path := filepath.Join(dir, fmt.Sprintf("merc-segment-latency-%s.json", stamp))
 	id, bin, err := DefaultBoundIdentity("..", "control/merc_segment_latency_measure_test.go",
 		"embedded method + cells + aggregated", "embedded cells[] samples summarised; raw durations not retained")
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if err := WriteBoundEvidenceJSON(EvidenceWriteRequest{
 		RepoRoot: "..", Path: path, Payload: out,
 		Identity: id, BuildBinaryPath: bin,

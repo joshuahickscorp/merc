@@ -390,18 +390,12 @@ func TestPrefixAffinityControlledCorpusMeasurement(t *testing.T) {
 	if os.Getenv("MERC_PREFIX_AFFINITY_PERF") == "1" {
 		outPath := filepath.Join("..", "evidence", "perf", "prefix-affinity-routing.json")
 		raw, err := json.Marshal(art)
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		var payload map[string]any
-		if err := json.Unmarshal(raw, &payload); err != nil {
-			t.Fatal(err)
-		}
+		must(t, json.Unmarshal(raw, &payload))
 		id, bin, err := DefaultBoundIdentity("..", "control/prefix_affinity_measure_test.go",
 			"embedded arms + setup", "embedded arm observations")
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		if err := WriteBoundEvidenceJSON(EvidenceWriteRequest{
 			RepoRoot: "..", Path: outPath, Payload: payload,
 			Identity: id, BuildBinaryPath: bin,

@@ -109,12 +109,8 @@ func TestNonGitMercSourceCommitIsRejected(t *testing.T) {
 		// control/ tests run with cwd=control; try .
 		head, err = gitBytes(".", "rev-parse", "HEAD")
 	}
-	if err != nil {
-		t.Fatalf("resolve HEAD: %v", err)
-	}
-	if err := validateMercSourceCommit(strings.TrimSpace(string(head))); err != nil {
-		t.Fatalf("real HEAD refused: %v", err)
-	}
+	mustf(t, err, "resolve HEAD: %v")
+	mustf(t, validateMercSourceCommit(strings.TrimSpace(string(head))), "real HEAD refused: %v")
 }
 
 // Automatic demotion: invalidate an authority and the dependent cell leaves the
@@ -149,9 +145,7 @@ func TestInvalidatingAuthorityDemotesDependentCell(t *testing.T) {
 	previous := benchmarkAuthorityManifest[path].Validity
 	t.Cleanup(func() { RestoreBenchmarkAuthorityValidity(path, previous) })
 
-	if err := InvalidateBenchmarkAuthority(path, authorityValidityWithdrawn); err != nil {
-		t.Fatal(err)
-	}
+	must(t, InvalidateBenchmarkAuthority(path, authorityValidityWithdrawn))
 	if cell.Routable(embedded) {
 		t.Fatal("cell stayed routable after its authority was WITHDRAWN")
 	}
@@ -165,9 +159,7 @@ func TestInvalidatingAuthorityDemotesDependentCell(t *testing.T) {
 		"INVALIDATED_PENDING_RERUN",
 		authorityValiditySuperseded,
 	} {
-		if err := InvalidateBenchmarkAuthority(path, v); err != nil {
-			t.Fatal(err)
-		}
+		must(t, InvalidateBenchmarkAuthority(path, v))
 		if cell.Routable(embedded) {
 			t.Fatalf("cell stayed routable under validity %s", v)
 		}

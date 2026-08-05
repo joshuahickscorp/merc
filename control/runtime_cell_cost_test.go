@@ -67,24 +67,18 @@ func TestCellPromotionEvidenceIsAppendOnlyAndIdempotent(t *testing.T) {
 		UnknownCostComponents:  []string{"startup"},
 	}
 	inserted, err := store.RecordCellPromotionEvaluation(ctx, evidence)
-	if err != nil {
-		t.Fatalf("record promotion evidence: %v", err)
-	}
+	mustf(t, err, "record promotion evidence: %v")
 	if !inserted {
 		t.Fatal("first promotion evidence write was not inserted")
 	}
 	inserted, err = store.RecordCellPromotionEvaluation(ctx, evidence)
-	if err != nil {
-		t.Fatalf("record duplicate promotion evidence: %v", err)
-	}
+	mustf(t, err, "record duplicate promotion evidence: %v")
 	if inserted {
 		t.Fatal("duplicate promotion evidence was inserted twice")
 	}
 
 	digest, err := evidence.Digest()
-	if err != nil {
-		t.Fatalf("digest: %v", err)
-	}
+	mustf(t, err, "digest: %v")
 	var count int
 	if err := pool.QueryRow(ctx,
 		`SELECT COUNT(*) FROM runtime_cell_promotion_evaluations WHERE evidence_sha256=$1`, digest).Scan(&count); err != nil {
@@ -302,9 +296,7 @@ func seedCompletedCellTasks(
 	tasks := makeTasks(f, 1)
 	f.TaskIDs = []uuid.UUID{tasks[0].ID}
 	job := validJobRowDirected(t, f, tasks, cellID)
-	if err := store.SubmitJobTx(ctx, job, tasks); err != nil {
-		t.Fatalf("submit %s job: %v", cellID, err)
-	}
+	mustf(t, store.SubmitJobTx(ctx, job, tasks), "submit %s job: %v", cellID)
 	for i := 0; i < n; i++ {
 		outcome := "pass"
 		if i < verificationFails {
@@ -358,9 +350,7 @@ func TestMeasuredCellCostsReadTheMoneyPathPerCell(t *testing.T) {
 		100, 100, 0.000010, 0.000200, 0)
 
 	byHW, err := store.MeasuredCellCostsByHardware(ctx, "embed", "all-minilm-l6-v2")
-	if err != nil {
-		t.Fatalf("measured cell costs: %v", err)
-	}
+	mustf(t, err, "measured cell costs: %v")
 	ultra := byHW[hw]
 	if len(ultra) != 2 {
 		t.Fatalf("cells measured on %s = %d, want 2 (%v)", hw, len(ultra), ultra)
@@ -425,9 +415,7 @@ func TestCellPromotionGateRefusesUnprovenChallengers(t *testing.T) {
 
 	// Nothing has run at all.
 	evidence, err := store.EvaluateCellPromotion(ctx, scope, candleEmbedCell, time.Now())
-	if err != nil {
-		t.Fatalf("evaluate with no evidence: %v", err)
-	}
+	mustf(t, err, "evaluate with no evidence: %v")
 	if evidence.Passed() {
 		t.Fatal("gate passed with no measurement whatsoever")
 	}
@@ -447,9 +435,7 @@ func TestCellPromotionGateRefusesUnprovenChallengers(t *testing.T) {
 		llamaEmbedCell, "llama_cpp_metal", minCellCostSamples,
 		100, 400, 0.000095, 0.000200, 0)
 	evidence, err = store.EvaluateCellPromotion(ctx, scope, candleEmbedCell, time.Now())
-	if err != nil {
-		t.Fatalf("evaluate thin margin: %v", err)
-	}
+	mustf(t, err, "evaluate thin margin: %v")
 	if evidence.Passed() {
 		t.Fatalf("gate passed a 5%% saving: %+v", evidence)
 	}
@@ -460,17 +446,13 @@ func TestCellPromotionGateRefusesUnprovenChallengers(t *testing.T) {
 	// A receipt reference is derivable either way, and it changes when the
 	// evidence changes — a refusal and a pass cannot share an identity.
 	firstRef, err := evidence.ReceiptRef()
-	if err != nil {
-		t.Fatalf("receipt ref: %v", err)
-	}
+	mustf(t, err, "receipt ref: %v")
 	if firstRef == "" {
 		t.Fatal("empty receipt ref")
 	}
 	evidence.SavingFraction = 0.99
 	secondRef, err := evidence.ReceiptRef()
-	if err != nil {
-		t.Fatalf("receipt ref after mutation: %v", err)
-	}
+	mustf(t, err, "receipt ref after mutation: %v")
 	if firstRef == secondRef {
 		t.Fatal("receipt ref did not change when the evidence did")
 	}
@@ -495,9 +477,7 @@ func TestCellPromotionGateRefusesACheaperCellThatFailsVerification(t *testing.T)
 		LatencyClass: "BATCH", RuntimeID: "llama_cpp_metal", CellID: llamaEmbedCell,
 		QualityTier: "OUTCOME_EQUIVALENT", Verification: "cosine_similarity",
 	}, candleEmbedCell, time.Now())
-	if err != nil {
-		t.Fatalf("evaluate: %v", err)
-	}
+	mustf(t, err, "evaluate: %v")
 	if evidence.Passed() {
 		t.Fatalf("gate promoted a cell that failed verification: %+v", evidence)
 	}
@@ -521,9 +501,7 @@ func seedFailedCellTasks(
 	tasks := makeTasks(f, 1)
 	f.TaskIDs = []uuid.UUID{tasks[0].ID}
 	job := validJobRowDirected(t, f, tasks, cellID)
-	if err := store.SubmitJobTx(ctx, job, tasks); err != nil {
-		t.Fatalf("submit %s job: %v", cellID, err)
-	}
+	mustf(t, store.SubmitJobTx(ctx, job, tasks), "submit %s job: %v", cellID)
 	for i := 0; i < n; i++ {
 		id := uuid.New()
 		if _, err := pool.Exec(ctx, `
@@ -564,9 +542,7 @@ func TestOutrightFailuresRaiseMeasuredCostAndBlockPromotion(t *testing.T) {
 		llamaEmbedCell, "llama_cpp_metal", minCellCostSamples/2)
 
 	byHW, err := store.MeasuredCellCostsByHardware(ctx, "embed", "all-minilm-l6-v2")
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	llama := byHW[hw][llamaEmbedCell]
 	if llama.TerminalFails != minCellCostSamples/2 {
 		t.Fatalf("terminal fails = %d, want %d", llama.TerminalFails, minCellCostSamples/2)
@@ -592,9 +568,7 @@ func TestOutrightFailuresRaiseMeasuredCostAndBlockPromotion(t *testing.T) {
 		LatencyClass: "standard_batch", RuntimeID: "llama_cpp_metal", CellID: llamaEmbedCell,
 		QualityTier: "OUTCOME_EQUIVALENT", Verification: "cosine_similarity",
 	}, candleEmbedCell, time.Now())
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if evidence.Passed() {
 		t.Fatalf("gate promoted a cell that failed a third of its attempts: %+v", evidence)
 	}
@@ -627,9 +601,7 @@ func TestSamePricePromotionIsArguedOnThroughputNotOnSaving(t *testing.T) {
 		CellID: llamaEmbedCell, QualityTier: "OUTCOME_EQUIVALENT", Verification: "cosine",
 	}
 	evidence, err := store.EvaluateCellPromotion(ctx, scope, candleEmbedCell, time.Now())
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if evidence.Basis != promotionBasisThroughput {
 		t.Fatalf("basis = %q, want %q for two cells at one price",
 			evidence.Basis, promotionBasisThroughput)
@@ -671,9 +643,7 @@ func TestSamePriceSameSpeedPromotionIsRefused(t *testing.T) {
 		LatencyClass: "standard_batch", RuntimeID: "llama_cpp_metal",
 		CellID: llamaEmbedCell, QualityTier: "OUTCOME_EQUIVALENT", Verification: "cosine",
 	}, candleEmbedCell, time.Now())
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if flat.Passed() {
 		t.Fatalf("promoted a cell that is neither cheaper nor faster: %+v", flat)
 	}
@@ -707,9 +677,7 @@ func TestCellPromotionWeighsLatencyOnlyWhereItIsTheProduct(t *testing.T) {
 
 	scope.LatencyClass = "standard_batch"
 	batch, err := store.EvaluateCellPromotion(ctx, scope, candleEmbedCell, time.Now())
-	if err != nil {
-		t.Fatalf("evaluate batch scope: %v", err)
-	}
+	mustf(t, err, "evaluate batch scope: %v")
 	if containsSubstring(batch.Refusals, "slower per unit") {
 		t.Fatalf("batch work refused a cheaper-but-slower cell: %v", batch.Refusals)
 	}
@@ -719,9 +687,7 @@ func TestCellPromotionWeighsLatencyOnlyWhereItIsTheProduct(t *testing.T) {
 
 	scope.LatencyClass = string(TrafficInteractive)
 	interactive, err := store.EvaluateCellPromotion(ctx, scope, candleEmbedCell, time.Now())
-	if err != nil {
-		t.Fatalf("evaluate interactive scope: %v", err)
-	}
+	mustf(t, err, "evaluate interactive scope: %v")
 	if !containsSubstring(interactive.Refusals, "slower per unit") {
 		t.Fatalf("an interactive scope accepted a 4x slower cell: %v", interactive.Refusals)
 	}

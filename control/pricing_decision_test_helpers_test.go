@@ -14,9 +14,7 @@ import (
 func supplierShareForTest(t *testing.T, jobType, modelID string) float64 {
 	t.Helper()
 	share, err := supplierShareForWorkload(jobType, modelID)
-	if err != nil {
-		t.Fatalf("supplier share policy for %s/%s: %v", jobType, modelID, err)
-	}
+	mustf(t, err, "supplier share policy for %s/%s: %v", jobType, modelID)
 	return share
 }
 
@@ -58,9 +56,7 @@ func catalogueAuthorityFixture(t *testing.T, workload WorkloadDecision, currency
 		SupplierShare:               supplierShare,
 		SupplierSharePolicyRevision: supplierSharePolicyRevision,
 	}
-	if err := validateCataloguePriceAuthority(authority); err != nil {
-		t.Fatalf("catalogue authority fixture: %v", err)
-	}
+	mustf(t, validateCataloguePriceAuthority(authority), "catalogue authority fixture: %v")
 	return authority
 }
 
@@ -72,9 +68,7 @@ func seedCataloguePriceAuthority(t *testing.T, ctx context.Context, pool *pgxpoo
 	if pool == nil {
 		t.Fatal("seedCataloguePriceAuthority requires a pool")
 	}
-	if err := validateCataloguePriceAuthority(a); err != nil {
-		t.Fatalf("seed catalogue authority: %v", err)
-	}
+	mustf(t, validateCataloguePriceAuthority(a), "seed catalogue authority: %v")
 	scheduleJSON, err := json.Marshal(map[string]any{
 		"sha256":                         a.ScheduleSHA256,
 		"version":                        a.ScheduleVersion,
@@ -84,9 +78,7 @@ func seedCataloguePriceAuthority(t *testing.T, ctx context.Context, pool *pgxpoo
 		"board_sha256":                   a.BoardSHA256,
 		"supplier_share_policy_revision": a.SupplierSharePolicyRevision,
 	})
-	if err != nil {
-		t.Fatalf("marshal fixture schedule: %v", err)
-	}
+	mustf(t, err, "marshal fixture schedule: %v")
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO catalogue_price_schedules (
 		  sha256,version,reference_currency,settlement_currency,
@@ -149,15 +141,11 @@ func placementForPricingFixture(
 		authority, workload.RuntimeJobType, binding.Tier,
 		admissionCellsForWorkload(workload),
 	)
-	if err != nil {
-		t.Fatalf("derive placement ceiling fixture: %v", err)
-	}
+	mustf(t, err, "derive placement ceiling fixture: %v")
 	placement, err := placementRequirementFor(jobSubmit{
 		JobType: binding.JobType, Model: binding.Model, Constraints: binding.Constraints,
 		Tier: binding.Tier, MinReputation: binding.MinReputation,
 	}, workload, float32(ceiling))
-	if err != nil {
-		t.Fatalf("build placement fixture: %v", err)
-	}
+	mustf(t, err, "build placement fixture: %v")
 	return placement
 }

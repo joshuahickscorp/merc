@@ -15,9 +15,7 @@ func TestTightlyCoupledWorkIsRefusedOnAWANFabric(t *testing.T) {
 		Fabric:                 FabricWAN,
 		CloudBackstopPermitted: true,
 	})
-	if err != nil {
-		t.Fatalf("a cloud path exists, so this must place: %v", err)
-	}
+	mustf(t, err, "a cloud path exists, so this must place: %v")
 	if decision.Mode != ModeCloudBackstop {
 		t.Fatalf("mode = %s, want CLOUD_BACKSTOP", decision.Mode)
 	}
@@ -58,9 +56,7 @@ func TestMeasuredSiteFabricWinsLocalCluster(t *testing.T) {
 		Coupling: CouplingTight, Degree: 7,
 		Fabric: FabricLowLatencySite,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if decision.Mode != ModeLocalCluster {
 		t.Fatalf("mode = %s, want LOCAL_CLUSTER", decision.Mode)
 	}
@@ -106,9 +102,7 @@ func TestIndependentWorkChoosesPoolServiceOrCloud(t *testing.T) {
 	}} {
 		t.Run(tc.name, func(t *testing.T) {
 			decision, err := ChooseExecutionMode(tc.req)
-			if err != nil {
-				t.Fatalf("place: %v", err)
-			}
+			mustf(t, err, "place: %v")
 			if decision.Mode != tc.want {
 				t.Fatalf("mode = %s, want %s (%s)", decision.Mode, tc.want, decision.Explain())
 			}

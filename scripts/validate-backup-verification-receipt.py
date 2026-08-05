@@ -18,6 +18,20 @@ import re
 import sys
 from pathlib import Path
 from urllib.parse import urlsplit
+_SCRIPTS = Path(__file__).resolve().parent
+if str(_SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS))
+
+from lib.receipt_json import (
+    all_strings,
+    exact_keys,
+    fail,
+    finite_numbers,
+    object_without_duplicate_keys,
+    parse_utc,
+    reject_constant,
+    sha256_file,
+)
 
 
 BACKUP_ID = re.compile(r"^[0-9]{8}T[0-9]{6}Z$")
@@ -31,22 +45,6 @@ SECRET = re.compile(
 MAX_JSON_BYTES = 1_048_576
 
 
-def fail(message: str) -> None:
-    raise ValueError(message)
-
-
-def object_without_duplicate_keys(pairs):
-    result = {}
-    for key, value in pairs:
-        if key in result:
-            fail(f"duplicate JSON key {key!r}")
-        result[key] = value
-    return result
-
-
-def reject_constant(value: str):
-    fail(f"non-finite JSON number {value}")
-
 
 def load_json(path: Path, label: str):
     if path.stat().st_size <= 0 or path.stat().st_size > MAX_JSON_BYTES:
@@ -59,53 +57,6 @@ def load_json(path: Path, label: str):
         )
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         fail(f"{label} is not strict UTF-8 JSON: {exc}")
-
-
-def exact_keys(value, expected: set[str], field: str) -> None:
-    if not isinstance(value, dict) or set(value) != expected:
-        fail(f"{field} does not match its closed schema")
-
-
-def parse_utc(value, field: str) -> dt.datetime:
-    if not isinstance(value, str) or not value.endswith("Z"):
-        fail(f"{field} must be an RFC3339 UTC timestamp ending in Z")
-    try:
-        parsed = dt.datetime.fromisoformat(value[:-1] + "+00:00")
-    except ValueError as exc:
-        fail(f"{field} is not a valid RFC3339 timestamp: {exc}")
-    if parsed.utcoffset() != dt.timedelta(0):
-        fail(f"{field} must be UTC")
-    return parsed
-
-
-def sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1 << 20), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
-def all_strings(value):
-    if isinstance(value, str):
-        yield value
-    elif isinstance(value, dict):
-        for key, item in value.items():
-            yield str(key)
-            yield from all_strings(item)
-    elif isinstance(value, list):
-        for item in value:
-            yield from all_strings(item)
-
-
-def finite_numbers(value) -> bool:
-    if isinstance(value, float) and not math.isfinite(value):
-        return False
-    if isinstance(value, dict):
-        return all(finite_numbers(item) for item in value.values())
-    if isinstance(value, list):
-        return all(finite_numbers(item) for item in value)
-    return True
 
 
 def validate(manifest, receipt, ciphertext: Path, args) -> None:

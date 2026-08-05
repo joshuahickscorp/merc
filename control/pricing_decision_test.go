@@ -23,9 +23,7 @@ func distributedPricingFixture(t *testing.T) (
 		workload, compute, placement, economic, authority,
 		workload.Binding.Tier, "",
 	)
-	if err != nil {
-		t.Fatalf("build distributed pricing fixture: %v", err)
-	}
+	mustf(t, err, "build distributed pricing fixture: %v")
 	return workload, compute, placement, economic, pricing
 }
 
@@ -39,18 +37,14 @@ func TestFixedPointPricingConservesAndRefusesFalseTrueNet(t *testing.T) {
 		"cad", 0.000010, 0.000020, scenario,
 		[]string{"storage cost", "risk reserve"},
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if fixed.BuyerChargeNanos != 10_000 || fixed.SupplierEntitlementsNanos != 4_000 ||
 		fixed.KnownVariableCostsNanos != 2_000 ||
 		fixed.KnownCostContributionNanos != 4_000 {
 		t.Fatalf("fixed-point amounts drifted: %+v", fixed)
 	}
 	decision := PricingDecision{Currency: "cad", FixedPoint: fixed}
-	if err := validateFixedPointPricing(decision); err != nil {
-		t.Fatalf("valid fixed-point decision refused: %v", err)
-	}
+	mustf(t, validateFixedPointPricing(decision), "valid fixed-point decision refused: %v")
 	if fixed.TrueNetContributionNanos != nil {
 		t.Fatal("unknown costs became true net contribution")
 	}
@@ -113,9 +107,7 @@ func TestPricingDecisionRejectsArbitraryPositiveSupplierAdmissionRate(t *testing
 func TestPricingDecisionDigestBindsEveryEconomicAuthorityFamily(t *testing.T) {
 	_, _, _, _, base := distributedPricingFixture(t)
 	original, err := pricingDecisionDigest(base)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	tests := []struct {
 		name   string
 		mutate func(*PricingDecision)
@@ -145,9 +137,7 @@ func TestPricingDecisionDigestBindsEveryEconomicAuthorityFamily(t *testing.T) {
 			mutant := base
 			tc.mutate(&mutant)
 			got, err := pricingDecisionDigest(mutant)
-			if err != nil {
-				t.Fatal(err)
-			}
+			must(t, err)
 			if got == original {
 				t.Fatalf("%s mutation did not change pricing digest", tc.name)
 			}
@@ -223,9 +213,7 @@ func TestV4PricingBillableUnitsUseFrozenSettlementAuthority(t *testing.T) {
 		workload, historical, placement, economic, pricing.Catalogue,
 		workload.Binding.Tier, "",
 	)
-	if err != nil {
-		t.Fatalf("rebuild historical v2 pricing: %v", err)
-	}
+	mustf(t, err, "rebuild historical v2 pricing: %v")
 	wantHistorical := float64(historical.EstimatedInputTokens + historical.EstimatedOutputTokens)
 	if historicalPricing.BillableUnits != wantHistorical {
 		t.Fatalf("historical v2 billable_units=%v, want preserved %v", historicalPricing.BillableUnits, wantHistorical)
@@ -235,22 +223,16 @@ func TestV4PricingBillableUnitsUseFrozenSettlementAuthority(t *testing.T) {
 func TestExactReusePricingHasNoPhysicalSupplierOrPlacement(t *testing.T) {
 	workload, origin, _, _, originPricing := distributedPricingFixture(t)
 	originSHA, err := pricingDecisionDigest(originPricing)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	reuseCompute, err := newExactReuseComputePlan(
 		workload, origin.InputRecords, origin.InputBytes, testInputDepthProfile(origin.InputRecords), 0.01, &origin,
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	reuse, err := newExactReusePricingDecision(
 		workload, reuseCompute, originPricing.Catalogue,
 		workload.Binding.Tier, 0.01, originSHA,
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if reuse.PlacementRequirementSHA256 != "" ||
 		reuse.PrimarySupplierCost.Status != pricingCostNotApplicable ||
 		reuse.VerificationCost.Status != pricingCostNotApplicable ||
@@ -282,9 +264,7 @@ func TestBoundQuoteCatalogueSelectionNeverReadsCurrentModelPrice(t *testing.T) {
 			return mutant, nil
 		},
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if called {
 		t.Fatal("bound quote consulted the current model price")
 	}
@@ -317,9 +297,7 @@ func TestStoredPricingDecisionCannotCertifyItsOwnSupplierRate(t *testing.T) {
 		workload, compute, forgedPlacement, economic, pricing.Catalogue,
 		pricing.Tier, "", forgedRate,
 	)
-	if err != nil {
-		t.Fatalf("the forgery is meant to be internally consistent: %v", err)
-	}
+	mustf(t, err, "the forgery is meant to be internally consistent: %v")
 	if err := ValidateDistributedPricingDecisionSnapshot(
 		forged, workload, compute, forgedPlacement, economic,
 	); err == nil {
@@ -361,9 +339,7 @@ func TestQuoteFrozenSupplierRateSurvivesTheRevalidationBoundary(t *testing.T) {
 		workload, compute, stalePlacement, economic, pricing.Catalogue,
 		pricing.Tier, "", stalePostureRate,
 	)
-	if err != nil {
-		t.Fatalf("binding the quote's frozen rate: %v", err)
-	}
+	mustf(t, err, "binding the quote's frozen rate: %v")
 	if err := ValidateDistributedPricingDecisionSnapshot(
 		bound, workload, compute, stalePlacement, economic,
 	); err != nil {

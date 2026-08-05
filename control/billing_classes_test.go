@@ -123,13 +123,9 @@ func TestTokenAccountingRoundTrips(t *testing.T) {
 		ClassGeneratedOutput:   910,
 		ClassExactResultReuse:  11,
 	}
-	if err := store.RecordTokenAccounting(ctx, f.jobID, want); err != nil {
-		t.Fatalf("record: %v", err)
-	}
+	mustf(t, store.RecordTokenAccounting(ctx, f.jobID, want), "record: %v")
 	got, err := store.JobTokenAccounting(ctx, f.jobID)
-	if err != nil {
-		t.Fatalf("read back: %v", err)
-	}
+	mustf(t, err, "read back: %v")
 	for class, n := range want {
 		if got[class] != n {
 			t.Fatalf("class %s: got %d want %d", class, got[class], n)
@@ -140,13 +136,9 @@ func TestTokenAccountingRoundTrips(t *testing.T) {
 	}
 
 	// Re-recording must overwrite rather than accumulate.
-	if err := store.RecordTokenAccounting(ctx, f.jobID, TokenAccounting{ClassUncachedInput: 1}); err != nil {
-		t.Fatalf("re-record: %v", err)
-	}
+	mustf(t, store.RecordTokenAccounting(ctx, f.jobID, TokenAccounting{ClassUncachedInput: 1}), "re-record: %v")
 	again, err := store.JobTokenAccounting(ctx, f.jobID)
-	if err != nil {
-		t.Fatalf("re-read: %v", err)
-	}
+	mustf(t, err, "re-read: %v")
 	if again[ClassUncachedInput] != 1 {
 		t.Fatalf("re-record accumulated instead of replacing: %d", again[ClassUncachedInput])
 	}
