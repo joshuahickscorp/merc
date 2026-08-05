@@ -31,8 +31,9 @@ f1f518f0  L1: install git-lfs substrate without converting files
 Integrity, re-verified by hand:
 
 ```
-git lfs fsck                    → Git LFS fsck OK
-oid == sha256(body)             → MATCH on spot-checked files
+git lfs fsck                    → Git LFS fsck OK   (SUPPLEMENTARY ONLY)
+oid == sha256(body)             → MATCH on all 70 unique oids (independent)
+scripts/verify-lfs-corpus.py    → 85 pointers / 70 oids / 0 missing / 0 corrupt
 validate-claim-surfaces         → PASS (10 surfaces)
 validate-governance             → PASS, fail-closed
 rename-residue-audit            → RESIDUE=0
@@ -40,6 +41,14 @@ validate-repo-boundary          → 962 files, owned LOC 207,407 (unchanged)
 gofmt/vet/build                 → clean
 go test ./...                   → ok merc/control 20.382s
 ```
+
+**2026-08-04 incident:** two object-store bodies
+(`0684258d…` arrival-batching, `dfb3f133…` gateway-parity with `schemX_version`)
+failed independent `sha256==oid` while `git lfs fsck` still said OK. Worktree
+payloads were intact; store restored from them. Root cause remains **UNPROVEN**
+(mutation/LFS-hardlink hypothesis only). Durable receipt:
+`evidence/state/lfs-corruption-incident-20260804.json`. Corpus authority:
+`scripts/verify-lfs-corpus.py` + `TestLFSCorpusIntegrity`.
 
 Test wall 19.70 s → 20.38 s (+3.5%, at the edge of run-to-run noise — re-measure
 before treating it as a regression).
