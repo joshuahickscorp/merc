@@ -44,8 +44,43 @@ non-redundant and ~3–4k of removable scaffolding.
 
 ### Ledger 4 — Evidence
 
-185 files, 84 LFS-backed. Payload bytes, logical records and alias counts are
-**not yet quantified** — nobody has audited this as a ledger rather than as mass.
+185 files, 84 LFS-backed under `evidence/perf/**` plus `.tools/runpodctl`
+(85 tracked LFS pointer files total). Payload integrity is now a fail-closed
+ledger, not a mass:
+
+| derived count | value | authority |
+|---|---:|---|
+| tracked LFS pointer files | **85** | `scripts/verify-lfs-corpus.py` |
+| unique payload OIDs | **70** | same (15 content-addressed aliases) |
+| missing objects | **0** | independent `sha256(object)==oid` |
+| corrupt objects | **0** | independent `sha256(object)==oid` |
+| resolved-payload mismatches | **0** | worktree vs pointer oid |
+
+Expected counts live in `evidence/state/lfs-corpus-ledger.json`. If the tree
+legitimately gains a pointer, the gate fails with
+`N pointers, expected 85 — update the ledger` rather than silently passing.
+`git lfs fsck` is **supplementary only** — on 2026-08-04 it returned OK while
+two object-store bodies were corrupt (see
+`evidence/state/lfs-corruption-incident-20260804.json` and the section below).
+
+#### LFS corruption incident (2026-08-04) — receipt, not root cause
+
+Two local LFS object-store bodies failed an independent hash check while
+`git lfs fsck` reported OK:
+
+| path | oid | corrupt sha256 (was) | repair |
+|---|---|---|---|
+| `evidence/perf/arrival-batching.json` | `0684258d…246236` | `348f6339…bcc52` | restored from intact worktree |
+| `evidence/perf/gateway-parity.json` | `dfb3f133…bcdb7d` | `b306d9fe…f21385` (`schemX_version`) | restored from intact worktree |
+
+**Root cause: UNPROVEN.** The mutation-suite / LFS-hardlink interaction is a
+hypothesis (single-byte `a→X` on `schema_version`, shared object store across
+worktrees, intact worktrees). Disposable reproduction in A2: hardlinking a
+worktree LFS path onto the object-store path and applying the same one-byte
+edit yields the **exact** incident corrupt digest (`b306d9fe…`) — so the
+*coupling* is real. `mutation-test.sh` only mutates `control/*.go` and does not
+create that hardlink, so the agent of the original write remains unproven.
+Details: `evidence/state/lfs-corruption-incident-20260804.json`.
 
 ---
 

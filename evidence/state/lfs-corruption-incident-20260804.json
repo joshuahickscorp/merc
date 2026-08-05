@@ -1,0 +1,154 @@
+{
+  "schema_version": 1,
+  "kind": "lfs_corruption_incident",
+  "incident_id": "lfs-corruption-20260804",
+  "binding_status": "BOUND",
+  "detected_at_utc": "2026-08-04T23:15:33Z",
+  "repaired_at_utc": "2026-08-04T23:16:30Z",
+  "source_head_at_detection": "04a94f33c21a4867aba3cbfc98a378bcce8fe77f",
+  "branch_at_detection": "refactor/teardown",
+  "producer_identity": {
+    "source_commit": {
+      "value": "04a94f33c21a4867aba3cbfc98a378bcce8fe77f"
+    },
+    "build_digest": {
+      "na": "incident receipt; no binary produced"
+    },
+    "model_artifact_digest": {
+      "na": "not a model measurement"
+    },
+    "image_digest": {
+      "na": "not a container measurement"
+    },
+    "harness_revision": {
+      "value": "independent sha256(object bytes)==oid filename check; git lfs fsck supplementary"
+    },
+    "corpus_digest": {
+      "value": "70 unique LFS oids at detection; 2 failed independent hash"
+    },
+    "exact_config": {
+      "value": "local object store under merc/.git/lfs/objects; .lfsconfig fetchexclude=evidence/perf/**"
+    },
+    "raw_samples": {
+      "na": "incident metadata; payload bodies restored from intact worktree copies"
+    }
+  },
+  "objects": [
+    {
+      "path": "evidence/perf/arrival-batching.json",
+      "oid": "0684258dc2d0ff1d74cfd32cfe5a68c5eba22c5ee8e7282a496e399290246236",
+      "pointer_size": 17748,
+      "corrupt_on_disk_sha256": "348f6339b28f51303b23b147f07fbaf1be48577fb38d373441ac21947bcbcc52",
+      "corrupt_size_bytes": 17748,
+      "corrupt_first_bytes_note": "JSON still opened with {\"batching_off\":...}; content differed from oid while size matched",
+      "worktree_at_detection": "INTACT — sha256(worktree)==oid; payload recoverable",
+      "repair": "copied intact worktree payload into .git/lfs/objects/06/84/0684258d… and re-verified"
+    },
+    {
+      "path": "evidence/perf/gateway-parity.json",
+      "oid": "dfb3f133acc4fc9fff2e4e529a09c8823e20dda64a62e4d588f7e83906bcdb7d",
+      "pointer_size": 19874,
+      "corrupt_on_disk_sha256": "b306d9fe71b9f17b915dd03fd908bf5592fc3ff1a0f9f56bedd2803f1ef21385",
+      "corrupt_size_bytes": 19874,
+      "corrupt_first_bytes_note": "began with {\"schemX_version\": 1, — single-byte a→X mutation of schema_version",
+      "worktree_at_detection": "INTACT — sha256(worktree)==oid; payload recoverable",
+      "repair": "copied intact worktree payload into .git/lfs/objects/df/b3/dfb3f133… and re-verified"
+    }
+  ],
+  "git_lfs_fsck_at_detection": {
+    "reported": "Git LFS fsck OK",
+    "exit_code": 0,
+    "point": "fsck passed while independent per-object sha256 found 2 corrupt bodies. This is why git lfs fsck is supplementary only for merc."
+  },
+  "independent_verify_at_detection": {
+    "unique_oids_checked": 70,
+    "corrupt": 2,
+    "missing": 0
+  },
+  "independent_verify_after_repair": {
+    "unique_oids_checked": 70,
+    "corrupt": 0,
+    "missing": 0
+  },
+  "root_cause": {
+    "status": "UNPROVEN",
+    "hypotheses": [
+      {
+        "id": "mutation-suite-lfs-interaction",
+        "statement": "A sed-shaped single-byte mutation (schema_version → schemX_version) matched the signature of the mutation suite, and commit c38ee4ff records that interrupting the mutation suite previously corrupted the tree it exists to protect. Hypothesis: a concurrent or earlier mutation-suite run wrote through a hardlinked LFS object path (worktrees share .git/lfs/objects) and left the object-store body mutated while the working tree retained the original payload.",
+        "status": "hypothesis",
+        "supporting_observations": [
+          "gateway-parity corrupt body contained schemX_version (a→X)",
+          "object store is hardlinked / shared across worktrees",
+          "worktree copies were intact and matched pointer oids",
+          "c38ee4ff documents mutation-suite tree corruption on interrupt"
+        ],
+        "not_established": [
+          "no disposable reproduction has shown mutation-test.sh writing into .git/lfs/objects",
+          "no process audit tied a specific mutation run to these two oids",
+          "arrival-batching.json corruption shape was content-different-at-same-size without the schemX marker, so a single mechanism is not proven for both"
+        ]
+      },
+      {
+        "id": "fsck-blind-spot-under-fetchexclude",
+        "statement": "git lfs fsck skips paths matching lfs.fetchexclude. With fetchexclude=evidence/perf/**, default fsck does not check the tier-2 evidence objects — so OK is not evidence of their integrity.",
+        "status": "partially_confirmed_mechanism",
+        "note": "Explains the false green; does not identify who wrote the bad bytes."
+      }
+    ],
+    "policy": "Do not claim root cause without a disposable reproduction. 'Did not reproduce in N attempts' is a valid result."
+  },
+  "disposable_reproduction_requirements": {
+    "to_promote_hypothesis_to_cause": [
+      "Throwaway clone with its own lfs.storage (never the shared merc store)",
+      "Hydrated evidence/perf payload that is also LFS-tracked",
+      "Run scripts/mutation-test.sh (or the specific mutator suspected) against a control file while an LFS-tracked evidence path is open/hardlinked",
+      "Show that after the run, sha256(object-store bytes) != oid for a named oid while git lfs fsck still exits 0",
+      "Capture: mutator command, before/after object hashes, fsck output, hardlink count (stat -f %l)"
+    ],
+    "attempts_in_this_programme": {
+      "date_utc": "2026-08-05",
+      "attempts": 4,
+      "results": [
+        {
+          "id": 1,
+          "setup": "throwaway clone; hardlink worktree evidence/perf/gateway-parity.json -> object-store path for oid dfb3f133…; single-byte schema_version→schemX_version write",
+          "result": "REPRODUCED coupling: object sha256 became b306d9fe71b9f17b915dd03fd908bf5592fc3ff1a0f9f56bedd2803f1ef21385 — identical to the incident corrupt hash",
+          "promotes_to_cause": false,
+          "why_not": "proves the hardlink coupling is sufficient; does not prove who created a hardlink in the original store"
+        },
+        {
+          "id": 2,
+          "setup": "scan scripts/mutation-test.sh for LFS / evidence paths",
+          "result": "mutation-test only sed-mutates control/*.go; no .git/lfs references",
+          "promotes_to_cause": false
+        },
+        {
+          "id": 3,
+          "setup": "interrupt/trap path (c38ee4ff)",
+          "result": "trap-on-interrupt already fixed; full suite not re-run here",
+          "promotes_to_cause": false
+        },
+        {
+          "id": 4,
+          "setup": "hardlink arbitrary mutator target into object store then mutate",
+          "result": "REPRODUCES store corruption IF such a hardlink exists",
+          "promotes_to_cause": false
+        }
+      ],
+      "verdict": "Coupling mechanism confirmed in disposable clone (hardlinked worktree write yields the exact incident corrupt digest). Agent that created the original hardlink or wrote the bytes remains UNPROVEN. mutation-test.sh alone does not create the hardlink."
+    }
+  },
+  "consequences_if_unrepaired": "A subsequent git lfs push would have published the corrupt bodies as the canonical remote objects; intact worktree copies would eventually be smudged away.",
+  "remediation_landed": [
+    "object store restored from intact worktree payloads for both oids",
+    "independent corpus verifier (scripts/verify-lfs-corpus.py + TestLFSCorpusIntegrity) becomes the authority",
+    "git lfs fsck retained only as supplementary cross-check"
+  ],
+  "related_docs": [
+    "LEDGERS.md",
+    "WAVE_STATE.md",
+    "evidence/state/lfs-corpus-ledger.json",
+    "scripts/verify-lfs-corpus.py"
+  ]
+}
