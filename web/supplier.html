@@ -43,7 +43,17 @@ form,.stack{display:grid;gap:12px}label{display:grid;gap:6px;color:var(--muted);
       <div class="actions"><button id="supplier-onboard" class="primary" type="button">start or resume Stripe test onboarding</button></div><p id="connect-owner-status" class="status"></p><pre id="supplier-output">No supplier record loaded.</pre>
     </div>
     <div class="card">
-      <h2>Create device credential</h2>
+      <h2>Approve device enrollment</h2>
+      <p class="muted">Preferred path. On the device run <code>merc-agent enroll request --control-origin …</code>, paste the <code>cxer2_…</code> request here, then complete on the device with the returned <code>cxeb2_…</code> bundle.</p>
+      <label>Device request <input id="device-request" autocomplete="off" spellcheck="false" placeholder="cxer2_…"></label>
+      <label>Optional label <input id="device-label" autocomplete="off" placeholder="Mac Studio living room"></label>
+      <button id="enrollment-approve" class="primary" type="button">approve device request</button>
+      <div id="enrollment-bundle" class="secret" hidden><strong>Copy the bundle onto the device now. It is not stored by this page.</strong><pre id="enrollment-bundle-value"></pre></div>
+      <p id="enrollment-status" class="status"></p>
+    </div>
+    <div class="card">
+      <h2>Create device credential (compatibility)</h2>
+      <p class="muted">Raw token mint for operators who already hold a worker UUID. Prefer device enrollment above so the credential is bound to a device key.</p>
       <label>Private-canary approved worker UUID, otherwise leave blank <input id="worker-id" autocomplete="off" placeholder="optional outside private canary"></label>
       <button id="worker-create" type="button">create one-time worker token</button>
       <div id="worker-secret" class="secret" hidden><strong>Copy now. This token is never returned again.</strong><pre id="worker-secret-value"></pre></div><p id="credential-status" class="status"></p>
@@ -63,6 +73,7 @@ form,.stack{display:grid;gap:12px}label{display:grid;gap:6px;color:var(--muted);
   <section id="worker-console" class="grid" hidden>
     <div class="card wide"><div class="actions"><strong>Device facts</strong><button id="worker-refresh" type="button">refresh</button><button id="worker-close" type="button">close device console</button></div></div>
     <div class="card wide"><h2>Earnings and settlement states</h2><div class="money"><div class="figure"><div class="v" id="paid">—</div><div class="k">paid</div></div><div class="figure"><div class="v" id="lifetime">—</div><div class="k">lifetime credited</div></div><div class="figure"><div class="v" id="carried">—</div><div class="k">sub-minor carry</div></div></div><p id="carry-note" class="muted"></p></div>
+    <div class="card wide"><h2>Payout ledger</h2><p class="muted">Each supplier credit or clawback for this device's supplier. One executed job produces at most one standing payable.</p><div class="table-wrap"><table><thead><tr><th>when</th><th>kind</th><th>amount</th><th>status</th><th>task</th><th>job</th></tr></thead><tbody id="ledger-body"></tbody></table></div><pre id="ledger-status" class="muted">Not loaded.</pre></div>
     <div class="card"><h2>Payout rail</h2><p id="connect-status" class="muted">Not loaded.</p></div>
     <div class="card"><h2>Eligibility and offers</h2><p class="muted">Every routable cell is evaluated against this device's hardware and minimum earnings floor.</p><pre id="viability-output">Not loaded.</pre></div>
     <div class="card"><h2>Verification and reputation</h2><p id="verification-status" class="muted">Not loaded.</p><pre id="verification-output">Not loaded.</pre></div>
@@ -89,6 +100,7 @@ async function refreshOwner(){await Promise.allSettled([refreshSupplierStatus(),
 byId('supplier-refresh').addEventListener('click',()=>refreshOwner());
 async function refreshSupplierStatus(){try{const out=await request('/v1/supplier/status');byId('supplier-output').textContent=JSON.stringify(out,null,2);status('connect-owner-status','Stripe Connect: '+out.connect_status,out.payouts_enabled?'good':'')}catch(error){if(error.message.includes('no supplier')){byId('supplier-output').textContent='No supplier record yet. Start onboarding.';status('connect-owner-status','not onboarded')}else throw error}}
 byId('supplier-onboard').addEventListener('click',async()=>{status('connect-owner-status','creating Stripe-hosted onboarding link…');try{const out=await request('/v1/supplier/onboard',{method:'POST',body:'{}'});byId('supplier-output').textContent=JSON.stringify({...out,onboarding_url:'[opened in this tab]'},null,2);location.assign(out.onboarding_url)}catch(error){status('connect-owner-status',error.message,'error')}});
+byId('enrollment-approve').addEventListener('click',async()=>{status('enrollment-status','approving device request…');try{const device_request=byId('device-request').value.trim(),label=byId('device-label').value.trim(),body={device_request};if(label)body.label=label;const out=await request('/v1/supplier/enrollment-approvals',{method:'POST',body:JSON.stringify(body)});byId('enrollment-bundle-value').textContent=out.enrollment_bundle;byId('enrollment-bundle').hidden=false;status('enrollment-status','bundle issued; complete on the device with merc-agent enroll complete --bundle …','good');await refreshCredentials();await refreshAudit()}catch(error){status('enrollment-status',error.message,'error')}});
 byId('worker-create').addEventListener('click',async()=>{status('credential-status','creating credential…');try{const workerId=byId('worker-id').value.trim(),body=workerId?{worker_id:workerId}:{};const out=await request('/v1/supplier/worker-tokens',{method:'POST',body:JSON.stringify(body)});byId('worker-secret-value').textContent=out.worker_token;byId('worker-secret').hidden=false;status('credential-status','credential created for '+out.worker_id,'good');await refreshCredentials();await refreshAudit()}catch(error){status('credential-status',error.message,'error')}});
 async function refreshCredentials(){const out=await request('/v1/supplier/worker-credentials'),body=byId('credentials-body');body.textContent='';for(const c of out.credentials||[]){const row=document.createElement('tr');for(const value of [c.credential_id||'',c.worker_id||'',c.label||c.credential_version||'',c.created_at||'']){const td=document.createElement('td');td.textContent=value;row.append(td)}const td=document.createElement('td'),button=document.createElement('button');button.textContent=c.revoked?'revoked':'revoke';button.className='danger';button.disabled=Boolean(c.revoked);button.dataset.credentialId=c.credential_id;td.append(button);row.append(td);body.append(row)}}
 byId('credentials-body').addEventListener('click',async event=>{const id=event.target.dataset.credentialId;if(!id)return;try{await request('/v1/supplier/worker-credentials/'+encodeURIComponent(id),{method:'DELETE'});await refreshCredentials();await refreshAudit()}catch(error){status('credential-status',error.message,'error')}});
@@ -104,14 +116,20 @@ async function refreshWorker(){
   // renders on its own, and a failed one says so instead of erasing its
   // neighbours. Earnings failing is still fatal: a console that cannot show what
   // is owed has nothing to show.
-  const [earnings,rail,viability,verification,serviceAssignments]=(await Promise.allSettled([request('/v1/worker/earnings',{},'worker'),request('/v1/worker/connect/status',{},'worker'),request('/v1/worker/viability',{},'worker'),request('/v1/worker/verification',{},'worker'),request('/v1/worker/service-leases/active',{},'worker')])).map(r=>r.status==='fulfilled'?r.value:{__error:r.reason&&r.reason.message||'unavailable'});
+  const [earnings,rail,viability,verification,serviceAssignments,ledger]=(await Promise.allSettled([request('/v1/worker/earnings',{},'worker'),request('/v1/worker/connect/status',{},'worker'),request('/v1/worker/viability',{},'worker'),request('/v1/worker/verification',{},'worker'),request('/v1/worker/service-leases/active',{},'worker'),request('/v1/worker/ledger?limit=50',{},'worker')])).map(r=>r.status==='fulfilled'?r.value:{__error:r.reason&&r.reason.message||'unavailable'});
   if(earnings.__error)throw new Error('earnings unavailable: '+earnings.__error);
   byId('paid').textContent=money(earnings.balance_usd);byId('lifetime').textContent=money(earnings.lifetime_usd);byId('carried').textContent=money(earnings.carried_usd);
   const exponent=String(publicConfig?.settlement_currency||'').toLowerCase()==='cad'?2:2,minor=Math.pow(10,-exponent);byId('carry-note').textContent=Number(earnings.carried_usd)>0?`Amounts below one minor unit (${minor} ${(publicConfig?.settlement_currency||'').toUpperCase()}) accrue and remain ledger liabilities.`:'No sub-minor carry is currently outstanding.';
   byId('connect-status').textContent=rail.__error?'Payout rail state unavailable: '+rail.__error:!rail.configured?'Merc has not configured the payout provider.':!rail.connected?'No payout account is connected.':!rail.payouts_enabled?'Stripe account connected; payouts remain disabled.':'Stripe account connected and payouts enabled.';byId('connect-status').className=rail.__error?'status warn':rail.payouts_enabled?'status good':'warn';
   byId('viability-output').textContent=JSON.stringify(viability,null,2);byId('verification-output').textContent=JSON.stringify(verification,null,2);byId('verification-status').textContent=verification.__error?'verification standing unavailable: '+verification.__error:`${verification.verification_label||'unknown'} · ${verification.honeypots_passed||0} passed · ${verification.honeypots_failed||0} failed`;
   byId('service-assignments-output').textContent=JSON.stringify(serviceAssignments,null,2);status('service-assignments-status',serviceAssignments.__error?'active assignments unavailable: '+serviceAssignments.__error:serviceAssignments.length?`${serviceAssignments.length} active assignment(s); agent remains the service runtime authority`:'no active service assignments');
-  byId('worker-raw').textContent=JSON.stringify({earnings,payout_rail:rail,viability,verification,service_assignments:serviceAssignments},null,2);
+  const ledgerBody=byId('ledger-body');ledgerBody.textContent='';
+  if(ledger.__error){byId('ledger-status').textContent='ledger unavailable: '+ledger.__error}else{
+    const rows=ledger.entries||[];
+    byId('ledger-status').textContent=rows.length?rows.length+' row(s)':'No payable rows yet.';
+    for(const e of rows){const tr=document.createElement('tr');for(const value of [e.created_at||'',e.kind||'',money(e.amount_usd),e.payout_status||'',e.task_id||'',e.job_id||'']){const td=document.createElement('td');td.textContent=value;tr.append(td)}ledgerBody.append(tr)}
+  }
+  byId('worker-raw').textContent=JSON.stringify({earnings,payout_rail:rail,viability,verification,service_assignments:serviceAssignments,ledger},null,2);
 }
 loadPublic().catch(error=>{byId('contacts').textContent='Public configuration unavailable: '+error.message;byId('contacts').className='contact-list warn'});
 window.addEventListener('pagehide',()=>{ownerToken='';workerToken=''});

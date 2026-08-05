@@ -5,7 +5,7 @@ use reqwest::{Client, RequestBuilder, Response, StatusCode};
 use uuid::Uuid;
 
 use crate::types::{
-    ConnectStatus, Earnings, FailReport, Heartbeat, RealtimeOfferHeartbeat,
+    ConnectStatus, Earnings, FailReport, Heartbeat, PayoutLedger, RealtimeOfferHeartbeat,
     RealtimeOfferRegistration, ServiceLeaseAssignment, ServiceLeaseHeartbeat,
     ServiceLeaseOfferRegistration, SupplierVerification, TaskCommit, TaskDispatch,
     WorkerCapability,
@@ -575,6 +575,25 @@ impl ControlPlaneClient {
             .map_err(|e| Self::transport(endpoint, e))?;
         let resp = Self::expect_status(endpoint, resp, &[StatusCode::OK]).await?;
         resp.json::<Earnings>()
+            .await
+            .map_err(|e| ProtocolError::Decode {
+                endpoint: endpoint.to_string(),
+                source: e,
+            })
+    }
+
+    /// Recent supplier_credit / clawback rows for this worker's supplier.
+    pub async fn payout_ledger(&self, limit: u32) -> Result<PayoutLedger, ProtocolError> {
+        let endpoint = format!("/v1/worker/ledger?limit={limit}");
+        let resp = self
+            .http
+            .get(self.url(&endpoint))
+            .header("X-Worker-Token", &self.token)
+            .send()
+            .await
+            .map_err(|e| Self::transport(&endpoint, e))?;
+        let resp = Self::expect_status(&endpoint, resp, &[StatusCode::OK]).await?;
+        resp.json::<PayoutLedger>()
             .await
             .map_err(|e| ProtocolError::Decode {
                 endpoint: endpoint.to_string(),

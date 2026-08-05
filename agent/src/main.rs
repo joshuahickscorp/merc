@@ -1,5 +1,6 @@
 mod config;
 mod deadline;
+mod enrollment;
 mod executor;
 mod fabric;
 mod failure;
@@ -418,6 +419,34 @@ struct Cli {
 }
 
 #[derive(Subcommand)]
+enum EnrollCommand {
+    /// Generate (or reuse) the device key and print a `cxer2_…` request for the
+    /// supplier owner to approve in the console.
+    Request {
+        /// Control-plane origin, e.g. `https://control.example.test` or
+        /// `http://127.0.0.1:8080` for local test.
+        #[arg(long)]
+        control_origin: String,
+        /// Directory for the device key and pending request (default: ~/.merc/enrollment).
+        #[arg(long)]
+        state_dir: Option<PathBuf>,
+    },
+    /// Exchange an owner-issued `cxeb2_…` approval bundle for a worker token and
+    /// write it into agent.toml.
+    Complete {
+        /// Approval bundle from the supplier console (or stdin when `-`).
+        #[arg(long)]
+        bundle: String,
+        /// Agent config path to write/update.
+        #[arg(long, default_value = "")]
+        config: String,
+        /// Directory holding the pending device key/request.
+        #[arg(long)]
+        state_dir: Option<PathBuf>,
+    },
+}
+
+#[derive(Subcommand)]
 enum Command {
     Run {
         #[arg(long, default_value = "agent.toml")]
@@ -664,6 +693,20 @@ enum Command {
     },
     Characterize,
     Version,
+    /// Device-bound enrollment: print a request for the supplier owner, then
+    /// complete against an approval bundle to obtain a worker token.
+    Enroll {
+        #[command(subcommand)]
+        action: EnrollCommand,
+    },
+    /// Fetch earnings aggregates and the recent per-credit payout ledger.
+    Earnings {
+        #[arg(long, default_value = "agent.toml")]
+        config: PathBuf,
+        /// Maximum ledger rows to print (newest first).
+        #[arg(long, default_value_t = 50)]
+        limit: u32,
+    },
     /// Serve a minimal OpenAI-compatible HTTP surface over the in-process Candle
     /// engine on the pinned GGUF. Exists so merc-serving-matrix-v1 can enter
     /// Candle as a same-digest arm against llama.cpp (streamed chat completions).
@@ -783,6 +826,14 @@ async fn main() -> Result<()> {
         Command::Version => {
             println!("merc-agent {AGENT_VERSION}");
             Ok(())
+        }
+        Command::Enroll { action } => {
+            init_tracing();
+            run_enroll(action).await
+        }
+        Command::Earnings { config, limit } => {
+            init_tracing();
+            run_earnings_cli(config, limit).await
         }
         Command::ServeOpenAI {
             bind,
@@ -3322,6 +3373,116 @@ struct WorkCtx {
     s3: reqwest::Client,
     checkpoint_secs: u64,
     status: Arc<StatusWriter>,
+}
+
+async fn run_enroll(action: EnrollCommand) -> Result<()> {
+    match action {
+        EnrollCommand::Request {
+            control_origin,
+            state_dir,
+        } => {
+            let state_dir = state_dir.unwrap_or_else(enrollment::enrollment_dir);
+            let (encoded, payload) =
+                enrollment::create_device_request(&control_origin, &state_dir)?;
+            println!("device_request={encoded}");
+            println!("control_origin={}", payload.control_origin);
+            println!("request_id={}", payload.request_id);
+            println!("state_dir={}", state_dir.display());
+            println!(
+                "next: have the supplier owner approve this request in the console, then run:\n  merc-agent enroll complete --bundle <cxeb2_…>"
+            );
+            Ok(())
+        }
+        EnrollCommand::Complete {
+            bundle,
+            config,
+            state_dir,
+        } => {
+            let state_dir = state_dir.unwrap_or_else(enrollment::enrollment_dir);
+            let bundle = if bundle == "-" {
+                use std::io::Read;
+                let mut buf = String::new();
+                std::io::stdin()
+                    .read_to_string(&mut buf)
+                    .context("read enrollment bundle from stdin")?;
+                buf.trim().to_string()
+            } else {
+                bundle.trim().to_string()
+            };
+            let input = enrollment::build_exchange_input(&state_dir, &bundle)?;
+            let result =
+                enrollment::exchange_enrollment(&input.control_origin, &input).await?;
+            let config_path = if config.is_empty() {
+                config::agent_home_dir().join("agent.toml")
+            } else {
+                PathBuf::from(config)
+            };
+            enrollment::write_enrolled_config(
+                &config_path,
+                &input.control_origin,
+                &result,
+            )?;
+            println!("credential_id={}", result.credential_id);
+            println!("worker_id={}", result.worker_id);
+            println!("supplier_id={}", result.supplier_id);
+            println!("device_fingerprint={}", result.device_fingerprint);
+            println!("config={}", config_path.display());
+            println!(
+                "enrolled. start with: merc-agent run --config {}",
+                config_path.display()
+            );
+            // Do not print the worker token: it is one-time secret material on disk.
+            Ok(())
+        }
+    }
+}
+
+async fn run_earnings_cli(config: PathBuf, limit: u32) -> Result<()> {
+    let cfg = AgentConfig::load(&config)?;
+    let client = ControlPlaneClient::new(&cfg.control_url, &cfg.worker_token)
+        .context("build control-plane client")?;
+    let earnings = client.earnings().await.context("fetch /v1/worker/earnings")?;
+    let ledger = client
+        .payout_ledger(limit)
+        .await
+        .context("fetch /v1/worker/ledger")?;
+    println!(
+        "currency={} balance={} lifetime={} carried={} held={}",
+        earnings.currency,
+        earnings.balance_usd,
+        earnings.lifetime_usd,
+        earnings.carried_usd,
+        earnings.held_usd
+    );
+    if earnings.manual_payout_gate {
+        println!(
+            "manual_payout_gate=true {}",
+            earnings.manual_payout_gate_note
+        );
+    }
+    for hold in &earnings.held_by_reason {
+        println!(
+            "hold reason={} amount={} entries={} detail={}",
+            hold.reason, hold.amount_usd, hold.entry_count, hold.detail
+        );
+    }
+    println!("ledger_rows={}", ledger.entries.len());
+    for row in &ledger.entries {
+        println!(
+            "{} kind={} amount={} status={} task={} job={}",
+            row.created_at,
+            row.kind,
+            row.amount_usd,
+            row.payout_status,
+            row.task_id
+                .map(|id| id.to_string())
+                .unwrap_or_else(|| "-".into()),
+            row.job_id
+                .map(|id| id.to_string())
+                .unwrap_or_else(|| "-".into()),
+        );
+    }
+    Ok(())
 }
 
 async fn run_agent(mut cfg: AgentConfig) -> Result<()> {

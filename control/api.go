@@ -200,6 +200,7 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("POST /v1/worker/task/{id}/commit", s.authWorker(http.HandlerFunc(s.handleWorkerCommit)))
 	mux.Handle("POST /v1/worker/task/{id}/fail", s.authWorker(http.HandlerFunc(s.handleWorkerFail))) // Plane C/D: immediate typed failure
 	mux.Handle("GET /v1/worker/earnings", s.authWorker(http.HandlerFunc(s.handleWorkerEarnings)))
+	mux.Handle("GET /v1/worker/ledger", s.authWorker(http.HandlerFunc(s.handleWorkerLedger)))             // per-credit payout trail (earnings is the aggregate)
 	mux.Handle("GET /v1/worker/viability", s.authWorker(http.HandlerFunc(s.handleWorkerViability)))       // why this worker is or is not offered work
 	mux.Handle("GET /v1/worker/verification", s.authWorker(http.HandlerFunc(s.handleWorkerVerification))) // trust panel (Supplier onboarding & safety 7->8)
 	mux.Handle("GET /v1/worker/connect/status", s.authWorker(http.HandlerFunc(s.handleWorkerConnectStatus)))
@@ -3224,6 +3225,25 @@ func (s *Server) handleWorkerEarnings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, e)
+}
+
+func (s *Server) handleWorkerLedger(w http.ResponseWriter, r *http.Request) {
+	auth := r.Context().Value(ctxWorker).(*WorkerAuth)
+	limit := 50
+	if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 || n > 200 {
+			writeErr(w, http.StatusBadRequest, "limit must be an integer in [1,200]")
+			return
+		}
+		limit = n
+	}
+	ledger, err := s.store.WorkerPayoutLedger(r.Context(), auth.SupplierID, limit)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, ledger)
 }
 
 // handleWorkerViability answers "why am I not being offered any work".
