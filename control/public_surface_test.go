@@ -57,12 +57,14 @@ func TestSupplierSurfaceSeparatesOwnerAndWorkerAuthority(t *testing.T) {
 	for _, required := range []string{
 		"/v1/public/config", "/v1/supplier/onboard", "/v1/supplier/status",
 		"/v1/supplier/worker-tokens", "/v1/supplier/worker-credentials",
-		"/v1/supplier/credential-audit", "/v1/worker/earnings",
+		"/v1/supplier/credential-audit", "/v1/worker/earnings", "/v1/worker/ledger",
 		"/v1/worker/connect/status", "/v1/worker/viability", "/v1/worker/verification",
 		"/v1/worker/service-leases/active",
+		"/v1/supplier/enrollment-approvals",
 		"headers.Authorization='Bearer '+ownerToken",
 		"headers['X-Worker-Token']=workerToken",
 		"c.credential_id",
+		"device_request",
 	} {
 		if !strings.Contains(page, required) {
 			t.Errorf("supplier surface lacks %q", required)
