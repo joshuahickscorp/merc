@@ -322,6 +322,29 @@ func TestFirstCompleteLoopThroughThePublicAPI(t *testing.T) {
 		buyerMicros, supplierMicros, platformMicros, runtimeID, cell, hwClass,
 		mode, basis, derefOr(verification))
 
+	// Stranger-visible surfaces: invoice and receipt must be readable on the
+	// public API and must not present gross platform take as true net profit.
+	invoice := getJSON(t, srv.URL+"/v1/jobs/"+jobID.String()+"/invoice", apiKey)
+	if invoice.status != http.StatusOK {
+		t.Fatalf("GET invoice after settle: HTTP %d: %s", invoice.status, invoice.body)
+	}
+	receipt := getJSON(t, srv.URL+"/v1/jobs/"+jobID.String()+"/receipt", apiKey)
+	if receipt.status != http.StatusOK {
+		t.Fatalf("GET receipt after settle: HTTP %d: %s", receipt.status, receipt.body)
+	}
+	if inv, ok := receipt.json["invoice"].(map[string]any); ok {
+		if _, hasTake := inv["platform_take_usd"]; hasTake {
+			if _, hasGross := inv["platform_gross_spread_usd"]; !hasGross {
+				t.Fatal("settled receipt exposes platform_take without platform_gross_spread")
+			}
+		}
+		if _, bad := inv["true_net_profit_usd"]; bad {
+			t.Fatal("settled invoice labels gross as true_net_profit_usd")
+		}
+	} else {
+		t.Fatalf("settled receipt missing invoice: %s", receipt.body)
+	}
+
 	writeFirstLoopReceipt(t, firstLoopReceipt{
 		JobID: jobID.String(), Email: email, Currency: currency,
 		CeilingUSD: ceiling, EstimateUSD: estimate, ChargedUSD: actualUSD,
@@ -461,6 +484,52 @@ func postJSONWithHeaders(
 	resp, err := (&http.Client{Timeout: 120 * time.Second}).Do(req)
 	if err != nil {
 		t.Fatalf("POST %s: %v", url, err)
+	}
+	defer resp.Body.Close()
+	var buf bytes.Buffer
+	if _, err := buf.ReadFrom(resp.Body); err != nil {
+		t.Fatal(err)
+	}
+	out := apiResponse{status: resp.StatusCode, body: buf.String()}
+	_ = json.Unmarshal(buf.Bytes(), &out.json)
+	return out
+}
+
+func getJSON(t *testing.T, url, bearer string) apiResponse {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bearer != "" {
+		req.Header.Set("Authorization", "Bearer "+bearer)
+	}
+	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
+	if err != nil {
+		t.Fatalf("GET %s: %v", url, err)
+	}
+	defer resp.Body.Close()
+	var buf bytes.Buffer
+	if _, err := buf.ReadFrom(resp.Body); err != nil {
+		t.Fatal(err)
+	}
+	out := apiResponse{status: resp.StatusCode, body: buf.String()}
+	_ = json.Unmarshal(buf.Bytes(), &out.json)
+	return out
+}
+
+func deleteJSON(t *testing.T, url, bearer string) apiResponse {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodDelete, url, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bearer != "" {
+		req.Header.Set("Authorization", "Bearer "+bearer)
+	}
+	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
+	if err != nil {
+		t.Fatalf("DELETE %s: %v", url, err)
 	}
 	defer resp.Body.Close()
 	var buf bytes.Buffer

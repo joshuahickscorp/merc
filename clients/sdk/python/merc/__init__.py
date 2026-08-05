@@ -87,6 +87,49 @@ class Client:
             raise APIError(0, str(error.reason), method, path) from None
         return json.loads(raw) if raw else {}
 
+    # --- identity (stranger loop: signup → key → work) -------------------------
+
+    def signup(self, email, password, *, adopt_sandbox_key=True):
+        """Create a buyer account. Returns buyer_id, session token, sandbox_key.
+
+        When adopt_sandbox_key is true (default) and the response includes a
+        one-time sandbox_key, it becomes this client's api_key so the stranger
+        can call the rest of the API without a second hand-off.
+        """
+        out = self._request("POST", "/v1/signup",
+                            body={"email": email, "password": password})
+        if adopt_sandbox_key and out.get("sandbox_key"):
+            self.api_key = out["sandbox_key"]
+        elif adopt_sandbox_key and out.get("token"):
+            self.api_key = out["token"]
+        return out
+
+    def login(self, email, password, *, adopt_token=True):
+        """Authenticate and optionally adopt the session token as the client credential."""
+        out = self._request("POST", "/v1/login",
+                            body={"email": email, "password": password})
+        if adopt_token and out.get("token"):
+            self.api_key = out["token"]
+        return out
+
+    def me(self):
+        """Authenticated identity and remaining free-credit balance."""
+        return self._request("GET", "/v1/me")
+
+    def create_key(self, name="default", *, test=True):
+        """Mint an API key. The raw key is revealed once in the response."""
+        return self._request("POST", "/v1/keys",
+                             body={"name": name, "test": bool(test)})
+
+    def list_keys(self):
+        out = self._request("GET", "/v1/keys")
+        if isinstance(out, dict) and "keys" in out:
+            return out["keys"]
+        return out
+
+    def revoke_key(self, key_id):
+        return self._request("DELETE", f"/v1/keys/{key_id}")
+
     @staticmethod
     def _input(value):
         if isinstance(value, str):
@@ -182,6 +225,10 @@ class Client:
 
     def invoice(self, job_id):
         return self._request("GET", f"/v1/jobs/{job_id}/invoice")
+
+    def receipt(self, job_id):
+        """Clearing receipt: invoice plus pricing, verification, and task provenance."""
+        return self._request("GET", f"/v1/jobs/{job_id}/receipt")
 
     def models(self):
         response = self._request("GET", "/v1/models")

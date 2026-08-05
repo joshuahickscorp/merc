@@ -118,6 +118,14 @@ func (c *client) doHeaders(method, path string, body []byte, headers map[string]
 
 func dispatchBuyer(cmd string, args []string) bool {
 	switch cmd {
+	case "signup":
+		cmdSignup(args)
+	case "login":
+		cmdLogin(args)
+	case "me":
+		cmdMe(args)
+	case "keys":
+		cmdKeys(args)
 	case "submit":
 		cmdSubmit(args)
 	case "quote":
@@ -128,6 +136,8 @@ func dispatchBuyer(cmd string, args []string) bool {
 		cmdResults(args)
 	case "invoice":
 		cmdInvoice(args)
+	case "receipt":
+		cmdReceipt(args)
 	case "events":
 		cmdEvents(args)
 	case "failures":
@@ -434,6 +444,107 @@ func cmdInvoice(args []string) {
 		return
 	}
 	printInvoice(inv)
+}
+
+func cmdReceipt(args []string) {
+	if len(args) != 1 || strings.HasPrefix(args[0], "-") {
+		fatalf("usage: cx receipt <job_id>")
+	}
+	printJSON(newClient().do("GET", "/v1/jobs/"+args[0]+"/receipt", nil))
+}
+
+// cmdSignup is the stranger's first step: create an account, receive sandbox
+// credit (when the deployment grants it), and print the one-time sandbox key.
+func cmdSignup(args []string) {
+	fs := flag.NewFlagSet("signup", flag.ExitOnError)
+	email := fs.String("email", "", "buyer email")
+	password := fs.String("password", "", "password (min 8 characters)")
+	fs.Parse(args)
+	if strings.TrimSpace(*email) == "" || *password == "" {
+		fatalf("usage: cx signup --email <addr> --password <secret>")
+	}
+	// Unauthenticated; do not send whatever MERC_API_KEY is sitting in the env.
+	c := newClient()
+	c.key = ""
+	out := c.do("POST", "/v1/signup", mustJSON(map[string]string{
+		"email": *email, "password": *password,
+	}))
+	printJSON(out)
+	var resp struct {
+		SandboxKey    string  `json:"sandbox_key"`
+		Token         string  `json:"token"`
+		FreeCreditUSD float64 `json:"free_credit_usd"`
+		BuyerID       string  `json:"buyer_id"`
+	}
+	if err := json.Unmarshal(out, &resp); err == nil && resp.SandboxKey != "" {
+		fmt.Fprintf(os.Stderr, "export MERC_API_KEY=%s\n", resp.SandboxKey)
+		fmt.Fprintf(os.Stderr, "sandbox free credit: $%.4f  buyer_id=%s\n",
+			resp.FreeCreditUSD, resp.BuyerID)
+	}
+}
+
+func cmdLogin(args []string) {
+	fs := flag.NewFlagSet("login", flag.ExitOnError)
+	email := fs.String("email", "", "buyer email")
+	password := fs.String("password", "", "password")
+	fs.Parse(args)
+	if strings.TrimSpace(*email) == "" || *password == "" {
+		fatalf("usage: cx login --email <addr> --password <secret>")
+	}
+	c := newClient()
+	c.key = ""
+	out := c.do("POST", "/v1/login", mustJSON(map[string]string{
+		"email": *email, "password": *password,
+	}))
+	printJSON(out)
+	var resp struct {
+		Token   string `json:"token"`
+		BuyerID string `json:"buyer_id"`
+	}
+	if err := json.Unmarshal(out, &resp); err == nil && resp.Token != "" {
+		fmt.Fprintf(os.Stderr, "export MERC_API_KEY=%s\n", resp.Token)
+	}
+}
+
+func cmdMe(args []string) {
+	if len(args) != 0 {
+		fatalf("usage: cx me")
+	}
+	printJSON(newClient().do("GET", "/v1/me", nil))
+}
+
+func cmdKeys(args []string) {
+	if len(args) == 0 {
+		fatalf("usage: cx keys list | cx keys create [--name N] [--live] | cx keys revoke <id>")
+	}
+	switch args[0] {
+	case "list":
+		printJSON(newClient().do("GET", "/v1/keys", nil))
+	case "create":
+		fs := flag.NewFlagSet("keys create", flag.ExitOnError)
+		name := fs.String("name", "cli", "key name")
+		live := fs.Bool("live", false, "mint a live key (default is test/sandbox)")
+		fs.Parse(args[1:])
+		out := newClient().do("POST", "/v1/keys", mustJSON(map[string]any{
+			"name": *name, "test": !*live,
+		}))
+		printJSON(out)
+		var resp struct {
+			Key string `json:"key"`
+		}
+		if err := json.Unmarshal(out, &resp); err == nil && resp.Key != "" {
+			fmt.Fprintf(os.Stderr, "export MERC_API_KEY=%s\n", resp.Key)
+			fmt.Fprintln(os.Stderr, "key revealed once; store it now")
+		}
+	case "revoke":
+		if len(args) != 2 {
+			fatalf("usage: cx keys revoke <id>")
+		}
+		newClient().do("DELETE", "/v1/keys/"+args[1], nil)
+		fmt.Println("revoked")
+	default:
+		fatalf("usage: cx keys list | cx keys create [--name N] [--live] | cx keys revoke <id>")
+	}
 }
 
 func printInvoice(inv invoiceResp) {
@@ -807,12 +918,19 @@ func fatalf(format string, a ...any) {
 func usage() {
 	fmt.Fprint(os.Stderr, `cx  -  merc buyer CLI
 
-Usage:
+Stranger / account (MERC_API_URL; signup/login need no key):
+  cx signup   --email <addr> --password <secret>
+  cx login    --email <addr> --password <secret>
+  cx me
+  cx keys list | cx keys create [--name N] [--live] | cx keys revoke <id>
+
+Buyer commands (set MERC_API_URL and MERC_API_KEY):
   cx quote    --model <id> --type <jobtype> [--input <file|->] [--tier t] [--json]
   cx submit   --model <id> --type <jobtype> [--input <file|->] [--quote-id q_…] [--max-usd F] [flags] [--wait]
   cx status   <job_id>
   cx results  <job_id>
   cx invoice  <job_id> [--json]
+  cx receipt  <job_id>
   cx events   <job_id>
   cx failures <job_id>
   cx cancel   <job_id>
@@ -826,9 +944,9 @@ Usage:
 
 Env:
   MERC_API_URL   control plane base URL (default http://localhost:8080)
-  MERC_API_KEY   buyer api key (sent as Authorization: Bearer)
+  MERC_API_KEY   buyer api key or session token (Authorization: Bearer)
 
-	Job types: embed, batch_infer, media_transcode, media_rendering
+Job types: embed, batch_infer, media_transcode, media_rendering
 Run "cx submit -h" for the full flag list.
 `)
 }
