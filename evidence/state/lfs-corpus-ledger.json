@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "kind": "lfs_corpus_ledger",
+  "binding_status": "BOUND",
+  "producer_identity": {
+    "source_commit": {
+      "value": "644ccee648be143db58f78c83cf1b5e5a48d975c"
+    },
+    "build_digest": {
+      "na": "ledger of expected corpus counts; no binary produced"
+    },
+    "model_artifact_digest": {
+      "na": "not a model measurement"
+    },
+    "image_digest": {
+      "na": "not a container measurement"
+    },
+    "harness_revision": {
+      "value": "scripts/verify-lfs-corpus.py independent sha256 authority; git lfs fsck is supplementary only"
+    },
+    "corpus_digest": {
+      "na": "expected counts only; live digest is derived each run"
+    },
+    "exact_config": {
+      "value": "expected counts for fail-closed drift detection; update this ledger when the tree legitimately gains or loses LFS pointers/oids"
+    },
+    "raw_samples": {
+      "na": "count ledger, not a sample-bearing measurement"
+    }
+  },
+  "expected": {
+    "tracked_pointer_files": 85,
+    "unique_payload_oids": 70,
+    "missing_objects": 0,
+    "corrupt_objects": 0,
+    "resolved_payload_mismatches": 0
+  },
+  "dedup": {
+    "duplicate_pointer_count": 15,
+    "note": "85 pointers map to 70 unique content OIDs; the 15 extras are content-addressed aliases (timestamped + -latest copies of the same payload). The verifier reports every shared oid and its alias set."
+  },
+  "policy": {
+    "authority": "sha256(resolved payload bytes) must equal the pointer oid; computed by scripts/verify-lfs-corpus.py and control/lfs_corpus_integrity_test.go. git lfs fsck is a supplementary cross-check only — it returned OK while two objects were corrupt on 2026-08-04 (see evidence/state/lfs-corruption-incident-20260804.json).",
+    "drift": "If the tree legitimately gains or loses an evidence file, the gate must fail with 'N pointers, expected 85 — update the ledger' rather than silently pass. Edit this file when updating the expected counts; never silence a real integrity failure by raising the expected-corrupt counter.",
+    "citation": "refuse citation of any LFS path when missing, corrupt, or worktree-mismatched"
+  }
+}
