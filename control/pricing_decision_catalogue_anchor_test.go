@@ -28,18 +28,14 @@ func storeAnchoredDistributedFixture(t *testing.T) (
 	ctx, store, pool := openAdminMutationTestStore(t)
 
 	schedule, err := BuildCataloguePriceSchedule()
-	if err != nil {
-		t.Fatalf("build catalogue schedule: %v", err)
-	}
+	mustf(t, err, "build catalogue schedule: %v")
 	if _, err := store.ApplyRepricing(ctx, schedule); err != nil {
 		t.Fatalf("apply catalogue schedule: %v", err)
 	}
 
 	workload, compute, _ := computePlanFixture(t)
 	authority, err := store.LoadCataloguePriceAuthority(ctx, workload.Binding.Model.Ref)
-	if err != nil {
-		t.Fatalf("load catalogue authority for %s: %v", workload.Binding.Model.Ref, err)
-	}
+	mustf(t, err, "load catalogue authority for %s: %v", workload.Binding.Model.Ref)
 	if authority.JobType != workload.RuntimeJobType {
 		t.Fatalf("fixture model job type %q != workload %q",
 			authority.JobType, workload.RuntimeJobType)
@@ -56,18 +52,14 @@ func storeAnchoredDistributedFixture(t *testing.T) (
 	if !economic.Executable {
 		t.Fatalf("store-anchored economics blocked: %s", economic.BlockReason)
 	}
-	if err := ValidateComputePlanEconomicSnapshot(compute, workload, economic); err != nil {
-		t.Fatalf("compute/economic authority disagree: %v", err)
-	}
+	mustf(t, ValidateComputePlanEconomicSnapshot(compute, workload, economic), "compute/economic authority disagree: %v")
 
 	placement := placementForPricingFixture(t, workload, authority)
 	pricing, err := newDistributedPricingDecision(
 		workload, compute, placement, economic, authority,
 		workload.Binding.Tier, "",
 	)
-	if err != nil {
-		t.Fatalf("build store-anchored pricing decision: %v", err)
-	}
+	mustf(t, err, "build store-anchored pricing decision: %v")
 	return ctx, store, pool, workload, compute, placement, economic, pricing, authority
 }
 
@@ -104,9 +96,7 @@ func forgeDistributedPricingAtCatalogue(
 		workload, compute, placement, economic, catalogue,
 		workload.Binding.Tier, "", rate,
 	)
-	if err != nil {
-		t.Fatalf("forged decision must be internally consistent: %v", err)
-	}
+	mustf(t, err, "forged decision must be internally consistent: %v")
 	return placement, economic, forged
 }
 
@@ -245,9 +235,7 @@ func TestStoreAnchoredPricingSurvivesLegitimateReprice(t *testing.T) {
 		"board_sha256":                   newBoard,
 		"supplier_share_policy_revision": authority.SupplierSharePolicyRevision,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO catalogue_price_schedules (
 		  sha256,version,reference_currency,settlement_currency,
@@ -287,9 +275,7 @@ func TestStoreAnchoredPricingSurvivesLegitimateReprice(t *testing.T) {
 	}
 
 	current, err := store.LoadCataloguePriceAuthority(ctx, authority.ModelID)
-	if err != nil {
-		t.Fatalf("load current catalogue after reprice: %v", err)
-	}
+	mustf(t, err, "load current catalogue after reprice: %v")
 	if current.ScheduleSHA256 == authority.ScheduleSHA256 ||
 		current.SettlementPricePer1K == authority.SettlementPricePer1K {
 		t.Fatalf("reprice did not move current catalogue: %+v", current)

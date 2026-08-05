@@ -78,9 +78,7 @@ func TestFirstCompleteLoopThroughThePublicAPI(t *testing.T) {
 	// work against an unpublished price is how a buyer gets charged a number nobody
 	// approved — and httptest does not run main()'s boot sequence.
 	schedule, err := BuildCataloguePriceSchedule()
-	if err != nil {
-		t.Fatalf("build catalogue price schedule: %v", err)
-	}
+	mustf(t, err, "build catalogue price schedule: %v")
 	if _, err := store.ApplyRepricing(ctx, schedule); err != nil {
 		t.Fatalf("publish catalogue price schedule: %v", err)
 	}
@@ -118,9 +116,7 @@ func TestFirstCompleteLoopThroughThePublicAPI(t *testing.T) {
 	// for real during the first Metal embed run. seedDemo installs the governed
 	// embed honeypot AND its input object, so the probe the verifier fetches
 	// actually exists.
-	if err := seedDemo(ctx, pool, artifacts.storage); err != nil {
-		t.Fatalf("seed the verification floor: %v", err)
-	}
+	mustf(t, seedDemo(ctx, pool, artifacts.storage), "seed the verification floor: %v")
 
 	// --- the supply side: a real agent, enrolled, on a real runtime -----------
 	agent := launchAgent(t, ctx, store, pool, srv.URL, "candle", "candle_metal", llamaURL)
@@ -268,9 +264,7 @@ func TestFirstCompleteLoopThroughThePublicAPI(t *testing.T) {
 		SELECT DISTINCT supplier_id FROM ledger_entries
 		 WHERE kind='supplier_credit'
 		   AND task_id IN (SELECT id FROM tasks WHERE job_id=$1)`, jobID)
-	if err != nil {
-		t.Fatalf("read supplier attribution: %v", err)
-	}
+	mustf(t, err, "read supplier attribution: %v")
 	for rows.Next() {
 		var id uuid.UUID
 		if err := rows.Scan(&id); err != nil {
@@ -280,9 +274,7 @@ func TestFirstCompleteLoopThroughThePublicAPI(t *testing.T) {
 		paidSuppliers[id] = true
 	}
 	rows.Close()
-	if err := rows.Err(); err != nil {
-		t.Fatalf("read supplier attribution: %v", err)
-	}
+	mustf(t, rows.Err(), "read supplier attribution: %v")
 	if len(paidSuppliers) != 1 || !paidSuppliers[agent.supplierID] {
 		t.Fatalf("credited suppliers %v, but %s is the one that executed the work",
 			paidSuppliers, agent.supplierID)
@@ -321,6 +313,29 @@ func TestFirstCompleteLoopThroughThePublicAPI(t *testing.T) {
 		"mode %s, basis %s, verification %v",
 		buyerMicros, supplierMicros, platformMicros, runtimeID, cell, hwClass,
 		mode, basis, derefOr(verification))
+
+	// Stranger-visible surfaces: invoice and receipt must be readable on the
+	// public API and must not present gross platform take as true net profit.
+	invoice := getJSON(t, srv.URL+"/v1/jobs/"+jobID.String()+"/invoice", apiKey)
+	if invoice.status != http.StatusOK {
+		t.Fatalf("GET invoice after settle: HTTP %d: %s", invoice.status, invoice.body)
+	}
+	receipt := getJSON(t, srv.URL+"/v1/jobs/"+jobID.String()+"/receipt", apiKey)
+	if receipt.status != http.StatusOK {
+		t.Fatalf("GET receipt after settle: HTTP %d: %s", receipt.status, receipt.body)
+	}
+	if inv, ok := receipt.json["invoice"].(map[string]any); ok {
+		if _, hasTake := inv["platform_take_usd"]; hasTake {
+			if _, hasGross := inv["platform_gross_spread_usd"]; !hasGross {
+				t.Fatal("settled receipt exposes platform_take without platform_gross_spread")
+			}
+		}
+		if _, bad := inv["true_net_profit_usd"]; bad {
+			t.Fatal("settled invoice labels gross as true_net_profit_usd")
+		}
+	} else {
+		t.Fatalf("settled receipt missing invoice: %s", receipt.body)
+	}
 
 	writeFirstLoopReceipt(t, firstLoopReceipt{
 		JobID: jobID.String(), Email: email, Currency: currency,
@@ -373,9 +388,7 @@ func writeFirstLoopReceipt(t *testing.T, loop firstLoopReceipt) {
 	t.Helper()
 	path := firstCompleteLoopReceiptPath()
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatalf("create receipt directory: %v", err)
-	}
+	mustf(t, os.MkdirAll(dir, 0o755), "create receipt directory: %v")
 	payload := map[string]any{
 		"schema_version":        1,
 		"kind":                  "first_complete_loop",
@@ -396,9 +409,7 @@ func writeFirstLoopReceipt(t *testing.T, loop firstLoopReceipt) {
 	if strings.Contains(filepath.ToSlash(path), "/evidence/") || strings.HasPrefix(filepath.ToSlash(path), "evidence/") {
 		id, bin, err := DefaultBoundIdentity("..", "control/first_complete_loop_test.go",
 			"embedded loop receipt", "embedded loop events")
-		if err != nil {
-			t.Fatalf("identity: %v", err)
-		}
+		mustf(t, err, "identity: %v")
 		if err := WriteBoundEvidenceJSON(EvidenceWriteRequest{
 			RepoRoot: "..", Path: path, Payload: payload,
 			Identity: id, BuildBinaryPath: bin,
@@ -407,12 +418,8 @@ func writeFirstLoopReceipt(t *testing.T, loop firstLoopReceipt) {
 		}
 	} else {
 		body, err := json.MarshalIndent(payload, "", "  ")
-		if err != nil {
-			t.Fatalf("render receipt: %v", err)
-		}
-		if err := os.WriteFile(path, append(body, '\n'), 0o644); err != nil {
-			t.Fatalf("write receipt: %v", err)
-		}
+		mustf(t, err, "render receipt: %v")
+		mustf(t, os.WriteFile(path, append(body, '\n'), 0o644), "write receipt: %v")
 	}
 	t.Logf("first-complete-loop receipt written to %s", path)
 }
@@ -444,13 +451,9 @@ func postJSONWithHeaders(
 ) apiResponse {
 	t.Helper()
 	body, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	req.Header.Set("Content-Type", "application/json")
 	if bearer != "" {
 		req.Header.Set("Authorization", "Bearer "+bearer)
@@ -459,8 +462,52 @@ func postJSONWithHeaders(
 		req.Header.Set(k, v)
 	}
 	resp, err := (&http.Client{Timeout: 120 * time.Second}).Do(req)
+	mustf(t, err, "POST %s: %v", url)
+	defer resp.Body.Close()
+	var buf bytes.Buffer
+	if _, err := buf.ReadFrom(resp.Body); err != nil {
+		t.Fatal(err)
+	}
+	out := apiResponse{status: resp.StatusCode, body: buf.String()}
+	_ = json.Unmarshal(buf.Bytes(), &out.json)
+	return out
+}
+
+func getJSON(t *testing.T, url, bearer string) apiResponse {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
-		t.Fatalf("POST %s: %v", url, err)
+		t.Fatal(err)
+	}
+	if bearer != "" {
+		req.Header.Set("Authorization", "Bearer "+bearer)
+	}
+	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
+	if err != nil {
+		t.Fatalf("GET %s: %v", url, err)
+	}
+	defer resp.Body.Close()
+	var buf bytes.Buffer
+	if _, err := buf.ReadFrom(resp.Body); err != nil {
+		t.Fatal(err)
+	}
+	out := apiResponse{status: resp.StatusCode, body: buf.String()}
+	_ = json.Unmarshal(buf.Bytes(), &out.json)
+	return out
+}
+
+func deleteJSON(t *testing.T, url, bearer string) apiResponse {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodDelete, url, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bearer != "" {
+		req.Header.Set("Authorization", "Bearer "+bearer)
+	}
+	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
+	if err != nil {
+		t.Fatalf("DELETE %s: %v", url, err)
 	}
 	defer resp.Body.Close()
 	var buf bytes.Buffer

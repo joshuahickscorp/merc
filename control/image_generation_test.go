@@ -18,9 +18,7 @@ func TestImageRequestValidationBoundsWhatMercWillGenerate(t *testing.T) {
 
 	t.Run("defaults match OpenAI so an existing client needs no change", func(t *testing.T) {
 		req := valid()
-		if err := validateImageRequest(&req); err != nil {
-			t.Fatalf("a minimal valid request was refused: %v", err)
-		}
+		mustf(t, validateImageRequest(&req), "a minimal valid request was refused: %v")
 		if req.N != 1 || req.Size != "1024x1024" || req.ResponseFormat != "url" {
 			t.Fatalf("unexpected defaults: n=%d size=%q format=%q", req.N, req.Size, req.ResponseFormat)
 		}
@@ -65,9 +63,7 @@ func TestImageRequestValidationBoundsWhatMercWillGenerate(t *testing.T) {
 	for _, size := range sortedImageSizes() {
 		r := valid()
 		r.Size = size
-		if err := validateImageRequest(&r); err != nil {
-			t.Fatalf("advertised size %q was refused: %v", size, err)
-		}
+		mustf(t, validateImageRequest(&r), "advertised size %q was refused: %v", size)
 	}
 }
 
@@ -156,9 +152,7 @@ func TestImageRefusalDoesNotEchoThePrompt(t *testing.T) {
 // they require the licensee to pass those restrictions downstream. merc resells
 // generation, so it is a licensee that must bind its own buyers.
 func TestImageModelLicenceRequiresAPassThroughUsePolicy(t *testing.T) {
-	if err := validateImageModelLicence("sd-xl", "CreativeML-OpenRAIL-M", true); err != nil {
-		t.Fatalf("an OpenRAIL model with an enforced use policy was refused: %v", err)
-	}
+	mustf(t, validateImageModelLicence("sd-xl", "CreativeML-OpenRAIL-M", true), "an OpenRAIL model with an enforced use policy was refused: %v")
 	err := validateImageModelLicence("sd-xl", "CreativeML-OpenRAIL-M", false)
 	if err == nil {
 		t.Fatal("an OpenRAIL model was accepted with no downstream use policy")
@@ -168,9 +162,7 @@ func TestImageModelLicenceRequiresAPassThroughUsePolicy(t *testing.T) {
 	}
 
 	// Permissive licences impose no pass-through obligation.
-	if err := validateImageModelLicence("permissive-1", "Apache-2.0", false); err != nil {
-		t.Fatalf("Apache-2.0 image model refused: %v", err)
-	}
+	mustf(t, validateImageModelLicence("permissive-1", "Apache-2.0", false), "Apache-2.0 image model refused: %v")
 
 	// An unrecognised licence is refused, not assumed permissive.
 	if err := validateImageModelLicence("mystery", "SomeNewRAIL-9000", true); err == nil {

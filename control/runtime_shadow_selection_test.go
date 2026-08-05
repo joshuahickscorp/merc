@@ -23,9 +23,7 @@ func TestShadowSelectionConsidersTheProvenCellAdmissionCannotRoute(t *testing.T)
 		Tier:        "batch",
 		Constraints: JobConstraints{MaxDurationSecs: 3600},
 	}, strings.Repeat("a", 64))
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if len(decision.RuntimeCandidates) != 1 {
 		t.Fatalf("admission froze %d candidates; it is documented to freeze exactly one",
 			len(decision.RuntimeCandidates))
@@ -36,9 +34,7 @@ func TestShadowSelectionConsidersTheProvenCellAdmissionCannotRoute(t *testing.T)
 	}
 
 	shadow, err := planShadowSelection(decision)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 
 	considered := map[string]shadowCandidate{}
 	for _, candidate := range shadow.Considered {
@@ -89,13 +85,9 @@ func TestShadowSelectionRecordsWhyACellWasExcluded(t *testing.T) {
 		Tier:        "batch",
 		Constraints: JobConstraints{MaxDurationSecs: 3600},
 	}, strings.Repeat("b", 64))
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	shadow, err := planShadowSelection(decision)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	t.Logf("excluded: %+v", shadow.Excluded)
 
 	// The rejected generation cell is not in the embed directed set; exclusion
@@ -123,13 +115,9 @@ func TestShadowSelectionRecordsWhyACellWasExcluded(t *testing.T) {
 		Tier:        "batch",
 		Constraints: JobConstraints{MaxDurationSecs: 3600},
 	}, strings.Repeat("b", 64), "candle-metal-llama1-infer")
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	inferShadow, err := planShadowSelection(infer)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	var reason string
 	for _, exclusion := range inferShadow.Excluded {
 		if exclusion.CellID == "llama-cpp-metal-llama1-infer" {
@@ -191,21 +179,13 @@ func TestShadowSelectionIsRecordedAndImmutable(t *testing.T) {
 		Tier:        "batch",
 		Constraints: JobConstraints{MaxDurationSecs: 3600},
 	}, strings.Repeat("c", 64))
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	shadow, err := planShadowSelection(decision)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	jobID := uuid.NewString()
-	if err := store.RecordShadowSelection(ctx, jobID, shadow); err != nil {
-		t.Fatalf("record: %v", err)
-	}
+	mustf(t, store.RecordShadowSelection(ctx, jobID, shadow), "record: %v")
 	// Idempotent: a retried submit must not produce a second opinion.
-	if err := store.RecordShadowSelection(ctx, jobID, shadow); err != nil {
-		t.Fatalf("second record: %v", err)
-	}
+	mustf(t, store.RecordShadowSelection(ctx, jobID, shadow), "second record: %v")
 
 	var rows int
 	var considered, excluded string
@@ -235,9 +215,7 @@ func TestShadowSelectionIsRecordedAndImmutable(t *testing.T) {
 	}
 
 	divergence, err := store.ShadowSelectionDivergence(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if len(divergence) != 1 || divergence[0].Decisions != 1 {
 		t.Fatalf("divergence report = %+v", divergence)
 	}

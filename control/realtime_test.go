@@ -24,9 +24,7 @@ func TestVLLMRuntimeProfilesAreImmutableAndExact(t *testing.T) {
 		t.Fatal("runtime profile catalog is empty")
 	}
 	for _, profile := range profiles {
-		if err := validateVLLMRuntimeProfile(profile); err != nil {
-			t.Fatalf("profile %s: %v", profile.RuntimeProfileID, err)
-		}
+		mustf(t, validateVLLMRuntimeProfile(profile), "profile %s: %v", profile.RuntimeProfileID)
 		if len(profile.ProfileSHA256) != 64 {
 			t.Fatalf("profile %s digest is not sha256 hex", profile.RuntimeProfileID)
 		}
@@ -36,13 +34,9 @@ func TestVLLMRuntimeProfilesAreImmutableAndExact(t *testing.T) {
 func TestPrepareRealtimeRequestCanonicalizesDefaultsAndPriceCeiling(t *testing.T) {
 	raw := []byte(`{"model":"cx-chat-1b","messages":[{"role":"user","content":"hello"}],"stream":true,"max_tokens":8}`)
 	first, err := prepareRealtimeRequest(raw, "1.00")
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	second, err := prepareRealtimeRequest(raw, "1.00")
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if first.InputCommitment != second.InputCommitment || first.RequestSHA256 != second.RequestSHA256 {
 		t.Fatal("canonical request commitments are not retry-stable")
 	}
@@ -50,9 +44,7 @@ func TestPrepareRealtimeRequestCanonicalizesDefaultsAndPriceCeiling(t *testing.T
 		t.Fatalf("invalid prepared economics: %+v", first)
 	}
 	var upstream map[string]any
-	if err := json.Unmarshal(first.Body, &upstream); err != nil {
-		t.Fatal(err)
-	}
+	must(t, json.Unmarshal(first.Body, &upstream))
 	if upstream["temperature"] == nil || upstream["top_p"] == nil {
 		t.Fatal("versioned generation defaults were not resolved")
 	}
@@ -68,9 +60,7 @@ func TestPrepareRealtimeRequestCanonicalizesDefaultsAndPriceCeiling(t *testing.T
 func TestPrepareRealtimeRequestPreservesLargeIntegerFields(t *testing.T) {
 	const seed = "9007199254740993"
 	prepared, err := prepareRealtimeRequest([]byte(`{"model":"cx-chat-1b","messages":[{"role":"user","content":"hello"}],"seed":`+seed+`}`), "")
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if !bytes.Contains(prepared.Body, []byte(`"seed":`+seed)) {
 		t.Fatalf("large integer lost precision in canonical request: %s", prepared.Body)
 	}
@@ -113,9 +103,7 @@ func TestRealtimeHTTPClientDoesNotFollowWorkerRedirects(t *testing.T) {
 	}))
 	defer redirect.Close()
 	response, err := newRealtimeHTTPClient().Get(redirect.URL)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusFound {
 		t.Fatalf("worker redirect was followed: status=%d", response.StatusCode)
@@ -244,16 +232,12 @@ func TestProxySSEBuildsUsageBoundHashChain(t *testing.T) {
 	}, "\n") + "\n"
 	recorder := httptest.NewRecorder()
 	tracker := newStreamEvidenceTracker(time.Now())
-	if err := proxySSE(recorder, strings.NewReader(stream), tracker); err != nil {
-		t.Fatal(err)
-	}
+	must(t, proxySSE(recorder, strings.NewReader(stream), tracker))
 	if recorder.Body.String() != stream {
 		t.Fatalf("proxy changed compatible SSE bytes\nwant: %q\n got: %q", stream, recorder.Body.String())
 	}
 	evidence, err := tracker.evidence(uuid.New(), 200, time.Second)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if evidence.StreamEventCount != 4 || evidence.TotalTokens != 6 || evidence.PromptTokens != 4 || evidence.CompletionTokens != 2 {
 		t.Fatalf("unexpected evidence: %+v", evidence)
 	}
@@ -281,9 +265,7 @@ func TestRealtimeOfferRequiresPositiveGrossContributionInEveryTokenClass(t *test
 	valid := RealtimeOfferRegistration{
 		SupplierInputUSDPerMillionTokens: 0.08, SupplierOutputUSDPerMillionTokens: 0.30,
 	}
-	if err := validateRealtimeOfferRates(profile, valid); err != nil {
-		t.Fatal(err)
-	}
+	must(t, validateRealtimeOfferRates(profile, valid))
 	for name, mutate := range map[string]func(*RealtimeOfferRegistration){
 		"zero floor":       func(r *RealtimeOfferRegistration) { r.SupplierInputUSDPerMillionTokens = 0 },
 		"equal input rate": func(r *RealtimeOfferRegistration) { r.SupplierInputUSDPerMillionTokens = 0.10 },

@@ -31,23 +31,17 @@ func TestMediaSegmentCountFromParams(t *testing.T) {
 
 func TestMediaSegmentUnitAtIsContiguousBijection(t *testing.T) {
 	plan, err := deriveMediaSegmentPlan(3, 6.0)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	var units []MediaSegmentUnit
 	for o := int64(0); o < plan.UnitCount; o++ {
 		u, err := mediaSegmentUnitAt(plan, o)
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		if u.Ordinal != o {
 			t.Fatalf("ordinal mismatch: got %d want %d", u.Ordinal, o)
 		}
 		units = append(units, u)
 	}
-	if err := validateMediaSegmentExtents(6.0, units); err != nil {
-		t.Fatal(err)
-	}
+	must(t, validateMediaSegmentExtents(6.0, units))
 }
 
 func TestMediaSegmentExtentsSummingShortOfSourceIsRefused(t *testing.T) {
@@ -71,9 +65,7 @@ func TestMediaSegmentExtentsSummingShortOfSourceIsRefused(t *testing.T) {
 		{Ordinal: 0, StartSecs: 0, EndSecs: 1.5},
 		{Ordinal: 1, StartSecs: 1.5, EndSecs: 3.0},
 	}
-	if err := validateMediaSegmentExtents(3.0, full); err != nil {
-		t.Fatal(err)
-	}
+	must(t, validateMediaSegmentExtents(3.0, full))
 }
 
 func TestMediaMergeCoverageRefusesMissingAndDuplicateOrdinals(t *testing.T) {
@@ -86,9 +78,7 @@ func TestMediaMergeCoverageRefusesMissingAndDuplicateOrdinals(t *testing.T) {
 		{ChunkIndex: 1, ResultRef: "b", Artifact: &VerificationArtifact{Key: "b", SHA256: sha("b"), Bytes: 1}},
 		{ChunkIndex: 2, ResultRef: "c", Artifact: &VerificationArtifact{Key: "c", SHA256: sha("c"), Bytes: 1}},
 	}
-	if err := validateMediaMergeCoverage(3, ok); err != nil {
-		t.Fatalf("complete coverage refused: %v", err)
-	}
+	mustf(t, validateMediaMergeCoverage(3, ok), "complete coverage refused: %v")
 	// Missing ordinal 1
 	missing := []PrimaryResult{ok[0], ok[2]}
 	if err := validateMediaMergeCoverage(3, missing); err == nil {
@@ -106,12 +96,8 @@ func TestMediaMergeCoverageRefusesMissingAndDuplicateOrdinals(t *testing.T) {
 }
 
 func TestRefuseSegmentedMediaCrossSupplierRedundancy(t *testing.T) {
-	if err := refuseSegmentedMediaCrossSupplierRedundancy(1, 1.0); err != nil {
-		t.Fatalf("single-segment must still allow redundancy: %v", err)
-	}
-	if err := refuseSegmentedMediaCrossSupplierRedundancy(3, 0); err != nil {
-		t.Fatalf("zero redundancy on multi-segment should be fine: %v", err)
-	}
+	mustf(t, refuseSegmentedMediaCrossSupplierRedundancy(1, 1.0), "single-segment must still allow redundancy: %v")
+	mustf(t, refuseSegmentedMediaCrossSupplierRedundancy(3, 0), "zero redundancy on multi-segment should be fine: %v")
 	if err := refuseSegmentedMediaCrossSupplierRedundancy(3, 0.5); err == nil {
 		t.Fatal("multi-segment with redundancy_frac > 0 must be refused")
 	}
@@ -121,9 +107,7 @@ func TestSingleSegmentMediaScanPinsCurrentNumbers(t *testing.T) {
 	// Identical fixture shape to the historical single-artifact pin.
 	input := append([]byte{0, 0, 0, 24, 'f', 't', 'y', 'p'}, bytes.Repeat([]byte{'x'}, 16)...)
 	scan, err := mediaInputScan(input, 1)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if scan.Records != 1 || scan.Bytes != len(input) {
 		t.Fatalf("single-segment pin broken: %+v", scan)
 	}
@@ -136,9 +120,7 @@ func TestSingleSegmentMediaScanPinsCurrentNumbers(t *testing.T) {
 
 func TestMediaSegmentParamsForDispatch(t *testing.T) {
 	raw, err := mediaSegmentParamsForDispatch(4, 2)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	var payload struct {
 		MediaSegment struct {
 			Ordinal   int    `json:"ordinal"`
@@ -146,9 +128,7 @@ func TestMediaSegmentParamsForDispatch(t *testing.T) {
 			Version   string `json:"version"`
 		} `json:"media_segment"`
 	}
-	if err := json.Unmarshal(raw, &payload); err != nil {
-		t.Fatal(err)
-	}
+	must(t, json.Unmarshal(raw, &payload))
 	if payload.MediaSegment.Ordinal != 2 || payload.MediaSegment.UnitCount != 4 {
 		t.Fatalf("dispatch params = %+v", payload.MediaSegment)
 	}
@@ -192,9 +172,7 @@ func TestMediaSegmentsReassembleViaMergeCoverageAndConcat(t *testing.T) {
 			t.Fatalf("encode seg %d: %v (%s)", ordinal, err, out)
 		}
 		b, err := os.ReadFile(outPath)
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		return b
 	}
 	seg0a, seg1a := encodeSeg(0), encodeSeg(1)
@@ -211,9 +189,7 @@ func TestMediaSegmentsReassembleViaMergeCoverageAndConcat(t *testing.T) {
 		{ChunkIndex: 0, ResultRef: "seg0", Artifact: &VerificationArtifact{Key: "seg0", SHA256: digest(seg0a), Bytes: int64(len(seg0a))}},
 		{ChunkIndex: 1, ResultRef: "seg1", Artifact: &VerificationArtifact{Key: "seg1", SHA256: digest(seg1a), Bytes: int64(len(seg1a))}},
 	}
-	if err := validateMediaMergeCoverage(2, results); err != nil {
-		t.Fatalf("coverage: %v", err)
-	}
+	mustf(t, validateMediaMergeCoverage(2, results), "coverage: %v")
 
 	// Production merge path for N>1 is ffmpeg concat demuxer stream-copy.
 	// Exercise it twice and require byte-identical reassembly.
@@ -222,9 +198,7 @@ func TestMediaSegmentsReassembleViaMergeCoverageAndConcat(t *testing.T) {
 	if !bytes.Equal(merged1, merged2) {
 		t.Fatal("reassembly is not byte-identical across independent segment claims")
 	}
-	if err := validateMediaTranscodeResult(merged1, resultRecordContract{Exact: 1, Max: 1}); err != nil {
-		t.Fatalf("merged output invalid: %v", err)
-	}
+	mustf(t, validateMediaTranscodeResult(merged1, resultRecordContract{Exact: 1, Max: 1}), "merged output invalid: %v")
 
 	// Single-shot continuous encode (N=1 path shape) remains valid; it is not
 	// required to match segmented reassembly under ABR (measured refuse).
@@ -240,12 +214,8 @@ func TestMediaSegmentsReassembleViaMergeCoverageAndConcat(t *testing.T) {
 		t.Fatalf("single-shot: %v (%s)", err, out)
 	}
 	singleBytes, err := os.ReadFile(singlePath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := validateMediaTranscodeResult(singleBytes, resultRecordContract{Exact: 1, Max: 1}); err != nil {
-		t.Fatalf("single-shot invalid: %v", err)
-	}
+	must(t, err)
+	mustf(t, validateMediaTranscodeResult(singleBytes, resultRecordContract{Exact: 1, Max: 1}), "single-shot invalid: %v")
 	if bytes.Equal(singleBytes, merged1) {
 		t.Log("continuous encode matched segmented reassembly for this fixture")
 	} else {
@@ -260,16 +230,12 @@ func concatSegmentsForTest(t *testing.T, dir, tag string, segments [][]byte) []b
 	var list bytes.Buffer
 	for i, seg := range segments {
 		p := filepath.Join(dir, tag+formatFloat(float64(i))+".mp4")
-		if err := os.WriteFile(p, seg, 0o600); err != nil {
-			t.Fatal(err)
-		}
+		must(t, os.WriteFile(p, seg, 0o600))
 		if _, err := list.WriteString("file '" + p + "'\n"); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := os.WriteFile(listPath, list.Bytes(), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	must(t, os.WriteFile(listPath, list.Bytes(), 0o600))
 	outPath := filepath.Join(dir, tag+"-merged.mp4")
 	cmd := exec.Command("ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error",
 		"-f", "concat", "-safe", "0", "-i", listPath,
@@ -278,9 +244,7 @@ func concatSegmentsForTest(t *testing.T, dir, tag string, segments [][]byte) []b
 		t.Fatalf("concat %s: %v (%s)", tag, err, out)
 	}
 	b, err := os.ReadFile(outPath)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	return b
 }
 

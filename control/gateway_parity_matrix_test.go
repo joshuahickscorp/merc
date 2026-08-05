@@ -340,13 +340,9 @@ func TestGatewayParityMatrixSelfTestAcrossDimensions(t *testing.T) {
 		})
 	}
 	mercLn, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	directLn, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	mercSrv := &http.Server{Handler: makeHandler(&mercHits, 5*time.Millisecond)}
 	directSrv := &http.Server{Handler: makeHandler(&directHits, 0)}
 	go mercSrv.Serve(mercLn)
@@ -484,18 +480,12 @@ func TestGatewayParityMatrixSelfTestAcrossDimensions(t *testing.T) {
 		}
 		outPath := filepath.Join("..", "evidence", "perf", "gateway-parity-v2-matrix-selftest.json")
 		raw, err := json.Marshal(sealRec)
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		var payload map[string]any
-		if err := json.Unmarshal(raw, &payload); err != nil {
-			t.Fatal(err)
-		}
+		must(t, json.Unmarshal(raw, &payload))
 		id, bin, err := DefaultBoundIdentity("..", "control/gateway_parity_matrix.go#HARNESS_SELF_TEST",
 			"embedded sampling_contract + cells", "embedded cells.*.merc/direct.raw_samples")
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		id.ModelArtifactDigest = IdentitySlotNA("self-test stand-in; no model weights")
 		id.ImageDigest = IdentitySlotNA("self-test; no container image")
 		id.CorpusDigest = IdentitySlotNA("self-test; no external corpus")

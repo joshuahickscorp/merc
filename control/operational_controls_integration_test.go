@@ -26,9 +26,7 @@ func TestOperationalControlsAreDurableAndActorAudited(t *testing.T) {
 		correlation := "control-" + name + "-" + uuid.NewString()
 		got, err := store.AdminSetOperationalControl(
 			ctx, actor, name, true, "exercise "+name+" pause", correlation)
-		if err != nil {
-			t.Fatalf("pause %s: %v", name, err)
-		}
+		mustf(t, err, "pause %s: %v", name)
 		if !got.Paused || got.Name != name || got.UpdatedBy == nil || *got.UpdatedBy != actor.PrincipalID {
 			t.Fatalf("pause %s returned incomplete state: %+v", name, got)
 		}

@@ -20,15 +20,11 @@ func TestStripeTransportPinsVersionImmediatelyBeforeIO(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, server.URL, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	// A stale or caller-supplied value must not win over the compiled contract.
 	req.Header.Set("Stripe-Version", "account-default-or-stale")
 	resp, err := doStripeRequest(server.Client(), req)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	_ = resp.Body.Close()
 	if got != stripeAPIVersion {
 		t.Fatalf("Stripe-Version at transport = %q, want %q", got, stripeAPIVersion)
@@ -38,9 +34,7 @@ func TestStripeTransportPinsVersionImmediatelyBeforeIO(t *testing.T) {
 func TestStripeProviderSourcesCannotBypassPinnedTransport(t *testing.T) {
 	for _, name := range []string{"billing.go", "payment.go", "stripe_settlement.go"} {
 		body, err := os.ReadFile(name)
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		for _, forbidden := range []string{"stripeHTTPClient.Do(", "p.http.Do("} {
 			if strings.Contains(string(body), forbidden) {
 				t.Fatalf("%s bypasses doStripeRequest with %q", name, forbidden)
@@ -55,9 +49,7 @@ func TestStripeProviderSourcesCannotBypassPinnedTransport(t *testing.T) {
 func TestEveryStripeOperatorScriptPinsSameVersion(t *testing.T) {
 	root := filepath.Join("..", "scripts")
 	entries, err := os.ReadDir(root)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	wantHeader := "Stripe-Version: " + stripeAPIVersion
 	var checked []string
 	for _, entry := range entries {
@@ -66,9 +58,7 @@ func TestEveryStripeOperatorScriptPinsSameVersion(t *testing.T) {
 		}
 		path := filepath.Join(root, entry.Name())
 		body, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		if !strings.Contains(string(body), "api.stripe.com") {
 			continue
 		}
@@ -147,9 +137,7 @@ func TestDeploymentAcceptanceRequiresReadyStripeContract(t *testing.T) {
 		},
 	} {
 		body, err := os.ReadFile(tc.path)
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		for _, required := range tc.required {
 			if !strings.Contains(string(body), required) {
 				t.Errorf("%s is missing deployment acceptance guard %q", tc.path, required)
@@ -167,9 +155,7 @@ func TestStripeGetUsesPinnedContract(t *testing.T) {
 		_, _ = fmt.Fprint(w, `{"id":"acct_contract"}`)
 	}))
 	out, err := stripeGet(context.Background(), "account")
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if out["id"] != "acct_contract" {
 		t.Fatalf("response = %#v", out)
 	}

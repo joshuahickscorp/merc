@@ -148,7 +148,7 @@ mkdir -p "$ART"
 : >"$LEDGER"
 
 (cd control && go build -o "$ART/merc" .)
-"$ART/merc" audit codebase --out census
+"$ART/merc" audit codebase --out evidence/census
 SOURCE_START="$("$ART/merc" source-id --root "$ROOT" --field source_sha256)"
 record PASS source-bound "source_sha256=$SOURCE_START"
 record PASS census "authoritative census regenerated before source binding"
@@ -272,7 +272,7 @@ if [ "$SKIP_LIVE" != "1" ]; then
   SANDBOX_ROOT="$(mktemp -d /private/tmp/cx-prove.XXXXXX)"
   mkdir -p "$SANDBOX_ROOT/home/.merc"
   cp "$CARGO_TARGET_DIR/release/merc-agent" "$SANDBOX_ROOT/merc-agent"
-  cp macapp/ComputeExchangeAgent/merc-agent.sb "$SANDBOX_ROOT/merc-agent.sb"
+  cp clients/macapp/ComputeExchangeAgent/merc-agent.sb "$SANDBOX_ROOT/merc-agent.sb"
   AGENT_BIN="$SANDBOX_ROOT/merc-agent"
   MODEL_CACHE="${MERC_MODEL_CACHE:-${HF_HOME:-$HOME/.cache/huggingface}}"
 

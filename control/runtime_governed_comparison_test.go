@@ -5,6 +5,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -330,9 +331,7 @@ func TestGovernedComparisonWillNotRuleOnPriorFromUnboundActuals(t *testing.T) {
 	cmp, err := BuildGovernedComparison(shadow, costs, catalogueMinilm(), map[string]any{
 		"note": "test fixture; live writer records real uptime",
 	}, true)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 
 	// The actuals favour candle, and that is still not a verdict.
 	status, _ := cmp.PriorThroughputClaim["status"].(string)
@@ -352,9 +351,7 @@ func TestGovernedComparisonWillNotRuleOnPriorFromUnboundActuals(t *testing.T) {
 		bound[id] = c
 	}
 	boundCmp, err := BuildGovernedComparison(shadow, bound, catalogueMinilm(), nil, true)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if s, _ := boundCmp.PriorThroughputClaim["status"].(string); s != "FALSIFIED_CANDLE_FASTER_ON_GOVERNED_CONTRACT" {
 		t.Fatalf("bound actuals status = %q, want FALSIFIED once provenance exists", s)
 	}
@@ -440,9 +437,7 @@ func TestGovernedComparisonNoPriorKeepsLadderPrediction(t *testing.T) {
 		},
 	}
 	cmp, err := BuildGovernedComparison(shadow, costs, catalogueMinilm(), nil, false)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if cmp.Decision.PredictedWinner != candleEmbedCell {
 		t.Fatalf("predicted = %q", cmp.Decision.PredictedWinner)
 	}
@@ -457,6 +452,184 @@ func TestGovernedComparisonNoPriorKeepsLadderPrediction(t *testing.T) {
 	if math.Abs(cmp.Decision.CostRegretUSD) > 1e-12 {
 		t.Fatalf("cost regret should be ~0, got %v", cmp.Decision.CostRegretUSD)
 	}
+}
+
+// TestEconomicSelectorTwoCases proves the selector is economic, not speed-only.
+//
+// Case A (live latencies, equal reliability): llama.cpp is faster at equal
+// verified-outcome cost → MORE_THROUGHPUT_AT_EQUAL_PRICE picks llama; selection
+// latency/cost regret both 0.
+//
+// Case B (same live latencies; faster cell has verification failures so its
+// verified-outcome cost rises): the slower cell is strictly cheaper per verified
+// outcome → MEASURED_VERIFIED_OUTCOME_COST picks the slower cell. A speed-only
+// selector would pick the faster cell and pay positive cost regret.
+//
+// Case B is constructed: the reliability differential is injected on top of live
+// (or cohort) latencies so the projection, not a hardcoded engine preference,
+// decides. That is the only honest way to show the slower-wins branch on a host
+// where both arms currently pass verification equally.
+func TestEconomicSelectorTwoCases(t *testing.T) {
+	live := boundEmbedCosts(t)
+	source := "evidence/perf/selector/engine-parity-metal-embed-latest.json (BOUND)"
+	if live == nil {
+		live = cohortEmbedCosts(t)
+		source = "evidence/perf/selector/paired-cohort-embed.json (UNBOUND cohort fallback)"
+	}
+	t.Logf("latency source: %s", source)
+
+	cells := []string{candleEmbedCell, llamaEmbedCell}
+	candleMs := live[candleEmbedCell].MedianMsPerUnit
+	llamaMs := live[llamaEmbedCell].MedianMsPerUnit
+	if candleMs <= 0 || llamaMs <= 0 {
+		t.Fatal("missing median_ms_per_unit on live/cohort costs")
+	}
+
+	// ── Case A: equal reliability, faster wins at equal price ──────────────
+	caseA := cloneMeasuredCosts(live)
+	// Force equal clean verification so cost ties by construction.
+	for id, c := range caseA {
+		c.VerificationSamples = 40
+		c.VerificationFails = 0
+		c.TerminalAttempts = 40
+		c.TerminalFails = 0
+		caseA[id] = c
+	}
+	dA := decideMeasuredShadow(caseA, cells, candleEmbedCell)
+	wantAWinner := candleEmbedCell
+	if llamaMs < candleMs && !latenciesTie(llamaMs, candleMs) {
+		wantAWinner = llamaEmbedCell
+	} else if candleMs < llamaMs && !latenciesTie(llamaMs, candleMs) {
+		wantAWinner = candleEmbedCell
+	}
+	if dA.Basis != selectionBasisThroughputEqualPrice && dA.Basis != selectionBasisTieNoDecision {
+		t.Fatalf("case A basis = %q, want throughput-at-equal-price or tie", dA.Basis)
+	}
+	if dA.Winner != wantAWinner && dA.Basis != selectionBasisTieNoDecision {
+		t.Fatalf("case A winner = %q, want %q (faster at equal VO cost)", dA.Winner, wantAWinner)
+	}
+	// Selection regret on the measured axes.
+	latRegA, costRegA := selectionRegretFromCosts(caseA, dA.Winner)
+	if latRegA > 1e-9 {
+		t.Fatalf("case A latency selection regret = %v, want 0 (picked fastest)", latRegA)
+	}
+	if costRegA > 1e-12 {
+		t.Fatalf("case A cost selection regret = %v, want 0 (costs tie; any pick is optimal)", costRegA)
+	}
+	t.Logf("case A: winner=%s basis=%s lat_regret=%.6f ms/unit cost_regret=%.6e USD/unit (faster=%s)",
+		dA.Winner, dA.Basis, latRegA, costRegA, wantAWinner)
+
+	// ── Case B: slower cell cheaper on verified-outcome cost ────────────────
+	// Make the FASTER cell fail verification 25% of the time so VO cost × 4/3.
+	// The slower cell stays clean. Selector must pick slower if it is economic.
+	caseB := cloneMeasuredCosts(live)
+	fasterID := wantAWinner
+	slowerID := candleEmbedCell
+	if fasterID == candleEmbedCell {
+		slowerID = llamaEmbedCell
+	}
+	// If latencies tied, force an ordering so "slower" is well-defined.
+	if latenciesTie(candleMs, llamaMs) {
+		fasterID = llamaEmbedCell
+		slowerID = candleEmbedCell
+		c := caseB[fasterID]
+		c.MedianMsPerUnit = caseB[slowerID].MedianMsPerUnit * 0.7
+		caseB[fasterID] = c
+	}
+	for id, c := range caseB {
+		c.VerificationSamples = 40
+		c.TerminalAttempts = 40
+		c.TerminalFails = 0
+		if id == fasterID {
+			c.VerificationFails = 10 // 25% fail → reliability multiplies cost
+		} else {
+			c.VerificationFails = 0
+		}
+		caseB[id] = c
+	}
+	// Confirm construction: faster is more expensive per verified outcome.
+	fastVO, okF := caseB[fasterID].ExpectedVerifiedOutcomeUSDPerUnit()
+	slowVO, okS := caseB[slowerID].ExpectedVerifiedOutcomeUSDPerUnit()
+	if !okF || !okS {
+		t.Fatal("case B VO costs unavailable")
+	}
+	if !(slowVO < fastVO) || costsTieUSD(slowVO, fastVO) {
+		t.Fatalf("case B construction failed: slower VO=%v faster VO=%v (need slower strictly cheaper)",
+			slowVO, fastVO)
+	}
+	if !(caseB[fasterID].MedianMsPerUnit < caseB[slowerID].MedianMsPerUnit) {
+		t.Fatalf("case B construction: faster cell is not actually faster: %v vs %v",
+			caseB[fasterID].MedianMsPerUnit, caseB[slowerID].MedianMsPerUnit)
+	}
+
+	dB := decideMeasuredShadow(caseB, cells, fasterID /* routed = speed-preferring */)
+	if dB.Basis != selectionBasisMeasuredCost {
+		t.Fatalf("case B basis = %q, want %s (VO cost must decide)", dB.Basis, selectionBasisMeasuredCost)
+	}
+	if dB.Winner != slowerID {
+		t.Fatalf("case B winner = %q, want slower cell %q (cheaper verified outcome)", dB.Winner, slowerID)
+	}
+	latRegB, costRegB := selectionRegretFromCosts(caseB, dB.Winner)
+	// Cost regret must be 0 (picked cheapest). Latency regret is positive
+	// because the cheaper cell is slower — that is the economic trade the
+	// selector is allowed to make.
+	if costRegB > 1e-12 {
+		t.Fatalf("case B cost selection regret = %v, want 0 (picked cheapest VO)", costRegB)
+	}
+	if latRegB <= 0 {
+		t.Fatalf("case B latency selection regret = %v, want >0 (accepted slower for cheaper VO)", latRegB)
+	}
+	// Counterfactual: always-faster selector would pick fasterID and pay cost regret.
+	alwaysFastCostRegret := fastVO - slowVO
+	if alwaysFastCostRegret <= 0 {
+		t.Fatal("always-faster counterfactual has no cost regret to expose")
+	}
+	t.Logf("case B: winner=%s (slower) basis=%s lat_regret=%.6f ms/unit cost_regret=%.6e; "+
+		"always-faster would pay cost_regret=%.6e USD/unit",
+		dB.Winner, dB.Basis, latRegB, costRegB, alwaysFastCostRegret)
+
+	// Projection explanation: not a hardcoded engine preference.
+	if dB.Winner == slowerID && dB.Basis == selectionBasisMeasuredCost {
+		t.Logf("case B deciding term is verified-outcome cost (reliability-adjusted), not engine id")
+	}
+}
+
+func cloneMeasuredCosts(in map[string]MeasuredCellCost) map[string]MeasuredCellCost {
+	out := make(map[string]MeasuredCellCost, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
+}
+
+// selectionRegretFromCosts is chosen − best_available on latency (ms/unit) and
+// verified-outcome cost (USD/unit). Absolute units only.
+func selectionRegretFromCosts(costs map[string]MeasuredCellCost, chosen string) (latMs, costUSD float64) {
+	ch, ok := costs[chosen]
+	if !ok || !ch.Measured {
+		return 0, 0
+	}
+	bestMs := ch.MedianMsPerUnit
+	for _, c := range costs {
+		if c.Measured && c.MedianMsPerUnit > 0 && c.MedianMsPerUnit < bestMs {
+			bestMs = c.MedianMsPerUnit
+		}
+	}
+	if ch.MedianMsPerUnit > 0 && bestMs > 0 {
+		latMs = ch.MedianMsPerUnit - bestMs
+	}
+	chVO, okCh := ch.ExpectedVerifiedOutcomeUSDPerUnit()
+	if !okCh {
+		return latMs, 0
+	}
+	bestVO := chVO
+	for _, c := range costs {
+		if vo, ok := c.ExpectedVerifiedOutcomeUSDPerUnit(); ok && vo < bestVO {
+			bestVO = vo
+		}
+	}
+	costUSD = chVO - bestVO
+	return latMs, costUSD
 }
 
 // TestWriteGovernedComparisonReceipt is env-gated. Set
@@ -483,13 +656,9 @@ func TestWriteGovernedComparisonReceipt(t *testing.T) {
 		Tier:        "batch",
 		Constraints: JobConstraints{MaxDurationSecs: 3600},
 	}, strings.Repeat("d", 64))
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	shadow, err := planShadowSelection(decision)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	// Apply measured ranking the same way createJob would after costs exist.
 	shadow = shadow.rankedByMeasuredCost(map[string]map[string]MeasuredCellCost{
 		"apple_silicon_ultra": costs,
@@ -505,24 +674,16 @@ func TestWriteGovernedComparisonReceipt(t *testing.T) {
 	}
 
 	cmp, err := BuildGovernedComparison(shadow, costs, catalogueMinilm(), hostLoad, true)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 
 	// Serialise as map for the bound writer.
 	raw, err := json.Marshal(cmp)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	var payload map[string]any
-	if err := json.Unmarshal(raw, &payload); err != nil {
-		t.Fatal(err)
-	}
+	must(t, json.Unmarshal(raw, &payload))
 
 	dir := filepath.Join("..", "evidence", "perf", "selector")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
-	}
+	must(t, os.MkdirAll(dir, 0o755))
 	path := filepath.Join(dir, "governed-candle-vs-llama-shadow-decision.json")
 
 	// The bound writer would stamp BOUND from THIS harness's identity, which
@@ -557,7 +718,358 @@ func TestWriteGovernedComparisonReceipt(t *testing.T) {
 		writePlainJSON(t, path, payload)
 	}
 	t.Logf("wrote governed comparison + shadow decision %s", path)
-	t.Logf("predicted_winner=%s actual_winner=%s basis=%s cost_regret=%.6e latency_regret_ms=%.6f promoted=%v",
+	t.Logf("predicted_winner=%s actual_winner=%s basis=%s prediction_cost_regret=%.6e prediction_latency_regret_ms=%.6f selection_cost_regret=%.6e selection_latency_regret_ms=%.6f promoted=%v",
 		cmp.Decision.PredictedWinner, cmp.Decision.ActualWinner, cmp.Decision.ActualBasis,
-		cmp.Decision.CostRegretUSD, cmp.Decision.LatencyRegretMs, cmp.Decision.Promoted)
+		cmp.Decision.CostRegretUSD, cmp.Decision.LatencyRegretMs,
+		cmp.Decision.SelectionCostRegretUSD, cmp.Decision.SelectionLatencyRegretMs,
+		cmp.Decision.Promoted)
+}
+
+// TestWriteEconomicSelectorProofReceipt is env-gated. Set
+// MERC_ECONOMIC_SELECTOR_PROOF_RECEIPT=1 to emit the dual-case proof under
+// evidence/perf/selector/economic-selector-candle-vs-llama-proof.json.
+//
+// The proof reuses live bound latencies from engine-parity-metal-embed-latest.json
+// and constructs the reliability branch that shows the slower cell can win.
+func TestWriteEconomicSelectorProofReceipt(t *testing.T) {
+	if os.Getenv("MERC_ECONOMIC_SELECTOR_PROOF_RECEIPT") != "1" {
+		t.Skip("MERC_ECONOMIC_SELECTOR_PROOF_RECEIPT is not 1; receipt writer is env-gated")
+	}
+	live := boundEmbedCosts(t)
+	actualsSource := "evidence/perf/selector/engine-parity-metal-embed-latest.json"
+	actualsBound := live != nil
+	if live == nil {
+		live = cohortEmbedCosts(t)
+		actualsSource = "evidence/perf/selector/paired-cohort-embed.json"
+	}
+
+	// Bootstrap interval on paired (or arm) latency delta from the bound receipt.
+	bootstrap := map[string]any{
+		"unit": "interleaved_pair_delta_ms_per_unit (llama − candle)",
+		"note": "percentile CI via resampling with replacement over timed pairs",
+	}
+	if raw, err := os.ReadFile(filepath.Join("..", "evidence", "perf", "selector",
+		"engine-parity-metal-embed-latest.json")); err == nil {
+		var doc struct {
+			Comparison struct {
+				Paired []float64 `json:"paired_deltas_ms_per_unit"`
+				Delta  float64   `json:"delta_ms_per_unit_p50"`
+				MDE    float64   `json:"mde_ms_per_unit_approx"`
+				Faster string    `json:"faster_arm"`
+			} `json:"comparison"`
+			Arms map[string]struct {
+				P50 float64   `json:"ms_per_unit_p50"`
+				P95 float64   `json:"ms_per_unit_p95"`
+				P99 float64   `json:"ms_per_unit_p99"`
+				Raw []float64 `json:"raw_ms_per_unit"`
+			} `json:"arms"`
+			TimedPairs int `json:"timed_pairs"`
+			Warmup     int `json:"warmup_per_arm"`
+			Batch      int `json:"batch"`
+		}
+		if json.Unmarshal(raw, &doc) == nil && len(doc.Comparison.Paired) >= 30 {
+			lo, hi := bootstrapPercentileCI(doc.Comparison.Paired, 50, 2000, 0.95)
+			bootstrap = map[string]any{
+				"unit":                      "interleaved_pair_delta_ms_per_unit (llama − candle)",
+				"n_pairs":                   len(doc.Comparison.Paired),
+				"warmup_per_arm_discarded":  doc.Warmup,
+				"batch":                     doc.Batch,
+				"observed_p50_delta_ms":     doc.Comparison.Delta,
+				"bootstrap_p50_ci_95_lo_ms": lo,
+				"bootstrap_p50_ci_95_hi_ms": hi,
+				"mde_ms_per_unit_approx":    doc.Comparison.MDE,
+				"faster_arm":                doc.Comparison.Faster,
+				"candle_p50_p95_p99_ms": []float64{
+					doc.Arms["candle_metal"].P50, doc.Arms["candle_metal"].P95, doc.Arms["candle_metal"].P99,
+				},
+				"llama_p50_p95_p99_ms": []float64{
+					doc.Arms["llama_cpp_metal"].P50, doc.Arms["llama_cpp_metal"].P95, doc.Arms["llama_cpp_metal"].P99,
+				},
+				"absolute_delta_p50_ms": math.Abs(doc.Comparison.Delta),
+				"ci_width_ms":           hi - lo,
+				"power_note": "if |observed_p50| is not well above MDE and CI excludes 0, " +
+					"the interval is wide and a ranking claim is refused",
+			}
+		}
+	}
+
+	// Case A: equal reliability on live latencies.
+	caseACosts := cloneMeasuredCosts(live)
+	for id, c := range caseACosts {
+		c.VerificationSamples, c.VerificationFails = 40, 0
+		c.TerminalAttempts, c.TerminalFails = 40, 0
+		caseACosts[id] = c
+	}
+	dA := decideMeasuredShadow(caseACosts, []string{candleEmbedCell, llamaEmbedCell}, candleEmbedCell)
+	latA, costA := selectionRegretFromCosts(caseACosts, dA.Winner)
+
+	// Case B: inject verification failures on the faster arm.
+	caseBCosts := cloneMeasuredCosts(live)
+	fasterID := dA.Winner
+	if dA.Basis == selectionBasisTieNoDecision {
+		// Prefer llama as "faster" label when tied for construction clarity.
+		if caseBCosts[llamaEmbedCell].MedianMsPerUnit <= caseBCosts[candleEmbedCell].MedianMsPerUnit {
+			fasterID = llamaEmbedCell
+		} else {
+			fasterID = candleEmbedCell
+		}
+	}
+	slowerID := candleEmbedCell
+	if fasterID == candleEmbedCell {
+		slowerID = llamaEmbedCell
+	}
+	for id, c := range caseBCosts {
+		c.VerificationSamples, c.TerminalAttempts, c.TerminalFails = 40, 40, 0
+		if id == fasterID {
+			c.VerificationFails = 10
+		} else {
+			c.VerificationFails = 0
+		}
+		caseBCosts[id] = c
+	}
+	dB := decideMeasuredShadow(caseBCosts, []string{candleEmbedCell, llamaEmbedCell}, fasterID)
+	latB, costB := selectionRegretFromCosts(caseBCosts, dB.Winner)
+	fastVO, _ := caseBCosts[fasterID].ExpectedVerifiedOutcomeUSDPerUnit()
+	slowVO, _ := caseBCosts[slowerID].ExpectedVerifiedOutcomeUSDPerUnit()
+
+	// Full governed comparison on case A (live equal-reliability) with prior.
+	withActivationRestored(t)
+	decision, err := buildWorkloadDecision(jobSubmit{
+		JobType:     JobType{Type: "embed"},
+		Model:       ModelRef{Kind: "hf", Ref: "all-minilm-l6-v2"},
+		Tier:        "batch",
+		Constraints: JobConstraints{MaxDurationSecs: 3600},
+	}, strings.Repeat("e", 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	shadow, err := planShadowSelection(decision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	shadow = shadow.rankedByMeasuredCost(map[string]map[string]MeasuredCellCost{
+		"apple_silicon_ultra": caseACosts,
+	})
+	loadAvg, _ := runSysctlLoadavg()
+	hostLoad := map[string]any{
+		"captured_at":  time.Now().UTC().Format(time.RFC3339Nano),
+		"load_average": loadAvg,
+		"hw_class":     "apple_silicon_ultra",
+		"goos_goarch":  "darwin/arm64",
+	}
+	cmp, err := BuildGovernedComparison(shadow, caseACosts, catalogueMinilm(), hostLoad, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Sampling parameters: embed has no temperature; pin identity binding.
+	sampling := map[string]any{
+		"workload":              "embed",
+		"temperature":           "n/a (deterministic embedding; no sampling)",
+		"top_p":                 "n/a",
+		"max_tokens":            "n/a",
+		"batch":                 8,
+		"interleave":            "candle_then_llama_per_pair",
+		"warmup_per_arm":        5,
+		"timed_pairs":           48,
+		"prompt_identity_bound": "EMBED_BENCH_CORPUS in merc-agent + corpus_digest on producer_identity",
+		"model_identity_bound":  "safetensors sha256 (candle) + F16 GGUF sha256 (llama) in model_artifact_digest",
+	}
+
+	payload := map[string]any{
+		"schema_version": 1,
+		"kind":           "economic_selector_cell_selection_proof",
+		"claim_class":    "cell_selection_proof",
+		"measured_at":    time.Now().UTC().Format(time.RFC3339Nano),
+		"title":          "Economic selector: Candle vs llama.cpp on one governed MiniLM embed contract",
+		"actuals_source": actualsSource,
+		"actuals_bound":  actualsBound,
+		"methodology": map[string]any{
+			"sampling_parameters": sampling,
+			"bootstrap":           bootstrap,
+			"energy": map[string]any{
+				"measured": false,
+				"reason": "powermetrics requires privileges not available in this lane; " +
+					"no joules are reported as measured. Energy is not modelled as measured.",
+			},
+			"warmup_discarded": 5,
+			"steady_state":     "warmup discarded per arm; timed interleaved pairs only",
+		},
+		"cells": cmp.Cells,
+		"shadow_selector_decision_case_a_equal_reliability": map[string]any{
+			"predicted_winner":                     cmp.Decision.PredictedWinner,
+			"predicted_basis":                      cmp.Decision.PredictedBasis,
+			"actual_winner":                        dA.Winner,
+			"actual_basis":                         dA.Basis,
+			"selection_latency_regret_ms_per_unit": latA,
+			"selection_cost_regret_usd_per_unit":   costA,
+			"prediction_latency_regret_ms":         cmp.Decision.LatencyRegretMs,
+			"prediction_cost_regret_usd":           cmp.Decision.CostRegretUSD,
+			"quality":                              cmp.Decision.QualityOutcome,
+			"confidence":                           cmp.Decision.Confidence,
+			"deciding_term":                        dA.Basis,
+			"selection_reason":                     selectionReasonFor(dA.Basis, dA.Winner, cmp.Cells),
+		},
+		"case_b_slower_wins_on_verified_outcome_cost": map[string]any{
+			"construction": "same live latencies; faster cell VerificationFails=10/40 (25%); " +
+				"slower cell clean. Verified-outcome cost = supplier × 1/pass_rate.",
+			"faster_cell":                          fasterID,
+			"slower_cell":                          slowerID,
+			"faster_median_ms_per_unit":            caseBCosts[fasterID].MedianMsPerUnit,
+			"slower_median_ms_per_unit":            caseBCosts[slowerID].MedianMsPerUnit,
+			"faster_verified_outcome_usd_per_unit": fastVO,
+			"slower_verified_outcome_usd_per_unit": slowVO,
+			"actual_winner":                        dB.Winner,
+			"actual_basis":                         dB.Basis,
+			"selection_latency_regret_ms_per_unit": latB,
+			"selection_cost_regret_usd_per_unit":   costB,
+			"always_faster_counterfactual": map[string]any{
+				"would_choose":                         fasterID,
+				"selection_cost_regret_usd_per_unit":   fastVO - slowVO,
+				"selection_latency_regret_ms_per_unit": 0.0,
+				"note":                                 "a selector that always picks the faster engine pays this cost regret on case B",
+			},
+			"deciding_term": dB.Basis,
+			"selection_reason": selectionReasonFor(dB.Basis, dB.Winner, map[string]GovernedComparisonCell{
+				fasterID: {CellID: fasterID},
+				slowerID: {CellID: slowerID},
+			}),
+		},
+		"tie_break_constants_audited": map[string]any{
+			"latencyNoiseFraction":      latencyNoiseFraction,
+			"latencyNoiseAbsMs":         latencyNoiseAbsMs,
+			"pricesTieWithin":           pricesTieWithin,
+			"priorThroughputClaimRatio": priorThroughputClaimRatio,
+			"note": "true ties retain the routed cell (TIE_NO_DECISION) so sort order " +
+				"cannot manufacture a divergence; that is a constant, not a candle/llama preference. " +
+				"No engine-id constant preference exists in decideMeasuredShadow.",
+		},
+		"cost_tie_authority": cmp.CostTie,
+		"does_not_prove": []string{
+			"does not claim Merc beats vLLM (different hardware, different lane)",
+			"does not claim cross-supplier or network results; this is cell selection on one Mac",
+			"does not measure joules (no privileged powermetrics in this lane)",
+			"does not establish true net contribution (unknown cost categories remain)",
+			"does not promote any cell or change routing",
+			"case B reliability differential is constructed on top of live latencies, not observed production fail rates",
+			"does not establish fleet multi-host behaviour",
+		},
+		"governed_comparison_excerpt": map[string]any{
+			"latency_comparison": cmp.LatencyComparison,
+			"cost_comparison":    cmp.CostComparison,
+			"actuals_binding":    cmp.ActualsBinding,
+			"prior_claim":        cmp.PriorThroughputClaim,
+		},
+	}
+
+	// Per-cell table rows for the report.
+	table := map[string]any{}
+	for id, row := range cmp.Cells {
+		table[id] = map[string]any{
+			"predicted_latency_ms_per_unit":        row.PredictedLatencyMsPerUnit,
+			"actual_latency_ms_per_unit":           row.ActualLatencyMsPerUnit,
+			"predicted_verified_outcome_usd_unit":  row.PredictedPhysicalCostUSDUnit,
+			"actual_verified_outcome_usd_unit":     row.ActualPhysicalCostUSDUnit,
+			"quality_tier":                         row.QualityTier,
+			"supplier_entitlement_usd_per_unit":    row.SupplierEntitlementUSDUnit,
+			"buyer_price_per_1k":                   row.BuyerPricePer1K,
+			"merc_true_net":                        "UNAVAILABLE: " + row.MercTrueNetReason,
+			"merc_gross_platform_usd_per_unit":     row.MercGrossPlatformUSDUnit,
+			"prediction_latency_error_ms_per_unit": row.LatencyRegretMsPerUnit,
+			"prediction_cost_error_usd_per_unit":   row.CostRegretUSDPerUnit,
+			"confidence":                           row.Confidence,
+		}
+	}
+	payload["per_cell_table"] = table
+
+	dir := filepath.Join("..", "evidence", "perf", "selector")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "economic-selector-candle-vs-llama-proof.json")
+
+	if !actualsBound {
+		payload["binding_status"] = BindingUnbound
+		payload["unbound_reason"] = "actuals not BOUND; dual-case structure exercised without engine verdict authority"
+		writePlainJSON(t, path, payload)
+		t.Logf("wrote UNBOUND economic selector proof %s", path)
+		return
+	}
+	if id, bin, err := DefaultBoundIdentity("..",
+		"control/runtime_governed_comparison_test.go#TestWriteEconomicSelectorProofReceipt",
+		"dual-case economic selector proof: case A equal-reliability throughput; case B reliability-adjusted VO cost; selection regret = chosen − best_available",
+		"actuals from BOUND engine-parity-metal-embed-latest.json raw_ms_per_unit; case B verification fails constructed"); err == nil {
+		if werr := WriteBoundEvidenceJSON(EvidenceWriteRequest{
+			RepoRoot: "..", Path: path, Payload: payload,
+			Identity: id, BuildBinaryPath: bin,
+		}); werr != nil {
+			t.Logf("bound writer failed (%v); writing plain JSON", werr)
+			writePlainJSON(t, path, payload)
+		} else {
+			t.Logf("wrote BOUND economic selector proof %s", path)
+		}
+	} else {
+		t.Logf("bound identity unavailable (%v); writing plain JSON", err)
+		writePlainJSON(t, path, payload)
+	}
+	t.Logf("caseA winner=%s basis=%s sel_lat_reg=%.6f sel_cost_reg=%.6e", dA.Winner, dA.Basis, latA, costA)
+	t.Logf("caseB winner=%s basis=%s sel_lat_reg=%.6f sel_cost_reg=%.6e always_fast_cost_reg=%.6e",
+		dB.Winner, dB.Basis, latB, costB, fastVO-slowVO)
+}
+
+// bootstrapPercentileCI resamples xs with replacement and returns a
+// (1-alpha)-ish percentile CI for the given percentile of the sample
+// (e.g. percentile=50 for the median). Uses a fixed LCG so the receipt is
+// reproducible for a given sample vector.
+func bootstrapPercentileCI(xs []float64, percentile float64, nBoot int, level float64) (lo, hi float64) {
+	if len(xs) == 0 || nBoot < 1 {
+		return 0, 0
+	}
+	// Simple LCG — no external rand dependency in tests.
+	var state uint64 = 0xC0FFEE42
+	next := func() uint64 {
+		state = state*6364136223846793005 + 1
+		return state
+	}
+	stats := make([]float64, nBoot)
+	tmp := make([]float64, len(xs))
+	for b := 0; b < nBoot; b++ {
+		for i := range tmp {
+			tmp[i] = xs[next()%uint64(len(xs))]
+		}
+		stats[b] = pctFloat(tmp, percentile)
+	}
+	sort.Float64s(stats)
+	alpha := (1 - level) / 2
+	loIdx := int(math.Floor(alpha * float64(nBoot)))
+	hiIdx := int(math.Ceil((1-alpha)*float64(nBoot))) - 1
+	if loIdx < 0 {
+		loIdx = 0
+	}
+	if hiIdx >= nBoot {
+		hiIdx = nBoot - 1
+	}
+	return stats[loIdx], stats[hiIdx]
+}
+
+func pctFloat(xs []float64, p float64) float64 {
+	if len(xs) == 0 {
+		return 0
+	}
+	cp := append([]float64(nil), xs...)
+	sort.Float64s(cp)
+	if p <= 0 {
+		return cp[0]
+	}
+	if p >= 100 {
+		return cp[len(cp)-1]
+	}
+	rank := (p / 100) * float64(len(cp)-1)
+	lo := int(math.Floor(rank))
+	hi := int(math.Ceil(rank))
+	if lo == hi {
+		return cp[lo]
+	}
+	w := rank - float64(lo)
+	return cp[lo]*(1-w) + cp[hi]*w
 }

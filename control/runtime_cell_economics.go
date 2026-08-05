@@ -143,6 +143,17 @@ type CellEconomicsProjection struct {
 	StorageTransfer CellEconomicsTerm `json:"storage_and_transfer"`
 	Utilization     CellEconomicsTerm `json:"utilization"`
 
+	// PlatformDeliveryUSDPerUnit is the cell-resolved platform cost of one
+	// verified unit: verified-outcome supplier cost + provider per unit when
+	// provider is KNOWN. Under cell_resolved_platform_v1 this is the figure
+	// that can differ across cells of one model. When provider is N/A or
+	// unknown, it equals VerifiedOutcome (equal-reliability cells still tie).
+	// It never rewrites supplier entitlement.
+	PlatformDeliveryUSDPerUnit float64 `json:"platform_delivery_usd_per_unit,omitempty"`
+	PlatformDeliveryOK         bool    `json:"platform_delivery_ok"`
+	PlatformDeliveryBasis      string  `json:"platform_delivery_basis,omitempty"`
+	EntitlementResolution      string  `json:"entitlement_resolution"`
+
 	// Merc contribution. True net is structurally unavailable while any cost
 	// category is unknown. A gross platform residual is a different type and
 	// is never aliased as net.
@@ -212,6 +223,7 @@ func ProjectCellEconomics(
 			"median_ms_per_unit",
 			"measured_units_per_sec",
 			"provider_cost_when_cloud_backed",
+			"platform_delivery_usd_per_unit_when_provider_known",
 			"energy_usd_per_unit_partial",
 			"capacity_more_throughput_at_equal_price",
 		},
@@ -291,6 +303,31 @@ func ProjectCellEconomics(
 		Knowledge:    CategoryUnknown,
 		WouldRequire: "a production utilization signal (busy fraction of the placement over the billable window), not a default of 1.0",
 		Basis:        "absent on MeasuredCellCost; admission display rates are while-executing only",
+	}
+
+	// Cell-resolved platform delivery for the selector. Supplier settlement
+	// stays cancelled; this figure adds provider when it is KNOWN so a faster
+	// cloud cell can surface a real cost win. N/A provider leaves delivery equal
+	// to verified-outcome (equal-reliability cells still tie).
+	p.EntitlementResolution = cellEntitlementResolutionCellResolved
+	if p.VerifiedOutcomeOK {
+		switch p.ProviderCost.Knowledge {
+		case CategoryKnown:
+			p.PlatformDeliveryUSDPerUnit = p.VerifiedOutcomeUSDPerUnit + p.ProviderCost.MoneyUSD
+			p.PlatformDeliveryOK = true
+			p.PlatformDeliveryBasis = "verified_outcome_usd_per_unit + provider_cost per unit " +
+				"(cell_resolved_platform_v1); provider is duration-sensitive and does not cancel"
+		case CategoryNotApplicable:
+			p.PlatformDeliveryUSDPerUnit = p.VerifiedOutcomeUSDPerUnit
+			p.PlatformDeliveryOK = true
+			p.PlatformDeliveryBasis = "verified_outcome_usd_per_unit only; provider not applicable " +
+				"on owned/community supply so platform delivery equals supplier verified-outcome"
+		default:
+			// Unknown/assumed provider: refuse to invent a complete platform delivery.
+			p.PlatformDeliveryOK = false
+			p.PlatformDeliveryBasis = "provider cost is " + string(p.ProviderCost.Knowledge) +
+				"; platform delivery refused rather than treating it as zero"
+		}
 	}
 
 	// True net: structurally unavailable while any named category is unknown.
@@ -507,7 +544,7 @@ func cellEconomicsEvidenceAuthority(
 	auth := []string{
 		"control/runtime_cell_cost.go#MeasuredCellCost",
 		"control/pricing_decision.go#exactTaskEconomics",
-		"docs/MASTER_PROGRAMME_LEDGER.md#throughput-cancels",
+		"docs/PROGRAMME.md#throughput-cancels",
 	}
 	if catalogue.ScheduleSHA256 != "" {
 		auth = append(auth, "catalogue_schedule:"+catalogue.ScheduleSHA256)

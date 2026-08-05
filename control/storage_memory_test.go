@@ -8,9 +8,7 @@ import (
 
 func TestUnknownSizeStreamingUploadUsesBoundedPartMemory(t *testing.T) {
 	_, partSize, _, err := minio.OptimalPartInfo(-1, boundedStreamingUploadPartBytes)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if partSize != int64(boundedStreamingUploadPartBytes) {
 		t.Fatalf("unknown-size upload part = %d, want explicit bound %d", partSize, boundedStreamingUploadPartBytes)
 	}

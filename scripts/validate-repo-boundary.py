@@ -18,7 +18,7 @@ import subprocess
 import sys
 
 # Paths and identifiers that belong to VisionMCP. Matching is on path segments so
-# an unrelated file that merely contains the substring (monitoring/grafana/
+# an unrelated file that merely contains the substring (ops/monitoring/grafana/
 # proVISIONing/) does not trip it.
 FOREIGN_SEGMENTS = re.compile(
     r"(^|/)(visionmcp|VisionMCP|vision-mcp|blender-vision-mcp|ocular)(/|$|[-_.])",
@@ -34,7 +34,7 @@ def main() -> int:
     foreign = [p for p in tracked if FOREIGN_SEGMENTS.search(p)]
 
     try:
-        with open("census/CODEBASE_CENSUS.json") as fh:
+        with open("evidence/census/CODEBASE_CENSUS.json") as fh:
             census = json.load(fh)
         owned_loc = census["ownership"]["global_owned_loc"]
         scope = census["scope"]

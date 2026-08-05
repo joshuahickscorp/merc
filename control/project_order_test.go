@@ -17,36 +17,24 @@ func TestProjectOrderPublicAPIIsIdempotentAndBuyerScoped(t *testing.T) {
 	installSettlementCurrencyForTest(t, "cad")
 	ctx, store, _ := openIsolatedTestStore(t)
 	buyer, err := store.CreateBuyerAccount(ctx, "project-order-"+uuid.NewString()+"@example.test", "integration-password", 0)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	_, key, _, err := store.CreateAPIKey(ctx, buyer, "project order", true)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	other, err := store.CreateBuyerAccount(ctx, "project-order-other-"+uuid.NewString()+"@example.test", "integration-password", 0)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	_, otherKey, _, err := store.CreateAPIKey(ctx, other, "project order other", true)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	server := httptest.NewServer(NewServer(store, nil, nil, nil).Routes())
 	t.Cleanup(server.Close)
 	body := mustJSON(projectOrderCreateRequest{IRSHA256: strings.Repeat("a", 64), Currency: "cad", BuyerCeilingNanos: 1_000_000})
 	post := func(token string) *http.Response {
 		req, err := http.NewRequest(http.MethodPost, server.URL+"/v1/projects", bytes.NewReader(body))
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		req.Header.Set("Authorization", "Bearer "+token)
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Idempotency-Key", "project-order-api-"+strings.Repeat("x", 16))
 		resp, err := server.Client().Do(req)
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		return resp
 	}
 	first := post(key)
@@ -55,9 +43,7 @@ func TestProjectOrderPublicAPIIsIdempotentAndBuyerScoped(t *testing.T) {
 		t.Fatalf("create project order: HTTP %s", first.Status)
 	}
 	var created ProjectOrder
-	if err := json.NewDecoder(first.Body).Decode(&created); err != nil {
-		t.Fatal(err)
-	}
+	must(t, json.NewDecoder(first.Body).Decode(&created))
 	if created.Currency != "cad" || created.RemainingNanos != created.BuyerCeilingNanos || created.ID == "" {
 		t.Fatalf("create lost CAD fixed-point authority: %+v", created)
 	}
@@ -67,22 +53,16 @@ func TestProjectOrderPublicAPIIsIdempotentAndBuyerScoped(t *testing.T) {
 		t.Fatalf("idempotent project order replay: HTTP %s replay=%q", replay.Status, replay.Header.Get("Idempotent-Replayed"))
 	}
 	var repeated ProjectOrder
-	if err := json.NewDecoder(replay.Body).Decode(&repeated); err != nil {
-		t.Fatal(err)
-	}
+	must(t, json.NewDecoder(replay.Body).Decode(&repeated))
 	if repeated.ID != created.ID {
 		t.Fatalf("idempotent project order changed identity: %s != %s", repeated.ID, created.ID)
 	}
 	get := func(token string) int {
 		req, err := http.NewRequest(http.MethodGet, server.URL+"/v1/projects/"+created.ID, nil)
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		req.Header.Set("Authorization", "Bearer "+token)
 		resp, err := server.Client().Do(req)
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		defer resp.Body.Close()
 		return resp.StatusCode
 	}
@@ -132,13 +112,9 @@ func TestProjectOrderReservationIsServerSideAndFixedPoint(t *testing.T) {
 		InputSHA256: strings.Repeat("a", 64),
 		ExpiresAt:   time.Now().Add(quoteTTL).UTC(),
 	}
-	if err := store.InsertQuote(ctx, f.BuyerID, quote); err != nil {
-		t.Fatalf("insert firm project quote: %v", err)
-	}
+	mustf(t, store.InsertQuote(ctx, f.BuyerID, quote), "insert firm project quote: %v")
 	pricingSHA, err := pricingDecisionDigest(job.PricingDecision)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	accepted := job.PricingDecision.FixedPoint.AcceptedCeilingNanos
 	if accepted <= 1 {
 		t.Fatalf("fixture has no positive exact project reserve: %d", accepted)
@@ -155,17 +131,11 @@ func TestProjectOrderReservationIsServerSideAndFixedPoint(t *testing.T) {
 	job.FirmQuote = true
 	job.FirmQuoteMaxUSD = job.PricingDecision.MaximumBuyerPrice
 	job.ProjectOrderID, err = uuid.Parse(order.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	job.ProjectStepID = "embed"
-	if err := store.SubmitJobTx(ctx, job, tasks); err != nil {
-		t.Fatalf("submit fixed-point project step: %v", err)
-	}
+	mustf(t, store.SubmitJobTx(ctx, job, tasks), "submit fixed-point project step: %v")
 	got, err := store.GetProjectOrder(ctx, f.BuyerID, job.ProjectOrderID)
-	if err != nil {
-		t.Fatalf("read project order: %v", err)
-	}
+	mustf(t, err, "read project order: %v")
 	if got.ReservedNanos != accepted || got.RemainingNanos != 0 || got.Currency != orderInput.Currency ||
 		len(got.Steps) != 1 || got.Steps[0].StepID != "embed" || got.Steps[0].JobID != job.ID.String() ||
 		got.Steps[0].QuoteID != quote.QuoteID || got.Steps[0].AcceptedCeilingNanos != accepted {
@@ -196,13 +166,9 @@ func TestProjectOrderReservationIsServerSideAndFixedPoint(t *testing.T) {
 	underfunded, _, err := store.CreateProjectOrder(ctx, f.BuyerID,
 		projectOrderCreateRequest{IRSHA256: strings.Repeat("d", 64), Currency: orderInput.Currency, BuyerCeilingNanos: accepted - 1},
 		"project-order-underfunded-"+uuid.NewString(), strings.Repeat("e", 64))
-	if err != nil {
-		t.Fatalf("create underfunded project order: %v", err)
-	}
+	mustf(t, err, "create underfunded project order: %v")
 	underfundedID, err := uuid.Parse(underfunded.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	over := *job
 	over.ID = uuid.New()
 	over.ProjectOrderID = underfundedID

@@ -43,7 +43,7 @@ import (
 // offer capacity) is not altered by this probe.
 //
 // Reading the 1-offer multi-buyer cell: it isolates "one capacity row is one
-// capacity row" (docs/OFFER_MULTIPLICITY.md). That tail is a thin-book /
+// capacity row" (docs/RUNTIME_AND_PERF.md). That tail is a thin-book /
 // fixture number, not a standing production defect — seed leaves 0 realtime
 // offers, one local agent registers one, canary is two workers, and N-offer
 // cells already show SKIP LOCKED recovering multi-supplier books. Do not
@@ -95,13 +95,9 @@ func TestAuthorizeTailCharacterize(t *testing.T) {
 		// Buyers: one primary + 32 multi-buyer slots.
 		primaryBuyer, err := store.CreateBuyerAccount(ctx,
 			"tail-pri-"+uuid.NewString()+"@example.test", "integration-password", 500_000)
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		_, primaryKey, _, err := store.CreateAPIKey(ctx, primaryBuyer, "tail primary", true)
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		multiBuyers := make([]uuid.UUID, 32)
 		multiKeys := make([]string, 32)
 		multiBuyers[0], multiKeys[0] = primaryBuyer, primaryKey
@@ -605,9 +601,7 @@ func TestAuthorizeTailCharacterize(t *testing.T) {
 	path := filepath.Join(dir, name)
 	id, bin, err := DefaultBoundIdentity("..", "control/authorize_tail_characterize_test.go",
 		"embedded method + cells", "embedded cells[].samples")
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if err := WriteBoundEvidenceJSON(EvidenceWriteRequest{
 		RepoRoot: "..", Path: path, Payload: out,
 		Identity: id, BuildBinaryPath: bin,
@@ -628,9 +622,7 @@ func openIsolatedTestStoreWithMaxConns(t *testing.T, maxConns int32) (*Store, *p
 	t.Helper()
 	base := requireTestDatabase(t)
 	parsed, err := url.Parse(base)
-	if err != nil {
-		t.Fatalf("parse MERC_TEST_DATABASE_URL: %v", err)
-	}
+	mustf(t, err, "parse MERC_TEST_DATABASE_URL: %v")
 	name := "cx_iso_" + strings.ReplaceAll(uuid.NewString(), "-", "")[:24]
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	t.Cleanup(cancel)
@@ -638,9 +630,7 @@ func openIsolatedTestStoreWithMaxConns(t *testing.T, maxConns int32) (*Store, *p
 	admin := *parsed
 	admin.Path = "/postgres"
 	adminPool, err := pgxpool.New(ctx, admin.String())
-	if err != nil {
-		t.Fatalf("connect to postgres for database creation: %v", err)
-	}
+	mustf(t, err, "connect to postgres for database creation: %v")
 	if _, err := adminPool.Exec(ctx, `CREATE DATABASE `+name); err != nil {
 		adminPool.Close()
 		t.Fatalf("create isolated database: %v", err)
@@ -660,19 +650,13 @@ func openIsolatedTestStoreWithMaxConns(t *testing.T, maxConns int32) (*Store, *p
 	own := *parsed
 	own.Path = "/" + name
 	cfg, err := pgxpool.ParseConfig(own.String())
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	cfg.MaxConns = maxConns
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
-	if err != nil {
-		t.Fatalf("connect isolated database: %v", err)
-	}
+	mustf(t, err, "connect isolated database: %v")
 	t.Cleanup(pool.Close)
 	store := NewStore(pool)
-	if err := store.Migrate(ctx); err != nil {
-		t.Fatalf("apply canonical schema: %v", err)
-	}
+	mustf(t, store.Migrate(ctx), "apply canonical schema: %v")
 	return store, pool
 }
 

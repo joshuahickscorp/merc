@@ -41,14 +41,10 @@ func TestGatewayParityAgainstRealEngine(t *testing.T) {
 	}
 	// Refuse to invent numbers when the engine is down.
 	probe, err := http.NewRequest(http.MethodGet, strings.TrimRight(upstream, "/")+"/models", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	probe.Header.Set("Authorization", "Bearer "+upstreamKey)
 	probeResp, err := http.DefaultClient.Do(probe)
-	if err != nil {
-		t.Fatalf("local engine is not reachable at %s: %v (start llama-server rather than fabricating numbers)", upstream, err)
-	}
+	mustf(t, err, "local engine is not reachable at %s: %v (start llama-server rather than fabricating numbers)", upstream)
 	probeResp.Body.Close()
 	if probeResp.StatusCode != http.StatusOK {
 		t.Fatalf("local engine at %s answered HTTP %d", upstream, probeResp.StatusCode)
@@ -71,14 +67,10 @@ func TestGatewayParityAgainstRealEngine(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), measureTimeout)
 	defer cancel()
 	pool, err := pgxpool.New(ctx, databaseURL)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	defer pool.Close()
 	store := NewStore(pool)
-	if err := store.Migrate(ctx); err != nil {
-		t.Fatal(err)
-	}
+	must(t, store.Migrate(ctx))
 	// Own the realtime tables for this measurement so concurrent test runs
 	// cannot steal capacity or leave EXECUTING rows that block admission.
 	var resetErr error
@@ -103,13 +95,9 @@ func TestGatewayParityAgainstRealEngine(t *testing.T) {
 
 	suffix := uuid.NewString()
 	buyerID, err := store.CreateBuyerAccount(ctx, "gateway-parity-"+suffix+"@example.test", "integration-password", 50)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	_, buyerKey, _, err := store.CreateAPIKey(ctx, buyerID, "gateway parity", true)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	supplierID := uuid.New()
 	if _, err := pool.Exec(ctx, `INSERT INTO suppliers (id,email,status) VALUES ($1,$2,'active')`,
 		supplierID, "supplier-parity-"+suffix+"@example.test"); err != nil {
@@ -162,15 +150,11 @@ func TestGatewayParityAgainstRealEngine(t *testing.T) {
 	// Smoke one merc completion before the sweep.
 	smokeBody := []byte(`{"model":"cx-chat-1b","messages":[{"role":"user","content":"ping"}],"max_tokens":4,"stream":true,"temperature":0}`)
 	smokeReq, err := http.NewRequestWithContext(ctx, http.MethodPost, server.URL+"/v1/chat/completions", bytes.NewReader(smokeBody))
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	smokeReq.Header.Set("Authorization", "Bearer "+buyerKey)
 	smokeReq.Header.Set("Content-Type", "application/json")
 	smokeResp, err := http.DefaultClient.Do(smokeReq)
-	if err != nil {
-		t.Fatalf("merc smoke request failed: %v", err)
-	}
+	mustf(t, err, "merc smoke request failed: %v")
 	smokeBytes, _ := readAllLimited(smokeResp.Body, 1<<20)
 	smokeResp.Body.Close()
 	if smokeResp.StatusCode != http.StatusOK {
@@ -181,9 +165,7 @@ func TestGatewayParityAgainstRealEngine(t *testing.T) {
 	if envOut := os.Getenv("MERC_GATEWAY_PARITY_OUT"); envOut != "" {
 		outPath = envOut
 	}
-	if err := os.MkdirAll(filepath.Dir(outPath), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	must(t, os.MkdirAll(filepath.Dir(outPath), 0o755))
 
 	maxTokens := 32
 	if v := os.Getenv("MERC_GATEWAY_PARITY_MAX_TOKENS"); v != "" {
@@ -257,12 +239,8 @@ func TestGatewayParityAgainstRealEngine(t *testing.T) {
 			evidenceClass, notes,
 		)
 		raw, err := json.MarshalIndent(rec, "", "  ")
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(outPath, append(raw, '\n'), 0o644); err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
+		must(t, os.WriteFile(outPath, append(raw, '\n'), 0o644))
 		t.Logf("wrote matrix receipt to %s cells=%d gate_passed=%v verdict=%s comparable=%v",
 			outPath, len(rec.Cells), rec.GatePassed, rec.Gate.Verdict, rec.Comparable)
 		if rec.MeasuredAt == "" || rec.MercSourceCommit == "" || rec.GateVersion == "" {
@@ -296,9 +274,7 @@ func TestGatewayParityAgainstRealEngine(t *testing.T) {
 	}
 
 	body, err := contract.BuildChatCompletionsBody()
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 
 	maxC := claimed[0]
 	for _, c := range claimed {
@@ -354,12 +330,8 @@ func TestGatewayParityAgainstRealEngine(t *testing.T) {
 	)
 
 	raw, err := json.MarshalIndent(rec, "", "  ")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(outPath, append(raw, '\n'), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
+	must(t, os.WriteFile(outPath, append(raw, '\n'), 0o644))
 	t.Logf("wrote receipt to %s gate_passed=%v verdict=%s comparable=%v evidence_class=%s refusals=%v",
 		outPath, rec.GatePassed, rec.Gate.Verdict, rec.Comparable, rec.EvidenceClass, rec.Refusals)
 

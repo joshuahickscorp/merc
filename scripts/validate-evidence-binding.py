@@ -36,7 +36,9 @@ from lib.evidence_binding import (  # noqa: E402
     binding_sidecar_path,
     incomplete_fields,
     is_job_contract_payload,
+    lfs_pointer_oid,
     missing_fields_for_object,
+    read_evidence_text,
     validate_git_object,
     EvidenceBindingError,
 )
@@ -57,15 +59,12 @@ CITE_ROOTS = (
     ROOT / "scripts",
     ROOT / "agent",
     ROOT / "ops",
-    ROOT / "proof",
+    ROOT / "evidence" / "proof",
     ROOT / "README.md",
     ROOT / "RELEASE_READINESS.md",
-    ROOT / "RELEASE_GATES.md",
-    ROOT / "REQUIREMENT_PROOF_MATRIX.md",
-    ROOT / "ROADMAP.md",
-    ROOT / "RUNBOOK_ARTIFACTS.md",
-    ROOT / "RUNBOOK_WORKER_FAILURE.md",
-    ROOT / "EXECUTION_NETWORK_BIBLE.md",
+    ROOT / "docs" / "PROGRAMME.md",
+    ROOT / "docs" / "RUNTIME_AND_PERF.md",
+    ROOT / "docs" / "ARCHITECTURE.md",
     ROOT / "Makefile",
     ROOT / "pricing",
     ROOT / "web",
@@ -83,6 +82,18 @@ def fail(msg: str) -> None:
     FAILURES.append(msg)
 
 
+# Trees relocated under evidence/ that are not measurement receipts.
+# Formerly lived at repo root (proof/, census/, artifacts/) and were outside
+# this scanner; they remain policy/census/fixture trees, not binding corpus.
+EVIDENCE_SCAN_SKIP_PREFIXES = (
+    "evidence/proof/",
+    "evidence/census/",
+    "evidence/artifacts/",
+    "evidence/immutable-fixtures/",
+    "evidence/workload-catalog/",
+)
+
+
 def iter_evidence_files() -> list[Path]:
     if not EVIDENCE.is_dir():
         return []
@@ -93,7 +104,10 @@ def iter_evidence_files() -> list[Path]:
         if path.name.endswith(".binding.json"):
             continue
         # Skip hidden scratch.
+        rel = path.relative_to(ROOT).as_posix()
         if any(part.startswith(".") for part in path.relative_to(ROOT).parts):
+            continue
+        if any(rel.startswith(prefix) for prefix in EVIDENCE_SCAN_SKIP_PREFIXES):
             continue
         out.append(path)
     return out
@@ -104,8 +118,8 @@ def _load_sidecar(path: Path, rel: str) -> dict[str, Any] | None:
     if not side.is_file():
         return None
     try:
-        binding = json.loads(side.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+        binding = json.loads(read_evidence_text(side, ROOT))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, EvidenceBindingError) as exc:
         fail(f"{side.relative_to(ROOT)}: unreadable: {exc}")
         return None
     if not isinstance(binding, dict):
@@ -124,9 +138,19 @@ def load_binding_for(path: Path) -> tuple[dict[str, Any] | None, dict[str, Any] 
     rel = path.relative_to(ROOT).as_posix()
     if path.suffix == ".json":
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
-            fail(f"{rel}: unreadable JSON: {exc}")
+            # Resolve git-lfs pointers to content (or fail with oid context).
+            # When only the pointer is available and content cannot be fetched,
+            # lfs_pointer_oid still identifies the payload by sha256.
+            data = json.loads(read_evidence_text(path, ROOT))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, EvidenceBindingError) as exc:
+            oid = lfs_pointer_oid(path)
+            if oid:
+                fail(
+                    f"{rel}: unreadable JSON after LFS resolve "
+                    f"(oid sha256:{oid}): {exc}"
+                )
+            else:
+                fail(f"{rel}: unreadable JSON: {exc}")
             return None, None
         if isinstance(data, dict):
             if is_job_contract_payload(data):

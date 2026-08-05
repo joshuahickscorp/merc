@@ -10,12 +10,8 @@ import (
 func writeProjectFixture(t *testing.T, root, name, body string) {
 	t.Helper()
 	path := filepath.Join(root, name)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	must(t, os.MkdirAll(filepath.Dir(path), 0o755))
+	must(t, os.WriteFile(path, []byte(body), 0o600))
 }
 
 func TestCompileProjectProducesDeterministicGraphProposal(t *testing.T) {
@@ -25,18 +21,12 @@ func TestCompileProjectProducesDeterministicGraphProposal(t *testing.T) {
 	writeProjectFixture(t, root, "samples/input.jsonl", "{\"text\":\"a\"}\n{\"text\":\"b\"}\n")
 
 	proposal, err := compileProject(projectCompileOptions{Root: root})
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	opts := projectCompileOptions{Root: root, ProbeRequested: true, BuyerApprovedIRSHA256: proposal.IRSHA256}
 	first, err := compileProject(opts)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	second, err := compileProject(opts)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if first.IRSHA256 != second.IRSHA256 || first.ProjectSHA256 != second.ProjectSHA256 {
 		t.Fatalf("compiler is nondeterministic: first=%s/%s second=%s/%s", first.IRSHA256, first.ProjectSHA256, second.IRSHA256, second.ProjectSHA256)
 	}
@@ -83,9 +73,7 @@ func TestCompileProjectDetectsBoundedMediaTranscodeSignal(t *testing.T) {
 	writeProjectFixture(t, root, "transcode.py", "ffmpeg -i input.mp4 -vf scale=320:180 output.mp4\n")
 	writeProjectFixture(t, root, "transcode.md", "The ffmpeg transcode output is byte bounded.\n")
 	proposal, err := compileProject(projectCompileOptions{Root: root})
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	var found bool
 	for _, detection := range proposal.Detections {
 		if detection.Kind == "media_transcode" {
@@ -107,9 +95,7 @@ func TestCompileProjectRefusesChangedProjectAfterApproval(t *testing.T) {
 	root := t.TempDir()
 	writeProjectFixture(t, root, "pipeline.py", "embedding")
 	proposal, err := compileProject(projectCompileOptions{Root: root})
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	writeProjectFixture(t, root, "pipeline.py", "embedding\nbatch_infer")
 	_, err = compileProject(projectCompileOptions{
 		Root: root, ProbeRequested: true, BuyerApprovedIRSHA256: proposal.IRSHA256,
@@ -130,9 +116,7 @@ func TestCompileProjectRefusesSensitiveAndAmbiguousInputs(t *testing.T) {
 	t.Run("symlink", func(t *testing.T) {
 		root := t.TempDir()
 		writeProjectFixture(t, root, "real.py", "embedding")
-		if err := os.Symlink(filepath.Join(root, "real.py"), filepath.Join(root, "link.py")); err != nil {
-			t.Fatal(err)
-		}
+		must(t, os.Symlink(filepath.Join(root, "real.py"), filepath.Join(root, "link.py")))
 		if _, err := compileProject(projectCompileOptions{Root: root}); err == nil || !strings.Contains(err.Error(), "symlink") {
 			t.Fatalf("symlink boundary was not refused: %v", err)
 		}
@@ -143,9 +127,7 @@ func TestCompileProjectRecordsUnsafeContainerRefusal(t *testing.T) {
 	root := t.TempDir()
 	writeProjectFixture(t, root, "compose.yaml", "services:\n  task:\n    privileged: true\n")
 	ir, err := compileProject(projectCompileOptions{Root: root})
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	joined := strings.Join(ir.RefusalReasons, "\n")
 	if !strings.Contains(joined, "unsafe container authority") {
 		t.Fatalf("unsafe project lacks explicit refusal: %+v", ir.RefusalReasons)
@@ -156,21 +138,15 @@ func TestProjectIRDigestCoversGraphAndExcludesSelf(t *testing.T) {
 	root := t.TempDir()
 	writeProjectFixture(t, root, "pipeline.py", "embedding\nembedding")
 	ir, err := compileProject(projectCompileOptions{Root: root})
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	want, err := projectIRDigest(ir)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if want != ir.IRSHA256 {
 		t.Fatalf("self-excluding digest mismatch: want %s got %s", want, ir.IRSHA256)
 	}
 	ir.Unknowns = append(ir.Unknowns, "new uncertainty")
 	changed, err := projectIRDigest(ir)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if changed == want {
 		t.Fatal("IR digest did not cover graph uncertainty")
 	}

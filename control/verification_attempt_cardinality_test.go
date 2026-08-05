@@ -15,25 +15,19 @@ func TestVerificationAttemptFreezesExactCardinalityAndNarrowCap(t *testing.T) {
 	}
 	info.ResultKey = taskAttemptResultKey(info.JobID, info.TaskID, info.Attempt)
 	snapshot, err := verificationWorkSnapshotFromCommit(info, TaskCommit{TaskID: info.TaskID, ResultKey: info.ResultKey})
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if snapshot.SnapshotVersion != verificationAttemptSnapshotVersion {
 		t.Fatalf("snapshot version=%d, want %d", snapshot.SnapshotVersion, verificationAttemptSnapshotVersion)
 	}
 	var frozen verificationAttemptInput
-	if err := json.Unmarshal(snapshot.Snapshot, &frozen); err != nil {
-		t.Fatal(err)
-	}
+	must(t, json.Unmarshal(snapshot.Snapshot, &frozen))
 	wantCap := verificationArtifactMaxBytesForRecords("embed", 1, 4096, 0)
 	if frozen.ExpectedOutputRecords != 1 || frozen.ResultMaxBytes != wantCap ||
 		frozen.ResultMaxBytes >= verificationArtifactMaxBytes("embed", 4096, 0) {
 		t.Fatalf("frozen attempt cardinality/cap = %+v, want records=1 cap=%d", frozen, wantCap)
 	}
 	recovered, _, err := commitInfoFromVerificationWork(VerificationWork{Snapshot: snapshot})
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if recovered.ExpectedOutputRecords != 1 || recovered.resultMaxBytes != wantCap {
 		t.Fatalf("recovered attempt lost exact cardinality: %+v", recovered)
 	}

@@ -36,9 +36,7 @@ func TestBuyerCannotReachAnotherBuyersJobObjects(t *testing.T) {
 	inputKey := "jobs/" + jobID.String() + "/input.jsonl"
 	outputKey := "jobs/" + jobID.String() + "/output.jsonl"
 	for _, k := range []string{inputKey, outputKey} {
-		if err := storage.PutObject(ctx, k, []byte("owner-only-"+k), "application/octet-stream"); err != nil {
-			t.Fatalf("seed object: %v", err)
-		}
+		mustf(t, storage.PutObject(ctx, k, []byte("owner-only-"+k), "application/octet-stream"), "seed object: %v")
 	}
 	if _, err := store.pool.Exec(ctx, `
 		INSERT INTO jobs (id,buyer_id,status,job_type,tier,input_ref,output_ref,created_at)
@@ -105,9 +103,7 @@ func TestJobSubmitRejectsCallerSuppliedObjectRefs(t *testing.T) {
 	// it passed against a jobSubmit that did accept input_ref.
 	const valid = `{"model":{"kind":"catalogue","ref":"m"},"job_type":{"type":"embed"},"input":["x"]}`
 	var control jobSubmit
-	if err := decodeStrictJSONObject([]byte(valid), &control); err != nil {
-		t.Fatalf("baseline body must decode, or a rejection below proves nothing: %v", err)
-	}
+	mustf(t, decodeStrictJSONObject([]byte(valid), &control), "baseline body must decode, or a rejection below proves nothing: %v")
 
 	for _, field := range []string{
 		`"input_ref":"jobs/00000000-0000-0000-0000-000000000001/output.jsonl"`,

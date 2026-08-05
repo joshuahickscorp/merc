@@ -9,9 +9,7 @@ func TestProjectRenderWorkUnitAtUsesStableBoundedLexicalCoordinates(t *testing.T
 		Width: 32, Height: 16, TileWidth: 16, TileHeight: 16, Samples: 130, Seed: &seed,
 	}
 	plan, err := deriveProjectRenderWorkPlan(render)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if plan.UnitCount != 24 || plan.Ordering != renderWorkPlanOrdering {
 		t.Fatalf("render plan = %+v", plan)
 	}
@@ -32,9 +30,7 @@ func TestProjectRenderWorkUnitAtUsesStableBoundedLexicalCoordinates(t *testing.T
 	}
 	for _, test := range tests {
 		unit, err := projectRenderWorkUnitAt(render, test.ordinal)
-		if err != nil {
-			t.Fatalf("ordinal %d: %v", test.ordinal, err)
-		}
+		mustf(t, err, "ordinal %d: %v", test.ordinal)
 		if unit.Version != renderWorkPlanVersion || unit.Ordinal != test.ordinal || unit.Frame != test.frame ||
 			unit.Camera != test.camera || unit.TileX != test.tileX || unit.TileY != 0 ||
 			unit.PixelX != int(test.tileX)*16 || unit.PixelY != 0 || unit.PixelWidth != 16 || unit.PixelHeight != 16 ||
@@ -54,9 +50,7 @@ func TestProjectRenderWorkUnitAtCoversRaggedEdgeTiles(t *testing.T) {
 		Width: 34, Height: 18, TileWidth: 16, TileHeight: 16, Samples: 1, Seed: &seed,
 	}
 	unit, err := projectRenderWorkUnitAt(render, 5) // final row, final column
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if unit.TileX != 2 || unit.TileY != 1 || unit.PixelX != 32 || unit.PixelY != 16 ||
 		unit.PixelWidth != 2 || unit.PixelHeight != 2 || unit.SampleStart != 0 || unit.SampleEnd != 1 {
 		t.Fatalf("ragged final tile = %+v", unit)

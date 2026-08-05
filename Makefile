@@ -102,7 +102,7 @@ ci:
 	@bash scripts/test-release-image-boots.sh
 	@bash scripts/test-release-image-contents.sh
 	cd agent && cargo fmt --all -- --check && cargo clippy --all-targets -- -D warnings && cargo test
-	python3 -m json.tool proto/manifest.schema.json >/dev/null
+	python3 -m json.tool clients/proto/manifest.schema.json >/dev/null
 	python3 -m json.tool ops/governance-approval-bundle.schema.json >/dev/null
 	python3 -m json.tool ops/live-payment-activation.schema.json >/dev/null
 	python3 scripts/runpod-spend-guard.py --self-test
@@ -123,6 +123,7 @@ ci:
 	python3 scripts/test-bench-accounting.py
 	python3 scripts/test-gateway-parity-receipt.py
 	python3 scripts/validate-evidence-binding.py
+	python3 scripts/verify-lfs-corpus.py
 	python3 scripts/test-evidence-writer-bypass.py
 	bash scripts/test-readiness-gaming.sh
 	bash scripts/test-agent-review-gaming.sh
@@ -168,7 +169,7 @@ license-register:
 	python3 scripts/validate-license-register.py
 
 audit:
-	cd control && go run . audit codebase --out census
+	cd control && go run . audit codebase --out evidence/census
 
 loc: audit
 

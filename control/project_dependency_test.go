@@ -25,14 +25,10 @@ func dependentProjectFixture(t *testing.T) (string, ProjectWorkloadIR, ProjectMa
 	input := sha256.Sum256(payload)
 	serverQuote.InputSHA256 = hex.EncodeToString(input[:])
 	maximum, err := MoneyNanosFromUSDFloat(mustCurrency(t, serverQuote.Currency), serverQuote.Cost.MaxUSD)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	projectID, upstreamJobID := uuid.NewString(), uuid.New()
 	pricingSHA, err := pricingDecisionDigest(serverQuote.Pricing)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	materialized := sha256.Sum256(payload)
 	ir := projectQuoteIRFixture(serverQuote, maximum.Nanos*2)
 	ir.Steps = []ProjectIRStep{
@@ -79,26 +75,20 @@ func dependentProjectFixture(t *testing.T) (string, ProjectWorkloadIR, ProjectMa
 func mustCurrency(t *testing.T, code string) Currency {
 	t.Helper()
 	currency, err := ParseCurrency(code)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	return currency
 }
 
 func TestDependentProjectStepRequotesAndSubmitsAgainstServerReservation(t *testing.T) {
 	root, ir, materialization, c, submitCalls := dependentProjectFixture(t)
 	quote, err := quoteDependentProjectStep(c, root, ir, materialization.ProjectID, "downstream", []ProjectMaterialization{materialization})
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if quote.ProjectID != materialization.ProjectID || quote.Step.StepID != "downstream" ||
 		quote.ServerReservedNanos <= 0 || quote.ServerRemainingNanos != quote.Step.MaximumCostNanos {
 		t.Fatalf("dependent quote lost current project reserve: %+v", quote)
 	}
 	result, err := submitDependentProjectStep(c, root, ir, quote, time.Now())
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if result.Status != "ACCEPTED" || result.ExecutionMode != "DEPENDENT_MATERIALIZED_STEP" ||
 		len(result.Steps) != 1 || result.Steps[0].StepID != "downstream" || submitCalls() != 1 {
 		t.Fatalf("dependent submit did not preserve authority: %+v calls=%d", result, submitCalls())
@@ -117,9 +107,7 @@ func TestDependentProjectStepRefusesChangedMaterializedArtifactBeforeQuote(t *te
 func TestDependentProjectStepRevalidatesMaterializationAtSubmit(t *testing.T) {
 	root, ir, materialization, c, submitCalls := dependentProjectFixture(t)
 	quote, err := quoteDependentProjectStep(c, root, ir, materialization.ProjectID, "downstream", []ProjectMaterialization{materialization})
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	writeProjectFixture(t, root, "intermediate.jsonl", "{\"text\":\"tampered after quote\"}\n")
 	_, err = submitDependentProjectStep(c, root, ir, quote, time.Now())
 	if err == nil || (!strings.Contains(err.Error(), "bytes changed") && !strings.Contains(err.Error(), "hash changed")) || submitCalls() != 0 {
@@ -138,9 +126,7 @@ func TestInitialProjectRootsQuoteAndSubmitWithoutPricingFutureArtifacts(t *testi
 	digest := sha256.Sum256(payload)
 	serverQuote.InputSHA256 = hex.EncodeToString(digest[:])
 	maximum, err := MoneyNanosFromUSDFloat(mustCurrency(t, serverQuote.Currency), serverQuote.Cost.MaxUSD)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	ir := projectQuoteIRFixture(serverQuote, maximum.Nanos*2)
 	ir.Steps = []ProjectIRStep{
 		{ID: "root", Kind: "batch_inference", Inputs: []string{"project://source.jsonl"}, Outputs: []string{"project://vectors"},
@@ -189,16 +175,12 @@ func TestInitialProjectRootsQuoteAndSubmitWithoutPricingFutureArtifacts(t *testi
 	defer server.Close()
 	c := &client{base: server.URL, key: "test-project-key", hc: server.Client()}
 	quote, err := quoteInitialProjectRoots(c, root, ir)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if quoteCalls != 1 || len(quote.Steps) != 1 || quote.Steps[0].StepID != "root" {
 		t.Fatalf("initial quote priced a future materialization: calls=%d quote=%+v", quoteCalls, quote)
 	}
 	result, err := submitInitialProjectRoots(c, root, ir, quote, time.Now())
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if result.Status != "ACCEPTED" || result.ExecutionMode != "INITIAL_MATERIALIZED_ROOTS" || result.ProjectID != projectID ||
 		len(result.Steps) != 1 || result.Steps[0].StepID != "root" || submitCalls != 1 {
 		t.Fatalf("initial root submission failed: result=%+v submits=%d", result, submitCalls)

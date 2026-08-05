@@ -78,7 +78,7 @@ func cmdAudit(args []string) {
 	if len(args) == 0 || args[0] != "codebase" {
 		fatalf("usage: cx audit codebase [--out DIR]")
 	}
-	out := "census"
+	out := "evidence/census"
 	for i := 1; i < len(args); i++ {
 		if args[i] != "--out" {
 			fatalf("unknown flag %q", args[i])
@@ -206,16 +206,32 @@ func subsystemOf(path string) string {
 		default:
 			return "control"
 		}
-	case "proto":
-		return "contract"
-	case "sdk":
-		return "sdk"
-	case "web", "macapp", "logo":
+	case "clients":
+		switch {
+		case strings.HasPrefix(path, "clients/proto/") || path == "clients/proto":
+			return "contract"
+		case strings.HasPrefix(path, "clients/sdk/") || path == "clients/sdk":
+			return "sdk"
+		case strings.HasPrefix(path, "clients/macapp/") || path == "clients/macapp":
+			return "interface"
+		default:
+			return "ops"
+		}
+	case "web", "logo":
 		return "interface"
 	case "docs":
 		return "documentation"
-	case "scripts", "proof":
+	case "scripts":
 		return "proof"
+	case "evidence":
+		switch {
+		case strings.HasPrefix(path, "evidence/proof/") || path == "evidence/proof":
+			return "proof"
+		case strings.HasPrefix(path, "evidence/census/") || path == "evidence/census":
+			return "proof"
+		default:
+			return "ops"
+		}
 	default:
 		return "ops"
 	}
@@ -505,7 +521,7 @@ func writeAudit(root, dir string, records []fileRecord) {
 	}
 	d := directDependencies(root)
 	fmt.Fprintf(&md, "\nSurface: 2 binaries · 2 workloads · 1 runtime · %d routes · %d tables · %d direct dependencies.\n\n", routeCount(root), tableCount(root), d.TotalDirect)
-	md.WriteString("`census/CODEBASE_CENSUS.json` is the sole machine-readable ownership ledger. This file is its concise human summary.\n")
+	md.WriteString("`evidence/census/CODEBASE_CENSUS.json` is the sole machine-readable ownership ledger. This file is its concise human summary.\n")
 	if err := os.WriteFile(filepath.Join(root, dir, "CODEBASE_CENSUS.md"), []byte(md.String()), 0o644); err != nil {
 		fatalf("write census summary: %v", err)
 	}

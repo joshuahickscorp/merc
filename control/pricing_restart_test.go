@@ -20,9 +20,7 @@ func TestRepricingSurvivesModelPriceStateBeingReset(t *testing.T) {
 	ctx, store, _ := openAdminMutationTestStore(t)
 
 	schedule, err := BuildCataloguePriceSchedule()
-	if err != nil {
-		t.Fatalf("build schedule: %v", err)
-	}
+	mustf(t, err, "build schedule: %v")
 	if _, err := store.ApplyRepricing(ctx, schedule); err != nil {
 		t.Fatalf("first apply: %v", err)
 	}
@@ -60,9 +58,7 @@ func TestRecordedPriceHistoryCannotBeRewritten(t *testing.T) {
 	ctx, store, _ := openAdminMutationTestStore(t)
 
 	schedule, err := BuildCataloguePriceSchedule()
-	if err != nil {
-		t.Fatalf("build schedule: %v", err)
-	}
+	mustf(t, err, "build schedule: %v")
 	if _, err := store.ApplyRepricing(ctx, schedule); err != nil {
 		t.Fatalf("first apply: %v", err)
 	}

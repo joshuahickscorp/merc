@@ -172,16 +172,12 @@ func TestBillingIdenticalBatchedVsUnbatched(t *testing.T) {
 	// authority. If a future change threads a batch factor into tokenCharge,
 	// this fails.
 	unbatched, err := tokenCharge(prompt, completion, inputRate, outputRate)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	// Two members of one arrival batch, each billed alone.
 	var batchedTotal float64
 	for i := 0; i < 2; i++ {
 		c, err := tokenCharge(prompt, completion, inputRate, outputRate)
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		batchedTotal += c
 	}
 	if want := unbatched * 2; batchedTotal != want {
@@ -190,9 +186,7 @@ func TestBillingIdenticalBatchedVsUnbatched(t *testing.T) {
 	}
 	// Per-request equality is the buyer-facing claim.
 	batchedOne, err := tokenCharge(prompt, completion, inputRate, outputRate)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if batchedOne != unbatched {
 		t.Fatalf("per-request charge changed with batching: batched=%v unbatched=%v",
 			batchedOne, unbatched)

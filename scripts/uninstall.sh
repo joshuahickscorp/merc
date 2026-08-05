@@ -36,7 +36,8 @@ if [ "$CHECK" = "1" ]; then
   say "  systemd user service: $SYSTEMD_UNIT"
   say "  data/config: $HOMEDIR   $( [ "$PURGE" = 1 ] && echo '(--purge)' || echo '(kept; pass --purge to remove)')"
   say "  data/config (legacy): $LEGACY_HOMEDIR   $( [ "$PURGE" = 1 ] && echo '(--purge)' || echo '(kept; pass --purge to remove)')"
-  say "  (downloaded model weights in the HF cache are never touched)"
+  say "  retained secrets if not --purge: agent.toml (worker_token), enrollment/device.p256.pkcs8, agent.prefs.toml, agent.log"
+  say "  (downloaded model weights in the HF cache / MERC_MODEL_CACHE are never touched)"
   exit 0
 fi
 
@@ -75,14 +76,31 @@ remove_binary "$LEGACY_BIN"
 if [ "$PURGE" = "1" ]; then
   if [ -d "$HOMEDIR" ]; then
     rm -rf "$HOMEDIR"
-    say "purged $HOMEDIR"
+    say "purged $HOMEDIR (config, enrollment keys, logs, local data)"
   fi
   if [ -d "$LEGACY_HOMEDIR" ]; then
     rm -rf "$LEGACY_HOMEDIR"
     say "purged $LEGACY_HOMEDIR"
   fi
+  # Seatbelt sibling profile next to the binary is removed with the binary above.
+  # HF / model cache is shared with other tools and is never deleted here.
+  say "note: HuggingFace / MERC_MODEL_CACHE weights were not deleted (shared cache)"
 else
-  [ -d "$HOMEDIR" ] && say "kept $HOMEDIR (config + logs)  -  pass --purge to remove it"
-  [ -d "$LEGACY_HOMEDIR" ] && say "kept $LEGACY_HOMEDIR (legacy config + logs)  -  pass --purge to remove it"
+  if [ -d "$HOMEDIR" ]; then
+    say "kept $HOMEDIR  -  pass --purge to delete retained data"
+    for retained in \
+      "$HOMEDIR/agent.toml" \
+      "$HOMEDIR/enrollment/device.p256.pkcs8" \
+      "$HOMEDIR/enrollment/pending_request.json" \
+      "$HOMEDIR/agent.prefs.toml" \
+      "$HOMEDIR/agent.log" \
+      "$HOMEDIR/data"
+    do
+      [ -e "$retained" ] && say "  retained: $retained"
+    done
+  fi
+  if [ -d "$LEGACY_HOMEDIR" ]; then
+    say "kept $LEGACY_HOMEDIR (legacy config + logs)  -  pass --purge to remove it"
+  fi
 fi
 say "done."

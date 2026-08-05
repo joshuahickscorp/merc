@@ -120,13 +120,9 @@ func TestBudgetValidationRefusesImpossibleDeadlines(t *testing.T) {
 		t.Fatal("a budget that cannot meet the deadline must be refused")
 	}
 	// A generous deadline passes.
-	if err := ValidateBatchBudget(LatencyBatch, maxBatchTokens, 10*time.Second); err != nil {
-		t.Fatalf("a 10s deadline should accept the batch budget: %v", err)
-	}
+	mustf(t, ValidateBatchBudget(LatencyBatch, maxBatchTokens, 10*time.Second), "a 10s deadline should accept the batch budget: %v")
 	// No deadline means no constraint.
-	if err := ValidateBatchBudget(LatencyBatch, maxBatchTokens, 0); err != nil {
-		t.Fatalf("absent deadline should not constrain: %v", err)
-	}
+	mustf(t, ValidateBatchBudget(LatencyBatch, maxBatchTokens, 0), "absent deadline should not constrain: %v")
 	if err := ValidateBatchBudget(LatencyBatch, 0, time.Second); err == nil {
 		t.Fatal("a non-positive budget must be refused")
 	}

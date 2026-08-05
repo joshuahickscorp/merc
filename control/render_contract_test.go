@@ -3,20 +3,14 @@ package main
 import "testing"
 
 func TestMediaRenderingContractBoundsClosedSceneAndArtifact(t *testing.T) {
-	if err := normalizeRenderingJobType(&JobType{Type: "media_rendering", RenderWidth: 64, RenderHeight: 32}); err != nil {
-		t.Fatal(err)
-	}
+	must(t, normalizeRenderingJobType(&JobType{Type: "media_rendering", RenderWidth: 64, RenderHeight: 32}))
 	scene := []byte(`{"background":[1,2,3],"rectangles":[{"x":1,"y":2,"width":4,"height":5,"color":[9,8,7]}]}`)
-	if err := validateRenderingInputBytes(scene, 64, 32); err != nil {
-		t.Fatal(err)
-	}
+	must(t, validateRenderingInputBytes(scene, 64, 32))
 	if _, err := renderingInputScan(scene); err != nil {
 		t.Fatal(err)
 	}
 	artifact := append([]byte("P6\n64 32\n255\n"), make([]byte, 64*32*3)...)
-	if err := validateMediaRenderingResult(artifact, resultRecordContract{Exact: 1, Max: 1}); err != nil {
-		t.Fatal(err)
-	}
+	must(t, validateMediaRenderingResult(artifact, resultRecordContract{Exact: 1, Max: 1}))
 }
 
 func TestMediaRenderingContractRejectsUnknownSceneAndWrongArtifact(t *testing.T) {

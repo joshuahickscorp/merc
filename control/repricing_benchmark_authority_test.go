@@ -23,9 +23,7 @@ import (
 // from a stale throughput constant.
 func TestEveryRepricingBenchmarkMatchesItsCitedReceipt(t *testing.T) {
 	repoRoot, err := filepath.Abs("..")
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if len(repricingBenchmarks) == 0 {
 		t.Fatal("no repricing benchmark is declared, so the catalogue has no measured basis")
 	}
@@ -37,13 +35,9 @@ func TestEveryRepricingBenchmarkMatchesItsCitedReceipt(t *testing.T) {
 					b.SourceCitation)
 			}
 			raw, err := os.ReadFile(filepath.Join(repoRoot, path))
-			if err != nil {
-				t.Fatalf("cited receipt is unreadable: %v", err)
-			}
+			mustf(t, err, "cited receipt is unreadable: %v")
 			var receipt map[string]any
-			if err := json.Unmarshal(raw, &receipt); err != nil {
-				t.Fatalf("cited receipt is not JSON: %v", err)
-			}
+			mustf(t, json.Unmarshal(raw, &receipt), "cited receipt is not JSON: %v")
 			if got, _ := receipt["hardware_class"].(string); got != b.HWClass {
 				t.Fatalf("constant claims hardware class %q, receipt measured %q",
 					b.HWClass, got)

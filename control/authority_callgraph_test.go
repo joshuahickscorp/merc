@@ -58,13 +58,36 @@ import (
 // callGraph maps a function key to the keys it can reach in one step.
 type callGraph struct {
 	// edges is keyed by "Recv.Name" for methods and "Name" for functions.
+	// Built from every identifier that names a declared function (calls and
+	// func values). Used for money-authority observation: a sink handed off as
+	// a value is still reachable.
 	edges map[string]map[string]bool
+	// callEdges follows only CallExpr sites. Used for the calibration
+	// consumption check so HTTP route registration (passing a handler method
+	// value into mux.Handle) is not treated as the router consuming what the
+	// handler reads. A real multi-hop call chain still appears here.
+	callEdges map[string]map[string]bool
 	// byName indexes every declaration sharing a bare name, so a call through a
 	// receiver whose concrete type is not resolved here reaches all candidates.
 	// Over-approximating edges can only make this gate stricter.
 	byName map[string][]string
 	// file records where each declaration lives.
 	file map[string]string
+}
+
+// callExprFuncName returns the bare function/method name of a call's Fun, or "".
+func callExprFuncName(fun ast.Expr) string {
+	switch node := fun.(type) {
+	case *ast.Ident:
+		return node.Name
+	case *ast.SelectorExpr:
+		return node.Sel.Name
+	case *ast.IndexExpr: // generic instantiation
+		return callExprFuncName(node.X)
+	case *ast.ParenExpr:
+		return callExprFuncName(node.X)
+	}
+	return ""
 }
 
 func declKey(decl *ast.FuncDecl) string {
@@ -90,14 +113,13 @@ func receiverTypeName(expr ast.Expr) string {
 func buildCallGraph(t *testing.T) *callGraph {
 	t.Helper()
 	graph := &callGraph{
-		edges:  map[string]map[string]bool{},
-		byName: map[string][]string{},
-		file:   map[string]string{},
+		edges:     map[string]map[string]bool{},
+		callEdges: map[string]map[string]bool{},
+		byName:    map[string][]string{},
+		file:      map[string]string{},
 	}
 	entries, err := filepath.Glob("*.go")
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	fset := token.NewFileSet()
 	parsed := map[string]*ast.File{}
 	for _, name := range entries {
@@ -105,9 +127,7 @@ func buildCallGraph(t *testing.T) *callGraph {
 			continue
 		}
 		file, err := parser.ParseFile(fset, name, nil, 0)
-		if err != nil {
-			t.Fatalf("parse %s: %v", name, err)
-		}
+		mustf(t, err, "parse %s: %v", name)
 		parsed[name] = file
 		for _, decl := range file.Decls {
 			fn, ok := decl.(*ast.FuncDecl)
@@ -130,14 +150,26 @@ func buildCallGraph(t *testing.T) *callGraph {
 			if graph.edges[from] == nil {
 				graph.edges[from] = map[string]bool{}
 			}
+			if graph.callEdges[from] == nil {
+				graph.callEdges[from] = map[string]bool{}
+			}
 			ast.Inspect(fn.Body, func(n ast.Node) bool {
-				// Every identifier that names a declared function is an edge,
-				// whether it is called here or passed as a value. A calibration
-				// reader handed to a helper as a func value is still reachable.
+				// Ident/selector edges: every identifier that names a declared
+				// function, whether called or passed as a value.
 				id, ok := n.(*ast.Ident)
 				if !ok {
 					if sel, isSel := n.(*ast.SelectorExpr); isSel {
 						id = sel.Sel
+					} else if call, isCall := n.(*ast.CallExpr); isCall {
+						// CallExpr edges: only actual invocations.
+						if cname := callExprFuncName(call.Fun); cname != "" {
+							for _, target := range graph.byName[cname] {
+								if target != from {
+									graph.callEdges[from][target] = true
+								}
+							}
+						}
+						return true
 					} else {
 						return true
 					}
@@ -155,8 +187,20 @@ func buildCallGraph(t *testing.T) *callGraph {
 	return graph
 }
 
-// reaches returns the shortest path from `from` to any key in `targets`, or nil.
+// reaches returns the shortest path from `from` to any key in `targets`, or nil,
+// following identifier edges (calls and func values).
 func (g *callGraph) reaches(from string, targets map[string]bool) []string {
+	return g.reachesOn(from, targets, g.edges)
+}
+
+// reachesByCall is reaches restricted to CallExpr edges. Prefer this when
+// asking whether a money path consumes a calibration read: route tables that
+// merely register an admin handler must not count as consumption.
+func (g *callGraph) reachesByCall(from string, targets map[string]bool) []string {
+	return g.reachesOn(from, targets, g.callEdges)
+}
+
+func (g *callGraph) reachesOn(from string, targets map[string]bool, edges map[string]map[string]bool) []string {
 	type step struct {
 		key  string
 		path []string
@@ -169,8 +213,8 @@ func (g *callGraph) reaches(from string, targets map[string]bool) []string {
 		if targets[current.key] && current.key != from {
 			return current.path
 		}
-		next := make([]string, 0, len(g.edges[current.key]))
-		for key := range g.edges[current.key] {
+		next := make([]string, 0, len(edges[current.key]))
+		for key := range edges[current.key] {
 			next = append(next, key)
 		}
 		sort.Strings(next) // deterministic path in the failure message
@@ -202,6 +246,13 @@ var calibrationReadFunctions = []string{
 // moneyAndAdmissionAuthorityFiles own a decision about money or about whether
 // work may be admitted or placed. Kept in step with the guarded list in
 // plan_calibration_test.go by TestGuardedFileListsAgree.
+//
+// LEGACY filename list — retained for dual-run union with the structural
+// money-authority observation (see money_authority_guard_test.go). Roots for
+// TestNoCallPathFromMoneyOrAdmissionIntoCalibrationReads are
+// filename-roots ∪ structural-authority-roots. Do not remove this list until
+// dual-run has been green long enough to prove the structural view alone is
+// sufficient; removal is remaining work, not done in this change.
 var moneyAndAdmissionAuthorityFiles = []string{
 	"billing.go", "buyer.go", "buyer_charge_operations.go", "collect.go",
 	"economic_plan.go", "economic_facts.go", "ledger_write.go", "payment.go",
@@ -223,33 +274,30 @@ func TestNoCallPathFromMoneyOrAdmissionIntoCalibrationReads(t *testing.T) {
 		targets[name] = true
 	}
 
-	guarded := map[string]bool{}
+	// Dual-run: prove every legacy filename still exists, then root at the
+	// union of filename roots and structural money-authority reachability.
 	for _, name := range moneyAndAdmissionAuthorityFiles {
 		if _, err := os.Stat(name); err != nil {
 			t.Fatalf("guarded file %s does not exist: %v", name, err)
 		}
-		guarded[name] = true
 	}
 
-	roots := make([]string, 0, len(graph.file))
-	for key, file := range graph.file {
-		if guarded[file] {
-			roots = append(roots, key)
-		}
-	}
-	sort.Strings(roots)
+	fileRoots := filenameMoneyAuthorityRoots(t, graph)
+	structuralRoots := structuralMoneyAuthorityRoots(t, graph)
+	roots := unionMoneyAuthorityRoots(t, graph)
 	if len(roots) == 0 {
-		t.Fatal("no functions found in the guarded files; the traversal is vacuous")
+		t.Fatal("no money/admission authority roots; the traversal is vacuous")
 	}
 
 	for _, root := range roots {
-		if path := graph.reaches(root, targets); path != nil {
+		// CallExpr edges only: registration of an admin handler is not consumption.
+		if path := graph.reachesByCall(root, targets); path != nil {
 			t.Errorf("%s (%s) reaches calibration read %s:\n  %s",
 				root, graph.file[root], path[len(path)-1], strings.Join(path, "\n  → "))
 		}
 	}
-	t.Logf("checked %d functions in %d money/admission files against %d calibration reads",
-		len(roots), len(guarded), len(targets))
+	t.Logf("checked %d roots (filename=%d structural=%d union=%d; dual-run) against %d calibration reads",
+		len(roots), len(fileRoots), len(structuralRoots), len(roots), len(targets))
 }
 
 // The two gates must guard the same set of files, or tightening one silently

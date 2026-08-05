@@ -23,9 +23,7 @@ func TestQuoteCurrencyIsVisibleImmutableAndBoundAtSubmission(t *testing.T) {
 	schedule := economic.Schedule
 	schedule.Currency = "cad"
 	economic = BuildEconomicPlan(economic.Input, schedule)
-	if err := ValidateComputePlanEconomicSnapshot(compute, workload, economic); err != nil {
-		t.Fatalf("CAD economic fixture: %v", err)
-	}
+	mustf(t, ValidateComputePlanEconomicSnapshot(compute, workload, economic), "CAD economic fixture: %v")
 	authority := catalogueAuthorityFixtureInStore(
 		t, ctx, pool, workload, "cad", economic.Input.SupplierShare,
 	)
@@ -33,9 +31,7 @@ func TestQuoteCurrencyIsVisibleImmutableAndBoundAtSubmission(t *testing.T) {
 	pricing, err := newDistributedPricingDecision(
 		workload, compute, placement, economic, authority, workload.Binding.Tier, "",
 	)
-	if err != nil {
-		t.Fatalf("build CAD pricing fixture: %v", err)
-	}
+	mustf(t, err, "build CAD pricing fixture: %v")
 
 	quoteID := uuid.New()
 	quote := Quote{
@@ -58,36 +54,26 @@ func TestQuoteCurrencyIsVisibleImmutableAndBoundAtSubmission(t *testing.T) {
 		InputSHA256: strings.Repeat("a", 64),
 		ExpiresAt:   time.Now().Add(quoteTTL).UTC(),
 	}
-	if err := store.InsertQuote(ctx, buyerID, quote); err != nil {
-		t.Fatal(err)
-	}
+	must(t, store.InsertQuote(ctx, buyerID, quote))
 
 	encoded, err := json.Marshal(quote)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	var wire struct {
 		Currency  string       `json:"currency"`
 		Economics EconomicPlan `json:"economics"`
 	}
-	if err := json.Unmarshal(encoded, &wire); err != nil {
-		t.Fatal(err)
-	}
+	must(t, json.Unmarshal(encoded, &wire))
 	if wire.Currency != "cad" || wire.Economics.Schedule.Currency != "cad" {
 		t.Fatalf("buyer quote omits CAD authority: %s", encoded)
 	}
 
 	bound, err := store.GetBindableQuote(ctx, quoteID, buyerID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if bound.Currency != "cad" || bound.EconomicPlan.Schedule.Currency != "cad" {
 		t.Fatalf("bound quote currency=%q schedule=%q",
 			bound.Currency, bound.EconomicPlan.Schedule.Currency)
 	}
-	if err := validateBoundQuoteCurrency(bound); err != nil {
-		t.Fatalf("CAD quote rejected under CAD settlement: %v", err)
-	}
+	mustf(t, validateBoundQuoteCurrency(bound), "CAD quote rejected under CAD settlement: %v")
 
 	setSettlementCurrency(MustParseCurrency("usd"))
 	if err := validateBoundQuoteCurrency(bound); !errors.Is(err, errCurrencyMismatch) {

@@ -87,9 +87,7 @@ func TestDisputeFilingAtomicallyFreezesAndTerminalResolutionControlsPayout(t *te
 		t.Fatalf("credit was not initially due: present=%v err=%v", dueContains(due, f.entryID), err)
 	}
 	disputeID, err := store.RecordDispute(ctx, f.jobID, f.buyerID, " output does not match the submitted input ")
-	if err != nil {
-		t.Fatalf("file dispute: %v", err)
-	}
+	mustf(t, err, "file dispute: %v")
 	due, err = store.DuePayouts(ctx, 100)
 	if err != nil || dueContains(due, f.entryID) {
 		t.Fatalf("actively disputed credit remained due: present=%v err=%v", dueContains(due, f.entryID), err)
@@ -119,21 +117,15 @@ func TestDisputeFilingAtomicallyFreezesAndTerminalResolutionControlsPayout(t *te
 		t.Fatalf("atomic filing evidence = holds:%d dispute_events:%d job_events:%d", holds, disputeEvents, jobEvents)
 	}
 
-	if err := store.SetDisputeStatus(ctx, disputeID, "rejected"); err != nil {
-		t.Fatalf("reject dispute: %v", err)
-	}
+	mustf(t, store.SetDisputeStatus(ctx, disputeID, "rejected"), "reject dispute: %v")
 	due, err = store.DuePayouts(ctx, 100)
 	if err != nil || !dueContains(due, f.entryID) {
 		t.Fatalf("rejected dispute did not re-enable held payout: present=%v err=%v", dueContains(due, f.entryID), err)
 	}
 
 	upheldID, err := store.RecordDispute(ctx, f.jobID, f.buyerID, "independent review still shows a bad result")
-	if err != nil {
-		t.Fatalf("file successor dispute: %v", err)
-	}
-	if err := store.SetDisputeStatus(ctx, upheldID, "upheld"); err != nil {
-		t.Fatalf("uphold dispute: %v", err)
-	}
+	mustf(t, err, "file successor dispute: %v")
+	mustf(t, store.SetDisputeStatus(ctx, upheldID, "upheld"), "uphold dispute: %v")
 	var payoutStatus, holdResolution string
 	var clawbacks int
 	if err := pool.QueryRow(ctx,
@@ -277,9 +269,7 @@ func TestDisputeFilingWinsQueuedPayoutClaimRace(t *testing.T) {
 	f := seedDisputePayoutFixture(t, ctx, pool, "complete")
 
 	blocker, err := pool.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	defer blocker.Rollback(ctx)
 	if _, err := blocker.Exec(ctx, `SELECT id FROM jobs WHERE id=$1 FOR UPDATE`, f.jobID); err != nil {
 		t.Fatal(err)
@@ -304,12 +294,8 @@ func TestDisputeFilingWinsQueuedPayoutClaimRace(t *testing.T) {
 		}{ok, err}
 	}()
 	time.Sleep(100 * time.Millisecond)
-	if err := blocker.Commit(ctx); err != nil {
-		t.Fatal(err)
-	}
-	if err := <-filed; err != nil {
-		t.Fatalf("filing side of race: %v", err)
-	}
+	must(t, blocker.Commit(ctx))
+	mustf(t, <-filed, "filing side of race: %v")
 	claim := <-claimed
 	if claim.err != nil || claim.ok {
 		t.Fatalf("claim side of race = claimed:%v err:%v", claim.ok, claim.err)

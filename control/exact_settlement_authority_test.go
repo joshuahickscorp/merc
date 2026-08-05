@@ -50,9 +50,7 @@ func TestExactSettlementAuthority1436NanosShare097(t *testing.T) {
 		1,
 		catalogueGrossNanos,
 	)
-	if err != nil {
-		t.Fatalf("exactPerTaskNanos: %v", err)
-	}
+	mustf(t, err, "exactPerTaskNanos: %v")
 	if base != catalogueGrossNanos {
 		t.Fatalf("base nanos=%d, want %d", base, catalogueGrossNanos)
 	}
@@ -89,13 +87,9 @@ func TestExactSettlementAuthority1436NanosShare097(t *testing.T) {
 
 	// FixedPoint half: entitlements equal plan nanos × task count.
 	scenario, err := fullSuccessEconomicScenario(plan)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	fixed, err := fixedPointPricingFromPlan(plan, scenario, []string{"storage cost"})
-	if err != nil {
-		t.Fatalf("fixedPointPricingFromPlan: %v", err)
-	}
+	mustf(t, err, "fixedPointPricingFromPlan: %v")
 	if fixed.SupplierEntitlementsNanos != wantSupplierNanos {
 		t.Fatalf("FixedPoint.SupplierEntitlementsNanos=%d, want %d",
 			fixed.SupplierEntitlementsNanos, wantSupplierNanos)
@@ -108,9 +102,7 @@ func TestExactSettlementAuthority1436NanosShare097(t *testing.T) {
 		plan.BuyerChargePerTaskNanos, plan.SupplierPayoutPerTaskNanos,
 		90, time.Unix(100, 0),
 	)
-	if err != nil {
-		t.Fatalf("splitFrozenChargeNanos: %v", err)
-	}
+	mustf(t, err, "splitFrozenChargeNanos: %v")
 	if len(entries) != 3 {
 		t.Fatalf("entries=%d", len(entries))
 	}
@@ -168,9 +160,7 @@ func TestTamperedDenormalizedPlanMoneyRefused(t *testing.T) {
 
 	// consumeEconomicReserveTx must refuse.
 	tx, err := pool.Begin(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	defer tx.Rollback(ctx)
 	// Reserve needs a free slot and a live job.
 	if _, err := pool.Exec(ctx, `
@@ -292,9 +282,7 @@ func TestExactPolicyExactTaskEconomicsFailureRefusesPricing(t *testing.T) {
 		workload.RuntimeJobType, authority.ModelID,
 		admissionCellsForWorkload(workload), time.Now(),
 	)
-	if err != nil {
-		t.Fatalf("admission units/sec: %v", err)
-	}
+	mustf(t, err, "admission units/sec: %v")
 	_, err = distributedPricingDecisionAtRate(
 		workload, compute, placement, economic, authority,
 		workload.Binding.Tier, "", unitsPerSec,
@@ -497,13 +485,9 @@ func TestExactSettlementConservationProperty(t *testing.T) {
 					}
 
 					scenario, err := fullSuccessEconomicScenario(plan)
-					if err != nil {
-						t.Fatal(err)
-					}
+					must(t, err)
 					fixed, err := fixedPointPricingFromPlan(plan, scenario, []string{"x"})
-					if err != nil {
-						t.Fatalf("fixed point: %v", err)
-					}
+					mustf(t, err, "fixed point: %v")
 					// Conservation in integers.
 					if fixed.BuyerChargeNanos != fixed.SupplierEntitlementsNanos+
 						fixed.KnownVariableCostsNanos+fixed.KnownCostContributionNanos {
@@ -529,9 +513,7 @@ func TestExactSettlementConservationProperty(t *testing.T) {
 						plan.BuyerChargePerTaskNanos, plan.SupplierPayoutPerTaskNanos,
 						0, time.Unix(1, 0),
 					)
-					if err != nil {
-						t.Fatal(err)
-					}
+					must(t, err)
 					if usdToMicros(entries[1].AmountUSD) != projectNanosToMicros(plan.SupplierPayoutPerTaskNanos) {
 						t.Fatalf("ledger supplier micros != projection of plan nanos")
 					}
@@ -562,9 +544,7 @@ func reseedExactPlanJob(t *testing.T, ctx context.Context, pool *pgxpool.Pool, f
 		t.Fatalf("insert job: %v", err)
 	}
 	planJSON, err := json.Marshal(plan)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO job_economic_plans (
 		  job_id,plan_version,schedule_version,plan_json,initial_task_count,

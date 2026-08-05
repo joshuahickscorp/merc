@@ -52,6 +52,11 @@ type FrozenRuntimeCellEconomics struct {
 	Version int    `json:"version"`
 	Kind    string `json:"kind"`
 
+	// ModelContract is the catalogue identity this cell was priced under.
+	// Copied from the decision's catalogue so a later schedule rewrite cannot
+	// re-attribute the freeze.
+	ModelContract CellEconomicsModelContract `json:"model_contract"`
+
 	// Identity. HWClass is the single hardware class this binding could resolve;
 	// empty means the accepted placement admits more than one and no per-class
 	// term (energy) may be modeled for it.
@@ -61,6 +66,16 @@ type FrozenRuntimeCellEconomics struct {
 	HWClass   string   `json:"hw_class,omitempty"`
 	HWClasses []string `json:"hw_classes,omitempty"`
 
+	// BuildIdentity is the engine/build binary identity. Placement does not yet
+	// bind build_digest; the field is present and explicitly unknown rather than
+	// omitted, so a reader cannot mistake silence for "measured and fine".
+	BuildIdentity EconomicsFieldProvenance `json:"build_identity"`
+
+	// EntitlementResolution names how platform economics were resolved for this
+	// cell. New admissions write cell_resolved_platform_v1. Legacy decisions
+	// without this block never claim cell resolution.
+	EntitlementResolution string `json:"entitlement_resolution"`
+
 	// Accepted execution geometry. ConservativeUnitsPerSec is the governed
 	// haircut rate admission priced on — never an observed peak, never today's
 	// receipt.
@@ -69,6 +84,13 @@ type FrozenRuntimeCellEconomics struct {
 	ExpectedSeconds         float64 `json:"expected_seconds"`
 	BillableUnits           float64 `json:"billable_units"`
 
+	// Provenance for geometric and money fields that are not PricingCostComponents.
+	// Cost components already carry status+basis; these are the rest.
+	ThroughputProvenance EconomicsFieldProvenance `json:"throughput_provenance"`
+	DurationProvenance   EconomicsFieldProvenance `json:"duration_provenance"`
+	SupplierProvenance   EconomicsFieldProvenance `json:"supplier_entitlement_provenance"`
+	BuyerProvenance      EconomicsFieldProvenance `json:"buyer_price_provenance"`
+
 	// Money as accepted. These duplicate PricingDecision fields on purpose: the
 	// digest below covers them, so a rewrite of the decision that leaves this
 	// block alone is detectable.
@@ -76,6 +98,17 @@ type FrozenRuntimeCellEconomics struct {
 	SupplierEntitlementUSD    float64 `json:"supplier_entitlement_usd"`
 	SupplierEntitlementPolicy string  `json:"supplier_entitlement_policy"`
 	SupplierAskUSDHr          float64 `json:"supplier_ask_usd_hr"`
+
+	// PlatformDelivery is the cell-resolved platform cost of the accepted work:
+	// physical supplier + modeled provider + modeled verification. Provider is
+	// duration-sensitive, so two cells (or two throughputs) on one model can
+	// differ here even when supplier entitlement is identical. This is the
+	// economic differentiator cell resolution exists to freeze; it does not
+	// rewrite supplier settlement.
+	PlatformDeliveryCostUSD        float64 `json:"platform_delivery_cost_usd"`
+	PlatformDeliveryCostUSDPerUnit float64 `json:"platform_delivery_cost_usd_per_unit"`
+	PlatformDeliveryCostStatus     string  `json:"platform_delivery_cost_status"`
+	PlatformDeliveryCostBasis      string  `json:"platform_delivery_cost_basis"`
 
 	// The named expected verified-outcome cost terms, in the order the directive
 	// names them. Each is the decision's own component or an explicit unknown.
@@ -130,6 +163,15 @@ type FrozenRuntimeCellEconomics struct {
 // is pinned by placement.RuntimeMatrixSHA256, which validatePlacementRequirement
 // compares against the binary's own generatedRuntimeMatrixSHA256, so reading it
 // cannot make this binding time-dependent.
+// MercTrueNetAvailable reports whether every named cost category resolved, so a
+// true net contribution may be published. False means at least one category is
+// unknown and the amount must be refused rather than approximated: with no known
+// variable costs subtracted, an "approximation" is just the gross spread wearing
+// the name of profit.
+func (c *FrozenRuntimeCellEconomics) MercTrueNetAvailable() bool {
+	return c != nil && len(c.UnknownCategories) == 0 && c.MercTrueNetUSD != nil
+}
+
 func freezeRuntimeCellEconomics(
 	placement PlacementRequirement,
 	catalogue CataloguePriceAuthority,
@@ -150,23 +192,31 @@ func freezeRuntimeCellEconomics(
 	unknowns []string,
 	confidence float64,
 ) (*FrozenRuntimeCellEconomics, error) {
+	policy := firstNonEmpty(supplierEntitlementPolicy, supplierEntitlementPolicyCancelled)
 	out := &FrozenRuntimeCellEconomics{
 		Version:                   frozenRuntimeCellEconomicsVersion,
 		Kind:                      frozenRuntimeCellEconomicsKind,
+		ModelContract:             modelContractFromCatalogue(catalogue),
 		CellID:                    placement.RuntimeCellID,
 		RuntimeID:                 placement.RuntimeID,
 		Engine:                    placement.Engine,
+		BuildIdentity:             buildIdentityProvenance(placement),
+		EntitlementResolution:     cellEntitlementResolutionForNewAdmission(),
 		ConservativeUnitsPerSec:   unitsPerSec,
 		ExpectedSeconds:           expectedSeconds,
 		BillableUnits:             billableUnits,
 		BuyerPriceUSD:             buyerPriceUSD,
 		SupplierEntitlementUSD:    supplierEntitlementUSD,
-		SupplierEntitlementPolicy: firstNonEmpty(supplierEntitlementPolicy, supplierEntitlementPolicyCancelled),
+		SupplierEntitlementPolicy: policy,
 		SupplierAskUSDHr:          supplierAskUSDHr,
 		PhysicalCost:              physical,
 		ProviderCost:              provider,
 		VerificationCost:          verification,
 		Confidence:                confidence,
+		ThroughputProvenance:      throughputProvenance(unitsPerSec),
+		DurationProvenance:        durationProvenance(expectedSeconds, unitsPerSec, billableUnits),
+		SupplierProvenance:        supplierEntitlementProvenance(policy, supplierEntitlementUSD),
+		BuyerProvenance:           buyerPriceProvenance(buyerPriceUSD),
 	}
 	if unitsPerSec > 0 {
 		out.ExpectedMsPerUnit = 1000.0 / unitsPerSec
@@ -208,6 +258,18 @@ func freezeRuntimeCellEconomics(
 
 	// Startup and residency.
 	out.StartupResidency = frozenStartupResidencyComponent(placement.RuntimeCellID)
+
+	// Cell-resolved platform delivery: supplier (cancelled) + provider (duration
+	// sensitive) + verification. This is the figure that can differ across cells
+	// of one model without rewriting supplier settlement.
+	delivery := resolveCellPlatformDelivery(
+		supplierEntitlementUSD, provider, verification, billableUnits,
+		out.EntitlementResolution,
+	)
+	out.PlatformDeliveryCostUSD = delivery.TotalUSD
+	out.PlatformDeliveryCostUSDPerUnit = delivery.PerUnitUSD
+	out.PlatformDeliveryCostStatus = delivery.Status
+	out.PlatformDeliveryCostBasis = delivery.Basis
 
 	// The named sum, over modeled terms only, with its status saying so.
 	out.sumNamedVerifiedOutcomeCost()
@@ -452,7 +514,12 @@ func frozenCellEvidenceIdentity(
 		"runtime_cell:" + placement.RuntimeCellID,
 		"runtime_matrix_sha256:" + placement.RuntimeMatrixSHA256,
 		"supplier_entitlement_policy:" + f.SupplierEntitlementPolicy,
+		"cell_entitlement_resolution:" + f.EntitlementResolution,
 		"control/pricing_decision.go#exactTaskEconomics",
+		"control/runtime_cell_entitlement.go#resolveCellPlatformDelivery",
+	}
+	if f.ModelContract.ModelID != "" {
+		out = append(out, "model_contract:"+f.ModelContract.ModelID+"/"+f.ModelContract.JobType)
 	}
 	if catalogue.ScheduleSHA256 != "" {
 		out = append(out, "catalogue_schedule:"+catalogue.ScheduleSHA256)
@@ -462,6 +529,9 @@ func frozenCellEvidenceIdentity(
 	}
 	if f.EnergySource != "" {
 		out = append(out, "energy:"+f.EnergySource)
+	}
+	if f.BuildIdentity.Knowledge == fieldProvenanceUnknown {
+		out = append(out, "build_identity:absent")
 	}
 	return out
 }

@@ -15,6 +15,16 @@ it. The same request goes to both. Paired, interleaved, and repeated with a
 fresh prefix each round so the cold arm stays genuinely cold instead of warming
 itself up over the run.
 
+B3 extensions beyond the two-arm table:
+
+  - cache-identity confusions: wrong worker, wrong prefix on the warm worker,
+    and a third process loading the same artifact path (process/worker identity
+    is not path identity)
+  - explicit cache miss on a never-primed prefix (no false warm claim)
+  - worker restart invalidation (engine observed MISS, cached_tokens == 0)
+  - Merc ranking case where warm is correctly NOT chosen (cost/ask dominate)
+  - Merc stale-warmth TTL expiry (90s floor; rows aged past TTL rank cold)
+
 What it can prove:
 
   - cached_tokens / cache_n on the warm worker and their absence on the cold one
@@ -22,14 +32,16 @@ What it can prove:
   - GPU-domain joules per arm (IOReport, AGX domain only)
   - that warm and cold produce byte-identical text at temperature 0, so the
     saving is not being bought with a different answer
-  - that a restart resets the belief: the engine reports an observed MISS
+  - that a restart resets residency: the engine reports an observed MISS
     (cached_tokens == 0, not absent), which is the signal the control plane
     needs to contradict a stale warm row instead of waiting out its TTL
+  - that Merc ranking is not "always prefer warm"
 
 What it cannot prove, and must not be read as proving:
 
   - a cross-supplier network advantage. Both processes are on this host. This
-    is same-host, two-process placement.
+    is same-host, two-process placement — not two suppliers on two machines
+    across a network.
   - a cost win. Supplier entitlement is units x price x share and does not
     depend on duration, so the only cost term that can differ here is energy.
     The receipt states that delta in dollars precisely so nobody has to guess
@@ -120,6 +132,180 @@ def summarize(samples: list[dict]) -> dict:
     }
 
 
+def _full_prefix_hit(sig: dict, *, min_cached: int) -> bool:
+    cached = sig.get("cached_tokens")
+    return (
+        sig.get("cached_tokens_field_present") is True
+        and cached is not None
+        and int(cached) >= min_cached
+    )
+
+
+def _residual_only(sig: dict, *, max_cached: int) -> bool:
+    """True when the engine reports a present signal that is not a full prefix hit.
+
+    Residual chat-template tokens on a busy process can be small and non-zero;
+    that is not a claim on THIS prefix.
+    """
+    cached = sig.get("cached_tokens")
+    return (
+        sig.get("cached_tokens_field_present") is True
+        and cached is not None
+        and int(cached) <= max_cached
+    )
+
+
+def merc_rank_warm_not_chosen() -> dict:
+    """Mirror RankByCostThenPrefixAffinity: cost/ask beat infinite warm depth.
+
+    Pure local ranking — same order as control/prefix_placement.go. Proves the
+    router is making a decision, not always preferring warm.
+    """
+    # Mirrors TestPrefixAffinityNeverPromotesHigherAskWithinClass /
+    # TestPrefixAffinityNeverPromotesMoreExpensiveCostClass fixtures.
+    cases = []
+
+    def rank(cands: list[dict]) -> list[dict]:
+        return sorted(
+            cands,
+            key=lambda c: (
+                c["cost_rank"],
+                c["ask_usd_hr"],
+                -c["warm_prefix_depth"],
+                0 if c["warm_model"] else 1,
+                c["worker_id"],
+            ),
+        )
+
+    within_class = [
+        {
+            "worker_id": "warm-dear",
+            "cost_rank": 2,
+            "ask_usd_hr": 1.01,
+            "warm_prefix_depth": 1 << 20,
+            "warm_model": True,
+        },
+        {
+            "worker_id": "cold-cheap",
+            "cost_rank": 2,
+            "ask_usd_hr": 1.00,
+            "warm_prefix_depth": 0,
+            "warm_model": False,
+        },
+    ]
+    w = rank(within_class)
+    cases.append(
+        {
+            "name": "within_class_ask_beats_infinite_warm_depth",
+            "winner": w[0]["worker_id"],
+            "want": "cold-cheap",
+            "pass": w[0]["worker_id"] == "cold-cheap",
+            "candidates": within_class,
+        }
+    )
+
+    across_class = [
+        {
+            "worker_id": "warm-expensive-class",
+            "cost_rank": 5,  # dearer class
+            "ask_usd_hr": 0.50,
+            "warm_prefix_depth": 2048,
+            "warm_model": True,
+        },
+        {
+            "worker_id": "cold-cheap-class",
+            "cost_rank": 1,
+            "ask_usd_hr": 0.50,
+            "warm_prefix_depth": 0,
+            "warm_model": False,
+        },
+    ]
+    w2 = rank(across_class)
+    cases.append(
+        {
+            "name": "cost_class_beats_warm_expensive",
+            "winner": w2[0]["worker_id"],
+            "want": "cold-cheap-class",
+            "pass": w2[0]["worker_id"] == "cold-cheap-class",
+            "candidates": across_class,
+        }
+    )
+
+    # Control: equal cost+ask, deeper warm must win (otherwise ranking is broken).
+    tie = [
+        {
+            "worker_id": "cold",
+            "cost_rank": 2,
+            "ask_usd_hr": 1.0,
+            "warm_prefix_depth": 0,
+            "warm_model": False,
+        },
+        {
+            "worker_id": "warm-deep",
+            "cost_rank": 2,
+            "ask_usd_hr": 1.0,
+            "warm_prefix_depth": 256,
+            "warm_model": True,
+        },
+    ]
+    w3 = rank(tie)
+    cases.append(
+        {
+            "name": "equal_cost_deeper_warm_wins",
+            "winner": w3[0]["worker_id"],
+            "want": "warm-deep",
+            "pass": w3[0]["worker_id"] == "warm-deep",
+            "candidates": tie,
+        }
+    )
+
+    return {
+        "ranking": "control/prefix_placement.go:RankByCostThenPrefixAffinity (mirrored)",
+        "order": [
+            "CostRank ASC",
+            "AskUSDHr ASC",
+            "WarmPrefixDepth DESC",
+            "WarmModel DESC",
+            "WorkerID ASC",
+        ],
+        "cases": cases,
+        "all_pass": all(c["pass"] for c in cases),
+        "consequence": (
+            "warm is chosen only inside a cost/ask tie. A loaded or economically "
+            "worse warm worker loses to a cold cheaper alternative — the router "
+            "is not 'always prefer warm'."
+        ),
+        "go_tests": [
+            "control/prefix_placement_test.go::TestPrefixAffinityNeverPromotesHigherAskWithinClass",
+            "control/prefix_placement_test.go::TestPrefixAffinityNeverPromotesMoreExpensiveCostClass",
+            "control/prefix_routing_wiring_test.go::TestColdCheapWorkerNotDisplacedByWarmExpensive",
+        ],
+    }
+
+
+def merc_stale_ttl_contract() -> dict:
+    """Document the TTL floor and the go tests that age warmth past it."""
+    return {
+        "prefix_warm_ttl_seconds": 90,
+        "source": "control/prefix_routing.go:prefixWarmTTL",
+        "behaviour": (
+            "A worker_prefix_state row with last_seen_warm older than 90s is not "
+            "trusted: DeepestWarmPrefix returns 0 and claim ORDER BY treats the "
+            "worker as cold for that chain. SweepStalePrefixState removes rows "
+            "past 20×TTL."
+        ),
+        "go_tests": [
+            "control/prefix_routing_wiring_test.go::TestStaleWarmthStopsInfluencingRouting",
+            "control/prefix_observation_test.go::TestStalePrefixIndexCorrectedByObservationMiss",
+        ],
+        "note": (
+            "Physical engines do not expose a wall-clock TTL independent of "
+            "eviction; Merc's belief ages out on a 90s floor and is also "
+            "invalidated immediately on an observed engine miss."
+        ),
+    }
+
+
 def run(args: argparse.Namespace) -> dict:
     model = Path(args.model).expanduser()
     if not model.exists():
@@ -134,13 +320,19 @@ def run(args: argparse.Namespace) -> dict:
     log_b = Path(f"/tmp/llama-two-worker-B-{port_b}.log")
     base_a, base_b = f"http://127.0.0.1:{port_a}", f"http://127.0.0.1:{port_b}"
 
-    proc_a = proc_b = None
+    proc_a = proc_b = proc_c = None
     warm_samples: list[dict] = []
     cold_samples: list[dict] = []
     warm_energy: list[dict] = []
     cold_energy: list[dict] = []
     quality: list[dict] = []
     started_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    identity_confusions: dict = {}
+    cache_miss: dict = {}
+    before_restart = after_restart = {}
+    establish: dict = {}
+    port_c = None
+    log_c = None
 
     try:
         proc_a = start_server(model, port_a, args.ctx, log_a)
@@ -151,7 +343,6 @@ def run(args: argparse.Namespace) -> dict:
         # Establish that BOTH workers expose the signal before measuring, so a
         # missing field is a setup failure rather than a silent zero later.
         probe = build_prefix(args.paragraphs, salt="probe")
-        establish = {}
         for name, base in (("worker_a", base_a), ("worker_b", base_b)):
             sig = extract_signals(chat_completion(base, probe, "State one fact.", 8))
             establish[name] = sig
@@ -201,10 +392,140 @@ def run(args: argparse.Namespace) -> dict:
                 }
             )
 
+        # ------------------------------------------------------------------
+        # Cache identity confusions (engine-confirmed).
+        # A cache entry for (worker A, model M, artifact X, prefix P) must not
+        # be claimable by worker B, nor by a different prefix on A, nor by a
+        # distinct process that loads the same artifact path.
+        # ------------------------------------------------------------------
+        id_prefix = build_prefix(args.paragraphs, salt="idbind_shared")
+        chat_completion(base_a, id_prefix, "Prime identity.", 4)
+        on_a = extract_signals(
+            chat_completion(base_a, id_prefix, "One word reply.", args.max_tokens)
+        )
+        on_b = extract_signals(
+            chat_completion(base_b, id_prefix, "One word reply.", args.max_tokens)
+        )
+        # Same worker A, different prefix (wrong "entry" for this chain).
+        other_prefix = build_prefix(args.paragraphs, salt="idbind_other")
+        on_a_other = extract_signals(
+            chat_completion(base_a, other_prefix, "One word reply.", args.max_tokens)
+        )
+
+        # Third process: same model path/sha (artifact X) but a distinct worker
+        # identity. Must not inherit A's KV. (No second local quant of this
+        # model is available; process isolation is the engine-side artifact
+        # residency boundary we can exercise without a paid download.)
+        port_c = free_port()
+        log_c = Path(f"/tmp/llama-two-worker-C-{port_c}.log")
+        base_c = f"http://127.0.0.1:{port_c}"
+        proc_c = start_server(model, port_c, args.ctx, log_c)
+        wait_http(f"{base_c}/health")
+        # Give C a probe so residual template cache is comparable, not zero
+        # simply because it has never served anything.
+        chat_completion(base_c, build_prefix(args.paragraphs, salt="idbind_c_probe"), "Prime.", 4)
+        on_c = extract_signals(
+            chat_completion(base_c, id_prefix, "One word reply.", args.max_tokens)
+        )
+        stop_server(proc_c)
+        proc_c = None
+
+        # Thresholds from the paired arms: full hit is near warm p50; residual
+        # is near cold p50. Fall back to absolute floors if arms are empty.
+        warm_hit_floor = int(
+            ((summarize(warm_samples).get("cached_tokens") or {}).get("p50")) or 500
+        )
+        residual_ceiling = int(
+            ((summarize(cold_samples).get("cached_tokens") or {}).get("p50")) or 200
+        )
+        # Allow some slack: residual ceiling * 3 still << full prefix hit.
+        residual_ceiling = max(residual_ceiling * 3, 200)
+
+        conf_worker = {
+            "name": "wrong_worker_cannot_claim_worker_A_entry",
+            "binding": "worker_id",
+            "warm_on_A": on_a,
+            "query_on_B": on_b,
+            "pass": _full_prefix_hit(on_a, min_cached=warm_hit_floor)
+            and _residual_only(on_b, max_cached=residual_ceiling),
+        }
+        conf_prefix = {
+            "name": "wrong_prefix_on_same_worker_model_artifact_is_not_the_entry",
+            "binding": "prefix_id (prompt chain)",
+            "warm_prefix_on_A": on_a,
+            "other_prefix_on_A": on_a_other,
+            "pass": _full_prefix_hit(on_a, min_cached=warm_hit_floor)
+            and _residual_only(on_a_other, max_cached=residual_ceiling),
+        }
+        conf_process = {
+            "name": "third_process_same_artifact_path_cannot_claim_A_entry",
+            "binding": "process/worker identity (artifact residency is process-local)",
+            "model_path": str(model),
+            "model_sha256": model_sha,
+            "warm_on_A": on_a,
+            "query_on_C": on_c,
+            "worker_c_port": port_c,
+            "pass": _full_prefix_hit(on_a, min_cached=warm_hit_floor)
+            and _residual_only(on_c, max_cached=residual_ceiling),
+            "artifact_note": (
+                "Only one local GGUF of this model is present, so a second "
+                "artifact digest Y could not be loaded. Engine binding of "
+                "artifact is process-local load of this digest; Merc claim "
+                "binds model via jobs.model_ref + worker_authorized_capabilities. "
+                "worker_prefix_state PK is (worker_id, prefix_id) — model/artifact "
+                "are not columns on that table."
+            ),
+        }
+        identity_confusions = {
+            "thresholds": {
+                "full_hit_min_cached_tokens": warm_hit_floor,
+                "residual_max_cached_tokens": residual_ceiling,
+            },
+            "tests": [conf_worker, conf_prefix, conf_process],
+            "all_pass": all(
+                c["pass"] for c in (conf_worker, conf_prefix, conf_process)
+            ),
+            "binding_layers": {
+                "worker": "engine process isolation + Merc worker_prefix_state.worker_id",
+                "model": "Merc claim path: jobs.model_ref must match worker_authorized_capabilities",
+                "artifact": "engine process loads one GGUF digest; not a column on worker_prefix_state",
+                "prefix": "engine KV LCP + Merc prefix_id / job_prefix_chain",
+            },
+        }
+
+        # ------------------------------------------------------------------
+        # Explicit cache miss: never-primed prefix on A after A is warm on
+        # something else. Must not claim full warm for the miss prefix.
+        # ------------------------------------------------------------------
+        miss_prefix = build_prefix(args.paragraphs, salt="cache_miss_unique")
+        miss_sig = extract_signals(
+            chat_completion(base_a, miss_prefix, "One word reply.", args.max_tokens)
+        )
+        cache_miss = {
+            "prefix_salt": "cache_miss_unique",
+            "engine": miss_sig,
+            "observed_miss_or_residual": _residual_only(
+                miss_sig, max_cached=residual_ceiling
+            )
+            or (miss_sig.get("cached_tokens") == 0),
+            "signal_present": miss_sig.get("cached_tokens_field_present") is True,
+            "false_warm_claim": _full_prefix_hit(miss_sig, min_cached=warm_hit_floor),
+            "pass": (
+                miss_sig.get("cached_tokens_field_present") is True
+                and not _full_prefix_hit(miss_sig, min_cached=warm_hit_floor)
+            ),
+            "note": (
+                "Engine-confirmed: cached_tokens field present and not a full "
+                "prefix hit. No false warm claim for a never-primed prefix."
+            ),
+        }
+
         # Restart fallback: the warm worker loses its cache, and the engine must
         # report an observed MISS rather than simply omitting the field. That
         # distinction is the whole contract on the control side.
-        restart_prefix = build_prefix(args.paragraphs, salt="restart")
+        # Salt avoids the earlier "restart" tokenisation that produced a
+        # spurious safety refusal in a prior run; signals are what matter.
+        restart_prefix = build_prefix(args.paragraphs, salt="rstrt_inv_01")
         chat_completion(base_a, restart_prefix, "Prime.", 4)
         before_restart = extract_signals(
             chat_completion(base_a, restart_prefix, "One word.", args.max_tokens)
@@ -218,6 +539,7 @@ def run(args: argparse.Namespace) -> dict:
     finally:
         stop_server(proc_a)
         stop_server(proc_b)
+        stop_server(proc_c)
 
     warm = summarize(warm_samples)
     cold = summarize(cold_samples)
@@ -252,36 +574,55 @@ def run(args: argparse.Namespace) -> dict:
     all_identical = all(q["identical_text"] for q in quality) if quality else False
     warm_hit = (warm.get("cached_tokens", {}) or {}).get("p50")
     cold_hit = (cold.get("cached_tokens", {}) or {}).get("p50")
+    warm_not_chosen = merc_rank_warm_not_chosen()
+    stale_ttl = merc_stale_ttl_contract()
 
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "kind": "prefix_two_worker_routing_measurement",
         "label": (
-            "llama.cpp Metal, two workers, one holding the prefix and one not: "
-            "cache hit, prefill avoided, TTFT and energy deltas, and the restart miss"
+            "llama.cpp Metal, two workers (same host), warm vs cold prefix: "
+            "engine-confirmed cache hits, identity confusions, miss/restart/TTL, "
+            "and ranking that does not always prefer warm"
         ),
         "measured_at": started_at,
         "question": (
             "Does routing a request to the worker that already holds its prefix beat "
-            "routing it to an equally capable worker that does not?"
+            "routing it to an equally capable worker that does not — and does Merc "
+            "refuse to chase warm when cost/ask say otherwise?"
         ),
+        "topology": {
+            "exercised": (
+                "two llama-server processes on one Mac, distinct ports and process "
+                "identities, same model GGUF digest, Metal/local only"
+            ),
+            "not_exercised": (
+                "two suppliers on two machines across a network; cross-supplier "
+                "cache-aware routing; multi-region placement; paid cloud resources"
+            ),
+        },
         "host": {"hardware": hardware_label(), "load": host_load()},
         "model": {
             "path": str(model),
             "sha256": model_sha,
-            "note": "one file, both workers; warmness is bound to the worker AND this artifact digest",
+            "note": (
+                "one file, both workers; engine warmness is process-local for this "
+                "artifact digest; Merc claim binds model_ref separately"
+            ),
         },
         "setup": {
             "workers": 2,
             "worker_a_port": port_a,
             "worker_b_port": port_b,
+            "worker_c_port_identity_probe": port_c,
             "rounds": args.reps,
             "paragraphs_per_prefix": args.paragraphs,
             "max_tokens": args.max_tokens,
             "ctx": args.ctx,
             "fresh_prefix_per_round": True,
             "interleaved": "warm/cold order alternates per round",
-            "logs": [str(log_a), str(log_b)],
+            "logs": [str(log_a), str(log_b)]
+            + ([str(log_c)] if log_c is not None else []),
         },
         "signal_establishment": establish,
         "arms": {"warm_worker": warm, "cold_worker": cold},
@@ -328,6 +669,8 @@ def run(args: argparse.Namespace) -> dict:
             "contract": "temperature 0, same model artifact, same prompt; warm and cold must agree",
             "rounds": quality,
         },
+        "cache_identity_confusions": identity_confusions,
+        "cache_miss": cache_miss,
         "restart_fallback": {
             "before_restart": before_restart,
             "after_restart": after_restart,
@@ -335,13 +678,21 @@ def run(args: argparse.Namespace) -> dict:
             "signal_present_after_restart": after_restart.get(
                 "cached_tokens_field_present"
             ),
+            "pass": (
+                after_restart.get("cached_tokens") == 0
+                and after_restart.get("cached_tokens_field_present") is True
+                and (before_restart.get("cached_tokens") or 0) > 0
+            ),
             "why_it_matters": (
                 "after a restart the engine reports cached_tokens == 0 -- an observed MISS, "
                 "not an absent signal. CorrectPrefixBeliefFromObservation invalidates the "
                 "stale warm rows on that observation instead of waiting out the 90s TTL. "
-                "An absent field would have to be treated as no observation at all."
+                "An absent field would have to be treated as no observation at all. "
+                "Merc must stop routing to the restarted worker as warm."
             ),
         },
+        "stale_warmth_expiration": stale_ttl,
+        "warm_not_chosen": warm_not_chosen,
         "selector_relationship": {
             "ranking": "control/prefix_placement.go:RankByCostThenPrefixAffinity",
             "order": [
@@ -364,6 +715,9 @@ def run(args: argparse.Namespace) -> dict:
             "GPU-domain joules per arm and the resulting energy dollar delta",
             "warm and cold produce identical text at temperature 0 on the same model artifact",
             "a restart produces an observed MISS (cached_tokens == 0), not an absent signal",
+            "cache identity confusions: wrong worker / wrong prefix / third process same path",
+            "explicit never-primed cache miss without a false full-hit claim",
+            "Merc ranking chooses cold when warm is dearer or in a more expensive class",
         ],
         "does_not_prove": [
             "a cross-supplier or cross-network advantage: both workers are processes on this host",
@@ -371,12 +725,14 @@ def run(args: argparse.Namespace) -> dict:
             "fleet behaviour, a second hardware class, or concurrency beyond one in-flight request per worker",
             "that production routing changed: nothing here promotes a cell or alters admission",
             "that Merc's belief equals the engine's cache state at any instant; the engine signal is what corrects the belief",
+            "a second model artifact digest Y of the same model family (only one local GGUF present)",
         ],
         "limitations": [
-            "One host, two processes; contention between them is real and is why arms are interleaved.",
+            "One host, two (plus identity-probe third) processes; contention between them is real and is why arms are interleaved.",
             "IOReport measures the AGX GPU domain only -- not package, not wall-plug.",
             "Electricity is a policy default, so the dollar delta is defaulted-grade.",
             "Non-streaming wall time is an upper bound on TTFT; timings.prompt_ms is the engine-authoritative prefill clock.",
+            "Merc worker_prefix_state is keyed by (worker_id, prefix_id); model is bound at claim time via model_ref, artifact at the engine process.",
         ],
     }
 

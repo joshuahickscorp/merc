@@ -145,9 +145,7 @@ func TestLlamaCppEmbeddingPassesIndependentVerification(t *testing.T) {
 	h.commitThroughStorage(ctx, f, taskID, llama.body)
 
 	result, err := h.processor.ProcessAttempt(ctx, taskID, 0)
-	if err != nil {
-		t.Fatalf("verification processor: %v", err)
-	}
+	mustf(t, err, "verification processor: %v")
 	if result.Outcome == OutcomeFail {
 		t.Fatalf("llama.cpp output failed independent verification against the "+
 			"governed candle reference: %+v", result)
@@ -184,9 +182,7 @@ func TestGovernedEmbeddingReferenceRejectsWrongOutput(t *testing.T) {
 		Count   int         `json:"count"`
 		Vectors [][]float64 `json:"vectors"`
 	}
-	if err := json.Unmarshal(candle.body, &decoded); err != nil {
-		t.Fatal(err)
-	}
+	must(t, json.Unmarshal(candle.body, &decoded))
 
 	t.Run("scrambled vectors are refused", func(t *testing.T) {
 		scrambled := decoded
@@ -199,9 +195,7 @@ func TestGovernedEmbeddingReferenceRejectsWrongOutput(t *testing.T) {
 			scrambled.Vectors[i] = row
 		}
 		body, err := json.Marshal(scrambled)
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		if resultsAgree("embed", candle.body, body) {
 			t.Fatal("sign-flipped vectors were accepted as equivalent")
 		}
@@ -213,9 +207,7 @@ func TestGovernedEmbeddingReferenceRejectsWrongOutput(t *testing.T) {
 		short.Vectors = [][]float64{{1, 0, 0, 0, 0, 0, 0, 0}}
 		short.Count = 1
 		body, err := json.Marshal(short)
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		if resultsAgree("embed", candle.body, body) {
 			t.Fatal("a differently-dimensioned artifact was accepted")
 		}
@@ -226,9 +218,7 @@ func TestGovernedEmbeddingReferenceRejectsWrongOutput(t *testing.T) {
 		truncated.Vectors = decoded.Vectors[:1]
 		truncated.Count = 1
 		body, err := json.Marshal(truncated)
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		if resultsAgree("embed", candle.body, body) {
 			t.Fatal("a truncated artifact was accepted")
 		}
@@ -279,15 +269,11 @@ func TestVerificationProcessorIsIdempotentPerAttempt(t *testing.T) {
 	h.commitThroughStorage(ctx, f, taskID, candle.body)
 
 	first, err := h.processor.ProcessAttempt(ctx, taskID, 0)
-	if err != nil {
-		t.Fatalf("first pass: %v", err)
-	}
+	mustf(t, err, "first pass: %v")
 	ledgerAfterFirst := countBuyerLedger(t, ctx, h.pool(), f.BuyerID)
 
 	second, err := h.processor.ProcessAttempt(ctx, taskID, 0)
-	if err != nil {
-		t.Fatalf("second pass: %v", err)
-	}
+	mustf(t, err, "second pass: %v")
 	if second.Applied.Applied && first.Applied.Applied {
 		t.Fatal("both passes applied a verification decision; settlement would run twice")
 	}
@@ -319,9 +305,7 @@ func TestMissingCommittedArtifactCannotVerify(t *testing.T) {
 	})
 	taskID := f.TaskIDs[0]
 	key := taskAttemptResultKey(f.JobID, taskID, 0)
-	if err := h.storage.PutObject(ctx, key, llama.body, "application/json"); err != nil {
-		t.Fatal(err)
-	}
+	must(t, h.storage.PutObject(ctx, key, llama.body, "application/json"))
 	commit := commitFor(f, taskID, 0)
 	commit.ResultKey = key
 	commit.ResultSHA256 = sha256HexOf(llama.body)
@@ -330,9 +314,7 @@ func TestMissingCommittedArtifactCannotVerify(t *testing.T) {
 	}
 	// Delete the artifact after commit: the shape of an object store losing an
 	// object, or a cleanup racing a verifier.
-	if err := h.storage.RemoveObjects(ctx, []string{key}); err != nil {
-		t.Fatal(err)
-	}
+	must(t, h.storage.RemoveObjects(ctx, []string{key}))
 
 	result, err := h.processor.ProcessAttempt(ctx, taskID, 0)
 	if err == nil && result.Outcome != OutcomeFail && result.Applied.Applied {

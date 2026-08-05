@@ -20,7 +20,7 @@ set -a
 set +a
 
 cx_require_alert_receiver_secret || exit 1
-[ -n "${GF_SECURITY_ADMIN_PASSWORD:-}" ] || die "GF_SECURITY_ADMIN_PASSWORD is required for the observability stack (see monitoring/README.md)"
+[ -n "${GF_SECURITY_ADMIN_PASSWORD:-}" ] || die "GF_SECURITY_ADMIN_PASSWORD is required for the observability stack (see ops/monitoring/README.md)"
 
 export MERC_BUILD_COMMIT="$(git -C "$ROOT" rev-parse HEAD)"
 export MERC_BUILD_VERSION="${MERC_BUILD_VERSION:-$(git -C "$ROOT" describe --tags --always)}"

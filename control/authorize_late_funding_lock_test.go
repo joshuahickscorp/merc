@@ -98,9 +98,7 @@ func TestAuthorizeLateLockConcurrentFreeCreditCeiling(t *testing.T) {
 	grant := maxUSD + 0.000001
 	buyerID, err := store.CreateBuyerAccount(ctx,
 		"late-lock-fc-"+uuid.NewString()+"@example.test", "integration-password", grant)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 
 	const n = 12
 	var (
@@ -164,9 +162,7 @@ func TestAuthorizeLateLockIdempotentReplayDoesNotDoubleReserve(t *testing.T) {
 
 	buyerID, err := store.CreateBuyerAccount(ctx,
 		"late-lock-idem-"+uuid.NewString()+"@example.test", "integration-password", 100)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	maxUSD, estUSD, maxPrompt, maxCompletion := realtimeAuthCeiling(t, profile, 7, 2)
 	var before int
 	if err := pool.QueryRow(ctx, `

@@ -27,14 +27,10 @@ func prepaidTestStore(t *testing.T) (*Store, *pgxpool.Pool, context.Context) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	t.Cleanup(cancel)
 	pool, err := pgxpool.New(ctx, databaseURL)
-	if err != nil {
-		t.Fatalf("connect: %v", err)
-	}
+	mustf(t, err, "connect: %v")
 	t.Cleanup(pool.Close)
 	store := NewStore(pool)
-	if err := store.Migrate(ctx); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	mustf(t, store.Migrate(ctx), "migrate: %v")
 	return store, pool, ctx
 }
 
@@ -64,9 +60,7 @@ func TestPrepaidTopupCreditsBalanceAndLedger(t *testing.T) {
 	buyerID := insertTestBuyer(t, pool, ctx)
 	opKey := "topup-test-" + uuid.NewString()
 	arm, err := store.BeginPrepaidTopup(ctx, opKey, buyerID, 2500)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if arm.State != prepaidTopupArmed {
 		t.Fatalf("first top-up arm = %q, want %q", arm.State, prepaidTopupArmed)
 	}
@@ -77,25 +71,17 @@ func TestPrepaidTopupCreditsBalanceAndLedger(t *testing.T) {
 		ReceivedCents:   2500,
 		Currency:        SettlementCurrencyCode(),
 	}
-	if err := store.CreditPrepaidTopup(ctx, opKey, buyerID, charge); err != nil {
-		t.Fatalf("credit: %v", err)
-	}
+	mustf(t, store.CreditPrepaidTopup(ctx, opKey, buyerID, charge), "credit: %v")
 	// Idempotent re-credit
-	if err := store.CreditPrepaidTopup(ctx, opKey, buyerID, charge); err != nil {
-		t.Fatalf("re-credit: %v", err)
-	}
+	mustf(t, store.CreditPrepaidTopup(ctx, opKey, buyerID, charge), "re-credit: %v")
 	bal, err := store.BuyerPrepaidBalanceMicros(ctx, buyerID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if bal != 25_000_000 {
 		t.Fatalf("balance_micros=%d, want 25000000", bal)
 	}
 	// Re-arming a credited key must answer from the row, never invite a charge.
 	arm, err = store.BeginPrepaidTopup(ctx, opKey, buyerID, 2500)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if arm.State != prepaidTopupCredited || arm.PaymentIntent != charge.PaymentIntentID {
 		t.Fatalf("re-arm = %+v, want credited with %s", arm, charge.PaymentIntentID)
 	}
@@ -125,9 +111,7 @@ func TestReconcileBuyerChargeOperationAcceptsCompletedPrepaidWebhook(t *testing.
 	if _, err := store.BeginPrepaidTopup(ctx, opKey, buyerID, charge.RequestedCents); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.CreditPrepaidTopup(ctx, opKey, buyerID, charge); err != nil {
-		t.Fatal(err)
-	}
+	must(t, store.CreditPrepaidTopup(ctx, opKey, buyerID, charge))
 
 	// Stripe legitimately delivers payment_intent.succeeded after the direct
 	// top-up response has committed.  The actual webhook handler must replay it
@@ -146,17 +130,11 @@ func TestReconcileBuyerChargeOperationAcceptsCompletedPrepaidWebhook(t *testing.
 		t.Fatalf("completed prepaid webhook status=%d body=%s", rec.Code, rec.Body.String())
 	}
 	bal, err := store.BuyerPrepaidBalanceMicros(ctx, buyerID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	settlement, err := SettlementCurrency()
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	want, err := settlement.MinorToMicros(charge.ReceivedCents)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if bal != want {
 		t.Fatalf("balance after webhook replay=%d, want %d", bal, want)
 	}
@@ -194,12 +172,8 @@ func TestPrepaidDebitAndRefundZeroSum(t *testing.T) {
 		_, _ = pool.Exec(c, `DELETE FROM jobs WHERE id=$1`, jobID)
 	})
 
-	if err := store.DebitPrepaidForTask(ctx, buyerID, task1, 10_000_000); err != nil {
-		t.Fatalf("debit1: %v", err)
-	}
-	if err := store.DebitPrepaidForTask(ctx, buyerID, task2, 15_000_000); err != nil {
-		t.Fatalf("debit2: %v", err)
-	}
+	mustf(t, store.DebitPrepaidForTask(ctx, buyerID, task1, 10_000_000), "debit1: %v")
+	mustf(t, store.DebitPrepaidForTask(ctx, buyerID, task2, 15_000_000), "debit2: %v")
 	bal, _ := store.BuyerPrepaidBalanceMicros(ctx, buyerID)
 	if bal != 25_000_000 {
 		t.Fatalf("after debits balance=%d want 25e6", bal)
@@ -207,9 +181,7 @@ func TestPrepaidDebitAndRefundZeroSum(t *testing.T) {
 	// Refund the remainder through the durable-first path (no Stripe call needed
 	// to observe the ledger effect; BeginPrepaidRefund commits the debit).
 	plan, err := store.BeginPrepaidRefund(ctx, actor, buyerID, "buyer closed account", "INC-zero-sum-"+uuid.NewString())
-	if err != nil {
-		t.Fatalf("refund: %v", err)
-	}
+	mustf(t, err, "refund: %v")
 	if plan.Cents != 2500 {
 		t.Fatalf("planned refund = %d cents, want 2500", plan.Cents)
 	}
@@ -236,9 +208,7 @@ func TestPrepaidConcurrentDebitsOnlyOneSucceeds(t *testing.T) {
 	store, pool, ctx := prepaidTestStore(t)
 	buyerID := insertTestBuyer(t, pool, ctx)
 	// Balance covers exactly one $10 debit.
-	if err := store.SeedPrepaidBalance(ctx, buyerID, 10_000_000, "seed-conc-"+uuid.NewString()); err != nil {
-		t.Fatal(err)
-	}
+	must(t, store.SeedPrepaidBalance(ctx, buyerID, 10_000_000, "seed-conc-"+uuid.NewString()))
 	jobID := uuid.New()
 	taskA, taskB := uuid.New(), uuid.New()
 	if _, err := pool.Exec(ctx, `
@@ -302,16 +272,10 @@ func TestPrepaidJobGateRefusesCardWithZeroBalance(t *testing.T) {
 	store, pool, ctx := prepaidTestStore(t)
 	buyerID := insertTestBuyer(t, pool, ctx)
 	// Card on file, zero prepaid.
-	if err := store.UpsertBillingCustomer(ctx, buyerID, "cus_gate_"+buyerID.String()); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.SetBillingPMByCustomer(ctx, "cus_gate_"+buyerID.String(), "pm_gate"); err != nil {
-		t.Fatal(err)
-	}
+	must(t, store.UpsertBillingCustomer(ctx, buyerID, "cus_gate_"+buyerID.String()))
+	must(t, store.SetBillingPMByCustomer(ctx, "cus_gate_"+buyerID.String(), "pm_gate"))
 	avail, err := store.BuyerPrepaidAvailableMicros(ctx, buyerID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if avail != 0 {
 		t.Fatalf("available=%d, want 0", avail)
 	}

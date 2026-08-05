@@ -28,8 +28,12 @@ func cmdSourceID(args []string) {
 	}
 	if field != "" {
 		values := map[string]any{
-			"head": r.Head, "dirty": r.Dirty, "file_count": r.FileCount,
-			"status_sha256": r.StatusSHA256, "source_sha256": r.SourceSHA256,
+			"schema_version": r.SchemaVersion,
+			"head":           r.Head,
+			"dirty":          r.Dirty,
+			"file_count":     r.FileCount,
+			"status_sha256":  r.StatusSHA256,
+			"source_sha256":  r.SourceSHA256,
 		}
 		v, ok := values[field]
 		if !ok {

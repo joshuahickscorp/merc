@@ -18,14 +18,10 @@ func TestBillingCustomerCanonicalSchema(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	pool, err := pgxpool.New(ctx, databaseURL)
-	if err != nil {
-		t.Fatalf("connect disposable PostgreSQL: %v", err)
-	}
+	mustf(t, err, "connect disposable PostgreSQL: %v")
 	defer pool.Close()
 	store := NewStore(pool)
-	if err := store.Migrate(ctx); err != nil {
-		t.Fatalf("apply canonical schema: %v", err)
-	}
+	mustf(t, store.Migrate(ctx), "apply canonical schema: %v")
 
 	buyerID := uuid.New()
 	jobID := uuid.New()
@@ -42,16 +38,12 @@ func TestBillingCustomerCanonicalSchema(t *testing.T) {
 		_, _ = pool.Exec(cleanupCtx, `DELETE FROM buyers WHERE id=$1`, buyerID)
 	})
 
-	if err := store.UpsertBillingCustomer(ctx, buyerID, customerID); err != nil {
-		t.Fatalf("upsert billing customer: %v", err)
-	}
+	mustf(t, store.UpsertBillingCustomer(ctx, buyerID, customerID), "upsert billing customer: %v")
 	customer, paymentMethod, err := store.GetBillingCustomer(ctx, buyerID)
 	if err != nil || customer != customerID || paymentMethod != "" {
 		t.Fatalf("initial billing customer = (%q,%q,%v)", customer, paymentMethod, err)
 	}
-	if err := store.SetBillingPMByCustomer(ctx, customerID, "pm_schema_test"); err != nil {
-		t.Fatalf("set default payment method: %v", err)
-	}
+	mustf(t, store.SetBillingPMByCustomer(ctx, customerID, "pm_schema_test"), "set default payment method: %v")
 	_, paymentMethod, err = store.GetBillingCustomer(ctx, buyerID)
 	if err != nil || paymentMethod != "pm_schema_test" {
 		t.Fatalf("saved payment method = (%q,%v)", paymentMethod, err)
@@ -65,16 +57,12 @@ func TestBillingCustomerCanonicalSchema(t *testing.T) {
 		t.Fatalf("insert no-card job: %v", err)
 	}
 	changed, err := store.ReflipNoCardJobs(ctx)
-	if err != nil {
-		t.Fatalf("re-enable no-card jobs: %v", err)
-	}
+	mustf(t, err, "re-enable no-card jobs: %v")
 	if changed < 1 {
 		t.Fatalf("re-enabled jobs = %d, want at least 1", changed)
 	}
 	var chargeStatus string
-	if err := pool.QueryRow(ctx, `SELECT charge_status FROM jobs WHERE id=$1`, jobID).Scan(&chargeStatus); err != nil {
-		t.Fatalf("read charge status: %v", err)
-	}
+	mustf(t, pool.QueryRow(ctx, `SELECT charge_status FROM jobs WHERE id=$1`, jobID).Scan(&chargeStatus), "read charge status: %v")
 	if chargeStatus != "deferred" {
 		t.Fatalf("charge status = %q, want deferred", chargeStatus)
 	}

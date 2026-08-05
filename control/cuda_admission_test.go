@@ -33,9 +33,7 @@ func TestCUDAClassesAreAdmitted(t *testing.T) {
 // report is wrong in the direction that hides a loss. An unlabelled constant
 // is refused the same way.
 func TestEveryAdmittedClassHasAPowerFigure(t *testing.T) {
-	if err := validateSustainedWattsTable(); err != nil {
-		t.Fatalf("sustained watts table invalid: %v", err)
-	}
+	mustf(t, validateSustainedWattsTable(), "sustained watts table invalid: %v")
 	for class := range validHWClasses {
 		w, ok := sustainedWattsByHWClass[class]
 		if !ok || w.Watts() <= 0 {

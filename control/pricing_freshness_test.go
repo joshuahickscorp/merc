@@ -40,9 +40,7 @@ func TestStaleObservationsAreNotEvidence(t *testing.T) {
 		"2026-01-01", // far outside the ceiling
 	)
 
-	if err := dropStaleObservations(board, time.Date(2026, 7, 26, 0, 0, 0, 0, time.UTC), now); err != nil {
-		t.Fatalf("fresh board rejected: %v", err)
-	}
+	mustf(t, dropStaleObservations(board, time.Date(2026, 7, 26, 0, 0, 0, 0, time.UTC), now), "fresh board rejected: %v")
 	kept := board.Classes["embed_small"].Observations
 	if len(kept) != 2 {
 		t.Fatalf("expected the stale row dropped, kept %d rows", len(kept))
@@ -86,9 +84,7 @@ func TestAnUndatedObservationInheritsTheBoardDate(t *testing.T) {
 	boardAt := time.Date(2026, 7, 26, 0, 0, 0, 0, time.UTC)
 	board := freshBoard("2026-07-26", "", "", "")
 
-	if err := dropStaleObservations(board, boardAt, now); err != nil {
-		t.Fatalf("fresh undated rows rejected: %v", err)
-	}
+	mustf(t, dropStaleObservations(board, boardAt, now), "fresh undated rows rejected: %v")
 	if got := len(board.Classes["embed_small"].Observations); got != 3 {
 		t.Fatalf("undated rows should inherit a fresh board date, kept %d", got)
 	}
@@ -97,9 +93,7 @@ func TestAnUndatedObservationInheritsTheBoardDate(t *testing.T) {
 	// outlive the board it came from.
 	oldAt := now.Add(-(maxObservationAge + 24*time.Hour))
 	old := freshBoard(oldAt.Format("2006-01-02"), "", "", "")
-	if err := dropStaleObservations(old, oldAt, now); err != nil {
-		t.Fatalf("board inside the board ceiling rejected: %v", err)
-	}
+	mustf(t, dropStaleObservations(old, oldAt, now), "board inside the board ceiling rejected: %v")
 	if got := len(old.Classes["embed_small"].Observations); got != 0 {
 		t.Fatalf("undated rows on a stale board should be dropped, kept %d", got)
 	}
@@ -110,9 +104,7 @@ func TestAnUnparseableObservationDateIsNotFresh(t *testing.T) {
 	boardAt := time.Date(2026, 7, 26, 0, 0, 0, 0, time.UTC)
 	board := freshBoard("2026-07-26", "not-a-date", "2026-07-26")
 
-	if err := dropStaleObservations(board, boardAt, now); err != nil {
-		t.Fatalf("board rejected: %v", err)
-	}
+	mustf(t, dropStaleObservations(board, boardAt, now), "board rejected: %v")
 	if got := len(board.Classes["embed_small"].Observations); got != 1 {
 		t.Fatalf("an unparseable date must not count as fresh, kept %d", got)
 	}
@@ -153,13 +145,9 @@ func indexOf(haystack, needle string) int {
 func pinBoardClockForPublication(t *testing.T) {
 	t.Helper()
 	board, err := loadPriceBoard()
-	if err != nil {
-		t.Fatalf("load price board: %v", err)
-	}
+	mustf(t, err, "load price board: %v")
 	at, err := parseBoardTimestamp(board.FetchedAt)
-	if err != nil {
-		t.Fatalf("committed board has an unusable fetched_at: %v", err)
-	}
+	mustf(t, err, "committed board has an unusable fetched_at: %v")
 	previous := priceBoardNow
 	priceBoardNow = func() time.Time { return at.Add(24 * time.Hour) }
 	t.Cleanup(func() { priceBoardNow = previous })
@@ -167,13 +155,9 @@ func pinBoardClockForPublication(t *testing.T) {
 
 func TestPublicationRefusesAStaleBoard(t *testing.T) {
 	board, err := loadPriceBoard()
-	if err != nil {
-		t.Fatalf("load price board: %v", err)
-	}
+	mustf(t, err, "load price board: %v")
 	at, err := parseBoardTimestamp(board.FetchedAt)
-	if err != nil {
-		t.Fatalf("parse board date: %v", err)
-	}
+	mustf(t, err, "parse board date: %v")
 
 	// Just inside the ceiling the board still publishes.
 	if _, err := boardAsOfPublication(board, at.Add(maxBoardAge-time.Hour)); err != nil {
@@ -187,13 +171,9 @@ func TestPublicationRefusesAStaleBoard(t *testing.T) {
 
 func TestPublicationDoesNotMutateTheCachedBoard(t *testing.T) {
 	board, err := loadPriceBoard()
-	if err != nil {
-		t.Fatalf("load price board: %v", err)
-	}
+	mustf(t, err, "load price board: %v")
 	at, err := parseBoardTimestamp(board.FetchedAt)
-	if err != nil {
-		t.Fatalf("parse board date: %v", err)
-	}
+	mustf(t, err, "parse board date: %v")
 	before := map[string]int{}
 	for name, class := range board.Classes {
 		before[name] = len(class.Observations)

@@ -24,9 +24,7 @@ func streamOf(lines ...string) string {
 func trackStream(t *testing.T, stream string) (*streamEvidenceTracker, error) {
 	t.Helper()
 	tracker := newStreamEvidenceTracker(time.Now())
-	if err := proxySSE(httptest.NewRecorder(), strings.NewReader(stream), tracker); err != nil {
-		t.Fatalf("proxy rejected the stream: %v", err)
-	}
+	mustf(t, proxySSE(httptest.NewRecorder(), strings.NewReader(stream), tracker), "proxy rejected the stream: %v")
 	_, err := tracker.evidence(uuid.New(), 200, time.Second)
 	return tracker, err
 }
@@ -116,9 +114,7 @@ func TestGeneratedBytesAccumulateAcrossDeltas(t *testing.T) {
 		`data: {"id":"c","choices":[],"usage":{"prompt_tokens":3,"completion_tokens":40,"total_tokens":43}}`)
 
 	tracker, err := trackStream(t, streamOf(lines...))
-	if err != nil {
-		t.Fatalf("accumulated deltas were refused: %v", err)
-	}
+	mustf(t, err, "accumulated deltas were refused: %v")
 	// 40 deltas x len(`"token "`) - the measure is the raw JSON value, so it
 	// carries the two surrounding quotes. That over-counts by 2 bytes per delta,
 	// which only loosens a ceiling that must never refuse honest work.
@@ -133,14 +129,8 @@ func TestTheBoundIsTheSameRuleOnBothPaths(t *testing.T) {
 	if err := boundCompletionTokens(4000, 2); err == nil {
 		t.Fatal("a bill beyond the observed output was accepted")
 	}
-	if err := boundCompletionTokens(100, 400); err != nil {
-		t.Fatalf("an honest bill was refused: %v", err)
-	}
-	if err := boundCompletionTokens(0, 0); err != nil {
-		t.Fatalf("a zero-completion response was refused: %v", err)
-	}
+	mustf(t, boundCompletionTokens(100, 400), "an honest bill was refused: %v")
+	mustf(t, boundCompletionTokens(0, 0), "a zero-completion response was refused: %v")
 	// Exactly at the ceiling is honest: a one-byte-per-token response is real.
-	if err := boundCompletionTokens(50, 50); err != nil {
-		t.Fatalf("a dense but real response was refused: %v", err)
-	}
+	mustf(t, boundCompletionTokens(50, 50), "a dense but real response was refused: %v")
 }

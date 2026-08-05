@@ -11,9 +11,7 @@ func TestRankAndFreezeAdmissionKeepsExactlyOneCandidate(t *testing.T) {
 	// Real advertised catalogue is currently a singleton per model: ranking is a
 	// no-op and ordinary admission still freezes exactly one candidate.
 	decision, err := buildWorkloadDecision(embedSubmit(), strings.Repeat("c", 64))
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if len(decision.RuntimeCandidates) != 1 {
 		t.Fatalf("ordinary admission froze %d candidates, want 1", len(decision.RuntimeCandidates))
 	}
@@ -26,16 +24,12 @@ func TestRankAndFreezeAdmissionKeepsExactlyOneCandidate(t *testing.T) {
 // kind is still accepted and filled when omitted.
 func TestWireKindAcceptsAnyAdvertisedKindAndDoesNotInventOne(t *testing.T) {
 	got, err := normalizeAdvertisedRuntimeModelRef("embed", ModelRef{Ref: "all-minilm-l6-v2"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if got.Kind != "hf" {
 		t.Fatalf("omitted kind with singleton catalogue = %q, want hf", got.Kind)
 	}
 	got, err = normalizeAdvertisedRuntimeModelRef("embed", ModelRef{Kind: "hf", Ref: "all-minilm-l6-v2"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if got.Kind != "hf" {
 		t.Fatalf("explicit hf = %+v", got)
 	}

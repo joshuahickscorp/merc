@@ -200,6 +200,7 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("POST /v1/worker/task/{id}/commit", s.authWorker(http.HandlerFunc(s.handleWorkerCommit)))
 	mux.Handle("POST /v1/worker/task/{id}/fail", s.authWorker(http.HandlerFunc(s.handleWorkerFail))) // Plane C/D: immediate typed failure
 	mux.Handle("GET /v1/worker/earnings", s.authWorker(http.HandlerFunc(s.handleWorkerEarnings)))
+	mux.Handle("GET /v1/worker/ledger", s.authWorker(http.HandlerFunc(s.handleWorkerLedger)))             // per-credit payout trail (earnings is the aggregate)
 	mux.Handle("GET /v1/worker/viability", s.authWorker(http.HandlerFunc(s.handleWorkerViability)))       // why this worker is or is not offered work
 	mux.Handle("GET /v1/worker/verification", s.authWorker(http.HandlerFunc(s.handleWorkerVerification))) // trust panel (Supplier onboarding & safety 7->8)
 	mux.Handle("GET /v1/worker/connect/status", s.authWorker(http.HandlerFunc(s.handleWorkerConnectStatus)))
@@ -272,10 +273,6 @@ func readAndCloseBounded(r io.ReadCloser, limit int64) ([]byte, error) {
 		return nil, closeErr
 	}
 	return data, nil
-}
-
-func readSynchronousInput(r io.ReadCloser) ([]byte, error) {
-	return readAndCloseBounded(r, maxSynchronousInputBytes)
 }
 
 func capBody(limitFor func(*http.Request) int64, next http.Handler) http.Handler {
@@ -776,7 +773,7 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 	// admission remains only for explicitly deferred collection and non-batch
 	// tiers; the durable field on jobRow freezes this choice at acceptance.
 	prepaidRequired := stripeKey() != "" && sub.Tier == "batch" && prepaidBalanceRequired()
-	if stripeKey() != "" && !prepaidRequired {
+	if !prepaidRequired {
 		_, pm, berr := s.store.GetBillingCustomer(ctx, buyerID)
 		switch {
 		case berr != nil && !errors.Is(berr, errNotFound):
@@ -2376,7 +2373,22 @@ func (s *Server) handleCancelJob(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "cancelled"})
+	// Cancelling a still-queued job never wrote a buyer_charge; the hold was the
+	// open estimate on free credit / prepaid. Surface remaining credit so a
+	// stranger can see the reservation was released without a second round trip.
+	resp := map[string]any{
+		"status": "cancelled",
+		"job_id": id,
+		"refund": map[string]any{
+			"kind":    "reservation_release",
+			"detail":  "queued jobs hold budget against free credit or prepaid balance; cancel releases that hold. No buyer_charge ledger row is written until work settles.",
+			"charged": false,
+		},
+	}
+	if free, ferr := s.store.BuyerFreeCreditRemaining(r.Context(), auth.BuyerID); ferr == nil {
+		resp["free_credit_remaining_usd"] = free
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
@@ -3209,6 +3221,25 @@ func (s *Server) handleWorkerEarnings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, e)
+}
+
+func (s *Server) handleWorkerLedger(w http.ResponseWriter, r *http.Request) {
+	auth := r.Context().Value(ctxWorker).(*WorkerAuth)
+	limit := 50
+	if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 || n > 200 {
+			writeErr(w, http.StatusBadRequest, "limit must be an integer in [1,200]")
+			return
+		}
+		limit = n
+	}
+	ledger, err := s.store.WorkerPayoutLedger(r.Context(), auth.SupplierID, limit)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, ledger)
 }
 
 // handleWorkerViability answers "why am I not being offered any work".
@@ -4182,14 +4213,6 @@ func adaptiveSplitSize(jobType string, params json.RawMessage, avgLineBytes floa
 	return n
 }
 
-func (s *Server) adaptiveSplitSizeLive(ctx context.Context, jobType, modelRef string, minMemGB float32, maxTokens uint32, avgLineBytes float64, staticSize, totalRecords int) int {
-	return s.adaptiveSplitSizeLiveFor(
-		ctx,
-		normalizedSupplyRequirements(jobType, modelRef, QuoteSupplyRequirements{MinMemoryGB: minMemGB}),
-		maxTokens, avgLineBytes, staticSize, totalRecords,
-	)
-}
-
 func (s *Server) adaptiveSplitSizeLiveFor(
 	ctx context.Context,
 	req QuoteSupplyRequirements,
@@ -4249,14 +4272,6 @@ func (s *Server) adaptiveSplitSizeLiveFor(
 	return size
 }
 
-func (s *Server) plannerETASecs(ctx context.Context, jobType, modelRef string, minMemGB float32, nTasks, queuedAhead, perTaskSecs int) (eta, conservative int, ok bool) {
-	return s.plannerETASecsFor(
-		ctx,
-		normalizedSupplyRequirements(jobType, modelRef, QuoteSupplyRequirements{MinMemoryGB: minMemGB}),
-		nTasks, queuedAhead, perTaskSecs,
-	)
-}
-
 func (s *Server) plannerETASecsFor(
 	ctx context.Context,
 	req QuoteSupplyRequirements,
@@ -4309,15 +4324,6 @@ func perTaskSecsFromP90(p90ms int64) int {
 		secs = 1
 	}
 	return secs
-}
-
-func (s *Server) etaBandSecs(ctx context.Context, jobType, modelRef string, minMemGB float32, nTasks int, inputDepthBand string) (eta, conservative int, plannerBacked bool) {
-	return s.etaBandSecsFor(
-		ctx,
-		normalizedSupplyRequirements(jobType, modelRef, QuoteSupplyRequirements{MinMemoryGB: minMemGB}),
-		nTasks,
-		inputDepthBand,
-	)
 }
 
 func (s *Server) etaBandSecsFor(

@@ -20,8 +20,8 @@ Exactly two kinds of work, on exactly two models:
 ```text
 control/                  control plane, cx command, embedded schema
 agent/                    Candle batch agent and CUDA/vLLM realtime adapter
-proto/                    runtime matrix and manifest schema
-sdk/python/               dependency-free buyer SDK
+clients/proto/            runtime matrix and manifest schema
+clients/sdk/python/               dependency-free buyer SDK
 web/                      public alpha site
 scripts/prove-local.sh    repeatable two-agent proof
 docs/                     operator and security notes
@@ -44,7 +44,7 @@ four audited.
   claimed from an ordinary table with `FOR UPDATE SKIP LOCKED`. No Kafka or Redis.
 - **S3-compatible storage** (MinIO locally) - holds inputs and results. Agents
   never get storage credentials, only short-lived URLs scoped to their one task.
-- **`sdk/python/`** - a buyer SDK using nothing outside the Python standard library.
+- **`clients/sdk/python/`** - a buyer SDK using nothing outside the Python standard library.
 
 ## Run it locally
 
@@ -101,7 +101,7 @@ the rest.
 
 The Python SDK wraps the same API. Its package name is `merc`, and it is not on
 PyPI — install it from the checkout with
-`python3 -m pip install ./sdk/python`.
+`python3 -m pip install ./clients/sdk/python`.
 
 The media transcode private canary uses the same quote/submit identity. A small
 local file may be passed through the CLI (bounded base64); larger objects should
@@ -128,7 +128,7 @@ cx.wait(job["job_id"])
 print(cx.results_records(job["job_id"]))
 ```
 
-Full request examples: [docs/QUICKSTART.md](docs/QUICKSTART.md).
+Full request examples: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Check the build
 
@@ -157,7 +157,7 @@ delivered to an on-call receiver. The machine-derived readiness facet is
 **84/100** — that is the **machine-reachable maximum** without staging, offsite
 storage, or human approvers, not a local shortfall. The remaining 16 points and
 the exact operator steps that close them are in
-[docs/FACET_EXTERNAL_ACTION_PACK.md](docs/FACET_EXTERNAL_ACTION_PACK.md). The
+[docs/PROGRAMME.md](docs/PROGRAMME.md) § "Facet external action pack". The
 decision is in [ops/go-no-go.json](ops/go-no-go.json), the detail in
 [RELEASE_READINESS.md](RELEASE_READINESS.md).
 
@@ -186,8 +186,8 @@ limitations. It is a register, not a certification.
 ## What's next
 
 Finishing the five external proofs above, then soak testing and the missing buyer
-account features. See [ROADMAP.md](ROADMAP.md).
+account features. See [docs/PROGRAMME.md](docs/PROGRAMME.md).
 
-Also: [runtime matrix](docs/RUNTIME_MATRIX.md) (what may run),
+Also: [runtime matrix](docs/RUNTIME_AND_PERF.md § "Runtime capability matrix") (what may run),
 [runbooks](docs/RUNBOOKS.md) (backup, restore, rollback, alerts), and the
-[frontend contract](docs/FRONTEND_CONTRACT.md) (what a UI may claim).
+[frontend contract](docs/ARCHITECTURE.md § "Frontend and API contract") (what a UI may claim).

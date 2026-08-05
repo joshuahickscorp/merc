@@ -160,9 +160,7 @@ func assertFailureInvariants(
 			SELECT COALESCE(last_error,'') FROM verification_work WHERE task_id=$1
 			UNION ALL
 			SELECT kind FROM verification_events WHERE task_id=$1`, taskID)
-		if err != nil {
-			t.Fatalf("%s: read diagnostics: %v", name, err)
-		}
+		mustf(t, err, "%s: read diagnostics: %v", name)
 		for rows.Next() {
 			var line string
 			if err := rows.Scan(&line); err != nil {
@@ -240,9 +238,7 @@ func newFailureCaseWithClass(t *testing.T, class string) *failureCase {
 		t.Fatal(err)
 	}
 	corpus := []byte(`{"id":"0","text":"failure matrix"}` + "\n")
-	if err := h.storage.PutObject(ctx, inputRef, corpus, "application/x-ndjson"); err != nil {
-		t.Fatalf("upload %s: %v", inputRef, err)
-	}
+	mustf(t, h.storage.PutObject(ctx, inputRef, corpus, "application/x-ndjson"), "upload %s: %v", inputRef)
 	return &failureCase{h: h, ctx: ctx, store: store, f: f, task: taskID, body: llama.body}
 }
 
@@ -267,13 +263,9 @@ func newQueuedFailureCase(t *testing.T) *failureCase {
 	job := validJobRowDirected(t, f, tasks, llamaEmbedCell)
 	corpus := []byte(`{"id":"0","text":"failure matrix"}` + "\n")
 	for _, key := range []string{job.InputRef, tasks[0].InputRef} {
-		if err := h.storage.PutObject(ctx, key, corpus, "application/x-ndjson"); err != nil {
-			t.Fatalf("upload %s: %v", key, err)
-		}
+		mustf(t, h.storage.PutObject(ctx, key, corpus, "application/x-ndjson"), "upload %s: %v", key)
 	}
-	if err := store.SubmitJobTx(ctx, job, tasks); err != nil {
-		t.Fatalf("submit: %v", err)
-	}
+	mustf(t, store.SubmitJobTx(ctx, job, tasks), "submit: %v")
 	llama := loadChainArtifact(t, "llama_cpp_metal", llamaEmbedCell, "gguf")
 	return &failureCase{h: h, ctx: ctx, store: store, f: f, task: tasks[0].ID, body: llama.body}
 }
@@ -325,9 +317,7 @@ func TestFailureMatrixOutputUploadInterrupted(t *testing.T) {
 	commit.ResultKey = taskAttemptResultKey(c.f.JobID, c.task, 0)
 	commit.ResultSHA256 = sha256HexOf(c.body)
 	info, err := c.store.CompleteTaskTx(c.ctx, c.task, c.f.WorkerID, commit)
-	if err != nil {
-		t.Fatalf("commit: %v", err)
-	}
+	mustf(t, err, "commit: %v")
 	if info == nil {
 		t.Fatal("commit returned no task info")
 	}
@@ -363,9 +353,7 @@ func TestFailureMatrixResultDigestMismatch(t *testing.T) {
 	c.claim(t)
 
 	key := taskAttemptResultKey(c.f.JobID, c.task, 0)
-	if err := c.h.storage.PutObject(c.ctx, key, c.body, "application/json"); err != nil {
-		t.Fatalf("upload: %v", err)
-	}
+	mustf(t, c.h.storage.PutObject(c.ctx, key, c.body, "application/json"), "upload: %v")
 	commit := commitFor(c.f, c.task, 0)
 	commit.ResultKey = key
 	// A well-formed digest of different bytes, not garbage: a shape check would
@@ -458,6 +446,105 @@ func TestFailureMatrixVerifierRestartDecidesOnce(t *testing.T) {
 		})
 }
 
+// A process crash after the ledger insert statements run but before the
+// surrounding transaction commits must leave ZERO durable payables, and a
+// subsequent verification pass must create exactly one.
+//
+// This is the "crash during settlement" case: the apply path is one serializable
+// transaction (verification_apply.go), so an unrecovered panic at
+// BoundaryAcceptedAfterLedger rolls everything back. Without that property a
+// restart would either double-pay or leave a half-applied terminal decision.
+func TestFailureMatrixCrashAfterLedgerBeforeCommitPaysOnce(t *testing.T) {
+	c := newFailureCase(t)
+	c.claim(t)
+	c.h.commitThroughStorage(c.ctx, c.f, c.task, c.body)
+
+	crash := &crashAtBoundary{at: BoundaryAcceptedAfterLedger}
+	c.h.processor.probe = crash
+
+	panicked := false
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				panicked = true
+				t.Logf("simulated crash: %v", r)
+			}
+		}()
+		_, _ = c.h.processor.ProcessAttempt(c.ctx, c.task, 0)
+	}()
+	if !panicked {
+		t.Fatal("expected simulated crash at BoundaryAcceptedAfterLedger; process did not panic")
+	}
+	if !crash.hit {
+		t.Fatal("crash probe never reached BoundaryAcceptedAfterLedger")
+	}
+
+	// Nothing durable may stand after the rolled-back transaction.
+	var supplierRows int
+	if err := c.h.pool().QueryRow(c.ctx, `
+		SELECT COUNT(*) FROM ledger_entries
+		 WHERE task_id=$1 AND supplier_id IS NOT NULL`, c.task).Scan(&supplierRows); err != nil {
+		t.Fatal(err)
+	}
+	if supplierRows != 0 {
+		t.Fatalf("crash left %d durable supplier ledger row(s); settlement is not transactional", supplierRows)
+	}
+	var terminals int
+	if err := c.h.pool().QueryRow(c.ctx, `
+		SELECT COUNT(*) FROM verification_work
+		 WHERE task_id=$1 AND terminal_outcome IS NOT NULL`, c.task).Scan(&terminals); err != nil {
+		t.Fatal(err)
+	}
+	if terminals != 0 {
+		t.Fatalf("crash left a terminal verification outcome without a committed ledger")
+	}
+
+	// A dead process does not release its verification lease; reclaim waits until
+	// lease_expires_at. Expire it the way the wall clock would, then recover.
+	if _, err := c.h.pool().Exec(c.ctx, `
+		UPDATE verification_work
+		   SET lease_expires_at=now()-interval '1 second'
+		 WHERE task_id=$1 AND status='leased'`, c.task); err != nil {
+		t.Fatalf("expire abandoned verification lease: %v", err)
+	}
+
+	// Recovery: clear the probe and process again. Exactly one payable.
+	c.h.processor.probe = nil
+	if _, err := c.h.processor.ProcessAttempt(c.ctx, c.task, 0); err != nil {
+		t.Fatalf("recovery ProcessAttempt: %v", err)
+	}
+	assertFailureInvariants(t, c.ctx, c.h.pool(), "crash-after-ledger recovery", c.f.JobID, c.task,
+		failureExpectation{
+			MaxSupplierRows:      1,
+			BuyerCharges:         1,
+			TerminalTaskStatuses: []string{"verifying", "complete"},
+			MaxRetries:           0,
+		})
+	if err := c.h.pool().QueryRow(c.ctx, `
+		SELECT COUNT(*) FROM ledger_entries
+		 WHERE task_id=$1 AND kind='supplier_credit'`, c.task).Scan(&supplierRows); err != nil {
+		t.Fatal(err)
+	}
+	if supplierRows != 1 {
+		t.Errorf("after recovery: %d supplier_credit rows, want exactly 1", supplierRows)
+	}
+}
+
+// crashAtBoundary panics once when the named recovery boundary is reached.
+// Used only by failure-matrix tests to simulate an OS-level process death mid
+// settlement; production never installs this probe.
+type crashAtBoundary struct {
+	at  RecoveryBoundary
+	hit bool
+}
+
+func (p *crashAtBoundary) Reach(_ context.Context, b RecoveryBoundary) {
+	if b == p.at {
+		p.hit = true
+		panic("simulated process crash at " + string(b))
+	}
+}
+
 // Finalization and settlement retried. One invoice, one debit, one payable.
 func TestFailureMatrixFinalizerAndSettlementRetry(t *testing.T) {
 	c := newFailureCase(t)
@@ -505,9 +592,7 @@ func TestFailureMatrixExpiredLeaseIsRequeuedBounded(t *testing.T) {
 	const bound = 5
 	for i := 0; i < bound+2; i++ {
 		c.claim(t)
-		if err := c.store.RequeueStaleTask(c.ctx, c.task, 0); err != nil {
-			t.Fatalf("requeue %d: %v", i, err)
-		}
+		mustf(t, c.store.RequeueStaleTask(c.ctx, c.task, 0), "requeue %d: %v", i)
 	}
 	var status string
 	var retries int
@@ -541,9 +626,7 @@ func TestFailureMatrixExpiredLeaseIsRequeuedBounded(t *testing.T) {
 // Cancellation before any execution: nothing is owed in either direction.
 func TestFailureMatrixCancellationBeforeExecution(t *testing.T) {
 	c := newQueuedFailureCase(t)
-	if err := c.store.CancelJob(c.ctx, c.f.JobID, c.f.BuyerID); err != nil {
-		t.Fatalf("cancel: %v", err)
-	}
+	mustf(t, c.store.CancelJob(c.ctx, c.f.JobID, c.f.BuyerID), "cancel: %v")
 	assertFailureInvariants(t, c.ctx, c.h.pool(), "cancelled before execution",
 		c.f.JobID, c.task, failureExpectation{
 			MaxSupplierRows:       0,
@@ -610,20 +693,14 @@ func TestFailureMatrixInputDownloadFailure(t *testing.T) {
 		Scan(&inputRef); err != nil {
 		t.Fatal(err)
 	}
-	if err := c.h.storage.RemoveObjects(c.ctx, []string{inputRef}); err != nil {
-		t.Fatalf("remove input: %v", err)
-	}
+	mustf(t, c.h.storage.RemoveObjects(c.ctx, []string{inputRef}), "remove input: %v")
 	exists, err := c.h.storage.ObjectExists(c.ctx, inputRef)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if exists {
 		t.Fatal("the input object is still present; this case tests nothing")
 	}
 	c.claim(t)
-	if err := c.store.RequeueStaleTask(c.ctx, c.task, 0); err != nil {
-		t.Fatalf("requeue after a failed download: %v", err)
-	}
+	mustf(t, c.store.RequeueStaleTask(c.ctx, c.task, 0), "requeue after a failed download: %v")
 	assertFailureInvariants(t, c.ctx, c.h.pool(), "input download failure",
 		c.f.JobID, c.task, failureExpectation{
 			MaxSupplierRows:       0,
@@ -689,13 +766,9 @@ func TestFailureMatrixReceiptGenerationFailsLoudly(t *testing.T) {
 	job := validJobRowDirected(t, f, tasks, llamaEmbedCell)
 	corpus := []byte(`{"id":"0","text":"receipt authority"}` + "\n")
 	for _, key := range []string{job.InputRef, tasks[0].InputRef} {
-		if err := h.storage.PutObject(ctx, key, corpus, "application/x-ndjson"); err != nil {
-			t.Fatalf("upload %s: %v", key, err)
-		}
+		mustf(t, h.storage.PutObject(ctx, key, corpus, "application/x-ndjson"), "upload %s: %v", key)
 	}
-	if err := store.SubmitJobTx(ctx, job, tasks); err != nil {
-		t.Fatalf("submit: %v", err)
-	}
+	mustf(t, store.SubmitJobTx(ctx, job, tasks), "submit: %v")
 	c := &failureCase{h: h, ctx: ctx, store: store, f: f, task: tasks[0].ID}
 
 	// A submitted job has a frozen plan, so the negative below is about the plan

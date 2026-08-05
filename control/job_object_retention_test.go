@@ -30,9 +30,7 @@ func seedTerminalJob(
 		fmt.Sprintf("jobs/%s/tasks/%s/attempt-1/result.json", jobID, taskID),
 	}
 	for _, k := range keys {
-		if err := storage.PutObject(ctx, k, []byte("payload-"+k), "application/octet-stream"); err != nil {
-			t.Fatalf("seed %q: %v", k, err)
-		}
+		mustf(t, storage.PutObject(ctx, k, []byte("payload-"+k), "application/octet-stream"), "seed %q: %v", k)
 	}
 
 	if _, err := store.pool.Exec(ctx, `
@@ -50,9 +48,7 @@ func objectsPresent(t *testing.T, ctx context.Context, storage *Storage, keys []
 	n := 0
 	for _, k := range keys {
 		exists, err := storage.ObjectExists(ctx, k)
-		if err != nil {
-			t.Fatalf("exists %q: %v", k, err)
-		}
+		mustf(t, err, "exists %q: %v", k)
 		if exists {
 			n++
 		}
@@ -82,9 +78,7 @@ func TestJobObjectRetentionPurgesOnlyAgedTerminalJobs(t *testing.T) {
 		t.Fatalf("seeded %d/%d aged objects", got, len(oldKeys))
 	}
 
-	if err := wk.sweepJobObjectRetention(ctx); err != nil {
-		t.Fatalf("sweep: %v", err)
-	}
+	mustf(t, wk.sweepJobObjectRetention(ctx), "sweep: %v")
 
 	// Every shape under the prefix goes, not just input and output: per-task
 	// inputs and per-attempt results are buyer payload too.
@@ -105,9 +99,7 @@ func TestJobObjectRetentionPurgesOnlyAgedTerminalJobs(t *testing.T) {
 
 	// Idempotent: a second pass must not re-claim what it already purged.
 	ids, err := store.ClaimJobsForObjectRetention(ctx, retention, 100)
-	if err != nil {
-		t.Fatalf("re-claim: %v", err)
-	}
+	mustf(t, err, "re-claim: %v")
 	for _, id := range ids {
 		if id == oldID {
 			t.Fatal("already-purged job was claimed again")
@@ -143,9 +135,7 @@ func TestJobObjectRetentionHoldsDisputedJobs(t *testing.T) {
 			t.Fatalf("insert %s dispute: %v", status, err)
 		}
 
-		if err := wk.sweepJobObjectRetention(ctx); err != nil {
-			t.Fatalf("sweep with %s dispute: %v", status, err)
-		}
+		mustf(t, wk.sweepJobObjectRetention(ctx), "sweep with %s dispute: %v", status)
 		if got := objectsPresent(t, ctx, storage, keys); got != len(keys) {
 			t.Fatalf("dispute status %q did not hold objects: %d/%d remain",
 				status, got, len(keys))
@@ -158,9 +148,7 @@ func TestJobObjectRetentionHoldsDisputedJobs(t *testing.T) {
 
 	// With no unresolved dispute the same job is purged, proving the hold was
 	// the dispute and not the age.
-	if err := wk.sweepJobObjectRetention(ctx); err != nil {
-		t.Fatalf("sweep after dispute cleared: %v", err)
-	}
+	mustf(t, wk.sweepJobObjectRetention(ctx), "sweep after dispute cleared: %v")
 	if got := objectsPresent(t, ctx, storage, keys); got != 0 {
 		t.Fatalf("undisputed aged job kept %d/%d objects", got, len(keys))
 	}
@@ -189,9 +177,7 @@ func TestRemovePrefixRefusesEmptyPrefix(t *testing.T) {
 	storage := openObjectStorageForTest(t)
 
 	canary := "jobs/" + uuid.NewString() + "/input.jsonl"
-	if err := storage.PutObject(ctx, canary, []byte("canary"), "application/octet-stream"); err != nil {
-		t.Fatalf("seed canary: %v", err)
-	}
+	mustf(t, storage.PutObject(ctx, canary, []byte("canary"), "application/octet-stream"), "seed canary: %v")
 	t.Cleanup(func() { _ = storage.RemoveObjects(context.Background(), []string{canary}) })
 
 	for _, prefix := range []string{"", "   ", "\t"} {

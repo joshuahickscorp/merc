@@ -29,13 +29,9 @@ type enrollmentTestKey struct {
 func newEnrollmentTestKey(t *testing.T) enrollmentTestKey {
 	t.Helper()
 	private, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	raw, err := private.PublicKey.Bytes()
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	return enrollmentTestKey{
 		private: private,
 		encoded: base64.RawURLEncoding.EncodeToString(raw),
@@ -46,29 +42,21 @@ func signEnrollmentTestProof(t *testing.T, key *ecdsa.PrivateKey, transcript []b
 	t.Helper()
 	digest := sha256.Sum256(transcript)
 	signature, err := ecdsa.SignASN1(rand.Reader, key, digest[:])
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	return base64.RawURLEncoding.EncodeToString(signature)
 }
 
 func TestP256EnrollmentPublicKeyCanonicalizesAndFingerprints(t *testing.T) {
 	key := newEnrollmentTestKey(t)
 	raw, parsed, fingerprint, err := parseP256EnrollmentPublicKey(key.encoded)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if got := base64.RawURLEncoding.EncodeToString(raw); got != key.encoded {
 		t.Fatalf("canonical key changed: want %q, got %q", key.encoded, got)
 	}
 	parsedBytes, err := parsed.Bytes()
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	wantBytes, err := key.private.PublicKey.Bytes()
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if !bytes.Equal(parsedBytes, wantBytes) {
 		t.Fatal("parsed public key differs from generated key")
 	}
@@ -85,9 +73,7 @@ func TestP256EnrollmentPublicKeyCanonicalizesAndFingerprints(t *testing.T) {
 func TestP256EnrollmentPublicKeyRejectsNonCanonicalAndInvalidPoints(t *testing.T) {
 	key := newEnrollmentTestKey(t)
 	raw, err := base64.RawURLEncoding.DecodeString(key.encoded)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	invalidPoint := append([]byte(nil), raw...)
 	for i := 1; i < len(invalidPoint); i++ {
 		invalidPoint[i] = 0
@@ -111,16 +97,12 @@ func TestP256EnrollmentPublicKeyRejectsNonCanonicalAndInvalidPoints(t *testing.T
 func TestEnrollmentProofBindsCodeAudienceAndAccount(t *testing.T) {
 	key := newEnrollmentTestKey(t)
 	_, parsed, _, err := parseP256EnrollmentPublicKey(key.encoded)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	accountID := uuid.New()
 	code := newSecret(workerEnrollmentCodePrefix)
 	origin := "https://control.example.test"
 	publicKey, err := key.private.PublicKey.Bytes()
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	requestID := enrollmentRequestID(publicKey)
 	transcript := enrollmentExchangeTranscript(code, workerEnrollmentAudience, accountID, origin, requestID)
 	proof := signEnrollmentTestProof(t, key.private, transcript)
@@ -169,18 +151,14 @@ func TestEnrollmentCodeFormatRequiresPrefixAndThirtyTwoBytes(t *testing.T) {
 func encodeEnrollmentDeviceRequestTest(t *testing.T, payload any) string {
 	t.Helper()
 	raw, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	return workerEnrollmentRequestPrefix + base64.RawURLEncoding.EncodeToString(raw)
 }
 
 func enrollmentDeviceRequestPayload(t *testing.T, key enrollmentTestKey, origin string) map[string]any {
 	t.Helper()
 	raw, err := base64.RawURLEncoding.DecodeString(key.encoded)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	return map[string]any{
 		"v":                    workerEnrollmentProtocolVersion,
 		"control_origin":       origin,
@@ -197,9 +175,7 @@ func TestEnrollmentDeviceRequestStrictlyBindsSwiftWireFields(t *testing.T) {
 	payload := enrollmentDeviceRequestPayload(t, key, origin)
 	encoded := encodeEnrollmentDeviceRequestTest(t, payload)
 	request, err := decodeEnrollmentDeviceRequest(" \n"+encoded+"\n", origin)
-	if err != nil {
-		t.Fatalf("decode canonical request: %v", err)
-	}
+	mustf(t, err, "decode canonical request: %v")
 	if request.Version != workerEnrollmentProtocolVersion || request.ControlOrigin != origin ||
 		request.Audience != workerEnrollmentAudience ||
 		request.DeviceKeyAlgorithm != workerEnrollmentKeyAlgorithm ||
@@ -209,9 +185,7 @@ func TestEnrollmentDeviceRequestStrictlyBindsSwiftWireFields(t *testing.T) {
 
 	stableKey := "BGsX0fLhLEJH-Lzm5WOkQPJ3A32BLeszoPShOUXYmMKWT-NC4v4af5uO5-tKfA-eFivOM1drMV7Oy7ZAaDe_UfU" // gitleaks:allow -- fixed public-key fixture, not a credential
 	stableRaw, err := base64.RawURLEncoding.DecodeString(stableKey)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if got := enrollmentRequestID(stableRaw); got != "ptTtmFOpwVsIlLyS0VBcnQ" {
 		t.Fatalf("Swift/Go request id drift: got %q", got)
 	}
@@ -222,9 +196,7 @@ func TestEnrollmentDeviceRequestRejectsMalformedTamperedAndCrossOriginInputs(t *
 	origin := "https://control.example.test"
 	validPayload := enrollmentDeviceRequestPayload(t, key, origin)
 	validJSON, err := json.Marshal(validPayload)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 
 	mutated := func(field string, value any) string {
 		payload := enrollmentDeviceRequestPayload(t, key, origin)
@@ -378,9 +350,7 @@ func TestEnrollmentApprovalBundleMatchesMacDecoderSchema(t *testing.T) {
 	origin := "https://control.example.test"
 	requestPayload := enrollmentDeviceRequestPayload(t, key, origin)
 	request, err := decodeEnrollmentDeviceRequest(encodeEnrollmentDeviceRequestTest(t, requestPayload), origin)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	accountID := uuid.MustParse("12345678-1234-4abc-8def-1234567890ab")
 	codeID := uuid.MustParse("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
 	code := workerEnrollmentCodePrefix + base64.RawURLEncoding.EncodeToString(make([]byte, 32))
@@ -394,9 +364,7 @@ func TestEnrollmentApprovalBundleMatchesMacDecoderSchema(t *testing.T) {
 		ExpiresAt:         time.Unix(1_700_000_000, 0).UTC(),
 	}
 	bundle, err := encodeEnrollmentApprovalBundle(request, issued)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if !strings.HasPrefix(bundle, workerEnrollmentBundlePrefix) {
 		t.Fatalf("bundle prefix = %q", bundle)
 	}
@@ -441,14 +409,10 @@ func loadEnrollmentWireFixture(t *testing.T) enrollmentWireFixture {
 	if !ok {
 		t.Fatal("locate enrollment test source")
 	}
-	raw, err := os.ReadFile(filepath.Join(filepath.Dir(source), "..", "proto", "enrollment-wire-fixtures.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	raw, err := os.ReadFile(filepath.Join(filepath.Dir(source), "..", "clients", "proto", "enrollment-wire-fixtures.json"))
+	must(t, err)
 	var fixture enrollmentWireFixture
-	if err := json.Unmarshal(raw, &fixture); err != nil {
-		t.Fatal(err)
-	}
+	must(t, json.Unmarshal(raw, &fixture))
 	return fixture
 }
 
@@ -458,26 +422,20 @@ func TestEnrollmentWireFixtureBridgesSwiftRequestAndServerBundleByteExactly(t *t
 		t.Fatalf("fixture version = %d", fixture.Version)
 	}
 	request, err := decodeEnrollmentDeviceRequest(fixture.CXER2, fixture.ControlOrigin)
-	if err != nil {
-		t.Fatalf("server rejected byte-exact Swift cxer2 fixture: %v", err)
-	}
+	mustf(t, err, "server rejected byte-exact Swift cxer2 fixture: %v")
 	if request.Audience != fixture.Audience || request.DeviceKeyAlgorithm != fixture.DeviceKeyAlgorithm ||
 		request.DevicePublicKey != fixture.DevicePublicKey || request.RequestID != fixture.RequestID {
 		t.Fatalf("Swift fixture binding changed: %+v", request)
 	}
 	accountID, err := uuid.Parse(fixture.AccountID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	bundle, err := encodeEnrollmentApprovalBundle(request, EnrollmentCodeIssueResult{
 		EnrollmentCode:    fixture.EnrollmentCode,
 		Audience:          fixture.Audience,
 		AccountID:         accountID,
 		DeviceFingerprint: fixture.DeviceFingerprint,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if bundle != fixture.CXEB2 {
 		t.Fatalf("server cxeb2 encoding drifted from shared fixture:\nwant %s\n got %s", fixture.CXEB2, bundle)
 	}

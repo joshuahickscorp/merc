@@ -1130,18 +1130,6 @@ func tokenCharge(prompt, completion int64, inputRate, outputRate float64) (float
 	return microsToUSD(micros), nil
 }
 
-func supplierTokenCharge(prompt, completion int64, inputRate, outputRate float64) (float64, error) {
-	exact, err := tokenChargeExact(prompt, completion, inputRate, outputRate, true)
-	if err != nil {
-		return 0, err
-	}
-	micros, err := LedgerMicrosFromNanos(exact)
-	if err != nil {
-		return 0, err
-	}
-	return microsToUSD(micros), nil
-}
-
 // releaseRealtimeCapacity returns one sequence to the offer. Callers that also
 // hold buyer funding locks must already have acquired them (hierarchy: buyer
 // funding before offer). FinalizeRealtimeSuccess does buyers FOR UPDATE in
@@ -2137,60 +2125,68 @@ func (s *Store) RealtimeOperationalSnapshot(ctx context.Context) (RealtimeOperat
 }
 
 type RealtimeReceipt struct {
-	ReceiptID                  string                         `json:"receipt_id"`
-	SettlementID               string                         `json:"settlement_id,omitempty"`
-	RefundID                   string                         `json:"refund_id,omitempty"`
-	ContractID                 string                         `json:"contract_id"`
-	RequestID                  string                         `json:"request_id"`
-	State                      string                         `json:"state"`
-	Model                      string                         `json:"model"`
-	RuntimeProfileID           string                         `json:"runtime_profile_id"`
-	RuntimeProfileSHA256       string                         `json:"runtime_profile_sha256"`
-	PlacementPlan              *RealtimePlacementPlan         `json:"placement_plan,omitempty"`
-	PlacementPlanSHA256        string                         `json:"placement_plan_sha256,omitempty"`
-	MarketClearing             *RealtimeMarketClearingReceipt `json:"market_clearing,omitempty"`
-	PricingDecision            *PricingDecision               `json:"pricing_decision,omitempty"`
-	PricingDecisionSHA256      string                         `json:"pricing_decision_sha256,omitempty"`
-	PricingAuthorityStatus     string                         `json:"pricing_authority_status"`
-	Coalescing                 *RealtimeCoalescingReceipt     `json:"coalescing,omitempty"`
-	InputCommitment            string                         `json:"input_commitment"`
-	StreamRootSHA256           string                         `json:"stream_root_sha256,omitempty"`
-	OutputCommitment           string                         `json:"output_commitment,omitempty"`
-	PromptTokens               int64                          `json:"prompt_tokens,omitempty"`
-	CompletionTokens           int64                          `json:"completion_tokens,omitempty"`
-	TotalTokens                int64                          `json:"total_tokens,omitempty"`
-	TimeToFirstEventMS         int64                          `json:"time_to_first_event_ms,omitempty"`
-	DurationMS                 int64                          `json:"duration_ms,omitempty"`
-	Verification               string                         `json:"verification"`
-	AuthorizationState         string                         `json:"authorization_state"`
-	AuthorizedUSD              float64                        `json:"authorized_usd"`
-	CapturedUSD                float64                        `json:"captured_usd"`
-	ReleasedUSD                float64                        `json:"released_usd"`
-	VoidedUSD                  float64                        `json:"voided_usd"`
-	BuyerChargeUSD             float64                        `json:"buyer_charge_usd"`
-	SupplierPayableUSD         float64                        `json:"supplier_payable_usd"`
-	PlatformMarginUSD          float64                        `json:"platform_margin_usd"`
-	RefundUSD                  float64                        `json:"refund_usd"`
-	SupplierClawbackUSD        float64                        `json:"supplier_clawback_usd"`
-	PlatformRefundUSD          float64                        `json:"platform_refund_usd"`
-	NetBuyerChargeUSD          float64                        `json:"net_buyer_charge_usd"`
-	NetSupplierPayableUSD      float64                        `json:"net_supplier_payable_usd"`
-	NetPlatformMarginUSD       float64                        `json:"net_platform_margin_usd"`
-	SettlementCurrency         string                         `json:"settlement_currency,omitempty"`
-	BuyerChargeNanos           int64                          `json:"buyer_charge_nanos,omitempty"`
-	SupplierPayableNanos       int64                          `json:"supplier_payable_nanos,omitempty"`
-	KnownCostContributionNanos int64                          `json:"known_cost_contribution_nanos,omitempty"`
-	SupplierPayoutState        string                         `json:"supplier_payout_state"`
-	SupplierLedgerState        string                         `json:"supplier_ledger_state,omitempty"`
-	RefundMode                 string                         `json:"refund_mode,omitempty"`
-	RefundReasonCode           string                         `json:"refund_reason_code,omitempty"`
-	RefundReason               string                         `json:"refund_reason,omitempty"`
-	RefundCorrelationRef       string                         `json:"refund_correlation_ref,omitempty"`
-	InternalCreditState        string                         `json:"internal_credit_state,omitempty"`
-	ExternalCashState          string                         `json:"external_cash_state,omitempty"`
-	FailureCode                string                         `json:"failure_code,omitempty"`
-	CreatedAt                  time.Time                      `json:"created_at"`
-	FinalizedAt                *time.Time                     `json:"finalized_at,omitempty"`
+	ReceiptID              string                         `json:"receipt_id"`
+	SettlementID           string                         `json:"settlement_id,omitempty"`
+	RefundID               string                         `json:"refund_id,omitempty"`
+	ContractID             string                         `json:"contract_id"`
+	RequestID              string                         `json:"request_id"`
+	State                  string                         `json:"state"`
+	Model                  string                         `json:"model"`
+	RuntimeProfileID       string                         `json:"runtime_profile_id"`
+	RuntimeProfileSHA256   string                         `json:"runtime_profile_sha256"`
+	PlacementPlan          *RealtimePlacementPlan         `json:"placement_plan,omitempty"`
+	PlacementPlanSHA256    string                         `json:"placement_plan_sha256,omitempty"`
+	MarketClearing         *RealtimeMarketClearingReceipt `json:"market_clearing,omitempty"`
+	PricingDecision        *PricingDecision               `json:"pricing_decision,omitempty"`
+	PricingDecisionSHA256  string                         `json:"pricing_decision_sha256,omitempty"`
+	PricingAuthorityStatus string                         `json:"pricing_authority_status"`
+	Coalescing             *RealtimeCoalescingReceipt     `json:"coalescing,omitempty"`
+	InputCommitment        string                         `json:"input_commitment"`
+	StreamRootSHA256       string                         `json:"stream_root_sha256,omitempty"`
+	OutputCommitment       string                         `json:"output_commitment,omitempty"`
+	PromptTokens           int64                          `json:"prompt_tokens,omitempty"`
+	CompletionTokens       int64                          `json:"completion_tokens,omitempty"`
+	TotalTokens            int64                          `json:"total_tokens,omitempty"`
+	TimeToFirstEventMS     int64                          `json:"time_to_first_event_ms,omitempty"`
+	DurationMS             int64                          `json:"duration_ms,omitempty"`
+	Verification           string                         `json:"verification"`
+	AuthorizationState     string                         `json:"authorization_state"`
+	AuthorizedUSD          float64                        `json:"authorized_usd"`
+	CapturedUSD            float64                        `json:"captured_usd"`
+	ReleasedUSD            float64                        `json:"released_usd"`
+	VoidedUSD              float64                        `json:"voided_usd"`
+	BuyerChargeUSD         float64                        `json:"buyer_charge_usd"`
+	SupplierPayableUSD     float64                        `json:"supplier_payable_usd"`
+	// PlatformGrossSpreadUSD is the gross platform_take ledger sum: buyer charge
+	// less supplier entitlement, BEFORE any Merc cost. It is not margin and it is
+	// not profit. The batch path renamed the identical row for this reason (see
+	// store_billing.go); this one kept the misleading name far longer. The honest
+	// decomposition is in the embedded pricing_decision, which carries a per-cost
+	// status and refuses a true net while any category is unknown.
+	PlatformGrossSpreadUSD float64 `json:"platform_gross_spread_usd"`
+	RefundUSD              float64 `json:"refund_usd"`
+	SupplierClawbackUSD    float64 `json:"supplier_clawback_usd"`
+	PlatformRefundUSD      float64 `json:"platform_refund_usd"`
+	NetBuyerChargeUSD      float64 `json:"net_buyer_charge_usd"`
+	NetSupplierPayableUSD  float64 `json:"net_supplier_payable_usd"`
+	// NetPlatformGrossSpreadUSD is the same gross row less buyer refunds. "Net"
+	// here means net of refunds only -- never net of Merc's costs.
+	NetPlatformGrossSpreadUSD  float64    `json:"net_platform_gross_spread_usd"`
+	SettlementCurrency         string     `json:"settlement_currency,omitempty"`
+	BuyerChargeNanos           int64      `json:"buyer_charge_nanos,omitempty"`
+	SupplierPayableNanos       int64      `json:"supplier_payable_nanos,omitempty"`
+	KnownCostContributionNanos int64      `json:"known_cost_contribution_nanos,omitempty"`
+	SupplierPayoutState        string     `json:"supplier_payout_state"`
+	SupplierLedgerState        string     `json:"supplier_ledger_state,omitempty"`
+	RefundMode                 string     `json:"refund_mode,omitempty"`
+	RefundReasonCode           string     `json:"refund_reason_code,omitempty"`
+	RefundReason               string     `json:"refund_reason,omitempty"`
+	RefundCorrelationRef       string     `json:"refund_correlation_ref,omitempty"`
+	InternalCreditState        string     `json:"internal_credit_state,omitempty"`
+	ExternalCashState          string     `json:"external_cash_state,omitempty"`
+	FailureCode                string     `json:"failure_code,omitempty"`
+	CreatedAt                  time.Time  `json:"created_at"`
+	FinalizedAt                *time.Time `json:"finalized_at,omitempty"`
 }
 
 // RealtimeCoalescingReceipt makes the physical source of an in-flight follower
@@ -2313,7 +2309,7 @@ func (s *Store) RealtimeReceipt(ctx context.Context, buyerID, contractID uuid.UU
 		&receipt.OutputCommitment, &receipt.PromptTokens, &receipt.CompletionTokens,
 		&receipt.TotalTokens, &receipt.TimeToFirstEventMS, &receipt.DurationMS,
 		&receipt.Verification, &receipt.FailureCode, &receipt.BuyerChargeUSD,
-		&receipt.SupplierPayableUSD, &receipt.PlatformMarginUSD, &receipt.RefundUSD,
+		&receipt.SupplierPayableUSD, &receipt.PlatformGrossSpreadUSD, &receipt.RefundUSD,
 		&receipt.SupplierClawbackUSD, &receipt.PlatformRefundUSD, &receipt.AuthorizedUSD,
 		&receipt.CapturedUSD, &receipt.ReleasedUSD, &receipt.VoidedUSD,
 		&receipt.SupplierLedgerState, &receipt.RefundMode, &receipt.RefundReasonCode,
@@ -2374,7 +2370,7 @@ func (s *Store) RealtimeReceipt(ctx context.Context, buyerID, contractID uuid.UU
 	}
 	receipt.NetBuyerChargeUSD = roundRealtimeUSD(receipt.BuyerChargeUSD - receipt.RefundUSD)
 	receipt.NetSupplierPayableUSD = roundRealtimeUSD(receipt.SupplierPayableUSD - receipt.SupplierClawbackUSD)
-	receipt.NetPlatformMarginUSD = roundRealtimeUSD(receipt.PlatformMarginUSD - receipt.PlatformRefundUSD)
+	receipt.NetPlatformGrossSpreadUSD = roundRealtimeUSD(receipt.PlatformGrossSpreadUSD - receipt.PlatformRefundUSD)
 	receipt.SupplierPayoutState = realtimePayoutState(receipt.SupplierLedgerState)
 	return receipt, nil
 }

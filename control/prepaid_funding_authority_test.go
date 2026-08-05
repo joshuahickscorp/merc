@@ -141,12 +141,8 @@ func (h *fundingHarness) buyerWithCard(t *testing.T) (uuid.UUID, string) {
 	t.Helper()
 	buyerID := insertTestBuyer(t, h.pool, h.ctx)
 	cust := "cus_" + buyerID.String()
-	if err := h.store.UpsertBillingCustomer(h.ctx, buyerID, cust); err != nil {
-		t.Fatal(err)
-	}
-	if err := h.store.SetBillingPMByCustomer(h.ctx, cust, "pm_"+buyerID.String()); err != nil {
-		t.Fatal(err)
-	}
+	must(t, h.store.UpsertBillingCustomer(h.ctx, buyerID, cust))
+	must(t, h.store.SetBillingPMByCustomer(h.ctx, cust, "pm_"+buyerID.String()))
 	raw := "cx_test_buyer_" + uuid.NewString()
 	if _, err := h.pool.Exec(h.ctx, `
 		INSERT INTO api_keys (buyer_id,key_hash,is_admin,revoked,name)
@@ -176,9 +172,7 @@ func topupBody(amount string) string {
 func decodeBody(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
 	t.Helper()
 	var out map[string]any
-	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
-		t.Fatalf("decode %s: %v", rec.Body.String(), err)
-	}
+	mustf(t, json.Unmarshal(rec.Body.Bytes(), &out), "decode %s: %v", rec.Body.String())
 	return out
 }
 
@@ -194,9 +188,7 @@ func TestBuyerFundsOwnAccountThroughRegisteredRoute(t *testing.T) {
 		t.Fatalf("top-up status %d body %s, want 200", rec.Code, rec.Body.String())
 	}
 	bal, err := h.store.BuyerPrepaidBalanceMicros(h.ctx, buyerID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if bal != 25_000_000 {
 		t.Fatalf("balance after 25 %s top-up = %d micros, want 25000000", SettlementCurrencyCode(), bal)
 	}
@@ -442,9 +434,7 @@ func TestPrepaidRefundLeavesOpenJobReservationsFunded(t *testing.T) {
 
 	server := &Server{store: h.store}
 	result, err := server.refundPrepaidRemainder(h.ctx, actor, buyerID, "buyer closed account", adminTestRef("INC-reserve"))
-	if err != nil {
-		t.Fatalf("refund: %v", err)
-	}
+	mustf(t, err, "refund: %v")
 	if got := result["refunded_micros"].(int64); got != 20_000_000 {
 		t.Fatalf("refunded %d micro-USD, want 20000000 ($50 funded less the $30 still reserved)", got)
 	}
@@ -453,9 +443,7 @@ func TestPrepaidRefundLeavesOpenJobReservationsFunded(t *testing.T) {
 		t.Fatalf("balance after refund = %d, want 30000000 still covering the running job", bal)
 	}
 	// The whole point: the running job's settlement can still be paid.
-	if err := reservePrepaidCheck(h.ctx, h.store, buyerID, 30_000_000); err != nil {
-		t.Fatalf("running job can no longer be settled from prepaid balance: %v", err)
-	}
+	mustf(t, reservePrepaidCheck(h.ctx, h.store, buyerID, 30_000_000), "running job can no longer be settled from prepaid balance: %v")
 }
 
 // reservePrepaidCheck asserts the buyer's balance can still absorb a settlement
@@ -492,9 +480,7 @@ func TestPrepaidRefundCannotExceedFundedValue(t *testing.T) {
 
 	// Balance that no collected payment intent backs cannot be refunded at all:
 	// seeded credit has no card behind it.
-	if err := h.store.SeedPrepaidBalance(h.ctx, buyerID, 25_000_000, "seed-"+uuid.NewString()); err != nil {
-		t.Fatal(err)
-	}
+	must(t, h.store.SeedPrepaidBalance(h.ctx, buyerID, 25_000_000, "seed-"+uuid.NewString()))
 	_, err = server.refundPrepaidRemainder(h.ctx, actor, buyerID, "closed", adminTestRef("INC-c"))
 	if err == nil || !strings.Contains(err.Error(), "exceed funded value") {
 		t.Fatalf("refund of uncollected balance err = %v, want a funded-value refusal", err)
@@ -542,9 +528,7 @@ func TestPrepaidRefundIsDurableBeforeStripe(t *testing.T) {
 	// debiting the buyer a second time.
 	h.refundErr.Store(false)
 	result, err := server.refundPrepaidRemainder(h.ctx, actor, buyerID, "closed", correlation)
-	if err != nil {
-		t.Fatalf("replay: %v", err)
-	}
+	mustf(t, err, "replay: %v")
 	if replayed, _ := result["replayed"].(bool); !replayed {
 		t.Fatalf("replay was treated as a new refund: %v", result)
 	}
@@ -595,9 +579,7 @@ func TestPrepaidRefundReplayCannotAdoptAnotherRefundsSlices(t *testing.T) {
 
 	h.refundErr.Store(false)
 	result, err := server.refundPrepaidRemainder(h.ctx, actor, buyerID, "closed", wildcardRef)
-	if err != nil {
-		t.Fatalf("replay: %v", err)
-	}
+	mustf(t, err, "replay: %v")
 	if got := result["refunded_minor_units"].(int64); got != 2500 {
 		t.Fatalf("replay refunded %d minor units, want 2500 (only this refund's own slice)", got)
 	}

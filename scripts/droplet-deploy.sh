@@ -2,7 +2,7 @@
 # One blind run on the droplet: preflight, deploy, verify, and roll back on its
 # own if verification fails.
 #
-# docs/DEPLOY_MERC_DROPLET.md is the long form. This is the same sequence with
+# docs/RUNBOOKS.md is the long form. This is the same sequence with
 # the judgement calls already made, so it can be pasted into an SSH session
 # without reading anything first.
 #
@@ -47,7 +47,7 @@ docker compose version >/dev/null 2>&1 && ok "docker compose v2" \
   || { bad "docker compose v2 is required"; FAILED=1; }
 
 [ -f "$ROOT/.env" ] || die ".env is missing. Copy .env.example and fill it in; §1 of
-       docs/DEPLOY_MERC_DROPLET.md lists every variable the control plane demands."
+       docs/RUNBOOKS.md lists every variable the control plane demands."
 perms=$(stat -c '%a' "$ROOT/.env" 2>/dev/null || stat -f '%Lp' "$ROOT/.env")
 [ "$perms" = "600" ] && ok ".env is 600" || warn ".env is $perms; should be 600 (chmod 600 .env)"
 

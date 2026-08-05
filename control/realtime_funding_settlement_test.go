@@ -53,13 +53,9 @@ func realtimeAuthCeiling(t *testing.T, profile VLLMRuntimeProfile, prompt, compl
 	t.Helper()
 	currency := MustParseCurrency(SettlementCurrencyCode())
 	buyerIn, err := nanoRatePerMillionFromFloat(profile.BuyerInputUSDPerMillionTokens)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	buyerOut, err := nanoRatePerMillionFromFloat(profile.BuyerOutputUSDPerMillionTokens)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	maxPrompt, maxCompletion = prompt*2, completion*2
 	if maxPrompt < 100 {
 		maxPrompt = 100
@@ -68,21 +64,13 @@ func realtimeAuthCeiling(t *testing.T, profile VLLMRuntimeProfile, prompt, compl
 		maxCompletion = 8
 	}
 	maxExact, err := BuyerRealtimeTokenChargeNanos(currency, maxPrompt, maxCompletion, buyerIn, buyerOut)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	estExact, err := BuyerRealtimeTokenChargeNanos(currency, prompt, completion, buyerIn, buyerOut)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	maxMicros, err := LedgerMicrosFromNanos(maxExact)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	estMicros, err := LedgerMicrosFromNanos(estExact)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	return microsToUSD(maxMicros), microsToUSD(estMicros), maxPrompt, maxCompletion
 }
 
@@ -140,9 +128,7 @@ func TestRealtimePrepaidAuthSettlesDebitAndReleasesRemainder(t *testing.T) {
 		t.Fatal(err)
 	}
 	const seedMicros int64 = 5_000_000 // $5
-	if err := store.SeedPrepaidBalance(ctx, buyerID, seedMicros, "seed-rt-settle-"+buyerID.String()); err != nil {
-		t.Fatal(err)
-	}
+	must(t, store.SeedPrepaidBalance(ctx, buyerID, seedMicros, "seed-rt-settle-"+buyerID.String()))
 	maxUSD, estUSD, maxPrompt, maxCompletion := realtimeAuthCeiling(t, profile, 7, 2)
 	contract, _, err := store.AuthorizeRealtimeContract(ctx, RealtimeContractAuthorization{
 		RequestID: "req-prepaid-settle-" + uuid.NewString(), BuyerID: buyerID, Profile: profile,
@@ -151,17 +137,13 @@ func TestRealtimePrepaidAuthSettlesDebitAndReleasesRemainder(t *testing.T) {
 		MaximumPromptTokens: maxPrompt, MaximumCompletionTokens: maxCompletion,
 		EstimatedPromptTokens: 7, EstimatedCompletionTokens: 2,
 	})
-	if err != nil {
-		t.Fatalf("prepaid authorization: %v", err)
-	}
+	mustf(t, err, "prepaid authorization: %v")
 	if contract.State != "EXECUTING" || contract.MaximumPriceUSD != maxUSD {
 		t.Fatalf("unexpected contract: %+v", contract)
 	}
 	// While EXECUTING, the full ceiling is reserved and not refundable.
 	available, err := store.BuyerPrepaidAvailableMicros(ctx, buyerID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	// Open job/lease reserves are separate; realtime reservation is not in
 	// prepaidOpenReservationMicros — balance is still full until debit.
 	bal, err := store.BuyerPrepaidBalanceMicros(ctx, buyerID)
@@ -174,17 +156,13 @@ func TestRealtimePrepaidAuthSettlesDebitAndReleasesRemainder(t *testing.T) {
 		ID: uuid.New(), HTTPStatus: http.StatusOK, StreamRootSHA256: strings.Repeat("1", 64),
 		OutputCommitment: strings.Repeat("2", 64), PromptTokens: 7, CompletionTokens: 2, TotalTokens: 9,
 	})
-	if err != nil {
-		t.Fatalf("finalize: %v", err)
-	}
+	mustf(t, err, "finalize: %v")
 	if settlement.BuyerChargeUSD <= 0 || settlement.BuyerChargeUSD > maxUSD {
 		t.Fatalf("unexpected buyer charge: %+v max=%f", settlement, maxUSD)
 	}
 	chargeMicros := usdToMicros(settlement.BuyerChargeUSD)
 	bal, err = store.BuyerPrepaidBalanceMicros(ctx, buyerID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if bal != seedMicros-chargeMicros {
 		t.Fatalf("prepaid balance after settle=%d, want %d (seed %d - charge %d)",
 			bal, seedMicros-chargeMicros, seedMicros, chargeMicros)
@@ -237,9 +215,7 @@ func TestRealtimeConcurrentAuthCannotOverspendBalance(t *testing.T) {
 	maxUSD, estUSD, maxPrompt, maxCompletion := realtimeAuthCeiling(t, profile, 7, 2)
 	// Fund exactly one ceiling (plus a micro of slack for float/micro rounding).
 	seed := usdToMicros(maxUSD) + 1
-	if err := store.SeedPrepaidBalance(ctx, buyerID, seed, "seed-rt-concurrent-"+buyerID.String()); err != nil {
-		t.Fatal(err)
-	}
+	must(t, store.SeedPrepaidBalance(ctx, buyerID, seed, "seed-rt-concurrent-"+buyerID.String()))
 
 	const n = 8
 	var (
@@ -331,9 +307,7 @@ func TestRealtimeSupplierCreditFundsFromBuyerTopup(t *testing.T) {
 		MaximumPromptTokens: maxPrompt, MaximumCompletionTokens: maxCompletion,
 		EstimatedPromptTokens: promptTokens, EstimatedCompletionTokens: completionTokens,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if _, err := store.FinalizeRealtimeSuccess(ctx, contract.ID, RealtimeExecutionEvidence{
 		ID: uuid.New(), HTTPStatus: http.StatusOK, StreamRootSHA256: strings.Repeat("3", 64),
 		OutputCommitment: strings.Repeat("4", 64), PromptTokens: promptTokens, CompletionTokens: completionTokens,
@@ -349,9 +323,7 @@ func TestRealtimeSupplierCreditFundsFromBuyerTopup(t *testing.T) {
 		t.Fatal(err)
 	}
 	claimed, sent, err := store.ClaimPayout(ctx, entryID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if !sent || claimed.RequestedCents <= 0 {
 		t.Fatalf("realtime supplier credit not funded from top-up: sent=%v claim=%+v", sent, claimed)
 	}
@@ -442,9 +414,7 @@ func TestFullyPrepaidJobSupplierCreditFundsFromTopup(t *testing.T) {
 	}
 
 	claimed, sent, err := store.ClaimPayout(ctx, entryID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if !sent || claimed.RequestedCents <= 0 {
 		t.Fatalf("fully prepaid job credit not funded from top-up: sent=%v claim=%+v", sent, claimed)
 	}
@@ -475,9 +445,7 @@ func TestRealtimeDeliveredStreamSettlementIntentSweep(t *testing.T) {
 	profile, supplierID, workerID := realtimeFundingFixture(t, ctx, store, pool)
 
 	buyerID, err := store.CreateBuyerAccount(ctx, "stream-intent-"+uuid.NewString()+"@example.test", "pw", 5)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if _, _, _, err := store.CreateAPIKey(ctx, buyerID, "stream-intent", true); err != nil {
 		t.Fatal(err)
 	}
@@ -519,13 +487,9 @@ func TestRealtimeDeliveredStreamSettlementIntentSweep(t *testing.T) {
 		MaximumPromptTokens: maxPrompt, MaximumCompletionTokens: maxCompletion,
 		EstimatedPromptTokens: 7, EstimatedCompletionTokens: 2,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	executionID := uuid.New()
-	if err := store.InsertRealtimeSettlementIntent(ctx, contract.ID, executionID); err != nil {
-		t.Fatal(err)
-	}
+	must(t, store.InsertRealtimeSettlementIntent(ctx, contract.ID, executionID))
 	evidence := RealtimeExecutionEvidence{
 		ID: executionID, HTTPStatus: http.StatusOK, StreamRootSHA256: strings.Repeat("a", 64),
 		OutputCommitment: strings.Repeat("b", 64), PromptTokens: 7, CompletionTokens: 2, TotalTokens: 9,
@@ -555,9 +519,7 @@ func TestRealtimeDeliveredStreamSettlementIntentSweep(t *testing.T) {
 	settled2, escalated2, err := store.SettlePendingRealtimeIntents(ctx, 10)
 	if err != nil || settled2 != 0 || escalated2 != 0 {
 		// Intent already settled; may still match if next_attempt races — accept settled idempotent finalize.
-		if err != nil {
-			t.Fatalf("second sweep err=%v", err)
-		}
+		mustf(t, err, "second sweep err=%v")
 	}
 	// Re-run finalize explicitly to prove double settle does not double ledger.
 	if _, err := store.FinalizeRealtimeSuccess(ctx, contract.ID, evidence); err != nil && !errors.Is(err, errRealtimeAlreadyFinalized) {
@@ -592,13 +554,9 @@ func TestRealtimeInterruptedStreamChargesNothing(t *testing.T) {
 	profile, supplierID, workerID := realtimeFundingFixture(t, ctx, store, pool)
 
 	buyerID, err := store.CreateBuyerAccount(ctx, "stream-interrupt-"+uuid.NewString()+"@example.test", "pw", 5)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	_, buyerKey, _, err := store.CreateAPIKey(ctx, buyerID, "stream-interrupt", true)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -631,9 +589,7 @@ func TestRealtimeInterruptedStreamChargesNothing(t *testing.T) {
 	defer server.Close()
 	body := []byte(`{"model":"cx-chat-1b","messages":[{"role":"user","content":"hi"}],"stream":true,"max_tokens":8}`)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, server.URL+"/v1/chat/completions", bytes.NewReader(body))
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	req.Header.Set("Authorization", "Bearer "+buyerKey)
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := http.DefaultClient.Do(req)
@@ -704,9 +660,7 @@ func TestRealtimeJSONPathStillFailsClosedOnSettlement(t *testing.T) {
 		MaximumPromptTokens: maxPrompt, MaximumCompletionTokens: maxCompletion,
 		EstimatedPromptTokens: 7, EstimatedCompletionTokens: 2,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	_, err = store.FinalizeRealtimeSuccess(ctx, contract.ID, RealtimeExecutionEvidence{
 		ID: uuid.New(), HTTPStatus: http.StatusOK,
 		// Missing stream root / output commitment → incomplete evidence.
@@ -715,9 +669,7 @@ func TestRealtimeJSONPathStillFailsClosedOnSettlement(t *testing.T) {
 		t.Fatal("incomplete evidence was accepted")
 	}
 	var intents int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM realtime_settlement_intents WHERE contract_id=$1`, contract.ID).Scan(&intents); err != nil {
-		t.Fatal(err)
-	}
+	must(t, pool.QueryRow(ctx, `SELECT count(*) FROM realtime_settlement_intents WHERE contract_id=$1`, contract.ID).Scan(&intents))
 	if intents != 0 {
 		t.Fatalf("JSON path created %d settlement intents, want 0", intents)
 	}

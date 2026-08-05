@@ -121,9 +121,7 @@ func TestExecutionContractBindingShapeIsEnforced(t *testing.T) {
 	}
 
 	// A reuse contract: nothing bound, nothing owed to a supplier. Allowed.
-	if err := insert(nil, nil, nil, nil, 0); err != nil {
-		t.Fatalf("a well-formed exact-reuse contract was rejected: %v", err)
-	}
+	mustf(t, insert(nil, nil, nil, nil, 0), "a well-formed exact-reuse contract was rejected: %v")
 
 	// The dangerous shape: no worker and no supplier, but supplier rates are
 	// positive. Money is owed and there is nobody to owe it to.
@@ -166,7 +164,5 @@ func TestExecutionContractBindingShapeIsEnforced(t *testing.T) {
 		workerID, supplierID); err == nil {
 		t.Fatal("database accepted an ACTIVE realtime offer without placement authority")
 	}
-	if err := insert(workerID, supplierID, "https://upstream.invalid", "enc:x", 0.08); err != nil {
-		t.Fatalf("a fully bound contract was rejected: %v", err)
-	}
+	mustf(t, insert(workerID, supplierID, "https://upstream.invalid", "enc:x", 0.08), "a fully bound contract was rejected: %v")
 }

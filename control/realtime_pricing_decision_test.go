@@ -20,9 +20,7 @@ func realtimePricingFixture(t *testing.T) RealtimePricingInputs {
 		SupplierInputUSDPerMillionTokens: 0.08, SupplierOutputUSDPerMillionTokens: 0.30,
 	}
 	placement, err := newRealtimePlacementPlan(profile, registration)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	return RealtimePricingInputs{
 		Profile: profile, Placement: placement,
 		InputCommitment: strings.Repeat("a", 64), RequestSHA256: strings.Repeat("b", 64),
@@ -36,9 +34,7 @@ func realtimePricingFixture(t *testing.T) RealtimePricingInputs {
 func TestRealtimePricingDecisionBindsExactCompositeAuthority(t *testing.T) {
 	in := realtimePricingFixture(t)
 	decision, err := newRealtimePricingDecision(in)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if decision.ExecutionMode != pricingExecutionRealtime || decision.Currency != "cad" ||
 		decision.Realtime == nil || decision.FixedPoint == nil ||
 		decision.FixedPoint.TrueNetContributionNanos != nil ||
@@ -47,9 +43,7 @@ func TestRealtimePricingDecisionBindsExactCompositeAuthority(t *testing.T) {
 			decision.FixedPoint.KnownCostContributionNanos {
 		t.Fatalf("realtime PricingDecision lost exact/gross-vs-net authority: %+v", decision)
 	}
-	if err := ValidateRealtimePricingDecisionSnapshot(decision, in); err != nil {
-		t.Fatal(err)
-	}
+	must(t, ValidateRealtimePricingDecisionSnapshot(decision, in))
 	if digest, err := pricingDecisionDigest(decision); err != nil || !validSHA256(digest) {
 		t.Fatalf("pricing digest=(%q,%v)", digest, err)
 	}
@@ -58,9 +52,7 @@ func TestRealtimePricingDecisionBindsExactCompositeAuthority(t *testing.T) {
 func TestRealtimePricingDecisionRefusesTamperingAndCeilingBreach(t *testing.T) {
 	in := realtimePricingFixture(t)
 	decision, err := newRealtimePricingDecision(in)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	decision.Realtime.SupplierInputNanosPerMillion++
 	if err := ValidateRealtimePricingDecisionSnapshot(decision, in); err == nil {
 		t.Fatal("tampered supplier offer authority rebuilt")
@@ -92,21 +84,13 @@ func TestRealtimePricingDecisionRefusesCurrencyMismatchAndZeroFloor(t *testing.T
 func TestAttachRealtimeContractPricingRefusesDigestAndLegacyAuthorityDrift(t *testing.T) {
 	in := realtimePricingFixture(t)
 	decision, err := newRealtimePricingDecision(in)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	raw, err := json.Marshal(decision)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	digest, err := pricingDecisionDigest(decision)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	expected, maximum, err := realtimePricingLegacyProjection(decision)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	contract := RealtimeContract{
 		RuntimeProfileID: in.Profile.RuntimeProfileID, RuntimeProfileSHA256: in.Profile.ProfileSHA256,
 		InputCommitment: in.InputCommitment, RequestSHA256: in.RequestSHA256,

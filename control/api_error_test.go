@@ -104,9 +104,7 @@ func TestWriteErr429CarriesRetryAfter(t *testing.T) {
 			t.Fatalf("msg=%q: missing Retry-After", msg)
 		}
 		var body APIError
-		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
-			t.Fatal(err)
-		}
+		must(t, json.Unmarshal(rec.Body.Bytes(), &body))
 		if body.Code != ErrCodeRateLimited {
 			t.Fatalf("msg=%q: code=%q want rate_limited", msg, body.Code)
 		}
@@ -130,9 +128,7 @@ func TestWriteErrRetryable503CarriesRetryAfter(t *testing.T) {
 			t.Fatalf("msg=%q: retryable 503 missing Retry-After", msg)
 		}
 		var body APIError
-		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
-			t.Fatal(err)
-		}
+		must(t, json.Unmarshal(rec.Body.Bytes(), &body))
 		if body.Code != ErrCodeUnavailable && body.Code != ErrCodeOperatorPaused {
 			t.Fatalf("msg=%q: code=%q want unavailable|operator_paused", msg, body.Code)
 		}
@@ -150,9 +146,7 @@ func TestWriteErrNonRetryable503OmitsRetryAfter(t *testing.T) {
 		t.Fatalf("misconfigured 503 should not set Retry-After, got %q", ra)
 	}
 	var body APIError
-	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
-		t.Fatal(err)
-	}
+	must(t, json.Unmarshal(rec.Body.Bytes(), &body))
 	if body.Code != ErrCodeMisconfigured {
 		t.Fatalf("code=%q want misconfigured", body.Code)
 	}
@@ -208,9 +202,7 @@ func TestAuthMiddlewareRateLimitEmitsCodeAndRetryAfter(t *testing.T) {
 		t.Fatalf("status=%d want 401", rec.Code)
 	}
 	var body APIError
-	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
-		t.Fatal(err)
-	}
+	must(t, json.Unmarshal(rec.Body.Bytes(), &body))
 	if body.Code != ErrCodeUnauthorized {
 		t.Fatalf("code=%q want unauthorized body=%s", body.Code, rec.Body.String())
 	}

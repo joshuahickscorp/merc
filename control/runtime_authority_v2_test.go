@@ -14,9 +14,7 @@ import (
 func mutableAuthority(t *testing.T) runtimeAuthorityDocument {
 	t.Helper()
 	var copied runtimeAuthorityDocument
-	if err := json.Unmarshal(runtimeAuthorityJSON, &copied); err != nil {
-		t.Fatalf("decode embedded authority: %v", err)
-	}
+	mustf(t, json.Unmarshal(runtimeAuthorityJSON, &copied), "decode embedded authority: %v")
 	return copied
 }
 
@@ -70,9 +68,7 @@ func TestNonRoutableProfilesDoNotWidenTheSellableSurface(t *testing.T) {
 // fail-closed and it also made registering a runtime impossible. The replacement
 // must still refuse every shape the count check was standing in for.
 func TestRuntimeAuthorityValidationRefusesEveryUngovernedShape(t *testing.T) {
-	if err := validateRuntimeAuthorityDocument(mutableAuthority(t)); err != nil {
-		t.Fatalf("the embedded authority does not validate: %v", err)
-	}
+	mustf(t, validateRuntimeAuthorityDocument(mutableAuthority(t)), "the embedded authority does not validate: %v")
 
 	for _, tc := range []struct {
 		name   string
@@ -307,9 +303,7 @@ func TestRuntimeProfileContentDigestsArePinned(t *testing.T) {
 			continue
 		}
 		got, err := profile.CapabilityDigest(runtimeAuthorityModels)
-		if err != nil {
-			t.Fatalf("digest %q: %v", profile.RuntimeID, err)
-		}
+		mustf(t, err, "digest %q: %v", profile.RuntimeID)
 		if got != want {
 			t.Errorf("runtime %q content changed under revision %s\n  got  %s\n  want %s\n"+
 				"Bump the revision and pin the new digest; do not edit the constant in place.",
@@ -324,9 +318,7 @@ func TestRuntimeProfileContentDigestsArePinned(t *testing.T) {
 func TestRuntimeProfileDigestExcludesLifecycleAndSupersession(t *testing.T) {
 	base := mutableAuthority(t).Runtimes[0]
 	want, err := base.CapabilityDigest(runtimeAuthorityModels)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	for _, mutate := range []func(p *authorityRuntimeProfile){
 		func(p *authorityRuntimeProfile) { p.Lifecycle = runtimeLifecycleQuarantined },
 		func(p *authorityRuntimeProfile) { p.Lifecycle = runtimeLifecycleCanary },
@@ -342,9 +334,7 @@ func TestRuntimeProfileDigestExcludesLifecycleAndSupersession(t *testing.T) {
 		moved := base
 		mutate(&moved)
 		got, err := moved.CapabilityDigest(runtimeAuthorityModels)
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		if got != want {
 			t.Errorf("a lifecycle or supersession change altered the content digest")
 		}
@@ -367,9 +357,7 @@ func TestRuntimeProfileDigestExcludesLifecycleAndSupersession(t *testing.T) {
 		moved.Cells = append([]authorityCell(nil), base.Cells...)
 		mutate(&moved)
 		got, err := moved.CapabilityDigest(runtimeAuthorityModels)
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		if got == want {
 			t.Errorf("changing the %s did not move the content digest", name)
 		}
@@ -431,9 +419,7 @@ func TestSupersededProfilesCannotBeRoutable(t *testing.T) {
 // measures nothing, and that is the correct state to be in until it is
 // benchmarked on the same harness as its challenger.
 func TestBenchmarkAuthorityMustNameTheProfileItEvidences(t *testing.T) {
-	if err := validateRuntimeAuthorityDocument(mutableAuthority(t)); err != nil {
-		t.Fatalf("the embedded authority does not validate: %v", err)
-	}
+	mustf(t, validateRuntimeAuthorityDocument(mutableAuthority(t)), "the embedded authority does not validate: %v")
 
 	for _, tc := range []struct {
 		name, want string
@@ -447,7 +433,7 @@ func TestBenchmarkAuthorityMustNameTheProfileItEvidences(t *testing.T) {
 		{"a path that is not a known receipt", "not a known receipt",
 			func(d *runtimeAuthorityDocument) {
 				d.Runtimes[runtimeIndex(t, *d, "candle_metal")].BenchmarkAuthority =
-					"docs/SPEED_LANE_2026-07-27.md"
+					"docs/RUNTIME_AND_PERF.md"
 			}},
 		{"the original defect verbatim", "not a known receipt",
 			func(d *runtimeAuthorityDocument) {
@@ -532,9 +518,7 @@ func TestBenchmarkManifestMatchesTheReceipts(t *testing.T) {
 // the exact pinned artifact. It is still not routable, and the receipt says why.
 func TestLlamaCppBenchmarkReceiptIsBoundAndHonestAboutItsLimits(t *testing.T) {
 	raw, err := os.ReadFile("../evidence/perf/runtime-benchmarks/llama-cpp-metal-llama1-q4-r1.json")
-	if err != nil {
-		t.Fatalf("read receipt: %v", err)
-	}
+	mustf(t, err, "read receipt: %v")
 	var receipt struct {
 		RuntimeProfileID    string            `json:"runtime_profile_id"`
 		ModelArtifactSHA256 string            `json:"model_artifact_sha256"`
@@ -546,9 +530,7 @@ func TestLlamaCppBenchmarkReceiptIsBoundAndHonestAboutItsLimits(t *testing.T) {
 			DecodeTokensPerSec  float64 `json:"decode_tokens_per_sec"`
 		} `json:"physical_throughput"`
 	}
-	if err := json.Unmarshal(raw, &receipt); err != nil {
-		t.Fatalf("decode receipt: %v", err)
-	}
+	mustf(t, json.Unmarshal(raw, &receipt), "decode receipt: %v")
 
 	// Bound to the exact artifact the catalogue prices, not to "a llama 1B".
 	var model authorityModel
@@ -650,9 +632,7 @@ func TestThroughputCannotPromoteAProfileThatFailsItsVerificationContract(t *test
 	// The incumbent measures byte-identical at every batch size, so the rule
 	// does not simply refuse everything.
 	clean := mutableAuthority(t)
-	if err := validateRuntimeAuthorityDocument(clean); err != nil {
-		t.Fatalf("the byte-deterministic incumbent was refused: %v", err)
-	}
+	mustf(t, validateRuntimeAuthorityDocument(clean), "the byte-deterministic incumbent was refused: %v")
 }
 
 // Both profiles are now measured on one harness, so a comparison is finally
@@ -660,9 +640,7 @@ func TestThroughputCannotPromoteAProfileThatFailsItsVerificationContract(t *test
 func TestBothMetalProfilesAreMeasuredAndComparable(t *testing.T) {
 	cap := adapterTestWorker()
 	estimates, err := EstimateAcrossRegisteredRuntimes(inferWorkload(), cap)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	byID := map[string]RuntimeEstimate{}
 	for _, e := range estimates {
 		byID[e.RuntimeProfileID] = e
@@ -693,9 +671,7 @@ func TestBothMetalProfilesAreMeasuredAndComparable(t *testing.T) {
 func TestContentDigestCoversEverySemanticFieldAndNoLifecycleField(t *testing.T) {
 	base := mutableAuthority(t).Runtimes[0]
 	want, err := base.CapabilityDigest(runtimeAuthorityModels)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 
 	// Semantic: must move the digest.
 	for name, mutate := range map[string]func(p *authorityRuntimeProfile){
@@ -728,9 +704,7 @@ func TestContentDigestCoversEverySemanticFieldAndNoLifecycleField(t *testing.T) 
 		moved.Cells = append([]authorityCell(nil), base.Cells...)
 		mutate(&moved)
 		got, err := moved.CapabilityDigest(runtimeAuthorityModels)
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		if got == want {
 			t.Errorf("changing the %s did not move the content digest", name)
 		}
@@ -752,9 +726,7 @@ func TestContentDigestCoversEverySemanticFieldAndNoLifecycleField(t *testing.T) 
 		moved := base
 		mutate(&moved)
 		got, err := moved.CapabilityDigest(runtimeAuthorityModels)
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		if got != want {
 			t.Errorf("changing the %s moved the content digest", name)
 		}
@@ -784,9 +756,7 @@ func TestEveryProfileDeclaresItsProvenance(t *testing.T) {
 // agree at 0.999999 mean cosine against a 0.999 verification gate.
 func TestWireKindBelongsToTheRuntimeModelPair(t *testing.T) {
 	doc := mutableAuthority(t)
-	if err := validateRuntimeAuthorityDocument(doc); err != nil {
-		t.Fatalf("embedded authority does not validate: %v", err)
-	}
+	mustf(t, validateRuntimeAuthorityDocument(doc), "embedded authority does not validate: %v")
 
 	var embedCell *authorityCell
 	for i, p := range doc.Runtimes {

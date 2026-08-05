@@ -318,9 +318,7 @@ func TestObservedOutputSettlementRecoverySnapshotPlannerAndApplyAgree(t *testing
 		Tier: "batch",
 	}
 	workload, err := buildWorkloadDecisionDirected(sub, strings.Repeat("c", 64), directedBatchCell)
-	if err != nil {
-		t.Fatalf("build directed batch workload: %v", err)
-	}
+	mustf(t, err, "build directed batch workload: %v")
 	if workload.Binding.JobType.MaxTokens != 100 {
 		t.Fatalf("directed batch lost max_tokens: %+v", workload.Binding.JobType)
 	}
@@ -346,9 +344,7 @@ func TestObservedOutputSettlementRecoverySnapshotPlannerAndApplyAgree(t *testing
 		QuoteConfidence{Score: 0.9, Reasons: []string{"snapshot recovery regression fixture"}},
 		[]string{"single local regression fixture"},
 	)
-	if err != nil {
-		t.Fatalf("build compute plan: %v", err)
-	}
+	mustf(t, err, "build compute plan: %v")
 	authority := catalogueAuthorityFixtureInStore(
 		t, ctx, pool, workload, f.Plan.Schedule.Currency, f.Plan.Input.SupplierShare,
 	)
@@ -356,17 +352,11 @@ func TestObservedOutputSettlementRecoverySnapshotPlannerAndApplyAgree(t *testing
 	pricing, err := newDistributedPricingDecision(
 		workload, compute, placement, f.Plan, authority, sub.Tier, "",
 	)
-	if err != nil {
-		t.Fatalf("build pricing decision: %v", err)
-	}
+	mustf(t, err, "build pricing decision: %v")
 	jobTypeSpec, err := json.Marshal(sub.JobType)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	verificationPolicy, err := json.Marshal(sub.Verification)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	tasks := makeTasks(f, 1)
 	tasks[0].ExpectedOutputRecords = 1
 	f.TaskIDs = []uuid.UUID{tasks[0].ID}
@@ -385,9 +375,7 @@ func TestObservedOutputSettlementRecoverySnapshotPlannerAndApplyAgree(t *testing
 		EconomicPlan:        f.Plan, WorkloadDecision: workload, ComputePlan: compute,
 		PlacementRequirement: placement, PricingDecision: pricing,
 	}
-	if err := store.SubmitJobTx(ctx, job, tasks); err != nil {
-		t.Fatalf("submit batch job: %v", err)
-	}
+	mustf(t, store.SubmitJobTx(ctx, job, tasks), "submit batch job: %v")
 	if _, err := pool.Exec(ctx, `UPDATE jobs SET status='running' WHERE id=$1`, f.JobID); err != nil {
 		t.Fatal(err)
 	}
@@ -407,20 +395,14 @@ func TestObservedOutputSettlementRecoverySnapshotPlannerAndApplyAgree(t *testing
 		t.Fatalf("stage committed result: %v", err)
 	}
 	work, err := store.VerificationWorkForAttempt(ctx, tasks[0].ID, 0)
-	if err != nil {
-		t.Fatalf("load verification work: %v", err)
-	}
+	mustf(t, err, "load verification work: %v")
 	recovered, _, err := commitInfoFromVerificationWork(work)
-	if err != nil {
-		t.Fatalf("recover commit info: %v", err)
-	}
+	mustf(t, err, "recover commit info: %v")
 	if recovered.jobMaxTokens != 0 {
 		t.Fatalf("snapshot unexpectedly duplicated max_tokens: %d", recovered.jobMaxTokens)
 	}
 	settled, err := store.observedOutputSettlementForTask(ctx, recovered)
-	if err != nil {
-		t.Fatalf("plan recovered settlement: %v", err)
-	}
+	mustf(t, err, "plan recovered settlement: %v")
 	// Ceiling/observed must still surface so the buyer can audit the observation.
 	// The token-proportional rebate may be clamped by the contribution floor
 	// (processor fixed fee + control on this conservative schedule leave little
@@ -451,9 +433,7 @@ func TestObservedOutputSettlementRecoverySnapshotPlannerAndApplyAgree(t *testing
 	}
 	wantRebate := settled.RebateUSD
 	preLedgerReceipts, err := store.JobTaskReceipts(ctx, f.JobID)
-	if err != nil {
-		t.Fatalf("pre-ledger task receipts: %v", err)
-	}
+	mustf(t, err, "pre-ledger task receipts: %v")
 	if len(preLedgerReceipts) != 1 ||
 		preLedgerReceipts[0].BilledBuyerChargeUSD == nil ||
 		*preLedgerReceipts[0].BilledBuyerChargeUSD != settled.BilledCharge {
@@ -468,9 +448,7 @@ func TestObservedOutputSettlementRecoverySnapshotPlannerAndApplyAgree(t *testing
 		}
 	}
 	preLedgerInvoice := InvoiceView{JobID: f.JobID}
-	if err := store.attachObservedOutputInvoiceEvidence(ctx, &preLedgerInvoice); err != nil {
-		t.Fatalf("pre-ledger invoice evidence: %v", err)
-	}
+	mustf(t, store.attachObservedOutputInvoiceEvidence(ctx, &preLedgerInvoice), "pre-ledger invoice evidence: %v")
 	if wantRebate > 0 {
 		if preLedgerInvoice.OutputTokenRebateUSD == nil ||
 			*preLedgerInvoice.OutputTokenRebateUSD != wantRebate {
@@ -494,9 +472,7 @@ func TestObservedOutputSettlementRecoverySnapshotPlannerAndApplyAgree(t *testing
 			settled.BilledCharge, settled.SupplierPayout, 0, time.Now().UTC(),
 		)
 	}
-	if err := store.FinalizeTaskVerification(ctx, recovered, OutcomePass, entries); err != nil {
-		t.Fatalf("apply rejected planner's recovered settlement: %v", err)
-	}
+	mustf(t, store.FinalizeTaskVerification(ctx, recovered, OutcomePass, entries), "apply rejected planner's recovered settlement: %v")
 	var durationDepthBand *string
 	if err := pool.QueryRow(ctx, `
 		SELECT input_depth_band
@@ -537,18 +513,14 @@ func TestObservedOutputSettlementRecoverySnapshotPlannerAndApplyAgree(t *testing
 		t.Fatal(err)
 	}
 	receipts, err := store.JobTaskReceipts(ctx, f.JobID)
-	if err != nil {
-		t.Fatalf("task receipts: %v", err)
-	}
+	mustf(t, err, "task receipts: %v")
 	if len(receipts) != 1 || receipts[0].OutputTokenCeiling == nil ||
 		*receipts[0].OutputTokenCeiling != 100 ||
 		receipts[0].ObservedOutputTokens == nil || *receipts[0].ObservedOutputTokens != 5 {
 		t.Fatalf("receipt did not preserve frozen 100/5 evidence: %+v", receipts)
 	}
 	invoice := InvoiceView{JobID: f.JobID}
-	if err := store.attachObservedOutputInvoiceEvidence(ctx, &invoice); err != nil {
-		t.Fatalf("invoice evidence: %v", err)
-	}
+	mustf(t, store.attachObservedOutputInvoiceEvidence(ctx, &invoice), "invoice evidence: %v")
 	if invoice.OutputTokenCeiling == nil || *invoice.OutputTokenCeiling != 100 ||
 		invoice.ObservedOutputTokens == nil || *invoice.ObservedOutputTokens != 5 {
 		t.Fatalf("invoice did not preserve frozen 100/5 evidence: %+v", invoice)
@@ -562,16 +534,12 @@ func TestObservedOutputSettlementRecoverySnapshotPlannerAndApplyAgree(t *testing
 		t.Fatal(err)
 	}
 	receipts, err = store.JobTaskReceipts(ctx, f.JobID)
-	if err != nil {
-		t.Fatalf("task receipts after corrupt observation: %v", err)
-	}
+	mustf(t, err, "task receipts after corrupt observation: %v")
 	if len(receipts) != 1 || receipts[0].ObservedOutputTokens != nil {
 		t.Fatalf("receipt advertised corrupt observation: %+v", receipts)
 	}
 	invoice = InvoiceView{JobID: f.JobID}
-	if err := store.attachObservedOutputInvoiceEvidence(ctx, &invoice); err != nil {
-		t.Fatalf("invoice corrupt evidence: %v", err)
-	}
+	mustf(t, store.attachObservedOutputInvoiceEvidence(ctx, &invoice), "invoice corrupt evidence: %v")
 	if invoice.ObservedOutputTokens != nil {
 		t.Fatalf("invoice advertised corrupt observation: %+v", invoice)
 	}

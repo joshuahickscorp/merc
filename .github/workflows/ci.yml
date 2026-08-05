@@ -36,7 +36,12 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
+          lfs: true
           ref: ${{ env.CANDIDATE_SHA }}
+      # .lfsconfig fetchexclude skips evidence/perf/**; checkout's plain
+      # git lfs pull honours it. Tests read release-critical perf receipts.
+      - name: Hydrate release-critical LFS evidence
+        run: bash scripts/hydrate-release-lfs.sh
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: "1.26.5"
@@ -67,12 +72,12 @@ jobs:
         run: |
           cd control
           time go build -trimpath -o "$RUNNER_TEMP/merc" .
-          go run . audit codebase --out census
+          go run . audit codebase --out evidence/census
       - name: Package control evidence
         run: |
           mkdir -p "$RUNNER_TEMP/control-evidence"
           cp "$RUNNER_TEMP/merc" control/schema.sql control/runtime-authority.json \
-            proto/manifest.schema.json "$RUNNER_TEMP/control-evidence/"
+            clients/proto/manifest.schema.json "$RUNNER_TEMP/control-evidence/"
           cd "$RUNNER_TEMP/control-evidence"
           sha256sum merc schema.sql runtime-authority.json manifest.schema.json > SHA256SUMS
       - name: Upload control evidence
@@ -88,6 +93,7 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
+          lfs: true
           ref: ${{ env.CANDIDATE_SHA }}
       - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable 2026-07-19
         with:
@@ -110,7 +116,7 @@ jobs:
           cd agent
           time cargo build --release
           cd ..
-          bash macapp/ComputeExchangeAgent/sandbox-profile-test.sh
+          bash clients/macapp/ComputeExchangeAgent/sandbox-profile-test.sh
       - name: Package agent evidence
         run: |
           mkdir -p "$RUNNER_TEMP/agent-evidence"
@@ -130,6 +136,7 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
+          lfs: true
           ref: ${{ env.CANDIDATE_SHA }}
       - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable 2026-07-19
         with:
@@ -154,7 +161,13 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
+          lfs: true
           ref: ${{ env.CANDIDATE_SHA }}
+      # Gates (validate-evidence-binding, claim surfaces, readiness) resolve
+      # evidence/perf/** bodies. Without this, .lfsconfig fetchexclude leaves
+      # pointers and the suite either false-passes or fails opaquely.
+      - name: Hydrate release-critical LFS evidence
+        run: bash scripts/hydrate-release-lfs.sh
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: "1.26.5"
@@ -173,7 +186,7 @@ jobs:
           sudo apt-get install -y age
       - name: schema and generated artifacts
         run: |
-          python3 -m json.tool proto/manifest.schema.json >/dev/null
+          python3 -m json.tool clients/proto/manifest.schema.json >/dev/null
           python3 -m json.tool control/runtime-authority.json >/dev/null
           python3 -m json.tool ops/governance-approval-bundle.schema.json >/dev/null
           python3 scripts/validate-authorization-matrix.py
@@ -202,7 +215,7 @@ jobs:
           bash scripts/build-cli-release.sh v0.1.0-rc.1 "$BUNDLE/cli"
           cp web/index.html web/admin.html web/favicon.ico "$BUNDLE/website/"
           cp control/schema.sql control/runtime-authority.json \
-            proto/manifest.schema.json .env.example "$BUNDLE/contracts/"
+            clients/proto/manifest.schema.json .env.example "$BUNDLE/contracts/"
           cp RELEASE_READINESS.md docs/RUNBOOKS.md docs/SECURITY.md \
             "$BUNDLE/docs/"
           printf '%s\n' "$CANDIDATE_SHA" > "$BUNDLE/SOURCE_COMMIT"
@@ -227,6 +240,7 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
+          lfs: true
           ref: ${{ env.CANDIDATE_SHA }}
           fetch-depth: 0
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
@@ -296,6 +310,7 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
+          lfs: true
           ref: ${{ env.CANDIDATE_SHA }}
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:

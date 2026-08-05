@@ -31,9 +31,7 @@ func TestPrepaidFundingAdmissionSerializesReservations(t *testing.T) {
 	if reserve != usdToMicros(second.EconomicPlan.ReservedBuyerChargeUSD) {
 		t.Fatal("fixture reservations differ")
 	}
-	if err := store.SeedPrepaidBalance(ctx, f.BuyerID, reserve, "seed-admission-"+uuid.NewString()); err != nil {
-		t.Fatal(err)
-	}
+	must(t, store.SeedPrepaidBalance(ctx, f.BuyerID, reserve, "seed-admission-"+uuid.NewString()))
 
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
@@ -73,9 +71,7 @@ func TestPrepaidFundingAdmissionSerializesReservations(t *testing.T) {
 		t.Fatalf("concurrent prepaid admission accepted=%d insufficient=%d, want 1/1", accepted, insufficient)
 	}
 	var jobs int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM jobs WHERE buyer_id=$1 AND prepaid_required`, f.BuyerID).Scan(&jobs); err != nil {
-		t.Fatal(err)
-	}
+	must(t, pool.QueryRow(ctx, `SELECT count(*) FROM jobs WHERE buyer_id=$1 AND prepaid_required`, f.BuyerID).Scan(&jobs))
 	if jobs != 1 {
 		t.Fatalf("prepaid jobs=%d, want exactly one", jobs)
 	}
@@ -89,9 +85,7 @@ func TestPrepaidFundingSettlementDebitsOnceAndFailsClosed(t *testing.T) {
 			SeedJob: true, SeedPlanRows: true, PrepaidRequired: true,
 		})
 		amount := usdToMicros(f.Plan.ReservedBuyerChargeUSD)
-		if err := store.SeedPrepaidBalance(ctx, f.BuyerID, amount, "seed-settle-"+uuid.NewString()); err != nil {
-			t.Fatal(err)
-		}
+		must(t, store.SeedPrepaidBalance(ctx, f.BuyerID, amount, "seed-settle-"+uuid.NewString()))
 		entries := splitFrozenCharge(f.BuyerID, f.SupplierID, f.TaskIDs[0], SettlementCurrencyCode(),
 			f.Plan.BuyerChargePerTaskUSD, f.Plan.SupplierPayoutPerTaskUSD, 0, time.Now().UTC())
 		info := &CommitTaskInfo{
@@ -104,9 +98,7 @@ func TestPrepaidFundingSettlementDebitsOnceAndFailsClosed(t *testing.T) {
 		}
 		wantDebit := usdToMicros(f.Plan.BuyerChargePerTaskUSD)
 		balance, err := store.BuyerPrepaidBalanceMicros(ctx, f.BuyerID)
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		if balance != amount-wantDebit {
 			t.Fatalf("prepaid balance=%d, want %d", balance, amount-wantDebit)
 		}
@@ -129,9 +121,7 @@ func TestPrepaidFundingSettlementDebitsOnceAndFailsClosed(t *testing.T) {
 			SeedJob: true, SeedPlanRows: true, PrepaidRequired: true,
 		})
 		wantDebit := usdToMicros(f.Plan.BuyerChargePerTaskUSD)
-		if err := store.SeedPrepaidBalance(ctx, f.BuyerID, wantDebit-1, "seed-underfunded-"+uuid.NewString()); err != nil {
-			t.Fatal(err)
-		}
+		must(t, store.SeedPrepaidBalance(ctx, f.BuyerID, wantDebit-1, "seed-underfunded-"+uuid.NewString()))
 		entries := splitFrozenCharge(f.BuyerID, f.SupplierID, f.TaskIDs[0], SettlementCurrencyCode(),
 			f.Plan.BuyerChargePerTaskUSD, f.Plan.SupplierPayoutPerTaskUSD, 0, time.Now().UTC())
 		info := &CommitTaskInfo{
@@ -146,9 +136,7 @@ func TestPrepaidFundingSettlementDebitsOnceAndFailsClosed(t *testing.T) {
 			t.Fatalf("underfunded task status=%s, want verifying", got)
 		}
 		var ledgerRows int
-		if err := pool.QueryRow(ctx, `SELECT count(*) FROM ledger_entries WHERE task_id=$1`, f.TaskIDs[0]).Scan(&ledgerRows); err != nil {
-			t.Fatal(err)
-		}
+		must(t, pool.QueryRow(ctx, `SELECT count(*) FROM ledger_entries WHERE task_id=$1`, f.TaskIDs[0]).Scan(&ledgerRows))
 		if ledgerRows != 0 {
 			t.Fatalf("underfunded settlement wrote %d ledger rows", ledgerRows)
 		}
@@ -163,19 +151,11 @@ func TestPrepaidFundingSLAPremiumAndCollectionNet(t *testing.T) {
 			SLAPremium: 0.15, PrepaidRequired: true,
 		})
 		premium := usdToMicros(f.Plan.Input.SLAPremiumUSD)
-		if err := store.SeedPrepaidBalance(ctx, f.BuyerID, premium, "seed-sla-"+uuid.NewString()); err != nil {
-			t.Fatal(err)
-		}
-		if err := store.FinalizeJobTx(ctx, f.JobID); err != nil {
-			t.Fatalf("finalize SLA job: %v", err)
-		}
-		if err := store.FinalizeJobTx(ctx, f.JobID); err != nil {
-			t.Fatalf("repeat finalization: %v", err)
-		}
+		must(t, store.SeedPrepaidBalance(ctx, f.BuyerID, premium, "seed-sla-"+uuid.NewString()))
+		mustf(t, store.FinalizeJobTx(ctx, f.JobID), "finalize SLA job: %v")
+		mustf(t, store.FinalizeJobTx(ctx, f.JobID), "repeat finalization: %v")
 		balance, err := store.BuyerPrepaidBalanceMicros(ctx, f.BuyerID)
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		if balance != 0 {
 			t.Fatalf("SLA debit balance=%d, want 0", balance)
 		}
@@ -222,9 +202,7 @@ func TestPrepaidFundingSLAPremiumAndCollectionNet(t *testing.T) {
 			t.Fatalf("prepaid JobChargeInfo=(%v,%v), want nil/0", err, charge)
 		}
 		terminal, err := store.TerminalUnattemptedJobs(ctx, 20)
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		for _, id := range terminal {
 			if id == jobID {
 				t.Fatal("fully prepaid job reached terminal card collection")
@@ -234,9 +212,7 @@ func TestPrepaidFundingSLAPremiumAndCollectionNet(t *testing.T) {
 			t.Fatal(err)
 		}
 		buyers, err := store.BuyersDueForBatch(ctx, 0.50, time.Hour, 20)
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		for _, id := range buyers {
 			if id == buyerID {
 				t.Fatal("fully prepaid buyer reached batch card collection")
@@ -255,13 +231,9 @@ func TestDeferredSubmissionDoesNotRequirePrepaidReservation(t *testing.T) {
 	job := validJobRow(t, f, tasks)
 	// The zero-value authority represents a deferred/legacy job. No balance row
 	// exists and submission remains accepted, preserving rollback behaviour.
-	if err := store.SubmitJobTx(ctx, job, tasks); err != nil {
-		t.Fatalf("deferred submit without prepaid balance: %v", err)
-	}
+	mustf(t, store.SubmitJobTx(ctx, job, tasks), "deferred submit without prepaid balance: %v")
 	var prepaidRequired bool
-	if err := pool.QueryRow(ctx, `SELECT prepaid_required FROM jobs WHERE id=$1`, f.JobID).Scan(&prepaidRequired); err != nil {
-		t.Fatal(err)
-	}
+	must(t, pool.QueryRow(ctx, `SELECT prepaid_required FROM jobs WHERE id=$1`, f.JobID).Scan(&prepaidRequired))
 	if prepaidRequired {
 		t.Fatal("deferred test job unexpectedly froze prepaid funding")
 	}

@@ -119,9 +119,7 @@ func TestPlacementSnapshotAndClaimSharePayoutAndRuntimeEligibility(t *testing.T)
 		}
 	})
 
-	if err := store.SubmitJobTx(ctx, job, tasks); err != nil {
-		t.Fatalf("submit placement-parity job: %v", err)
-	}
+	mustf(t, store.SubmitJobTx(ctx, job, tasks), "submit placement-parity job: %v")
 	placement, err := placementRequirementFor(jobSubmit{
 		JobType:       job.WorkloadDecision.Binding.JobType,
 		Model:         job.WorkloadDecision.Binding.Model,
@@ -129,9 +127,7 @@ func TestPlacementSnapshotAndClaimSharePayoutAndRuntimeEligibility(t *testing.T)
 		Tier:          job.WorkloadDecision.Binding.Tier,
 		MinReputation: job.WorkloadDecision.Binding.MinReputation,
 	}, job.WorkloadDecision, job.OfferedRateUsdHr)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	strict := placement.supplyRequirements()
 	relaxed := strict
 	relaxed.OfferedRate = nil

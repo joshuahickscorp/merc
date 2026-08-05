@@ -31,9 +31,7 @@ func codeReferences(t *testing.T, path string, names []string) []string {
 	// No parser.ParseComments: comments are not code, and a file that documents
 	// why it must not read something is doing the right thing.
 	file, err := parser.ParseFile(fset, path, nil, 0)
-	if err != nil {
-		t.Fatalf("parse %s: %v", path, err)
-	}
+	mustf(t, err, "parse %s: %v", path)
 	wanted := make(map[string]bool, len(names))
 	for _, name := range names {
 		wanted[name] = true

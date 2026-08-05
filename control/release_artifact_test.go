@@ -21,9 +21,7 @@ import (
 // image-boot proof is a separate gate (scripts/test-release-image-boots.sh).
 func TestReleaseImageShipsEveryFileTheRouterServes(t *testing.T) {
 	dockerfile, err := os.ReadFile("../Dockerfile.control")
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	image := string(dockerfile)
 
 	// The price board, at the one absolute path the resolver looks for.
@@ -35,9 +33,7 @@ func TestReleaseImageShipsEveryFileTheRouterServes(t *testing.T) {
 
 	// Every page the router registers, whether by whole-directory copy or by name.
 	api, err := os.ReadFile("api.go")
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	shipsWholeTree := strings.Contains(image, "COPY web/ /web/")
 	for _, page := range []string{
 		"index.html", "buyer.html", "admin.html", "prices.html", "supplier.html",
@@ -75,9 +71,7 @@ func TestReleaseImageShipsEveryFileTheRouterServes(t *testing.T) {
 // administering. Require both identities to come from the same build arguments.
 func TestReleaseImageStampsServerAndCLIIdentity(t *testing.T) {
 	dockerfile, err := os.ReadFile("../Dockerfile.control")
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	image := string(dockerfile)
 	for _, binding := range []string{
 		"main.controlVersion=${MERC_BUILD_VERSION}",
@@ -96,9 +90,7 @@ func TestReleaseImageStampsServerAndCLIIdentity(t *testing.T) {
 // Production configuration must NAME the price board rather than discover it.
 func TestProductionComposeNamesThePriceBoard(t *testing.T) {
 	compose, err := os.ReadFile("../docker-compose.prod.yml")
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if !strings.Contains(string(compose), priceBoardPathEnv+":") {
 		t.Fatalf("docker-compose.prod.yml does not set %s. Discovery is what let a "+
 			"missing release artifact look like a working service on a developer "+
@@ -113,9 +105,7 @@ func TestProductionComposeNamesThePriceBoard(t *testing.T) {
 func TestPriceBoardResolutionRefusesWhatProductionMustRefuse(t *testing.T) {
 	// A repo checkout resolves, so development keeps working.
 	resolved, err := resolvePriceBoard("development")
-	if err != nil {
-		t.Fatalf("a repository checkout did not resolve a board: %v", err)
-	}
+	mustf(t, err, "a repository checkout did not resolve a board: %v")
 	if resolved.Source != "repo" && resolved.Source != "release" {
 		t.Errorf("unexpected source %q in development", resolved.Source)
 	}
@@ -159,9 +149,7 @@ func TestPriceBoardResolutionRefusesWhatProductionMustRefuse(t *testing.T) {
 	// made a checkable statement.
 	t.Setenv(priceBoardDigestEnv, strings.Repeat("a", 64))
 	got, err := resolvePriceBoard("production")
-	if err != nil {
-		t.Fatalf("a digest-declared override was refused: %v", err)
-	}
+	mustf(t, err, "a digest-declared override was refused: %v")
 	if got.Source != "env" || got.ExpectedDigest != strings.Repeat("a", 64) {
 		t.Fatalf("resolved = %+v", got)
 	}
@@ -172,9 +160,7 @@ func TestPriceBoardResolutionRefusesWhatProductionMustRefuse(t *testing.T) {
 func TestPriceBoardDigestMismatchIsRefused(t *testing.T) {
 	raw := []byte(`{"schema_version":1}`)
 	actual, err := verifyPriceBoardDigest(raw, "")
-	if err != nil {
-		t.Fatalf("no declared digest should never refuse: %v", err)
-	}
+	mustf(t, err, "no declared digest should never refuse: %v")
 	if len(actual) != 64 {
 		t.Fatalf("digest %q is not a sha256", actual)
 	}

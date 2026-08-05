@@ -14,8 +14,8 @@ log() { echo "[test-backup-age-metric] $*"; }
 for tool in go jq python3; do
   command -v "$tool" >/dev/null 2>&1 || die "missing dependency: $tool"
 done
-grep -Eq 'merc_backup_age_seconds\s*>\s*93600' "$ROOT/monitoring/alerts.yml" \
-  || die "MercBackupStale threshold missing from monitoring/alerts.yml"
+grep -Eq 'merc_backup_age_seconds\s*>\s*93600' "$ROOT/ops/monitoring/alerts.yml" \
+  || die "MercBackupStale threshold missing from ops/monitoring/alerts.yml"
 
 mkdir -p "$ART" "$(dirname "$EVIDENCE_OUT")"
 STATUS_FILE="$ART/last-successful-offsite-backup.unixtime"

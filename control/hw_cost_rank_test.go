@@ -21,9 +21,7 @@ func TestHardwareCostRankOrdersOwnedBeforeRented(t *testing.T) {
 		// reimplements the CASE would keep passing while the query it is meant
 		// to protect drifted.
 		q := "SELECT " + hwClassCostRankSQL("$1::text")
-		if err := store.pool.QueryRow(ctx, q, class).Scan(&got); err != nil {
-			t.Fatalf("rank(%q): %v", class, err)
-		}
+		mustf(t, store.pool.QueryRow(ctx, q, class).Scan(&got), "rank(%q): %v", class)
 		return got
 	}
 
@@ -87,9 +85,7 @@ func TestGoAndSQLCostRanksAgree(t *testing.T) {
 	sqlRank := func(class string) int {
 		var got int
 		q := "SELECT " + hwClassCostRankSQL("$1::text")
-		if err := store.pool.QueryRow(ctx, q, class).Scan(&got); err != nil {
-			t.Fatalf("sql rank(%q): %v", class, err)
-		}
+		mustf(t, store.pool.QueryRow(ctx, q, class).Scan(&got), "sql rank(%q): %v", class)
 		return got
 	}
 

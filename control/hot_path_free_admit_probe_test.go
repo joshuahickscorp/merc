@@ -25,7 +25,7 @@ import (
 //
 // It does NOT wire a production path that skips the durable contract insert —
 // that design dies under concurrent ceiling and crash recovery (see
-// docs/HOT_PATH_DURABLE_ADMISSION.md). It measures the surviving floor:
+// docs/RUNTIME_AND_PERF.md). It measures the surviving floor:
 // amortized O(1) durable holds still synchronous before dispatch.
 //
 // Opt-in:
@@ -116,9 +116,7 @@ func TestHotPathFreeAdmitProbe(t *testing.T) {
 			PerRequestCeilingNanos: needNanos,
 			TTLSeconds:             3600,
 		})
-		if err != nil {
-			t.Fatalf("create envelope: %v", err)
-		}
+		mustf(t, err, "create envelope: %v")
 		env = created
 	}
 
@@ -311,9 +309,7 @@ func TestHotPathFreeAdmitProbe(t *testing.T) {
 			ensureEnvelope()
 			parts, contractID, err := authorizeEnvelopeDirectClaimTimed(ctx, store, pool, buyerID, env.ID,
 				worker, profile, maxUSD, estUSD, maxPrompt, maxCompletion, needNanos)
-			if err != nil {
-				t.Fatalf("decomp sample %d: %v", i, err)
-			}
+			mustf(t, err, "decomp sample %d: %v", i)
 			begins = append(begins, parts.begin)
 			spends = append(spends, parts.envelopeSpend)
 			offers = append(offers, parts.directOffer)
@@ -435,26 +431,18 @@ func TestHotPathFreeAdmitProbe(t *testing.T) {
 			"safety of zero-durable-before-dispatch (disqualified by argument, not measured)",
 			"O(1) materialised committed-micros counter (named next step on short-reserve branch; not built here)",
 		},
-		"design_doc": "docs/HOT_PATH_DURABLE_ADMISSION.md",
+		"design_doc": "docs/RUNTIME_AND_PERF.md",
 	}
 
 	dir := filepath.Join("..", "evidence", "perf")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
-	}
+	must(t, os.MkdirAll(dir, 0o755))
 	ts := time.Now().UTC().Format("20060102T150405Z")
 	outPath := filepath.Join(dir, "hot-path-free-admit-"+ts+".json")
 	latest := filepath.Join(dir, "hot-path-free-admit-latest.json")
 	raw, err := json.MarshalIndent(payload, "", "  ")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(outPath, raw, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(latest, raw, 0o644); err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
+	must(t, os.WriteFile(outPath, raw, 0o644))
+	must(t, os.WriteFile(latest, raw, 0o644))
 	t.Logf("wrote %s and %s", outPath, latest)
 	fmt.Printf("HOT_PATH_FREE summary_table=%s\n", hotPathMustJSON(table))
 	fmt.Printf("HOT_PATH_FREE decomp_total_p50=%.3f envelope_spend_p50=%.3f direct_offer_p50=%.3f contract_batch_p50=%.3f commit_p50=%.3f\n",

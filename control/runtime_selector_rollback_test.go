@@ -20,9 +20,7 @@ func TestAdminSelectorRollbackReachesAppendOnlyPolicy(t *testing.T) {
 		t.Fatalf("apply promotion fixture: %v", err)
 	}
 	var promotedRevision int64
-	if err := pool.QueryRow(ctx, `SELECT MAX(policy_revision) FROM runtime_activation_policies`).Scan(&promotedRevision); err != nil {
-		t.Fatal(err)
-	}
+	must(t, pool.QueryRow(ctx, `SELECT MAX(policy_revision) FROM runtime_activation_policies`).Scan(&promotedRevision))
 	if got := lifecycleOfCell(t, ctx, pool, "llama_cpp_metal", llamaEmbedCell); got != runtimeLifecycleCanary {
 		t.Fatalf("fixture cell lifecycle=%s, want CANARY", got)
 	}
@@ -31,9 +29,7 @@ func TestAdminSelectorRollbackReachesAppendOnlyPolicy(t *testing.T) {
 		TargetPolicyRevision: promotedRevision - 1,
 		Note:                 "selector challenger failed the bounded canary; restore incumbent",
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	req := httptest.NewRequest(http.MethodPost, "/admin/runtime/selector/rollback", bytes.NewReader(body))
 	rec := httptest.NewRecorder()
 	(&Server{store: store}).handleAdminSelectorRollback(rec, req)
@@ -45,9 +41,7 @@ func TestAdminSelectorRollbackReachesAppendOnlyPolicy(t *testing.T) {
 		PolicyRevision         int64 `json:"policy_revision"`
 		RollbackTargetRevision int64 `json:"rollback_target_revision"`
 	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
-		t.Fatal(err)
-	}
+	must(t, json.Unmarshal(rec.Body.Bytes(), &response))
 	if !response.ActivationApplied || response.PolicyRevision <= promotedRevision ||
 		response.RollbackTargetRevision != promotedRevision-1 {
 		t.Fatalf("rollback response lost forward policy authority: %+v", response)

@@ -21,18 +21,14 @@ func TestWarmthConsumersTreatFreshStateAsWarm(t *testing.T) {
 
 	// quote.go:1054-1071 — WarmEligibleWorkerCountFor
 	n, err := store.WarmEligibleWorkerCount(ctx, "embed", modelID, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if n < 1 {
 		t.Fatalf("fresh measured warm row not counted by quote: n=%d", n)
 	}
 
 	// planner.go:236-256 via FleetRateSnapshot — Warm flag
 	rows, err := store.FleetRateSnapshot(ctx, "embed", modelID, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	warm := false
 	for _, r := range rows {
 		if r.WorkerID == workerID && r.Warm {
@@ -48,9 +44,7 @@ func TestWarmthConsumersTreatFreshStateAsWarm(t *testing.T) {
 	// EXISTS. A fresh row means the worker is NOT a cold-model straggler.
 	taskID := seedRunningTaskForWorker(t, ctx, pool, workerID, "embed", modelID)
 	cold, err := store.isColdModelStraggler(ctx, taskID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if cold {
 		t.Fatal("fresh measured warm row classified worker as cold-model straggler")
 	}
@@ -106,9 +100,7 @@ func TestEvictedModelStopsBeingWarmWithinOneHeartbeat(t *testing.T) {
 		t.Fatalf("evicted model still has worker_model_state row (count=%d)", rows)
 	}
 	n, err = store.WarmEligibleWorkerCount(ctx, "batch_infer", modelID, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if n != 0 {
 		t.Fatalf("evicted model still counted warm by quote: n=%d", n)
 	}
@@ -136,9 +128,7 @@ func TestServiceLeaseOfferCannotAdvertiseMoreWarmThanMeasured(t *testing.T) {
 	offer.MaximumWarmReplicas, offer.AvailableWarmReplicas = 3, 3
 
 	// Unmeasurable: no worker_model_state row → available must be zero.
-	if err := store.UpsertServiceLeaseOffer(ctx, worker, offer); err != nil {
-		t.Fatal(err)
-	}
+	must(t, store.UpsertServiceLeaseOffer(ctx, worker, offer))
 	var available int
 	if err := pool.QueryRow(ctx, `SELECT available_warm_replicas FROM service_lease_worker_offers
 		WHERE worker_id=$1 AND runtime_profile_id=$2 AND region=$3`,
@@ -151,9 +141,7 @@ func TestServiceLeaseOfferCannotAdvertiseMoreWarmThanMeasured(t *testing.T) {
 
 	// Measured warm for the profile model unlocks the declared capacity.
 	seedMeasuredWarmResidency(t, ctx, pool, worker.WorkerID, profile.ModelAlias)
-	if err := store.UpsertServiceLeaseOffer(ctx, worker, offer); err != nil {
-		t.Fatal(err)
-	}
+	must(t, store.UpsertServiceLeaseOffer(ctx, worker, offer))
 	if err := pool.QueryRow(ctx, `SELECT available_warm_replicas FROM service_lease_worker_offers
 		WHERE worker_id=$1 AND runtime_profile_id=$2 AND region=$3`,
 		worker.WorkerID, profile.RuntimeProfileID, offer.Region).Scan(&available); err != nil {
@@ -169,9 +157,7 @@ func TestServiceLeaseOfferCannotAdvertiseMoreWarmThanMeasured(t *testing.T) {
 		worker.WorkerID, profile.ModelAlias); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.UpsertServiceLeaseOffer(ctx, worker, offer); err != nil {
-		t.Fatal(err)
-	}
+	must(t, store.UpsertServiceLeaseOffer(ctx, worker, offer))
 	if err := pool.QueryRow(ctx, `SELECT available_warm_replicas FROM service_lease_worker_offers
 		WHERE worker_id=$1 AND runtime_profile_id=$2 AND region=$3`,
 		worker.WorkerID, profile.RuntimeProfileID, offer.Region).Scan(&available); err != nil {

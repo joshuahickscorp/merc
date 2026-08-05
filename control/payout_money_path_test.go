@@ -36,9 +36,7 @@ func TestReservePayoutFundingUnderfundingFailsClosed(t *testing.T) {
 	})
 
 	claimed, ok, err := store.ClaimPayout(ctx, f.entryID)
-	if err != nil {
-		t.Fatalf("ClaimPayout: %v", err)
-	}
+	mustf(t, err, "ClaimPayout: %v")
 	if ok {
 		t.Fatalf("underfunded claim succeeded: %+v", claimed)
 	}
@@ -62,9 +60,7 @@ func TestReservePayoutFundingIdempotentDoesNotDoubleReserve(t *testing.T) {
 	f := seedPayoutFixture(t, ctx, pool, payoutFixtureOpts{creditUSD: 1.00})
 
 	tx, err := pool.Begin(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	defer tx.Rollback(ctx)
 
 	taskID := f.taskID
@@ -79,9 +75,7 @@ func TestReservePayoutFundingIdempotentDoesNotDoubleReserve(t *testing.T) {
 	if id1 != id2 {
 		t.Fatalf("idempotent reserve returned different funding ids %v vs %v", id1, id2)
 	}
-	if err := tx.Commit(ctx); err != nil {
-		t.Fatal(err)
-	}
+	must(t, tx.Commit(ctx))
 	n, reserved := countFundingRows(t, ctx, pool, f.paymentIntent)
 	if n != 1 || reserved != f.creditCents {
 		t.Fatalf("double-reserve leaked rows=%d reserved=%d want 1/%d", n, reserved, f.creditCents)
@@ -175,9 +169,7 @@ func TestAuthorizePayoutSubsidyWithinBalanceRefuseBeyondIdempotent(t *testing.T)
 
 	// Idempotent re-auth with same operation key (fund + authorization_ref + reason + amount).
 	ok, err = store.AuthorizePayoutSubsidy(ctx, actor, f1.entryID, fundRef, authRef1, "cover first liability")
-	if err != nil {
-		t.Fatalf("idempotent subsidy re-auth: %v", err)
-	}
+	mustf(t, err, "idempotent subsidy re-auth: %v")
 	if ok {
 		t.Fatal("idempotent subsidy reported created=true on replay")
 	}
@@ -328,16 +320,12 @@ func TestResolveDisputeBlocksPayoutTerminalControlsNoDoubleRefund(t *testing.T) 
 
 	// Open dispute blocks claim.
 	disputeID, err := store.RecordDispute(ctx, f.jobID, f.buyerID, "buyer reports mismatched output")
-	if err != nil {
-		t.Fatalf("RecordDispute: %v", err)
-	}
+	mustf(t, err, "RecordDispute: %v")
 	if _, claimed, err := store.ClaimPayout(ctx, f.entryID); err != nil || claimed {
 		t.Fatalf("open dispute still claimed: claimed=%v err=%v", claimed, err)
 	}
 	due, err := store.DuePayouts(ctx, 100)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	for _, e := range due {
 		if e.ID == f.entryID {
 			t.Fatal("open-dispute credit appeared in DuePayouts")
@@ -345,13 +333,9 @@ func TestResolveDisputeBlocksPayoutTerminalControlsNoDoubleRefund(t *testing.T) 
 	}
 
 	// Rejected → may proceed.
-	if err := store.SetDisputeStatus(ctx, disputeID, "rejected"); err != nil {
-		t.Fatalf("reject: %v", err)
-	}
+	mustf(t, store.SetDisputeStatus(ctx, disputeID, "rejected"), "reject: %v")
 	due, err = store.DuePayouts(ctx, 100)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	found := false
 	for _, e := range due {
 		if e.ID == f.entryID {
@@ -364,12 +348,8 @@ func TestResolveDisputeBlocksPayoutTerminalControlsNoDoubleRefund(t *testing.T) 
 
 	// File successor and uphold → clawback once.
 	upheldID, err := store.RecordDispute(ctx, f.jobID, f.buyerID, "independent review still shows a bad result")
-	if err != nil {
-		t.Fatalf("successor dispute: %v", err)
-	}
-	if err := store.SetDisputeStatus(ctx, upheldID, "upheld"); err != nil {
-		t.Fatalf("uphold: %v", err)
-	}
+	mustf(t, err, "successor dispute: %v")
+	mustf(t, store.SetDisputeStatus(ctx, upheldID, "upheld"), "uphold: %v")
 	var clawbacks int
 	if err := pool.QueryRow(ctx, `
 		SELECT count(*) FROM ledger_entries
@@ -438,22 +418,16 @@ func TestWorkerEarningsMatchesLedgerRows(t *testing.T) {
 	}
 	// Persist minor-unit settlement for the held row so carried remainder is visible.
 	tx, err := pool.Begin(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	liability := usdToMicros(1.234567)
 	if _, _, err := persistMinorUnitSettlement(ctx, tx, held.entryID, liability); err != nil {
 		tx.Rollback(ctx)
 		t.Fatalf("persist settlement: %v", err)
 	}
-	if err := tx.Commit(ctx); err != nil {
-		t.Fatal(err)
-	}
+	must(t, tx.Commit(ctx))
 
 	earnings, err := store.WorkerEarnings(ctx, released.supplierID)
-	if err != nil {
-		t.Fatalf("WorkerEarnings: %v", err)
-	}
+	mustf(t, err, "WorkerEarnings: %v")
 
 	// Recompute from ledger the same way a support engineer would.
 	var balanceUSD, lifetimeUSD, carriedUSD float64

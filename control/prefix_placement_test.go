@@ -84,9 +84,7 @@ func TestPrefixAffinityCostRankGateIsLoadBearing(t *testing.T) {
 	// WarmPrefixDepth. A rewrite that drops the CostRank arm fails here even
 	// if the pure behavioural test above is edited in the same change.
 	src, err := os.ReadFile("prefix_placement.go")
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	body := string(src)
 	fnStart := strings.Index(body, "func RankByCostThenPrefixAffinity")
 	if fnStart < 0 {

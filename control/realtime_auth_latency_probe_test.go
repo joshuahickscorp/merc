@@ -45,14 +45,10 @@ func TestRealtimeAuthLatencyProbe(t *testing.T) {
 	// by runtime_profile_id, not buyer_id.
 	buyerID, err := store.CreateBuyerAccount(ctx,
 		"auth-lat-"+uuid.NewString()+"@example.test", "integration-password", 10_000)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	ballastBuyerID, err := store.CreateBuyerAccount(ctx,
 		"auth-lat-ballast-"+uuid.NewString()+"@example.test", "integration-password", 1)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 
 	// One live offer with huge capacity for concurrent authorizations.
 	worker := newRealtimeClearingOffer(t, ctx, store, pool, profile, "HOT", 0.08, 0.30, 10_000)
@@ -221,9 +217,7 @@ func TestRealtimeAuthLatencyProbe(t *testing.T) {
 	path := filepath.Join(dir, name)
 	id, bin, err := DefaultBoundIdentity("..", "control/realtime_auth_latency_probe_test.go",
 		"embedded scope + cells", "embedded cells[].samples")
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if err := WriteBoundEvidenceJSON(EvidenceWriteRequest{
 		RepoRoot: "..", Path: path, Payload: out,
 		Identity: id, BuildBinaryPath: bin,
@@ -322,9 +316,7 @@ func seedBulkTerminalContracts(
 	failed := n - verified
 
 	tx, err := pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("begin bulk seed: %v", err)
-	}
+	mustf(t, err, "begin bulk seed: %v")
 	defer tx.Rollback(ctx)
 
 	// Bypass user triggers for bulk synthetic history only. Production writes
@@ -357,9 +349,7 @@ func seedBulkTerminalContracts(
 		  FROM generate_series(1, $7) g`,
 		buyerID, profile.ModelAlias, profile.RuntimeProfileID, profile.ProfileSHA256,
 		worker.WorkerID, worker.SupplierID, failed)
-	if err != nil {
-		t.Fatalf("bulk fail seed: %v", err)
-	}
+	mustf(t, err, "bulk fail seed: %v")
 
 	_, err = tx.Exec(ctx, `
 		WITH ins AS (
@@ -406,12 +396,8 @@ func seedBulkTerminalContracts(
 		  FROM execs`,
 		buyerID, profile.ModelAlias, profile.RuntimeProfileID, profile.ProfileSHA256,
 		worker.WorkerID, worker.SupplierID, verified)
-	if err != nil {
-		t.Fatalf("bulk verified seed: %v", err)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		t.Fatalf("commit bulk seed: %v", err)
-	}
+	mustf(t, err, "bulk verified seed: %v")
+	mustf(t, tx.Commit(ctx), "commit bulk seed: %v")
 
 	// Rebuild counters from the same aggregate the drift check uses.
 	if _, err := pool.Exec(ctx, `
