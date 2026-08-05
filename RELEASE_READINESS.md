@@ -20,7 +20,7 @@ requires at least 95, zero open P0/P1, all mandatory scenarios, and a passing
 24-hour soak. Recompute with `python3 scripts/validate-readiness.py`. The
 decision ledger is `ops/go-no-go.json`; the advisory domain ledger is
 `ops/readiness.json` (hand-typed `earned` is ignored). The operator checklist
-for the remaining 16 points is `docs/FACET_EXTERNAL_ACTION_PACK.md`.
+for the remaining 16 points is `docs/PROGRAMME.md § "Facet external action pack"`.
 
 ## What is proven
 

@@ -22,11 +22,11 @@ Every cycle must distinguish implementation, automated tests, real-runtime
 proof, private-canary proof, production proof, and external blockers. A route,
 mock, unit test, dashboard, or unmeasured claim is never promoted to a higher
 proof level. The current detailed state is maintained in
-`docs/SHIPPABILITY_STATUS.md` (per-lane rung) and `RELEASE_READINESS.md` with
+`docs/PROGRAMME.md § "Merc shippability status"` (per-lane rung) and `RELEASE_READINESS.md` with
 `ops/go-no-go.json` (release decision). `REQUIREMENT_PROOF_MATRIX.md` is a
 superseded 2026-07-21 snapshot kept only as an audit trail. `VLLM_LANE_STATUS.md`
 was named here but has never existed in this repository; the vLLM lane's current
-rung lives in `docs/SHIPPABILITY_STATUS.md` alongside every other lane.
+rung lives in `docs/PROGRAMME.md § "Merc shippability status"` alongside every other lane.
 
 Until the complete source text is imported through the normal documentation
 review path, the source with the digest above remains authoritative if this
@@ -932,7 +932,7 @@ even at 100%; the M3 Pro measured 138.7.
 
 The platform could take nothing at all and the supplier would still miss their
 power bill by 0.13%. This knob closes 78% of the gap and cannot close the rest,
-because the rest is a hardware fact. See `docs/SPEED_LANE_2026-07-27.md` — the
+because the rest is a hardware fact. See `docs/RUNTIME_AND_PERF.md § "Speed lane, measured 2026-07-27"` — the
 M3 Ultra measurement changes this arithmetic materially.
 
 ## Landed today
@@ -1133,7 +1133,7 @@ it was mostly done to shared machinery that the batch lane uses too:
 AI lane is. Market research commissioned the same day found that no AI inference
 lane pays a supplier above electricity at market prices, and that the best
 non-AI lane — deadline-tolerant GPU rendering — is roughly three orders of
-magnitude better per supplier-hour. See `docs/LANE_RESEARCH.md`. That is a
+magnitude better per supplier-hour. See `docs/PROGRAMME.md § "Which lane can actually pay a supplier"`. That is a
 separate decision and it is still open.
 
 
@@ -1144,7 +1144,7 @@ separate decision and it is still open.
 **Status: EXECUTED 2026-07-27.** The MERC COMPLETE-SHIPPABILITY goal is the
 owner directive that supersedes `[KILL-RT]`; the lane is restored and green.
 
-`docs/DECISION_ZERO_OUTCOME.md` recorded `[KILL-RT]` on 2026-07-26: the
+`docs/ARCHITECTURE.md § "Decision Zero — resolved: `[KILL-RT]`"` recorded `[KILL-RT]` on 2026-07-26: the
 OpenAI-compatible realtime lane was removed from the product and preserved as a
 checksummed snapshot. The MERC COMPLETE-SHIPPABILITY goal lists that lane first
 and says "Do not narrow launch to batch only", which reverses it.
@@ -1902,7 +1902,7 @@ Authorization / route counts disagree across sources. Both sides retained.
 | Claim | Source |
 |---|---|
 | **110** method/path registrations | `docs/SECURITY.md` (frozen; not merged into this file) |
-| **76 / 77** route figures | `docs/DECISION_ZERO_REVERSAL.md` (absorbed above) |
+| **76 / 77** route figures | `docs/ARCHITECTURE.md § "Decision Zero reversal — `[KEEP-RT]` supersedes `[KILL-RT]`"` (absorbed above) |
 
 Compare `ops/authorization-matrix.json` at execution time. Do not treat merge as picking a winner.
 

@@ -436,7 +436,7 @@ func TestWriteCellEconomicsCensusReceipt(t *testing.T) {
 				"expression":                "required = units/1000 × price × share (unitsPerSec cancels)",
 			},
 			"authority": []string{
-				"docs/MASTER_PROGRAMME_LEDGER.md",
+				"docs/PROGRAMME.md",
 				"control/pricing_decision.go#exactTaskEconomics",
 				"control/runtime_cell_economics.go",
 			},
