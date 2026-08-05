@@ -25,9 +25,11 @@
   ],
   "measured_advantage": {
     "id": "routing_crossover",
-    "verdict": "MEASURED, real",
+    "verdict": "MEASURED SHAPE, real. ABSOLUTE THROUGHPUT NOT COMPARABLE.",
     "detail": "Metal 14.4ms TTFT at concurrency 1 vs CUDA 181ms; CUDA 1617 tok/s aggregate at concurrency 16 vs Metal 211 with a 5.0s TTFT collapse. Opposite ends, sharp crossover, and a homogeneous fleet cannot exploit it because it needs two physically different machines, one outside any datacenter.",
-    "not_yet_exploited": "control/scheduler.go filters by hw_class and cost rank but nothing routes on workload SHAPE. The crossover is measured and unused."
+    "not_yet_exploited": "control/scheduler.go filters by hw_class and cost rank but nothing routes on workload SHAPE. The crossover is measured and unused.",
+    "comparability_caveat": "Different models and precision: 3B Q4_K_M on Metal, 1.5B fp16 on CUDA. Absolute throughput is NOT comparable between the arms. What is comparable, because both are model-independent, is the SHAPE: the TTFT gap at concurrency 1 is dominated by local-vs-network round trip, and the collapse at 16 is an engine property (llama.cpp has no continuous batching, vLLM does). Source: evidence/perf/routing-crossover.json comparability_caveat.",
+    "correction": "This entry previously read 'MEASURED, real' and quoted 14.4 ms vs 181 ms and 1617 vs 211 tok/s with no mention that the arms are different models at different precision. The caveat was present in the cited receipt and dropped at this surface, which is the one likely to be quoted. The numbers are unchanged and correct for what they measured; the verdict and the caveat are what was wrong. A like-for-like absolute comparison has never been run."
   },
   "honest_position": "merc has partially built infrastructure for a verified heterogeneous compute market. The structural story is real and now has one measured advantage behind it. The money-complete, demand-relevant product is not finished: suppliers cannot be paid in real currency, small jobs pay them zero, and the reuse economy that would survive falling token prices is dead code.",
   "binding_status": "UNBOUND",
