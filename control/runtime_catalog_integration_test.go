@@ -15,22 +15,14 @@ func TestRuntimeCatalogPriceIsStableAcrossMigration(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	pool, err := pgxpool.New(ctx, databaseURL)
-	if err != nil {
-		t.Fatalf("connect disposable PostgreSQL: %v", err)
-	}
+	mustf(t, err, "connect disposable PostgreSQL: %v")
 	defer pool.Close()
 	store := NewStore(pool)
-	if err := store.Migrate(ctx); err != nil {
-		t.Fatalf("first migration: %v", err)
-	}
+	mustf(t, store.Migrate(ctx), "first migration: %v")
 	schedule, err := BuildCataloguePriceSchedule()
-	if err != nil {
-		t.Fatalf("build catalogue schedule: %v", err)
-	}
+	mustf(t, err, "build catalogue schedule: %v")
 	updated, err := store.ApplyRepricing(ctx, schedule)
-	if err != nil {
-		t.Fatalf("apply measured schedule: updated=%d err=%v", updated, err)
-	}
+	mustf(t, err, "apply measured schedule: updated=%d err=%v", updated)
 	if updated != 0 && updated != len(schedule.Results) {
 		t.Fatalf("atomic schedule updated %d/%d model rows", updated, len(schedule.Results))
 	}
@@ -53,9 +45,7 @@ func TestRuntimeCatalogPriceIsStableAcrossMigration(t *testing.T) {
 			       COALESCE(price_schedule_sha256,''),
 			       COALESCE(price_schedule_version,0)
 			  FROM models ORDER BY id`)
-		if err != nil {
-			t.Fatalf("read prices: %v", err)
-		}
+		mustf(t, err, "read prices: %v")
 		defer rows.Close()
 		out := make(map[string]priceState)
 		for rows.Next() {
@@ -86,9 +76,7 @@ func TestRuntimeCatalogPriceIsStableAcrossMigration(t *testing.T) {
 			t.Fatalf("%s not bound to exact catalogue schedule: %+v", result.ModelID, state)
 		}
 		authority, err := store.LoadCataloguePriceAuthority(ctx, result.ModelID)
-		if err != nil {
-			t.Fatalf("load composite price authority for %s: %v", result.ModelID, err)
-		}
+		mustf(t, err, "load composite price authority for %s: %v", result.ModelID)
 		if authority.ScheduleSHA256 != schedule.SHA256 ||
 			authority.BoardSHA256 != schedule.BoardSHA256 ||
 			authority.FXRevision != schedule.FXRevision ||
@@ -105,9 +93,7 @@ func TestRuntimeCatalogPriceIsStableAcrossMigration(t *testing.T) {
 	); err == nil {
 		t.Fatal("direct mutation of schedule-bound model price was accepted")
 	}
-	if err := store.Migrate(ctx); err != nil {
-		t.Fatalf("repeat migration: %v", err)
-	}
+	mustf(t, store.Migrate(ctx), "repeat migration: %v")
 	after := read()
 	if len(before) != len(after) {
 		t.Fatalf("catalog size changed: before=%d after=%d", len(before), len(after))
@@ -125,9 +111,7 @@ func TestRuntimeCatalogPriceIsStableAcrossMigration(t *testing.T) {
 		}
 	}
 	replayed, err := store.ApplyRepricing(ctx, schedule)
-	if err != nil {
-		t.Fatalf("idempotent schedule replay: %v", err)
-	}
+	mustf(t, err, "idempotent schedule replay: %v")
 	if replayed != 0 {
 		t.Fatalf("idempotent schedule replay rewrote %d model rows", replayed)
 	}
@@ -172,18 +156,12 @@ func TestApplyRepricingRollsBackEveryModelWhenOneTargetUpdateFails(t *testing.T)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	pool, err := pgxpool.New(ctx, databaseURL)
-	if err != nil {
-		t.Fatalf("connect disposable PostgreSQL: %v", err)
-	}
+	mustf(t, err, "connect disposable PostgreSQL: %v")
 	defer pool.Close()
 	store := NewStore(pool)
-	if err := store.Migrate(ctx); err != nil {
-		t.Fatal(err)
-	}
+	must(t, store.Migrate(ctx))
 	schedule, err := BuildCataloguePriceSchedule()
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	// Use a distinct valid schedule identity so this test proves a new apply,
 	// even when a prior suite run already installed the shipped schedule.
 	schedule.BoardFetchedAt += "-rollback-test"
@@ -191,12 +169,8 @@ func TestApplyRepricingRollsBackEveryModelWhenOneTargetUpdateFails(t *testing.T)
 		schedule.Results[i].Formula += " rollback_test=1"
 	}
 	schedule.SHA256, err = cataloguePriceScheduleDigest(schedule)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := validateCataloguePriceSchedule(schedule); err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
+	must(t, validateCataloguePriceSchedule(schedule))
 
 	first := schedule.Results[0].ModelID
 	var beforePrice float64

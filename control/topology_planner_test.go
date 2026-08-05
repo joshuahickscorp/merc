@@ -36,9 +36,7 @@ func TestPlanTopologyChoosesBoundedIndependentShapes(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			plan, err := PlanTopology(tc.req)
-			if err != nil {
-				t.Fatal(err)
-			}
+			must(t, err)
 			if plan.Status != "ACCEPTED" || plan.SchedulerShape != tc.shape || plan.PlacementMode != tc.mode || plan.Reason == "" {
 				t.Fatalf("plan=%+v", plan)
 			}
@@ -56,9 +54,7 @@ func TestPlanTopologyRequiresMeasuredFabricForLocalGang(t *testing.T) {
 		Fabric:                     FabricUnknown,
 		CommunityCapacityAvailable: true,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if unknown.Status != "REFUSED" || unknown.SchedulerShape != "" || unknown.PlacementMode != "" {
 		t.Fatalf("unmeasured fabric was admitted: %+v", unknown)
 	}
@@ -73,9 +69,7 @@ func TestPlanTopologyRequiresMeasuredFabricForLocalGang(t *testing.T) {
 		CommunityCapacityAvailable: true,
 		CandidateDeviceCount:       4,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if measured.Status != "ACCEPTED" || measured.SchedulerShape != TopologyLocalGang || measured.PlacementMode != ModeLocalCluster || measured.Parallelism != "tensor_parallel" {
 		t.Fatalf("measured fabric did not admit local gang: %+v", measured)
 	}
@@ -84,9 +78,7 @@ func TestPlanTopologyRequiresMeasuredFabricForLocalGang(t *testing.T) {
 		Parallelism: WorkloadParallelism{Mode: "tensor_parallel", TensorParallelDegree: 4},
 		Fabric:      FabricLowLatencySite, CandidateDeviceCount: 3,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if tooFew.Status != "REFUSED" || !strings.Contains(tooFew.Reason, "exceeds") {
 		t.Fatalf("planner shrank a gang to fit insufficient devices: %+v", tooFew)
 	}
@@ -98,9 +90,7 @@ func TestPlanTopologyUsesProviderOnlyForAdmittedTightGang(t *testing.T) {
 		Parallelism:   WorkloadParallelism{Mode: "pipeline_parallel", TensorParallelDegree: 2},
 		Fabric:        FabricWAN, CloudBackstopPermitted: true,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if plan.Status != "ACCEPTED" || plan.PlacementMode != ModeCloudBackstop || plan.SchedulerShape != TopologyCloudBackstopGang {
 		t.Fatalf("tight WAN plan did not use explicit provider gang: %+v", plan)
 	}
@@ -134,9 +124,7 @@ func TestPlanTopologyFromCurrentFabricEvaluationNeverPromotesSyntheticEvidence(t
 		Parallelism:                WorkloadParallelism{Mode: "tensor_parallel", TensorParallelDegree: 2},
 		CommunityCapacityAvailable: true,
 	}, now)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if plan.Status != "REFUSED" || plan.Fabric != FabricUnknown || plan.PlacementMode != "" || plan.SchedulerShape != "" {
 		t.Fatalf("synthetic topology evidence promoted a tight plan: %+v", plan)
 	}
@@ -167,9 +155,7 @@ func TestPlanTopologyFromFabricEvaluationRequiresAnExplicitFutureAdmission(t *te
 		CandidateDeviceCount:       2,
 		CommunityCapacityAvailable: true,
 	}, now)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if plan.Status != "ACCEPTED" || plan.Fabric != FabricLowLatencySite || plan.PlacementMode != ModeLocalCluster || plan.SchedulerShape != TopologyLocalGang {
 		t.Fatalf("explicitly admitted fabric did not produce the bounded local gang plan: %+v", plan)
 	}
@@ -205,9 +191,7 @@ func TestPlanTopologyFromFabricEvaluationRefusesStaleOrForgedAdmission(t *testin
 				Parallelism:                WorkloadParallelism{Mode: "tensor_parallel", TensorParallelDegree: 2},
 				CommunityCapacityAvailable: true,
 			}, now)
-			if err != nil {
-				t.Fatal(err)
-			}
+			must(t, err)
 			if plan.Status != "REFUSED" || plan.Fabric != FabricUnknown || plan.PlacementMode != "" {
 				t.Fatalf("%s forged/stale evaluation was admitted: %+v", tc.name, plan)
 			}

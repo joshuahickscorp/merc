@@ -51,9 +51,7 @@ const twoAgentEnrolTimeout = 600 * time.Second
 func agentBinaryPath(t *testing.T) string {
 	t.Helper()
 	path, err := filepath.Abs(filepath.Join("..", "agent", "target", "release", "merc-agent"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if _, err := os.Stat(path); err != nil {
 		t.Skipf("no release agent at %s; run `cargo build --release` in agent/", path)
 	}
@@ -66,9 +64,7 @@ func agentBinaryPath(t *testing.T) string {
 func repoSandboxProfilePath(t *testing.T) string {
 	t.Helper()
 	path, err := filepath.Abs(filepath.Join("..", "clients", "macapp", "ComputeExchangeAgent", "merc-agent.sb"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("seatbelt profile missing at %s: %v", path, err)
 	}
@@ -103,15 +99,11 @@ func launchAgent(
 	}
 	// The credential, and nothing else. The agent does the rest itself.
 	token, err := store.CreateWorkerToken(ctx, workerID, supplierID)
-	if err != nil {
-		t.Fatalf("%s: issue worker token: %v", name, err)
-	}
+	mustf(t, err, "%s: issue worker token: %v", name)
 
 	home := t.TempDir()
 	dataDir := filepath.Join(home, "data")
-	if err := os.MkdirAll(dataDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
+	must(t, os.MkdirAll(dataDir, 0o755))
 	configPath := filepath.Join(home, "agent.toml")
 	// Every field the agent requires. power_only has no serde default, so an
 	// otherwise-valid config without it fails to parse before the process does
@@ -129,15 +121,11 @@ checkpoint_secs = 30
 embed_runtime = %q
 llama_embed_base_url = %q
 `, controlURL, token, supplierID, dataDir, embedRuntime, llamaURL)
-	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	must(t, os.WriteFile(configPath, []byte(config), 0o600))
 
 	logPath := filepath.Join(home, "agent.log")
 	logFile, err := os.Create(logPath)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 
 	cmd := exec.Command(agentBinaryPath(t), "run", "--config", configPath)
 	cmd.Dir = home
@@ -155,9 +143,7 @@ llama_embed_base_url = %q
 		"MERC_SANDBOX_PROFILE="+repoSandboxProfilePath(t),
 	)
 	cmd.Stdout, cmd.Stderr = logFile, logFile
-	if err := cmd.Start(); err != nil {
-		t.Fatalf("%s: start agent: %v", name, err)
-	}
+	mustf(t, cmd.Start(), "%s: start agent: %v", name)
 	t.Cleanup(func() {
 		if cmd.Process != nil {
 			_ = cmd.Process.Kill()
@@ -281,9 +267,7 @@ func TestTwoDistinctAgentsEnrolAutonomously(t *testing.T) {
 			t.Fatalf("%s: enrolled against unregistered profile %q", name, got.profileID)
 		}
 		want, err := profile.CapabilityDigest(runtimeAuthorityModels)
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		if got.digest != want || got.revision != profile.Revision {
 			t.Errorf("%s: stored %s/%s, authority says %s/%s",
 				name, got.revision, got.digest, profile.Revision, want)
@@ -388,18 +372,14 @@ func TestDirectedJobsReachOnlyTheIntendedAgent(t *testing.T) {
 			tasks := makeTasks(f, 1)
 			f.TaskIDs = []uuid.UUID{tasks[0].ID}
 			job := validJobRowDirected(t, f, tasks, tc.cell)
-			if err := store.SubmitJobTx(ctx, job, tasks); err != nil {
-				t.Fatalf("submit directed job: %v", err)
-			}
+			mustf(t, store.SubmitJobTx(ctx, job, tasks), "submit directed job: %v")
 
 			// The agent that does NOT hold this cell must not claim it, whatever
 			// else it is capable of.
 			wrong, err := store.ClaimTasksTx(ctx, WorkerAuth{
 				WorkerID: tc.other.workerID, SupplierID: tc.other.supplierID,
 			})
-			if err != nil {
-				t.Fatalf("wrong-agent claim: %v", err)
-			}
+			mustf(t, err, "wrong-agent claim: %v")
 			if wrong != nil {
 				t.Fatalf("%s claimed a job directed to %s", tc.other.name, tc.cell)
 			}
@@ -408,9 +388,7 @@ func TestDirectedJobsReachOnlyTheIntendedAgent(t *testing.T) {
 			right, err := store.ClaimTasksTx(ctx, WorkerAuth{
 				WorkerID: tc.intended.workerID, SupplierID: tc.intended.supplierID,
 			})
-			if err != nil {
-				t.Fatalf("intended-agent claim: %v", err)
-			}
+			mustf(t, err, "intended-agent claim: %v")
 			if right == nil {
 				t.Fatalf("%s did not receive the job directed to its own cell %s",
 					tc.intended.name, tc.cell)
@@ -491,9 +469,7 @@ func TestBothAgentsExecuteADirectedJobEndToEnd(t *testing.T) {
 			_ = artifacts.storage.RemoveObjects(c, []string{job.InputRef, tasks[0].InputRef})
 		})
 
-		if err := store.SubmitJobTx(jobCtx, job, tasks); err != nil {
-			t.Fatalf("%s: submit: %v", tc.name, err)
-		}
+		mustf(t, store.SubmitJobTx(jobCtx, job, tasks), "%s: submit: %v", tc.name)
 
 		// Wait for the agent to take it all the way to a commit, on its own.
 		body, resultKey := waitForCommittedResult(t, jobCtx, pool, artifacts, tasks[0].ID, tc.name)
@@ -518,9 +494,7 @@ func TestBothAgentsExecuteADirectedJobEndToEnd(t *testing.T) {
 	// agree under the governed comparator — the same equivalence the cell sells.
 	for name, body := range committed {
 		info := &CommitTaskInfo{jobType: "embed", ModelRef: "all-minilm-l6-v2"}
-		if err := validateTaskResultArtifact(info, body); err != nil {
-			t.Fatalf("%s committed an artifact the control plane refuses: %v", name, err)
-		}
+		mustf(t, validateTaskResultArtifact(info, body), "%s committed an artifact the control plane refuses: %v", name)
 	}
 	comparison := CompareEmbeddings(committed["candle"], committed["llama_cpp"])
 	if !comparison.Passed {
@@ -556,18 +530,14 @@ func waitForCommittedResult(
 			SELECT status, COALESCE(result_key,''),
 			       (SELECT failure_class FROM task_failures WHERE task_id=$1 ORDER BY created_at DESC LIMIT 1)
 			  FROM tasks WHERE id=$1`, taskID).Scan(&status, &resultKey, &failure)
-		if err != nil {
-			t.Fatalf("%s: read task state: %v", name, err)
-		}
+		mustf(t, err, "%s: read task state: %v", name)
 		if true {
 			if failure != nil {
 				t.Fatalf("%s: agent failed the task: %s", name, *failure)
 			}
 			if (status == "verifying" || status == "complete") && resultKey != "" {
 				body, err := artifacts.storage.GetObject(ctx, resultKey)
-				if err != nil {
-					t.Fatalf("%s: read committed artifact %s: %v", name, resultKey, err)
-				}
+				mustf(t, err, "%s: read committed artifact %s: %v", name, resultKey)
 				return body, resultKey
 			}
 		}
@@ -664,9 +634,7 @@ func TestBothAgentsSettleThroughTheProductionPath(t *testing.T) {
 		// is graded by the governed comparator in
 		// TestBothAgentsExecuteADirectedJobEndToEnd.
 
-		if err := store.SubmitJobTx(jobCtx, job, tasks); err != nil {
-			t.Fatalf("%s: submit: %v", tc.name, err)
-		}
+		mustf(t, store.SubmitJobTx(jobCtx, job, tasks), "%s: submit: %v", tc.name)
 
 		body, _ := waitForCommittedResult(t, jobCtx, pool, artifacts, tasks[0].ID, tc.name)
 
@@ -703,9 +671,7 @@ func TestBothAgentsSettleThroughTheProductionPath(t *testing.T) {
 		outcome := waitForVerificationOutcome(t, jobCtx, pool, tasks[0].ID)
 		if outcome == "" {
 			result, err := processor.ProcessAttempt(jobCtx, tasks[0].ID, 0)
-			if err != nil {
-				t.Fatalf("%s: verification: %v", tc.name, err)
-			}
+			mustf(t, err, "%s: verification: %v", tc.name)
 			outcome = string(result.Outcome)
 		}
 		// An empty outcome means the sampler did not select this task, which is a
@@ -820,18 +786,14 @@ func assertBuyerPlatformAndReceipt(
 	rows, err := pool.Query(ctx, `
 		SELECT kind, COALESCE(amount_usd,0), supplier_id IS NOT NULL
 		  FROM ledger_entries WHERE task_id=$1 ORDER BY kind`, taskID)
-	if err != nil {
-		t.Fatalf("%s: read ledger: %v", name, err)
-	}
+	mustf(t, err, "%s: read ledger: %v", name)
 	defer rows.Close()
 	byKind := map[string]float64{}
 	for rows.Next() {
 		var kind string
 		var amount float64
 		var isSupplier bool
-		if err := rows.Scan(&kind, &amount, &isSupplier); err != nil {
-			t.Fatal(err)
-		}
+		must(t, rows.Scan(&kind, &amount, &isSupplier))
 		byKind[kind] += amount
 		t.Logf("%s ledger: kind=%s amount=%.9f supplier=%v", name, kind, amount, isSupplier)
 	}
@@ -868,9 +830,7 @@ func assertBuyerPlatformAndReceipt(
 	// job-scoped rather than task-scoped, so this reads the invoice the buyer
 	// would actually be shown.
 	invoice, err := store.JobInvoice(ctx, jobID, buyerID)
-	if err != nil {
-		t.Fatalf("%s: job invoice: %v", name, err)
-	}
+	mustf(t, err, "%s: job invoice: %v", name)
 	t.Logf("%s invoice: status=%s estimated=%.9f actual=%.9f currency=%s",
 		name, invoice.Status, invoice.EstimatedUSD, invoice.ActualUSD, invoice.Currency)
 
@@ -937,9 +897,7 @@ func TestBothAgentsProduceVerifiableReceipts(t *testing.T) {
 				t.Fatalf("%s: upload %s: %v", tc.name, key, err)
 			}
 		}
-		if err := store.SubmitJobTx(jobCtx, job, tasks); err != nil {
-			t.Fatalf("%s: submit: %v", tc.name, err)
-		}
+		mustf(t, store.SubmitJobTx(jobCtx, job, tasks), "%s: submit: %v", tc.name)
 
 		waitForCommittedResult(t, jobCtx, pool, artifacts, tasks[0].ID, tc.name)
 		// Sampling is probabilistic, so an unsampled task legitimately reaches no

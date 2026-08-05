@@ -92,13 +92,3 @@ func (c *operationalControlCache) invalidate(name string) {
 	c.mu.Unlock()
 	c.generation.Add(1)
 }
-
-func (c *operationalControlCache) invalidateAll() {
-	if c == nil {
-		return
-	}
-	c.mu.Lock()
-	c.entries = nil
-	c.mu.Unlock()
-	c.generation.Add(1)
-}

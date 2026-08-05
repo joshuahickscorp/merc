@@ -43,9 +43,7 @@ func newestBenchmarkMeasuredAt() time.Time {
 func boardReferencePrice(t *testing.T, modelID, jobType string) float64 {
 	t.Helper()
 	board, err := loadPriceBoard()
-	if err != nil {
-		t.Fatalf("load price board: %v", err)
-	}
+	mustf(t, err, "load price board: %v")
 	priced, ok := repriceFromMarketBoard(modelID, jobType, board)
 	if !ok || priced.PricePer1K <= 0 {
 		t.Fatalf("no market board price for %s/%s", modelID, jobType)
@@ -92,9 +90,7 @@ func cellByID(t *testing.T, id string) (authorityRuntimeProfile, authorityCell) 
 // $0.05/hr floor and fails.
 func TestMeasuredCellClearsTheDefaultInstallPayoutFloor(t *testing.T) {
 	unitsPerSec, cell, err := admissionUnitsPerSec("embed", "all-minilm-l6-v2", nil, benchmarkNow)
-	if err != nil {
-		t.Fatalf("admission refused the embed cell: %v", err)
-	}
+	mustf(t, err, "admission refused the embed cell: %v")
 	if cell.Status != cellThroughputMeasured {
 		t.Fatalf("embed cell resolved %s (%s), want a measured benchmark",
 			cell.Status, cell.Reason)
@@ -117,9 +113,7 @@ func TestMeasuredCellClearsTheDefaultInstallPayoutFloor(t *testing.T) {
 // installer actually writes, or the test proves nothing about a real install.
 func TestDefaultPayoutFloorMatchesTheInstaller(t *testing.T) {
 	script, err := os.ReadFile("../scripts/install.sh")
-	if err != nil {
-		t.Fatalf("read installer: %v", err)
-	}
+	mustf(t, err, "read installer: %v")
 	match := regexp.MustCompile(`min_payout_usd_per_hr\s*=\s*([0-9.]+)`).
 		FindSubmatch(script)
 	if match == nil {
@@ -495,9 +489,7 @@ func TestAdmissionPricesTheCellsTheJobCanReach(t *testing.T) {
 
 	catalogueWide, slowCell, err := admissionUnitsPerSec(
 		"embed", "all-minilm-l6-v2", nil, benchmarkNow)
-	if err != nil {
-		t.Fatalf("catalogue-wide admission: %v", err)
-	}
+	mustf(t, err, "catalogue-wide admission: %v")
 	// The property: admission prices a pinned job from the cell it can reach, not
 	// from the catalogue-wide slowest. Pin to whichever cell is not the slowest.
 	faster := "llama-cpp-metal-minilm-embed"
@@ -506,9 +498,7 @@ func TestAdmissionPricesTheCellsTheJobCanReach(t *testing.T) {
 	}
 	pinned, fastCell, err := admissionUnitsPerSec(
 		"embed", "all-minilm-l6-v2", []string{faster}, benchmarkNow)
-	if err != nil {
-		t.Fatalf("pinned admission: %v", err)
-	}
+	mustf(t, err, "pinned admission: %v")
 	if fastCell.CellID != faster {
 		t.Fatalf("pinning to one candidate resolved cell %q", fastCell.CellID)
 	}
@@ -534,9 +524,7 @@ func TestDirectedWorkloadIsPricedFromTheCellItWasDirectedTo(t *testing.T) {
 	at := time.Now()
 	rate, cell, err := admissionUnitsPerSec("embed", "all-minilm-l6-v2",
 		[]string{llamaEmbedCell}, at)
-	if err != nil {
-		t.Fatalf("a directed workload on a proven cell was refused a rate: %v", err)
-	}
+	mustf(t, err, "a directed workload on a proven cell was refused a rate: %v")
 	if cell.CellID != llamaEmbedCell {
 		t.Fatalf("directed to %s, priced from %q", llamaEmbedCell, cell.CellID)
 	}
@@ -555,9 +543,7 @@ func TestDirectedWorkloadIsPricedFromTheCellItWasDirectedTo(t *testing.T) {
 	// The routable cell is still what an UNdirected workload gets, so the pin is
 	// what changed the answer rather than the filter having been removed.
 	undirectedRate, undirected, err := admissionUnitsPerSec("embed", "all-minilm-l6-v2", nil, at)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if undirected.CellID != candleEmbedCell {
 		t.Errorf("undirected pricing resolved %q, want the routable candle cell",
 			undirected.CellID)

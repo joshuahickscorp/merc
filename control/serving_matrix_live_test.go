@@ -48,9 +48,7 @@ func TestLiveServingMatrixLlamaCppMetal(t *testing.T) {
 	}
 
 	sum, err := fileSHA256(gguf)
-	if err != nil {
-		t.Fatalf("hash gguf: %v", err)
-	}
+	mustf(t, err, "hash gguf: %v")
 	if sum != pinnedGGUFDigest {
 		t.Fatalf("GGUF digest %s != authority pin %s; refusing to measure a different artifact", sum, pinnedGGUFDigest)
 	}
@@ -71,9 +69,7 @@ func TestLiveServingMatrixLlamaCppMetal(t *testing.T) {
 	}
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	port := ln.Addr().(*net.TCPAddr).Port
 	_ = ln.Close()
 
@@ -106,9 +102,7 @@ func TestLiveServingMatrixLlamaCppMetal(t *testing.T) {
 	cmd := exec.CommandContext(ctx, llamaServer, args...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = io.MultiWriter(os.Stderr, &stderrBuf)
-	if err := cmd.Start(); err != nil {
-		t.Fatalf("start llama-server: %v", err)
-	}
+	mustf(t, cmd.Start(), "start llama-server: %v")
 	// done is closed when Wait returns so readiness probing can fail fast on exit.
 	waitDone := make(chan error, 1)
 	go func() { waitDone <- cmd.Wait() }()
@@ -234,13 +228,9 @@ func TestLiveServingMatrixLlamaCppMetal(t *testing.T) {
 	}
 
 	raw, err := json.Marshal(out)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	var payload map[string]any
-	if err := json.Unmarshal(raw, &payload); err != nil {
-		t.Fatal(err)
-	}
+	must(t, json.Unmarshal(raw, &payload))
 
 	// Opt-in write: verification suite runs must not dirty tracked evidence.
 	// Set MERC_SERVING_MATRIX_PERF=1 to seal the Metal (or explicit-CPU) receipt.
@@ -252,9 +242,7 @@ func TestLiveServingMatrixLlamaCppMetal(t *testing.T) {
 			"serving-matrix-llama-cpp-metal-local-r2.json")
 		id, bin, err := DefaultBoundIdentity("..", "control/serving_matrix_live_test.go",
 			"embedded serving matrix cells + tournament_scope", "embedded cells[].metrics samples")
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		id.ModelArtifactDigest = IdentitySlotValue(arm.ModelDigest)
 		id.ImageDigest = IdentitySlotNA("local llama-server process; no container image")
 		id.CorpusDigest = IdentitySlotNA("synthetic ServingMatrixPromptCorpus; no external corpus digest")
@@ -403,9 +391,7 @@ func TestEngineTournamentIncomparableArmsAndHostScope(t *testing.T) {
 	scope["comparable"] = art.Comparable
 
 	commit, err := ResolveRepoSourceCommit("..")
-	if err != nil {
-		t.Fatalf("resolve source commit: %v", err)
-	}
+	mustf(t, err, "resolve source commit: %v")
 	type envelope struct {
 		SchemaVersion      int      `json:"schema_version"`
 		Kind               string   `json:"kind"`
@@ -464,13 +450,9 @@ func TestEngineTournamentIncomparableArmsAndHostScope(t *testing.T) {
 	}
 
 	raw, err := json.Marshal(out)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	var payload map[string]any
-	if err := json.Unmarshal(raw, &payload); err != nil {
-		t.Fatal(err)
-	}
+	must(t, json.Unmarshal(raw, &payload))
 
 	if os.Getenv("MERC_ENGINE_TOURNAMENT_PERF") == "1" {
 		dest := filepath.Join("..", "evidence", "perf", "runtime-benchmarks",
@@ -479,9 +461,7 @@ func TestEngineTournamentIncomparableArmsAndHostScope(t *testing.T) {
 			"control/serving_matrix_live_test.go#TestEngineTournamentIncomparableArmsAndHostScope",
 			"embedded arms + tournament_scope; no fabricated throughput",
 			"N/A: scope/refusal receipt; no request samples")
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		id.ModelArtifactDigest = IdentitySlotValue(ggufDigest)
 		id.ImageDigest = IdentitySlotNA("no container image; host-scope refusal receipt")
 		id.CorpusDigest = IdentitySlotNA("no corpus executed; comparison refused before measurement")

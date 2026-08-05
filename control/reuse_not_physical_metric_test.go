@@ -21,9 +21,7 @@ import (
 // lines long and the defect is which identifier they name.
 func TestZeroWorkDeliveriesDoNotCountAsVerifiedExecutions(t *testing.T) {
 	raw, err := os.ReadFile("realtime.go")
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	lines := strings.Split(string(raw), "\n")
 
 	for _, zeroWork := range []struct {

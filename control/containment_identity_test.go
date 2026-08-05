@@ -29,9 +29,7 @@ func TestSeatbeltProfileIsDenyDefaultWithoutWildcardEgress(t *testing.T) {
 			break
 		}
 	}
-	if err != nil {
-		t.Fatalf("merc-agent.sb not found: %v", err)
-	}
+	mustf(t, err, "merc-agent.sb not found: %v")
 	// Strip line comments so explanatory prose cannot trip the string gates.
 	var live strings.Builder
 	for _, line := range strings.Split(string(body), "\n") {
@@ -86,9 +84,7 @@ func TestUnsandboxedCapabilityIsRecordedOnRegister(t *testing.T) {
 	cap := testWorkerCapability(workerID, supplierID)
 	cap.Sandboxed = false
 	cap.UnsandboxedOptIn = true
-	if err := store.UpsertWorker(ctx, cap); err != nil {
-		t.Fatalf("register unsandboxed capability: %v", err)
-	}
+	mustf(t, store.UpsertWorker(ctx, cap), "register unsandboxed capability: %v")
 	var sandboxed, optIn bool
 	if err := pool.QueryRow(ctx,
 		`SELECT sandboxed, unsandboxed_opt_in FROM workers WHERE id=$1`, workerID,
@@ -114,16 +110,12 @@ func TestExpiredWorkerTokenIsRejectedAndRenewedIsAccepted(t *testing.T) {
 	}
 	registerContainmentCleanup(t, pool, []uuid.UUID{workerID}, nil)
 	raw, expires, err := store.CreateWorkerTokenWithExpiry(ctx, workerID, supplierID, 2*time.Hour)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if expires.Before(time.Now().Add(time.Hour)) {
 		t.Fatalf("new token expiry %s is shorter than expected TTL", expires)
 	}
 	auth, err := store.LookupWorkerToken(ctx, raw)
-	if err != nil {
-		t.Fatalf("fresh token rejected: %v", err)
-	}
+	mustf(t, err, "fresh token rejected: %v")
 	if auth.WorkerID != workerID {
 		t.Fatalf("worker_id=%s want %s", auth.WorkerID, workerID)
 	}
@@ -144,17 +136,11 @@ func TestExpiredWorkerTokenIsRejectedAndRenewedIsAccepted(t *testing.T) {
 
 	// Renewal requires a non-expired credential; re-issue and renew.
 	raw2, _, err := store.CreateWorkerTokenWithExpiry(ctx, workerID, supplierID, time.Minute)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	auth2, err := store.LookupWorkerToken(ctx, raw2)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	newExp, err := store.RenewWorkerToken(ctx, auth2.CredentialID)
-	if err != nil {
-		t.Fatalf("renew: %v", err)
-	}
+	mustf(t, err, "renew: %v")
 	if !newExp.After(time.Now().Add(time.Hour)) {
 		t.Fatalf("renewed expiry %s did not extend by roughly workerTokenTTL", newExp)
 	}
@@ -169,9 +155,7 @@ func TestLinkedSupplierCannotClaimBuyerTaskAndExclusionIsRecorded(t *testing.T) 
 	ctx, store, pool := openContainmentTestStore(t)
 	suffix := uuid.NewString()
 	buyerID, err := store.CreateBuyerAccount(ctx, "buyer-"+suffix+"@corp.example", "pw", 100)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	// Supplier owned by the buyer — primary link signal.
 	supplierID, workerID := uuid.New(), uuid.New()
 	if _, err := pool.Exec(ctx,
@@ -212,9 +196,7 @@ func TestLinkedSupplierCannotClaimBuyerTaskAndExclusionIsRecorded(t *testing.T) 
 	}
 
 	linked, signals, err := store.SupplierLinkedToBuyer(ctx, buyerID, supplierID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if !linked {
 		t.Fatal("owner_buyer_id link was not detected")
 	}
@@ -223,9 +205,7 @@ func TestLinkedSupplierCannotClaimBuyerTaskAndExclusionIsRecorded(t *testing.T) 
 	}
 
 	got, err := store.ClaimTasksTx(ctx, WorkerAuth{WorkerID: workerID, SupplierID: supplierID})
-	if err != nil {
-		t.Fatalf("claim: %v", err)
-	}
+	mustf(t, err, "claim: %v")
 	// Shared DB may have other buyers' work; only THIS buyer's task must be refused.
 	if got != nil && got.TaskID == taskID {
 		t.Fatalf("linked supplier claimed buyer task %s — self-dealing path is open", got.TaskID)
@@ -264,9 +244,7 @@ func TestLinkedSupplierCannotClaimVerificationTasks(t *testing.T) {
 	ctx, store, pool := openContainmentTestStore(t)
 	suffix := uuid.NewString()
 	buyerID, err := store.CreateBuyerAccount(ctx, "vbuyer-"+suffix+"@corp.example", "pw", 100)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	supplierID, workerID := uuid.New(), uuid.New()
 	if _, err := pool.Exec(ctx,
 		`INSERT INTO suppliers (id,email,owner_buyer_id,status,reputation,completed_tasks)
@@ -311,9 +289,7 @@ func TestLinkedSupplierCannotClaimVerificationTasks(t *testing.T) {
 	}
 
 	got, err := store.ClaimTasksTx(ctx, WorkerAuth{WorkerID: workerID, SupplierID: supplierID})
-	if err != nil {
-		t.Fatalf("claim: %v", err)
-	}
+	mustf(t, err, "claim: %v")
 	if got != nil && (got.TaskID == honeypotID || got.TaskID == redunID || got.JobID == jobID) {
 		t.Fatalf("linked supplier claimed verification task %s on job %s", got.TaskID, got.JobID)
 	}
@@ -349,9 +325,7 @@ func TestNoIndependentSupplierIsRefusedNotSettled(t *testing.T) {
 	ctx, store, pool := openIsolatedTestStore(t)
 	suffix := uuid.NewString()
 	buyerID, err := store.CreateBuyerAccount(ctx, "alone-"+suffix+"@corp.example", "pw", 100)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	// Only a linked supplier is online.
 	supplierID, workerID := uuid.New(), uuid.New()
 	if _, err := pool.Exec(ctx,
@@ -438,9 +412,7 @@ func TestUnpeeredBenchmarkKeepsClaimedRate(t *testing.T) {
 		ModelID: "all-minilm-l6-v2", JobType: "embed",
 		EPS: 9999, TPS: 0, ThermalOK: true, P99MS: 10,
 	}}
-	if err := store.UpsertWorker(ctx, cap); err != nil {
-		t.Fatalf("upsert: %v", err)
-	}
+	mustf(t, store.UpsertWorker(ctx, cap), "upsert: %v")
 	var tps float32
 	var corroborated bool
 	if err := pool.QueryRow(ctx,
@@ -478,18 +450,14 @@ func TestDisputedBenchmarkIsNotRoutableAtClaimedRate(t *testing.T) {
 		ModelID: "all-minilm-l6-v2", JobType: "embed",
 		EPS: 100, TPS: 0, ThermalOK: true, P99MS: 10,
 	}}
-	if err := store.UpsertWorker(ctx, peerCap); err != nil {
-		t.Fatalf("peer upsert: %v", err)
-	}
+	mustf(t, store.UpsertWorker(ctx, peerCap), "peer upsert: %v")
 
 	cap := testWorkerCapability(workerID, supplierID)
 	cap.Benchmarks = []BenchResult{{
 		ModelID: "all-minilm-l6-v2", JobType: "embed",
 		EPS: 9999, TPS: 0, ThermalOK: true, P99MS: 10,
 	}}
-	if err := store.UpsertWorker(ctx, cap); err != nil {
-		t.Fatalf("upsert: %v", err)
-	}
+	mustf(t, store.UpsertWorker(ctx, cap), "upsert: %v")
 	var tps float32
 	var corroborated bool
 	if err := pool.QueryRow(ctx,

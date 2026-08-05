@@ -56,9 +56,7 @@ func TestExpiredEnvelopeKeepsPrepaidReservationForInFlightWork(t *testing.T) {
 		PerRequestCeilingNanos: needNanos,
 		TTLSeconds:             600,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 
 	contract, replay, err := store.AuthorizeRealtimeContract(ctx, RealtimeContractAuthorization{
 		RequestID: "req-prepaid-inflight-" + uuid.NewString(), BuyerID: buyerID, Profile: profile,
@@ -81,9 +79,7 @@ func TestExpiredEnvelopeKeepsPrepaidReservationForInFlightWork(t *testing.T) {
 	// While the envelope is ACTIVE the hold is the envelope term; pin that the
 	// in-flight ceiling is already committed before we exercise expiry.
 	reservedBefore, err := prepaidOpenReservationMicros(ctx, pool, buyerID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if reservedBefore < needMicros {
 		t.Fatalf("before expiry reserved=%d, want at least in-flight %d", reservedBefore, needMicros)
 	}
@@ -113,9 +109,7 @@ func TestExpiredEnvelopeKeepsPrepaidReservationForInFlightWork(t *testing.T) {
 	// The refund rail must still hold the in-flight spend after the envelope
 	// left ACTIVE. Without the EXECUTING fallback term, reserved collapses to 0.
 	reservedAfter, err := prepaidOpenReservationMicros(ctx, pool, buyerID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if reservedAfter < needMicros {
 		t.Fatalf("after envelope expiry reserved=%d, want at least in-flight %d: "+
 			"prepaidOpenReservationMicros dropped the hold for still-EXECUTING work",
@@ -123,9 +117,7 @@ func TestExpiredEnvelopeKeepsPrepaidReservationForInFlightWork(t *testing.T) {
 	}
 
 	available, err := store.BuyerPrepaidAvailableMicros(ctx, buyerID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	// Slack above the in-flight ceiling may be refundable; the ceiling itself
 	// must not be.
 	if available > seedMicros-needMicros {

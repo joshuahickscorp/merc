@@ -24,9 +24,7 @@ func TestValidateTaskResultArtifactContracts(t *testing.T) {
 	for _, tc := range valid {
 		t.Run(tc.name, func(t *testing.T) {
 			info := &CommitTaskInfo{jobType: tc.jobType, SplitSize: 4}
-			if err := validateTaskResultArtifact(info, tc.body); err != nil {
-				t.Fatalf("valid %s artifact rejected: %v", tc.jobType, err)
-			}
+			mustf(t, validateTaskResultArtifact(info, tc.body), "valid %s artifact rejected: %v", tc.jobType)
 		})
 	}
 
@@ -120,9 +118,7 @@ func TestExactTaskCardinalityRejectsShortRecordShapedResults(t *testing.T) {
 
 			info.ExpectedOutputRecords = 0
 			info.SplitSize = 2
-			if err := validateTaskResultArtifact(info, tc.body); err != nil {
-				t.Fatalf("explicit legacy cardinality compatibility rejected valid bounded artifact: %v", err)
-			}
+			mustf(t, validateTaskResultArtifact(info, tc.body), "explicit legacy cardinality compatibility rejected valid bounded artifact: %v")
 		})
 	}
 }
@@ -132,9 +128,7 @@ func TestFinalPartialChunkUsesExactCountNotJobSplitCeiling(t *testing.T) {
 		jobType: "embed", SplitSize: 1000, ExpectedOutputRecords: 1,
 	}
 	body := []byte(`{"job_type":"embed","model":"m","dim":2,"count":1,"vectors":[[1,0]]}`)
-	if err := validateTaskResultArtifact(info, body); err != nil {
-		t.Fatalf("one-row final chunk rejected because job split ceiling was larger: %v", err)
-	}
+	mustf(t, validateTaskResultArtifact(info, body), "one-row final chunk rejected because job split ceiling was larger: %v")
 }
 
 func TestCountNonBlankJSONLRecordsMatchesStreamingSplitDefinition(t *testing.T) {
@@ -179,9 +173,7 @@ func TestEmbeddingBinaryZeroVectorsRejectedAsNumeric(t *testing.T) {
 	}
 	// Non-zero payload remains valid.
 	ok := binaryEmbeddingForValidation(2, [][]float32{{1, 0}, {0, 1}})
-	if err := validateTaskResultArtifact(info, ok); err != nil {
-		t.Fatalf("non-zero binary embed rejected: %v", err)
-	}
+	mustf(t, validateTaskResultArtifact(info, ok), "non-zero binary embed rejected: %v")
 }
 
 func TestEmbeddingBinaryCraftedHeadersNeverAllocateOrPanic(t *testing.T) {
@@ -257,9 +249,7 @@ func TestBatchInferArtifactAcceptsTheShapeTheAgentActuallyCommits(t *testing.T) 
 		ModelRef:              "llama-3.2-1b-instruct-q4",
 		ExpectedOutputRecords: 1,
 	}
-	if err := validateTaskResultArtifact(info, committed); err != nil {
-		t.Fatalf("real worker artifact rejected as invalid: %v", err)
-	}
+	mustf(t, validateTaskResultArtifact(info, committed), "real worker artifact rejected as invalid: %v")
 
 	// A genuinely unknown field must still be refused: accepting the real shape
 	// is not licence to accept anything.

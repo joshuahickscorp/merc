@@ -59,9 +59,7 @@ func TestBatchFeeAllocationUsesDeterministicLargestRemainder(t *testing.T) {
 		{JobID: jobC, WeightMicros: 1},
 	}
 	allocation, err := allocateBatchFeeMicros(2, weights)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	got := allocationByJob(allocation)
 	if got[jobA] != 2 || got[jobB] != 0 || got[jobC] != 0 {
 		t.Fatalf("largest-remainder allocation=%v, want heavy job to receive both micros", got)
@@ -74,14 +72,10 @@ func TestBatchFeeAllocationUsesDeterministicLargestRemainder(t *testing.T) {
 		{JobID: jobB, WeightMicros: 1},
 	}
 	first, err := allocateBatchFeeMicros(2, tied)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	reversed := []batchFeeWeight{tied[2], tied[1], tied[0]}
 	second, err := allocateBatchFeeMicros(2, reversed)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	firstByJob := allocationByJob(first)
 	secondByJob := allocationByJob(second)
 	if firstByJob[jobA] != 1 || firstByJob[jobB] != 1 || firstByJob[jobC] != 0 {
@@ -110,9 +104,7 @@ func TestBatchFeeAllocationRandomizedConservationQuotaAndPermutation(t *testing.
 			total += weight
 		}
 		allocation, err := allocateBatchFeeMicros(fee, weights)
-		if err != nil {
-			t.Fatalf("iteration=%d: %v", iteration, err)
-		}
+		mustf(t, err, "iteration=%d: %v", iteration)
 		var sum int64
 		for index, item := range allocation {
 			sum += item.AllocatedMicros
@@ -140,9 +132,7 @@ func TestBatchFeeAllocationRandomizedConservationQuotaAndPermutation(t *testing.
 			permuted[i], permuted[j] = permuted[j], permuted[i]
 		})
 		again, err := allocateBatchFeeMicros(fee, permuted)
-		if err != nil {
-			t.Fatalf("iteration=%d permuted: %v", iteration, err)
-		}
+		mustf(t, err, "iteration=%d permuted: %v", iteration)
 		got, want := allocationByJob(again), allocationByJob(allocation)
 		for jobID, amount := range want {
 			if got[jobID] != amount {
@@ -218,9 +208,7 @@ func TestBatchFeeAllocationIsDurableConcurrentAndFailClosed(t *testing.T) {
 	buyerID, batchID, jobIDs := seedBatchFeeFixture(t, ctx, pool, pi, []int64{100, 1, 1}, 2)
 
 	missing, err := store.BatchStripeFeesMissingAllocations(ctx, 10)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if len(missing) != 1 || missing[0] != pi {
 		t.Fatalf("missing allocations=%v, want [%s]", missing, pi)
 	}
@@ -242,9 +230,7 @@ func TestBatchFeeAllocationIsDurableConcurrentAndFailClosed(t *testing.T) {
 	wait.Wait()
 	close(errorsSeen)
 	for err := range errorsSeen {
-		if err != nil {
-			t.Fatalf("concurrent allocation: %v", err)
-		}
+		mustf(t, err, "concurrent allocation: %v")
 	}
 
 	type persisted struct {
@@ -263,9 +249,7 @@ func TestBatchFeeAllocationIsDurableConcurrentAndFailClosed(t *testing.T) {
 				allocation_ordinal,allocated_at,stripe_pi,allocation_method
 			FROM charge_batch_fee_allocations
 			WHERE charge_batch_id=$1 ORDER BY allocation_ordinal`, batchID)
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		defer rows.Close()
 		var result []persisted
 		for rows.Next() {
@@ -278,9 +262,7 @@ func TestBatchFeeAllocationIsDurableConcurrentAndFailClosed(t *testing.T) {
 			}
 			result = append(result, item)
 		}
-		if err := rows.Err(); err != nil {
-			t.Fatal(err)
-		}
+		must(t, rows.Err())
 		return result
 	}
 	first := read()
@@ -300,9 +282,7 @@ func TestBatchFeeAllocationIsDurableConcurrentAndFailClosed(t *testing.T) {
 	}
 	for index, wantMicros := range []int64{2, 0, 0} {
 		invoice, err := store.JobInvoice(ctx, jobIDs[index], buyerID)
-		if err != nil {
-			t.Fatalf("job %d invoice: %v", index, err)
-		}
+		mustf(t, err, "job %d invoice: %v", index)
 		if invoice.ProcessorFeeAllocatedUSD == nil ||
 			math.Abs(*invoice.ProcessorFeeAllocatedUSD-float64(wantMicros)/1_000_000) > 1e-12 {
 			t.Fatalf(
@@ -323,9 +303,7 @@ func TestBatchFeeAllocationIsDurableConcurrentAndFailClosed(t *testing.T) {
 			)
 		}
 		encoded, err := json.Marshal(invoice)
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		if !strings.Contains(string(encoded), `"processor_fee_allocated_usd"`) ||
 			strings.Contains(string(encoded), pi) ||
 			strings.Contains(string(encoded), `"stripe_pi"`) {
@@ -360,9 +338,7 @@ func TestBatchFeeAllocationIsDurableConcurrentAndFailClosed(t *testing.T) {
 		t.Fatal("database allowed one Stripe PaymentIntent to bind two charge batches")
 	}
 	missing, err = store.BatchStripeFeesMissingAllocations(ctx, 10)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if len(missing) != 0 {
 		t.Fatalf("fully allocated batch remains missing: %v", missing)
 	}
@@ -388,9 +364,7 @@ func TestBatchFeeAllocationIsDurableConcurrentAndFailClosed(t *testing.T) {
 		t.Fatalf("legacy allocation verification=(%t,%v)", allocated, err)
 	}
 	legacyInvoice, err := store.JobInvoice(ctx, legacyJobs[2], legacyBuyer)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if legacyInvoice.ProcessorFeeAllocationMethod == nil ||
 		*legacyInvoice.ProcessorFeeAllocationMethod != batchFeeAllocationLegacyV0 ||
 		legacyInvoice.ProcessorFeeAllocatedUSD == nil ||
@@ -467,9 +441,7 @@ func TestBatchFeeAllocationIsDurableConcurrentAndFailClosed(t *testing.T) {
 		t.Fatal(err)
 	}
 	singleInvoice, err := store.JobInvoice(ctx, singleJob, singleBuyer)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if singleInvoice.ProcessorFeeAllocatedUSD == nil ||
 		math.Abs(*singleInvoice.ProcessorFeeAllocatedUSD-0.000007) > 1e-12 {
 		t.Fatalf("single-job processor fee=%v, want 0.000007",
@@ -525,9 +497,7 @@ func TestBatchFeeAllocationSchemaUpgradeLabelsAndPreservesLegacyFacts(t *testing
 			(allocated_fee_usd*1000000)::bigint,allocation_method
 		FROM charge_batch_fee_allocations
 		WHERE charge_batch_id=$1 ORDER BY allocation_ordinal`, batchID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	defer rows.Close()
 	wantAmounts := []int64{1, 0, 1}
 	index := 0
@@ -535,9 +505,7 @@ func TestBatchFeeAllocationSchemaUpgradeLabelsAndPreservesLegacyFacts(t *testing
 		var jobID uuid.UUID
 		var amount int64
 		var method string
-		if err := rows.Scan(&jobID, &amount, &method); err != nil {
-			t.Fatal(err)
-		}
+		must(t, rows.Scan(&jobID, &amount, &method))
 		if index >= len(jobIDs) || jobID != jobIDs[index] ||
 			amount != wantAmounts[index] || method != batchFeeAllocationLegacyV0 {
 			t.Fatalf("upgraded legacy allocation[%d]=(%s,%d,%s)",
@@ -545,9 +513,7 @@ func TestBatchFeeAllocationSchemaUpgradeLabelsAndPreservesLegacyFacts(t *testing
 		}
 		index++
 	}
-	if err := rows.Err(); err != nil {
-		t.Fatal(err)
-	}
+	must(t, rows.Err())
 	if index != len(jobIDs) {
 		t.Fatalf("upgraded legacy rows=%d, want %d", index, len(jobIDs))
 	}

@@ -12,9 +12,7 @@ func cad(t *testing.T) Currency { t.Helper(); return MustParseCurrency("cad") }
 func nanos(t *testing.T, c Currency, n int64) MoneyNanos {
 	t.Helper()
 	m, err := NewMoneyNanos(c, n)
-	if err != nil {
-		t.Fatalf("construct %d nanos: %v", n, err)
-	}
+	mustf(t, err, "construct %d nanos: %v", n)
 	return m
 }
 
@@ -41,18 +39,14 @@ func TestTheAdmissionDefectDisappearsUnderExactComparison(t *testing.T) {
 	const throughput = NanoUnitsPerSecond(1_194_460_000_000)
 	required, err := RequiredTaskNanosFromThroughput(
 		c, floor, NanoWorkUnitsFromFloat(3), throughput)
-	if err != nil {
-		t.Fatalf("derive the exact task floor: %v", err)
-	}
+	mustf(t, err, "derive the exact task floor: %v")
 
 	// The exact entitlement the plan should freeze is the same derivation. Frozen
 	// exactly, it clears its own floor — which is the property the old comparison
 	// could not have, because it rounded one side and not the other.
 	frozen := required
 	ok, err := frozen.AtLeast(required)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if !ok {
 		t.Fatalf("an exactly-frozen entitlement failed its own floor: %s < %s",
 			frozen, required)
@@ -67,9 +61,7 @@ func TestTheAdmissionDefectDisappearsUnderExactComparison(t *testing.T) {
 			"case needs a smaller job to stay meaningful")
 	}
 	stillClears, err := rounded.AtLeast(required)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if stillClears {
 		t.Fatal("rounding down did not reduce the entitlement; the fixture proves nothing")
 	}
@@ -91,9 +83,7 @@ func TestRoundingDirectionFavoursNeitherSideByAccident(t *testing.T) {
 	// must still be at least one nano, because a supplier owed a positive amount
 	// must not be owed zero.
 	required, err := RequiredTaskNanosFromHourlyFloor(c, NanoUSDPerHour(NanosPerMajorUnit), 1)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if required.Nanos != 1 {
 		t.Fatalf("a positive-but-tiny supplier floor rounded to %d nanos, want 1",
 			required.Nanos)
@@ -103,9 +93,7 @@ func TestRoundingDirectionFavoursNeitherSideByAccident(t *testing.T) {
 	// per 1,000 units over one unit is a thousandth of a nano, and the buyer is not
 	// charged for it.
 	charge, err := CatalogueGrossNanos(c, NanoUSDPerThousandUnits(1), NanoWorkUnitsFromFloat(1))
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if charge.Nanos != 0 {
 		t.Fatalf("a sub-nano charge rounded up to %d nanos; the buyer paid for "+
 			"work not delivered", charge.Nanos)
@@ -113,9 +101,7 @@ func TestRoundingDirectionFavoursNeitherSideByAccident(t *testing.T) {
 
 	// Exactly-divisible cases must not drift in either direction.
 	exact, err := CatalogueGrossNanos(c, NanoUSDPerThousandUnits(2_000), NanoWorkUnitsFromFloat(500))
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if exact.Nanos != 1_000 {
 		t.Fatalf("exact charge = %d nanos, want 1000", exact.Nanos)
 	}
@@ -139,13 +125,9 @@ func TestRemainderCarryPostsOnWholeMicrosAndKeepsTheRest(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			carry, err := NewRemainderCarry(c, 0)
-			if err != nil {
-				t.Fatal(err)
-			}
+			must(t, err)
 			posted, err := carry.Accrue(nanos(t, c, tc.accrue))
-			if err != nil {
-				t.Fatal(err)
-			}
+			must(t, err)
 			if posted != tc.wantPosted || carry.RemainderNanos != tc.wantCarried {
 				t.Fatalf("posted %d carried %d, want %d and %d",
 					posted, carry.RemainderNanos, tc.wantPosted, tc.wantCarried)
@@ -164,17 +146,13 @@ func TestRemainderCarryPostsOnWholeMicrosAndKeepsTheRest(t *testing.T) {
 func TestManyTinyAccrualsLoseNothing(t *testing.T) {
 	c := usd(t)
 	carry, err := NewRemainderCarry(c, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	const each = int64(17) // 17 nanos: 0.017 of a micro, invisible to the ledger
 	const times = 10_000
 	var totalPosted int64
 	for i := 0; i < times; i++ {
 		posted, err := carry.Accrue(nanos(t, c, each))
-		if err != nil {
-			t.Fatalf("accrual %d: %v", i, err)
-		}
+		mustf(t, err, "accrual %d: %v", i)
 		totalPosted += posted
 	}
 	exact := each * times
@@ -198,13 +176,9 @@ func TestManyTinyAccrualsLoseNothing(t *testing.T) {
 func TestConservationHoldsExactlyAcrossManySmallJobs(t *testing.T) {
 	c := usd(t)
 	supplier, err := NewRemainderCarry(c, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	platform, err := NewRemainderCarry(c, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	var buyerExact int64
 	for i := 1; i <= 5_000; i++ {
 		// A charge that is deliberately not divisible by anything convenient.
@@ -212,9 +186,7 @@ func TestConservationHoldsExactlyAcrossManySmallJobs(t *testing.T) {
 		// 97% to the supplier, exactly, with the remainder to the platform — split
 		// by integer arithmetic so nothing is invented.
 		supplierNanos, err := mulDiv(charge.Nanos, 97, 100, false)
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		platformNanos := charge.Nanos - supplierNanos
 		if _, err := supplier.Accrue(nanos(t, c, supplierNanos)); err != nil {
 			t.Fatal(err)
@@ -251,9 +223,7 @@ func TestExactMoneyRefusesToMixCurrencies(t *testing.T) {
 		t.Fatalf("AtMost across currencies: %v", err)
 	}
 	carry, err := NewRemainderCarry(usd(t), 0)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if _, err := carry.Accrue(ca); !errors.Is(err, errMoneyCurrencyMismatch) {
 		t.Fatalf("accruing CAD into a USD carry: %v", err)
 	}
@@ -287,9 +257,7 @@ func TestExactMoneyRefusesToOverflowInsteadOfWrapping(t *testing.T) {
 	// for a full day is $24,000, nowhere near the int64 ceiling.
 	day := DurationNanos(24 * 3600 * NanosPerMajorUnit)
 	got, err := RequiredTaskNanosFromHourlyFloor(c, NanoUSDPerHour(1_000*NanosPerMajorUnit), day)
-	if err != nil {
-		t.Fatalf("a realistic large amount overflowed: %v", err)
-	}
+	mustf(t, err, "a realistic large amount overflowed: %v")
 	if want := int64(24_000) * NanosPerMajorUnit; got.Nanos != want {
 		t.Fatalf("$1000/hr for a day = %d nanos, want %d", got.Nanos, want)
 	}
@@ -315,9 +283,7 @@ func TestExactDerivationsRefuseDegenerateInputs(t *testing.T) {
 	}
 	// Zero work is not an error — it is zero money.
 	zero, err := RequiredTaskNanosFromHourlyFloor(c, 1_000, 0)
-	if err != nil {
-		t.Fatalf("zero duration: %v", err)
-	}
+	mustf(t, err, "zero duration: %v")
 	if !zero.IsZero() {
 		t.Fatalf("zero work owes %s", zero)
 	}
@@ -339,15 +305,11 @@ func TestBothTaskFloorDerivationsAgree(t *testing.T) {
 	const throughput = NanoUnitsPerSecond(250 * NanosPerMajorUnit) // 250 units/sec
 
 	viaThroughput, err := RequiredTaskNanosFromThroughput(c, floor, units, throughput)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	// 1,000 units at 250/sec is exactly 4 seconds.
 	viaDuration, err := RequiredTaskNanosFromHourlyFloor(
 		c, floor, DurationNanos(4*NanosPerMajorUnit))
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if viaThroughput.Nanos != viaDuration.Nanos {
 		t.Fatalf("the two derivations disagree: %s via throughput, %s via duration",
 			viaThroughput, viaDuration)
@@ -363,9 +325,7 @@ func TestBothTaskFloorDerivationsAgree(t *testing.T) {
 func TestLegacyFloatConversionIsGuarded(t *testing.T) {
 	c := usd(t)
 	got, err := MoneyNanosFromUSDFloat(c, 0.000194)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if got.Nanos != 194_000 {
 		t.Fatalf("0.000194 USD = %d nanos, want 194000", got.Nanos)
 	}
@@ -379,9 +339,7 @@ func TestLegacyFloatConversionIsGuarded(t *testing.T) {
 	for _, micro := range []int64{1, 194, 999, 1_000, 123_456} {
 		usdFloat := float64(micro) / 1e6
 		exact, err := MoneyNanosFromUSDFloat(c, usdFloat)
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		if exact.Nanos != micro*NanosPerMicro {
 			t.Fatalf("legacy %d micro-USD converted to %d nanos, want %d",
 				micro, exact.Nanos, micro*NanosPerMicro)
@@ -393,9 +351,7 @@ func TestLegacyFloatConversionIsGuarded(t *testing.T) {
 // so a historical row is never re-read under later rules.
 func TestRoundingPolicyIsNamed(t *testing.T) {
 	carry, err := NewRemainderCarry(usd(t), 0)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if carry.RoundingPolicy() != economicRoundingPolicy {
 		t.Fatalf("carry policy %q, want %q", carry.RoundingPolicy(), economicRoundingPolicy)
 	}
@@ -408,17 +364,11 @@ func TestRoundingPolicyIsNamed(t *testing.T) {
 func TestRealtimeTokenMoneyMultipliesBeforeDivisionInCurrencyBoundNanos(t *testing.T) {
 	c := cad(t)
 	input, err := nanoRatePerMillionFromFloat(0.50)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	output, err := nanoRatePerMillionFromFloat(1.25)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	charge, err := BuyerRealtimeTokenChargeNanos(c, 3, 5, input, output)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if charge.Currency.Code() != "cad" || charge.Nanos != 7_750 {
 		t.Fatalf("realtime charge = %s, want 7750 nano-cad", charge)
 	}
@@ -427,17 +377,11 @@ func TestRealtimeTokenMoneyMultipliesBeforeDivisionInCurrencyBoundNanos(t *testi
 func TestRealtimeBuyerAndSupplierRoundingDirectionsAreOpposite(t *testing.T) {
 	c := cad(t)
 	oneNanoPerMillion, err := nanoRatePerMillionFromFloat(0.000000001)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	buyer, err := BuyerRealtimeTokenChargeNanos(c, 1, 0, oneNanoPerMillion, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	supplier, err := SupplierRealtimeTokenEntitlementNanos(c, 1, 0, oneNanoPerMillion, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if buyer.Nanos != 0 || supplier.Nanos != 1 {
 		t.Fatalf("buyer/supplier directions = %d/%d nanos, want 0/1", buyer.Nanos, supplier.Nanos)
 	}
@@ -446,13 +390,9 @@ func TestRealtimeBuyerAndSupplierRoundingDirectionsAreOpposite(t *testing.T) {
 func TestRealtimeLedgerProjectionOccursAfterTokenClassesAreCombined(t *testing.T) {
 	c := cad(t)
 	amount, err := NewMoneyNanos(c, 800)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	micros, err := LedgerMicrosFromNanos(amount)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if micros != 1 {
 		t.Fatalf("800 combined nanos projected to %d micros, want 1", micros)
 	}
@@ -465,9 +405,7 @@ func TestRealtimeLedgerProjectionOccursAfterTokenClassesAreCombined(t *testing.T
 func TestRealtimeReuseAppliesShareBeforeSingleLedgerProjection(t *testing.T) {
 	currency := cad(t)
 	charge, minimumApplied, err := RealtimeReuseBuyerChargeNanos(currency, 7, 450_000_000)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	// 450,000,000 nanos/million * 7 tokens * 40% = 1,260 nanos.
 	// Quantising the 3,150-nano full price to 3 micros before applying the
 	// share would incorrectly produce 1,200 nanos.
@@ -475,9 +413,7 @@ func TestRealtimeReuseAppliesShareBeforeSingleLedgerProjection(t *testing.T) {
 		t.Fatalf("reuse charge=%d minimum=%v, want 1260/false", charge.Nanos, minimumApplied)
 	}
 	money, err := SettleRealtimeReuseHitMoney(currency, 7, 0.12, 0.45)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if money.Currency != "cad" || money.BuyerDebitNanos != 1_260 ||
 		money.PlatformNanos != 1_260 || money.BuyerDebitMicros != 1 ||
 		!money.Conserved() || !money.ConservedExact() {
@@ -487,9 +423,7 @@ func TestRealtimeReuseAppliesShareBeforeSingleLedgerProjection(t *testing.T) {
 
 func TestRealtimeReuseNamesMinimumExternalLedgerCharge(t *testing.T) {
 	money, err := SettleRealtimeReuseHitMoney(cad(t), 1, 0.12, 0.45)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if !money.MinimumChargeApplied || money.BuyerDebitNanos != NanosPerMicro ||
 		money.BuyerDebitMicros != 1 || money.PlatformNanos != NanosPerMicro {
 		t.Fatalf("minimum reuse delivery charge is not explicit: %+v", money)

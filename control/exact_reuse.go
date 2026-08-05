@@ -91,12 +91,22 @@ func (r RequestIdentity) Deterministic() bool {
 	return r.Temperature == 0 && (r.TopP == 0 || r.TopP == 1)
 }
 
-// Compute derives the cache key.
+// Compute derives the cache key under the production domain separator.
 //
 // Field names are included in the hashed payload so that moving a value from
 // one field to another cannot collide, and the encoding is canonical JSON with
 // sorted keys so that two identical requests always hash identically.
+//
+// Production always uses requestIdentityDomain; the parameterized helper exists
+// so versioning tests can prove older domain separators never hit.
 func (r RequestIdentity) Compute() (string, error) {
+	return r.computeRequestIdentityWithDomain(requestIdentityDomain)
+}
+
+// computeRequestIdentityWithDomain hashes the same field set under an arbitrary
+// domain separator. Production callers must use Compute (production domain);
+// tests may pass older separators to prove version isolation.
+func (r RequestIdentity) computeRequestIdentityWithDomain(domain string) (string, error) {
 	if !r.Deterministic() {
 		return "", errNonDeterministic
 	}
@@ -128,46 +138,6 @@ func (r RequestIdentity) Compute() (string, error) {
 	// Domain separator is versioned: every prior version's rows miss rather than
 	// resolve under a changed field set. A miss costs work; a stale hit under a
 	// changed identity definition would be wrong.
-	h.Write([]byte(requestIdentityDomain + "\x00"))
-	for _, k := range keys {
-		blob, err := json.Marshal(fields[k])
-		if err != nil {
-			return "", err
-		}
-		h.Write([]byte(k))
-		h.Write([]byte{0})
-		h.Write(blob)
-		h.Write([]byte{0})
-	}
-	return "req_" + hex.EncodeToString(h.Sum(nil)), nil
-}
-
-// computeRequestIdentityWithDomain is test-only: hash the same field set under
-// an older domain separator so versioning tests can prove old rows never hit.
-func (r RequestIdentity) computeRequestIdentityWithDomain(domain string) (string, error) {
-	if !r.Deterministic() {
-		return "", errNonDeterministic
-	}
-	if strings.TrimSpace(r.ModelID) == "" || strings.TrimSpace(r.Input) == "" {
-		return "", fmt.Errorf("request identity requires at least a model and an input")
-	}
-	if strings.TrimSpace(r.TenantScope) == "" {
-		return "", fmt.Errorf("request identity requires a tenant scope")
-	}
-	fields := map[string]any{
-		"tenant": r.TenantScope,
-		"model":  r.ModelID, "revision": r.ModelRevision, "adapter": r.Adapter,
-		"profile_sha256": r.ProfileSHA256,
-		"input":          r.Input, "tools": r.Tools, "schema": r.Schema,
-		"temperature": r.Temperature, "top_p": r.TopP, "seed": r.Seed,
-		"max_tokens": r.MaxTokens, "policy": r.Policy,
-	}
-	keys := make([]string, 0, len(fields))
-	for k := range fields {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	h := sha256.New()
 	h.Write([]byte(domain + "\x00"))
 	for _, k := range keys {
 		blob, err := json.Marshal(fields[k])

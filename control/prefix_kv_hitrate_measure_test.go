@@ -430,9 +430,7 @@ func claimWindow(
 	for wi := range fleet {
 		for _, p := range pend {
 			d, err := store.DeepestWarmPrefix(ctx, fleet[wi].w.workerID, p.jobID)
-			if err != nil {
-				t.Fatalf("DeepestWarmPrefix: %v", err)
-			}
+			mustf(t, err, "DeepestWarmPrefix: %v")
 			belief[key{wi, p.jobID}] = d
 		}
 	}
@@ -452,9 +450,7 @@ func claimWindow(
 			SupplierID: fleet[wi].w.supplierID,
 		})
 		elapsed := time.Since(t0).Nanoseconds()
-		if err != nil {
-			t.Fatalf("ClaimTasksTx worker %d: %v", wi, err)
-		}
+		mustf(t, err, "ClaimTasksTx worker %d: %v", wi)
 		if got == nil {
 			continue
 		}
@@ -487,9 +483,7 @@ func claimWindow(
 			ClaimLatencyNs: elapsed,
 		}
 		// Production bookkeeping after durable commit.
-		if err := store.markWorkerWarmForJob(ctx, fleet[wi].w.workerID, p.jobID); err != nil {
-			t.Fatalf("markWorkerWarmForJob: %v", err)
-		}
+		mustf(t, store.markWorkerWarmForJob(ctx, fleet[wi].w.workerID, p.jobID), "markWorkerWarmForJob: %v")
 		if p.req.Class == "family" {
 			fleet[wi].believedFamilies[p.req.Family] = d
 			if d == 0 {
@@ -514,9 +508,7 @@ func claimWindow(
 			got, err := store.ClaimTasksTx(ctx, WorkerAuth{
 				WorkerID: fleet[wi].w.workerID, SupplierID: fleet[wi].w.supplierID,
 			})
-			if err != nil {
-				t.Fatal(err)
-			}
+			must(t, err)
 			if got == nil || got.TaskID != p.taskID {
 				continue
 			}
@@ -567,9 +559,7 @@ func sequentialClaims(
 		anyWarm := false
 		for wi := range fleet {
 			d, err := store.DeepestWarmPrefix(ctx, fleet[wi].w.workerID, jobID)
-			if err != nil {
-				t.Fatal(err)
-			}
+			must(t, err)
 			depths[wi] = d
 			if d > 0 {
 				anyWarm = true
@@ -587,9 +577,7 @@ func sequentialClaims(
 				WorkerID: fleet[wi].w.workerID, SupplierID: fleet[wi].w.supplierID,
 			})
 			elapsed := time.Since(t0).Nanoseconds()
-			if err != nil {
-				t.Fatal(err)
-			}
+			must(t, err)
 			if got == nil {
 				continue
 			}
@@ -603,9 +591,7 @@ func sequentialClaims(
 				ClaimAttempts: 1, ClaimLatencyNs: elapsed,
 			}
 			won = &s
-			if err := store.markWorkerWarmForJob(ctx, fleet[wi].w.workerID, jobID); err != nil {
-				t.Fatal(err)
-			}
+			must(t, store.markWorkerWarmForJob(ctx, fleet[wi].w.workerID, jobID))
 			break
 		}
 		if won == nil {
@@ -843,9 +829,7 @@ func measureToolSchemaAvoidance(t *testing.T) toolSchemaMeasure {
 			"tools":    tools, "response_format": schema,
 		}
 		b, err := canonicalJSON(payload)
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		return b
 	}
 
@@ -1268,13 +1252,9 @@ func TestPrefixKVHitRateAgentRAGProductionClaim(t *testing.T) {
 	// Opt-in evidence write.
 	if os.Getenv(prefixKVHitRateEnv) == "1" {
 		raw, err := json.Marshal(art)
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		var payload map[string]any
-		if err := json.Unmarshal(raw, &payload); err != nil {
-			t.Fatal(err)
-		}
+		must(t, json.Unmarshal(raw, &payload))
 		// Embed a compact sample digest (not every row — receipt size).
 		sum := sha256.Sum256(raw)
 		payload["corpus_and_sample_digest"] = hex.EncodeToString(sum[:])
@@ -1285,9 +1265,7 @@ func TestPrefixKVHitRateAgentRAGProductionClaim(t *testing.T) {
 				fmt.Sprintf("; workers=%d waves=%d window=%d", prefixKVWorkers, prefixKVWaves, prefixKVWindowSize),
 			"production claim samples + sequential baseline + ranker microbench + identity-cache arms",
 		)
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		// Corpus digest is applicable here.
 		id.CorpusDigest = IdentitySlotValue(hex.EncodeToString(sum[:]))
 

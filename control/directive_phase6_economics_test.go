@@ -11,9 +11,7 @@ import (
 
 func TestPhase6MetalLocalEconomicsStructuralHonesty(t *testing.T) {
 	r := BuildMetalLocalPhase6Economics()
-	if err := ValidatePhase6Receipt(r); err != nil {
-		t.Fatalf("receipt invalid: %v", err)
-	}
+	mustf(t, ValidatePhase6Receipt(r), "receipt invalid: %v")
 
 	// Joules: bound pin.
 	if r.JoulesPerVerifiedOutcome == nil || r.JoulesPerVerifiedOutcome.Status != "known" {
@@ -141,13 +139,9 @@ func TestPhase6TrueNetCannotBeReadAsNumber(t *testing.T) {
 	}
 	// Encoding must be an object with status unavailable, not a bare number.
 	b, err := json.Marshal(r.MercTrueNet)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	var probe map[string]any
-	if err := json.Unmarshal(b, &probe); err != nil {
-		t.Fatal(err)
-	}
+	must(t, json.Unmarshal(b, &probe))
 	un, ok := probe["unavailable"].(map[string]any)
 	if !ok {
 		t.Fatalf("want unavailable object, got %s", b)
@@ -181,9 +175,7 @@ func TestPhase6GrossRowIsNotTrueNetType(t *testing.T) {
 func TestPhase6BoundEnergyAuthorityOnDisk(t *testing.T) {
 	root := repoRootForPhase6Test(t)
 	joules, outcomes, err := LoadBoundMetalEnergyAuthority(root)
-	if err != nil {
-		t.Fatalf("load energy authority: %v", err)
-	}
+	mustf(t, err, "load energy authority: %v")
 	if outcomes != 512 {
 		t.Fatalf("outcomes=%d", outcomes)
 	}
@@ -196,9 +188,7 @@ func TestPhase6MoneyConservationSourceExists(t *testing.T) {
 	root := repoRootForPhase6Test(t)
 	path := filepath.Join(root, boundMoneyConservationPath)
 	raw, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("money conservation receipt: %v", err)
-	}
+	mustf(t, err, "money conservation receipt: %v")
 	var doc struct {
 		BindingStatus string `json:"binding_status"`
 		Cluster       struct {
@@ -210,9 +200,7 @@ func TestPhase6MoneyConservationSourceExists(t *testing.T) {
 		} `json:"cluster"`
 		Assertions map[string]bool `json:"assertions"`
 	}
-	if err := json.Unmarshal(raw, &doc); err != nil {
-		t.Fatal(err)
-	}
+	must(t, json.Unmarshal(raw, &doc))
 	if strings.ToUpper(doc.BindingStatus) != BindingBound {
 		t.Fatalf("binding_status=%q", doc.BindingStatus)
 	}
@@ -266,16 +254,10 @@ func TestPhase6PrimaryMetricNamesBlockingTerms(t *testing.T) {
 func TestPhase6ReceiptJSONRoundTrip(t *testing.T) {
 	r := BuildMetalLocalPhase6Economics()
 	b, err := Phase6ReceiptJSON(r)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	var again Phase6EconomicsReceipt
-	if err := json.Unmarshal(b, &again); err != nil {
-		t.Fatal(err)
-	}
-	if err := ValidatePhase6Receipt(again); err != nil {
-		t.Fatalf("round-trip invalid: %v", err)
-	}
+	must(t, json.Unmarshal(b, &again))
+	mustf(t, ValidatePhase6Receipt(again), "round-trip invalid: %v")
 }
 
 // TestPhase6WriteEvidencePayload is opt-in: MERC_PHASE6_ECONOMICS_WRITE=1 writes
@@ -286,13 +268,9 @@ func TestPhase6WriteEvidencePayload(t *testing.T) {
 	}
 	r := BuildMetalLocalPhase6Economics()
 	b, err := Phase6ReceiptJSON(r)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	out := filepath.Join(repoRootForPhase6Test(t), "evidence/perf/phase6-directive-economics.payload.json")
-	if err := os.WriteFile(out, b, 0o644); err != nil {
-		t.Fatal(err)
-	}
+	must(t, os.WriteFile(out, b, 0o644))
 	t.Logf("wrote %s (%d bytes)", out, len(b))
 }
 
@@ -300,9 +278,7 @@ func repoRootForPhase6Test(t *testing.T) string {
 	t.Helper()
 	// Tests run with cwd = control/.
 	wd, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	root := filepath.Clean(filepath.Join(wd, ".."))
 	if _, err := os.Stat(filepath.Join(root, boundEnergyAuthorityPath)); err != nil {
 		// Fallback: walk up looking for evidence/perf/ioreport-gpu-energy-authority.json.

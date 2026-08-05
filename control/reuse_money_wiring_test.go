@@ -66,14 +66,10 @@ func TestCacheHitBillsReuseClassAndSchedulesNoSupplier(t *testing.T) {
 	_ = pool
 
 	id, err := detIdentity("reuse-hit-" + uuid.NewString()).Compute()
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	const tokens int64 = 128
 	const full = 0.12 // $ per 1k — high enough that reuse charge is positive
-	if err := store.StoreExactResult(ctx, id, "cas/sha256/"+uuid.NewString(), tokens); err != nil {
-		t.Fatalf("store: %v", err)
-	}
+	mustf(t, store.StoreExactResult(ctx, id, "cas/sha256/"+uuid.NewString(), tokens), "store: %v")
 	hit, money, ok, err := store.tryBatchExactReuse(ctx, id, full)
 	if err != nil || !ok {
 		t.Fatalf("lookup: ok=%v err=%v", ok, err)
@@ -101,9 +97,7 @@ func TestCacheHitBillsReuseClassAndSchedulesNoSupplier(t *testing.T) {
 func TestReuseWiringTenantIsolation(t *testing.T) {
 	ctx, store, _ := openPayoutTestStore(t)
 	id, err := detIdentity("tenant-wire-" + uuid.NewString()).Compute()
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	jobPath := "jobs/" + uuid.NewString() + "/tasks/" + uuid.NewString() + "/result.json"
 	if err := store.StoreExactResult(ctx, id, jobPath, 10); err == nil {
 		t.Fatal("StoreExactResult accepted a tenant-scoped jobs/ ref")
@@ -154,14 +148,10 @@ func TestRealtimeExactReuseSettlementNoSupplier(t *testing.T) {
 	}
 
 	id, err := detIdentity("rt-reuse-" + uuid.NewString()).Compute()
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	const tokens int64 = 64
 	ref := "cas/sha256/" + uuid.NewString()
-	if err := store.StoreExactResult(ctx, id, ref, tokens); err != nil {
-		t.Fatal(err)
-	}
+	must(t, store.StoreExactResult(ctx, id, ref, tokens))
 	hit, ok, err := store.LookupExactResult(ctx, id)
 	if err != nil || !ok {
 		t.Fatalf("lookup: %v %v", ok, err)
@@ -169,9 +159,7 @@ func TestRealtimeExactReuseSettlementNoSupplier(t *testing.T) {
 
 	profile := sortedVLLMProfiles()[0]
 	currency, err := SettlementCurrency()
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	money, err := SettleRealtimeReuseHitMoney(currency, tokens,
 		profile.BuyerInputUSDPerMillionTokens, profile.BuyerOutputUSDPerMillionTokens)
 	if err != nil || !money.Conserved() || !money.ConservedExact() || money.SupplierLiabilityMicros != 0 {
@@ -189,9 +177,7 @@ func TestRealtimeExactReuseSettlementNoSupplier(t *testing.T) {
 	}
 	resultCommitment := "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
 	contract, settlement, err := store.SettleRealtimeExactReuse(ctx, authorization, hit, money, resultCommitment)
-	if err != nil {
-		t.Fatalf("settle: %v", err)
-	}
+	mustf(t, err, "settle: %v")
 	if settlement.SupplierPayableUSD != 0 {
 		t.Fatalf("supplier payable %v, want 0", settlement.SupplierPayableUSD)
 	}
@@ -213,19 +199,13 @@ func TestRealtimeExactReuseSettlementNoSupplier(t *testing.T) {
 		t.Fatalf("conflicting reuse idempotency returned %v", err)
 	}
 	var contractRows, settlementRows int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM execution_contracts WHERE buyer_id=$1 AND idempotency_key=$2`, buyerID, authorization.IdempotencyKey).Scan(&contractRows); err != nil {
-		t.Fatal(err)
-	}
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM realtime_settlements WHERE contract_id=$1`, contract.ID).Scan(&settlementRows); err != nil {
-		t.Fatal(err)
-	}
+	must(t, pool.QueryRow(ctx, `SELECT count(*) FROM execution_contracts WHERE buyer_id=$1 AND idempotency_key=$2`, buyerID, authorization.IdempotencyKey).Scan(&contractRows))
+	must(t, pool.QueryRow(ctx, `SELECT count(*) FROM realtime_settlements WHERE contract_id=$1`, contract.ID).Scan(&settlementRows))
 	if contractRows != 1 || settlementRows != 1 {
 		t.Fatalf("reuse idempotency duplicated effects: contracts=%d settlements=%d", contractRows, settlementRows)
 	}
 	receipt, err := store.RealtimeReceipt(ctx, buyerID, contract.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if receipt.PricingAuthorityStatus != "verified" || receipt.PricingDecision == nil ||
 		receipt.PricingDecision.ExecutionMode != pricingExecutionRealtimeReuse ||
 		receipt.PricingDecision.RealtimeReuse == nil ||
@@ -269,13 +249,9 @@ func TestRealtimeExactReuseSettlementNoSupplier(t *testing.T) {
 func TestStoreExactResultAliasPopulatesCache(t *testing.T) {
 	ctx, store, _ := openPayoutTestStore(t)
 	id, err := detIdentity("alias-" + uuid.NewString()).Compute()
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	ref := "cas/sha256/" + uuid.NewString()
-	if err := store.StoreExactResult(ctx, id, ref, 32); err != nil {
-		t.Fatal(err)
-	}
+	must(t, store.StoreExactResult(ctx, id, ref, 32))
 	hit, ok, err := store.LookupExactResult(ctx, id)
 	if err != nil || !ok || hit.ResultRef != ref {
 		t.Fatalf("alias store did not populate cache: %+v ok=%v err=%v", hit, ok, err)

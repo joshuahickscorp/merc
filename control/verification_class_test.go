@@ -107,9 +107,7 @@ func TestPerTaskClassesCannotBeClaimedJobWide(t *testing.T) {
 		t.Error("a compute plan claimed an unknown class")
 	}
 	plan, err := governComputePlanVerificationClass(ComputePlan{}, VerificationClassRequired)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if plan.VerificationClass != VerificationClassRequired ||
 		plan.VerificationClassPolicy != verificationClassPolicyRevision {
 		t.Fatalf("stamped plan = %+v", plan)
@@ -165,9 +163,7 @@ func TestTaskVerificationClassCannotContradictItsFlags(t *testing.T) {
 			if got != tc.want {
 				t.Errorf("stored class %q, want %q", got, tc.want)
 			}
-			if err := validateTaskVerificationClass(got, honeypot, false); err != nil {
-				t.Fatalf("the database stored a class its own validator refuses: %v", err)
-			}
+			mustf(t, validateTaskVerificationClass(got, honeypot, false), "the database stored a class its own validator refuses: %v")
 		})
 	}
 }
@@ -298,9 +294,7 @@ func TestRequiredClassIsPinnedSelectedThroughTheRealProcessor(t *testing.T) {
 	// And the receipt carries it, so a buyer can tell a task that was not checked
 	// from one whose check has not happened yet.
 	receipts, err := c.store.JobTaskReceipts(c.ctx, c.f.JobID)
-	if err != nil {
-		t.Fatalf("task receipts: %v", err)
-	}
+	mustf(t, err, "task receipts: %v")
 	if len(receipts) == 0 {
 		t.Fatal("no task receipts")
 	}

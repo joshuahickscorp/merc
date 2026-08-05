@@ -66,9 +66,7 @@ func TestEveryRegisteredEngineHasAnAdapterAndUnknownOnesFailClosed(t *testing.T)
 func TestEstimateNeverCallsAnUnbenchmarkedProfileComparable(t *testing.T) {
 	cap := adapterTestWorker()
 	estimates, err := EstimateAcrossRegisteredRuntimes(inferWorkload(), cap)
-	if err != nil {
-		t.Fatalf("EstimateAcrossRegisteredRuntimes: %v", err)
-	}
+	mustf(t, err, "EstimateAcrossRegisteredRuntimes: %v")
 	if len(estimates) != len(runtimeAuthority.Runtimes) {
 		t.Fatalf("%d estimates for %d registered runtimes",
 			len(estimates), len(runtimeAuthority.Runtimes))
@@ -125,9 +123,7 @@ func TestEstimateNeverCallsAnUnbenchmarkedProfileComparable(t *testing.T) {
 func TestEstimateReportsRejectionsRatherThanOmittingThem(t *testing.T) {
 	cap := adapterTestWorker()
 	estimates, err := EstimateAcrossRegisteredRuntimes(inferWorkload(), cap)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	for _, e := range estimates {
 		if e.RuntimeProfileID == "candle_metal" {
 			continue
@@ -154,9 +150,7 @@ func TestEstimateReportsRejectionsRatherThanOmittingThem(t *testing.T) {
 func TestEstimateHonoursTheFrozenPlacementFloorOverTheCellFloor(t *testing.T) {
 	candle, _ := runtimeProfileByID("candle_metal")
 	adapter, err := AdapterForProfile(candle)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	cap := adapterTestWorker()
 	cap.MemoryGB = 6 // above the 4 GB cell floor
 
@@ -206,9 +200,7 @@ func TestSupportsAgreesWithEstimate(t *testing.T) {
 	} {
 		for _, profile := range runtimeAuthority.Runtimes {
 			adapter, err := AdapterForProfile(profile)
-			if err != nil {
-				t.Fatal(err)
-			}
+			must(t, err)
 			supports := adapter.Supports(workload, profile, cap)
 			estimate := adapter.Estimate(workload, profile, cap)
 			if supports != estimate.Supported {

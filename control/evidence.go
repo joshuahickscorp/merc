@@ -344,7 +344,8 @@ func verifyLFSPayload(repo, abs string, entry lfsIndexEntry) error {
 // pointer text as a payload.
 func resolveLFSPayload(repo, abs, oid string) ([]byte, error) {
 	if raw, err := os.ReadFile(abs); err == nil {
-		if _, _, isPtr := parseLFSPointer(raw); !isPtr {
+		diskOID, _, isPtr := parseLFSPointer(raw)
+		if !isPtr {
 			sum := sha256.Sum256(raw)
 			if fmt.Sprintf("%x", sum[:]) == oid {
 				return raw, nil
@@ -353,6 +354,26 @@ func resolveLFSPayload(repo, abs, oid string) ([]byte, error) {
 			// oid (dirty edit of an LFS file). Refuse rather than fingerprint
 			// an unverified body under the pointer's identity.
 			return nil, fmt.Errorf("working-tree bytes for %s do not match LFS oid %s (dirty LFS edit?)", abs, oid)
+		}
+		// The working tree holds a POINTER. It must name the object the index
+		// names. If it does not, this path has been repointed at another
+		// object -- and that is not a harmless difference, because the two
+		// readers of this tree disagree about which bytes are authoritative:
+		// the v2 fingerprint is composed from index-side oid+size, while
+		// scripts/lib/evidence_binding.py resolves the payload from the oid
+		// written in the ON-DISK pointer. Overwriting a failing receipt with a
+		// pointer copied from a passing one therefore swaps what every binding
+		// validator reads while leaving source_sha256 byte-identical.
+		//
+		// Reproduced before this guard existed: an authorize-tail receipt
+		// reading p99_ms 1840.0 / verdict FAIL was repointed at an
+		// arrival-batching object and read back p99_ms 3.0 / verdict PASS, with
+		// `cx verify --current-source` returning PASS both times. Refuse.
+		if !strings.EqualFold(strings.TrimSpace(diskOID), oid) {
+			return nil, fmt.Errorf(
+				"working-tree pointer for %s names LFS oid %s but the index names %s; "+
+					"the payload readers resolve the on-disk oid, so this would fingerprint "+
+					"one body and validate another", abs, diskOID, oid)
 		}
 	}
 	obj, err := lfsObjectPath(repo, oid)

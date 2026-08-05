@@ -51,13 +51,9 @@ func TestPublicPathExactReuse128To1WritesSealedReceipt(t *testing.T) {
 	suffix := uuid.NewString()
 	buyerID, err := store.CreateBuyerAccount(ctx,
 		"public-reuse-"+suffix+"@example.test", "integration-password", 50)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	_, buyerKey, _, err := store.CreateAPIKey(ctx, buyerID, "public-path reuse proof", true)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	supplierID := uuid.New()
 	if _, err := pool.Exec(ctx, `INSERT INTO suppliers (id,email,status) VALUES ($1,$2,'active')`,
 		supplierID, "public-reuse-supplier-"+suffix+"@example.test"); err != nil {
@@ -88,9 +84,7 @@ func TestPublicPathExactReuse128To1WritesSealedReceipt(t *testing.T) {
 			"total_tokens":      76,
 		},
 	})
-	if err != nil {
-		t.Fatalf("encode upstream completion: %v", err)
-	}
+	mustf(t, err, "encode upstream completion: %v")
 	upstreamToken := "public-reuse-upstream-token"
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/chat/completions" {
@@ -150,17 +144,13 @@ func TestPublicPathExactReuse128To1WritesSealedReceipt(t *testing.T) {
 		t.Helper()
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost,
 			control.URL+"/v1/chat/completions", bytes.NewReader(requestBody))
-		if err != nil {
-			t.Fatalf("request %d: build: %v", i, err)
-		}
+		mustf(t, err, "request %d: build: %v", i)
 		req.Header.Set("Authorization", "Bearer "+buyerKey)
 		req.Header.Set("Content-Type", "application/json")
 		// Distinct idempotency keys: reuse is not idempotency replay.
 		req.Header.Set("Idempotency-Key", fmt.Sprintf("public-reuse-%03d-%s", i, uuid.NewString()))
 		response, err := http.DefaultClient.Do(req)
-		if err != nil {
-			t.Fatalf("request %d: do: %v", i, err)
-		}
+		mustf(t, err, "request %d: do: %v", i)
 		body, readErr := io.ReadAll(response.Body)
 		response.Body.Close()
 		if readErr != nil {
@@ -173,9 +163,7 @@ func TestPublicPathExactReuse128To1WritesSealedReceipt(t *testing.T) {
 			t.Fatalf("request %d: body mismatch", i)
 		}
 		contractID, err := uuid.Parse(response.Header.Get("X-Merc-Contract-ID"))
-		if err != nil {
-			t.Fatalf("request %d: missing contract id: %v", i, err)
-		}
+		mustf(t, err, "request %d: missing contract id: %v", i)
 		return delivery{
 			status:     response.StatusCode,
 			header:     response.Header.Clone(),
@@ -200,9 +188,7 @@ func TestPublicPathExactReuse128To1WritesSealedReceipt(t *testing.T) {
 	// Derive the same tenant-scoped identity the handler uses, then poll until
 	// that row is durable. A raw table count would accept debris from other tests.
 	preparedForID, err := prepareRealtimeRequest(requestBody, "")
-	if err != nil {
-		t.Fatalf("prepare identity body: %v", err)
-	}
+	mustf(t, err, "prepare identity body: %v")
 	clusterIdentity, err := realtimeIdentityFromPreparedBody(buyerID, preparedForID.Profile, preparedForID.Body)
 	if err != nil || !ValidRequestIdentity(clusterIdentity) {
 		t.Fatalf("tenant-scoped identity: id=%q err=%v", clusterIdentity, err)
@@ -258,9 +244,7 @@ func TestPublicPathExactReuse128To1WritesSealedReceipt(t *testing.T) {
 
 	// Metrics HTTP surface agrees with the process counters for this server.
 	metricsResp, err := http.Get(control.URL + "/metrics")
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	metricsBody, err := io.ReadAll(metricsResp.Body)
 	metricsResp.Body.Close()
 	if err != nil || metricsResp.StatusCode != http.StatusOK {
@@ -303,14 +287,10 @@ func TestPublicPathExactReuse128To1WritesSealedReceipt(t *testing.T) {
 		// Public path only: fetch the receipt through the authenticated HTTP route.
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet,
 			control.URL+"/v1/realtime/requests/"+d.contractID.String()+"/receipt", nil)
-		if err != nil {
-			t.Fatalf("receipt %d: build: %v", i, err)
-		}
+		mustf(t, err, "receipt %d: build: %v", i)
 		req.Header.Set("Authorization", "Bearer "+buyerKey)
 		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			t.Fatalf("receipt %d: do: %v", i, err)
-		}
+		mustf(t, err, "receipt %d: do: %v", i)
 		raw, readErr := io.ReadAll(resp.Body)
 		resp.Body.Close()
 		if readErr != nil {
@@ -320,9 +300,7 @@ func TestPublicPathExactReuse128To1WritesSealedReceipt(t *testing.T) {
 			t.Fatalf("receipt %d: status=%d body=%s", i, resp.StatusCode, raw)
 		}
 		var receipt RealtimeReceipt
-		if err := json.Unmarshal(raw, &receipt); err != nil {
-			t.Fatalf("receipt %d: decode: %v", i, err)
-		}
+		mustf(t, json.Unmarshal(raw, &receipt), "receipt %d: decode: %v", i)
 		if receipt.ContractID != d.contractID.String() || receipt.State != "VERIFIED" ||
 			receipt.Verification != "PASSED" || receipt.PricingAuthorityStatus != "verified" ||
 			receipt.SettlementCurrency != "cad" || receipt.PricingDecision == nil {
@@ -450,9 +428,7 @@ func TestPublicPathExactReuse128To1WritesSealedReceipt(t *testing.T) {
 	currency := MustParseCurrency("cad")
 	money, err := SettleRealtimeReuseHitMoney(currency, 64,
 		profile.BuyerInputUSDPerMillionTokens, profile.BuyerOutputUSDPerMillionTokens)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if money.PhysicalTokens != 0 || money.Accounting.ReuseRatio() != 0 {
 		t.Fatalf("reuse settlement must report physical=0 and reuse_ratio=0: %+v ratio=%v",
 			money, money.Accounting.ReuseRatio())
@@ -576,9 +552,7 @@ func TestPublicPathExactReuse128To1WritesSealedReceipt(t *testing.T) {
 		"control/public_path_reuse_proof_test.go#TestPublicPathExactReuse128To1WritesSealedReceipt",
 		"temperature=0 top_p=1 seed=42 max_tokens=64 stream=false sequential 128 same body",
 		"embedded deliveries[] + counter_deltas + ledger micros")
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	outPath := filepath.Join("..", "evidence", "reuse", "public-path-128-to-1.json")
 	if err := WriteBoundEvidenceJSON(EvidenceWriteRequest{
 		RepoRoot: "..", Path: outPath, Payload: out,
@@ -607,13 +581,9 @@ func TestPublicPathExactReuseDoesNotCrossTenants(t *testing.T) {
 		t.Helper()
 		id, err := store.CreateBuyerAccount(ctx,
 			label+"-"+suffix+"@example.test", "integration-password", 20)
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		_, key, _, err := store.CreateAPIKey(ctx, id, label+" key", true)
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		return id, key
 	}
 	buyerA, keyA := makeBuyer("tenant-a")
@@ -642,9 +612,7 @@ func TestPublicPathExactReuseDoesNotCrossTenants(t *testing.T) {
 		}},
 		"usage": map[string]any{"prompt_tokens": 8, "completion_tokens": 16, "total_tokens": 24},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	upstreamToken := "tenant-isolation-upstream"
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		upstreamCalls.Add(1)
@@ -684,25 +652,19 @@ func TestPublicPathExactReuseDoesNotCrossTenants(t *testing.T) {
 		t.Helper()
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost,
 			control.URL+"/v1/chat/completions", bytes.NewReader(sharedBody))
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		req.Header.Set("Authorization", "Bearer "+key)
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Idempotency-Key", idem)
 		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		body, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
 		if resp.StatusCode != http.StatusOK {
 			t.Fatalf("chat status=%d body=%s", resp.StatusCode, body)
 		}
 		id, err := uuid.Parse(resp.Header.Get("X-Merc-Contract-ID"))
-		if err != nil {
-			t.Fatalf("contract id: %v", err)
-		}
+		mustf(t, err, "contract id: %v")
 		return chatResult{
 			status:    resp.StatusCode,
 			reuse:     resp.Header.Get("X-Merc-Exact-Reuse") == "1",
@@ -718,17 +680,11 @@ func TestPublicPathExactReuseDoesNotCrossTenants(t *testing.T) {
 		t.Fatalf("buyer A first request must be physical; reuse=%v coalesced=%v", a1.reuse, a1.coalesced)
 	}
 	preparedShared, err := prepareRealtimeRequest(sharedBody, "")
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	idA, err := realtimeIdentityFromPreparedBody(buyerA, preparedShared.Profile, preparedShared.Body)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	idB, err := realtimeIdentityFromPreparedBody(buyerB, preparedShared.Profile, preparedShared.Body)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if idA == "" || idB == "" || idA == idB {
 		t.Fatalf("tenant-scoped identities must differ: a=%q b=%q", idA, idB)
 	}
@@ -779,23 +735,17 @@ func TestPublicPathExactReuseDoesNotCrossTenants(t *testing.T) {
 	// B's public receipt must show a physical supplier payable, not reuse class.
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
 		control.URL+"/v1/realtime/requests/"+b1.contract.String()+"/receipt", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	req.Header.Set("Authorization", "Bearer "+keyB)
 	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	raw, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("buyer B receipt status=%d body=%s", resp.StatusCode, raw)
 	}
 	var bReceipt RealtimeReceipt
-	if err := json.Unmarshal(raw, &bReceipt); err != nil {
-		t.Fatal(err)
-	}
+	must(t, json.Unmarshal(raw, &bReceipt))
 	if bReceipt.PricingDecision == nil || bReceipt.PricingDecision.Realtime == nil {
 		t.Fatalf("buyer B first receipt must be physical realtime, not reuse: %+v", bReceipt.PricingDecision)
 	}
@@ -809,14 +759,10 @@ func TestPublicPathExactReuseDoesNotCrossTenants(t *testing.T) {
 	// B cannot read A's receipt (cross-tenant read refuse).
 	reqA, err := http.NewRequestWithContext(ctx, http.MethodGet,
 		control.URL+"/v1/realtime/requests/"+a1.contract.String()+"/receipt", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	reqA.Header.Set("Authorization", "Bearer "+keyB)
 	respA, err := http.DefaultClient.Do(reqA)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	bodyA, _ := io.ReadAll(respA.Body)
 	respA.Body.Close()
 	if respA.StatusCode == http.StatusOK {

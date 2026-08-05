@@ -34,9 +34,7 @@ func TestProvingOneCellDoesNotPromoteAnother(t *testing.T) {
 	doc.Runtimes[profile].Lifecycle = runtimeLifecycleActive
 	doc.Runtimes[profile].Cells[embed].Lifecycle = runtimeLifecycleActive
 
-	if err := validateRuntimeAuthorityDocument(doc); err != nil {
-		t.Fatalf("promoting the proven cell was refused: %v", err)
-	}
+	mustf(t, validateRuntimeAuthorityDocument(doc), "promoting the proven cell was refused: %v")
 
 	p := doc.Runtimes[profile]
 	if !p.Cells[embed].Routable(p) {
@@ -181,9 +179,7 @@ func TestArtifactReplacementMovesTheDigestThatGatesTheCell(t *testing.T) {
 	profile := doc.Runtimes[runtimeIndex(t, doc, "llama_cpp_metal")]
 
 	before, err := profile.CapabilityDigest(models)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	swapped := make(map[string]authorityModel, len(models))
 	for id, model := range models {
 		if id == "all-minilm-l6-v2" {
@@ -198,9 +194,7 @@ func TestArtifactReplacementMovesTheDigestThatGatesTheCell(t *testing.T) {
 		swapped[id] = model
 	}
 	after, err := profile.CapabilityDigest(swapped)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if before == after {
 		t.Fatal("swapping the GGUF the embed cell loads left the digest unchanged")
 	}

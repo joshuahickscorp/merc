@@ -64,9 +64,7 @@ func TestManualExportPayout(t *testing.T) {
 
 	key1 := uuid.NewString()
 	result, err := p.Send(context.Background(), s1, 125, "usd", key1)
-	if err != nil {
-		t.Fatalf("Send: %v", err)
-	}
+	mustf(t, err, "Send: %v")
 	if result.Ref != "manual-export:"+path || result.CashMoved {
 		t.Fatalf("result = %+v, want non-cash manual-export:%s", result, path)
 	}
@@ -76,9 +74,7 @@ func TestManualExportPayout(t *testing.T) {
 	}
 
 	b, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read export: %v", err)
-	}
+	mustf(t, err, "read export: %v")
 	lines := strings.Split(strings.TrimSpace(string(b)), "\n")
 	if len(lines) != 2 {
 		t.Fatalf("expected 2 exported rows, got %d: %q", len(lines), string(b))
@@ -116,9 +112,7 @@ func TestManualExportPayoutWritesCurrencyBoundMinorUnits(t *testing.T) {
 		t.Fatalf("Send JPY: %v", err)
 	}
 	b, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	fields := strings.Split(strings.TrimSpace(string(b)), ",")
 	if len(fields) != 5 || fields[1] != "125" || fields[2] != "jpy" || fields[4] != key {
 		t.Fatalf("JPY manual export misrepresented minor units: %q", b)
@@ -173,9 +167,7 @@ func TestSplitSupplierLiabilityMicrosFloorsCashAndCarriesExactly(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			cents, remainder, err := splitSupplierLiabilityMicros(tc.liability)
-			if err != nil {
-				t.Fatal(err)
-			}
+			must(t, err)
 			if cents != tc.cents || remainder != tc.remainder {
 				t.Fatalf("split(%d)=(%d,%d), want (%d,%d)",
 					tc.liability, cents, remainder, tc.cents, tc.remainder)

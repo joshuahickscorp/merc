@@ -27,13 +27,9 @@ func TestEarningsCarryMatchesTheAuthoritativeAccrual(t *testing.T) {
 	}
 
 	acc, err := store.SupplierAccrual(ctx, supplier)
-	if err != nil {
-		t.Fatalf("read accrual: %v", err)
-	}
+	mustf(t, err, "read accrual: %v")
 	earnings, err := store.WorkerEarnings(ctx, supplier)
-	if err != nil {
-		t.Fatalf("WorkerEarnings: %v", err)
-	}
+	mustf(t, err, "WorkerEarnings: %v")
 
 	wantCarried := float64(acc.AccruedMicros) / 1_000_000.0
 	if diff := earnings.CarriedUSD - wantCarried; diff > 1e-9 || diff < -1e-9 {

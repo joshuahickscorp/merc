@@ -55,9 +55,7 @@ func TestWorkerRegistrationPersistsProcessSessionTransitions(t *testing.T) {
 	capability.AgentVersion = "0.1.0"
 	capability.BuildHash = "0123456789abcdef"
 	capability.AgentSessionID = &firstSession
-	if err := store.UpsertWorker(ctx, capability); err != nil {
-		t.Fatalf("first registration: %v", err)
-	}
+	mustf(t, store.UpsertWorker(ctx, capability), "first registration: %v")
 
 	var stored uuid.UUID
 	var firstStarted time.Time
@@ -72,9 +70,7 @@ func TestWorkerRegistrationPersistsProcessSessionTransitions(t *testing.T) {
 	}
 
 	time.Sleep(10 * time.Millisecond)
-	if err := store.UpsertWorker(ctx, capability); err != nil {
-		t.Fatalf("same-session registration: %v", err)
-	}
+	mustf(t, store.UpsertWorker(ctx, capability), "same-session registration: %v")
 	var sameStarted time.Time
 	if err := pool.QueryRow(ctx, `
 		SELECT agent_session_started_at FROM workers WHERE id=$1`, workerID,
@@ -87,9 +83,7 @@ func TestWorkerRegistrationPersistsProcessSessionTransitions(t *testing.T) {
 
 	time.Sleep(10 * time.Millisecond)
 	capability.AgentSessionID = &secondSession
-	if err := store.UpsertWorker(ctx, capability); err != nil {
-		t.Fatalf("second-process registration: %v", err)
-	}
+	mustf(t, store.UpsertWorker(ctx, capability), "second-process registration: %v")
 	var secondStarted time.Time
 	if err := pool.QueryRow(ctx, `
 		SELECT agent_session_id,agent_session_started_at

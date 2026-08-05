@@ -22,25 +22,19 @@ func canonicalRealtimeCacheBody(t *testing.T, schema any, seed int) []byte {
 		"response_format": schema,
 	}
 	body, err := canonicalJSON(payload)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	return body
 }
 
 func TestRealtimeIdentityCacheScopesSemanticRequestAndEvictsBoundedly(t *testing.T) {
 	resetRealtimeIdentityCacheForTest()
 	t.Cleanup(resetRealtimeIdentityCacheForTest)
-	if err := validateRealtimeIdentityCacheBounds(); err != nil {
-		t.Fatal(err)
-	}
+	must(t, validateRealtimeIdentityCacheBounds())
 	profile := sortedVLLMProfiles()[0]
 	buyer := uuid.New()
 	body := canonicalRealtimeCacheBody(t, map[string]any{"type": "json_schema", "json_schema": map[string]any{"name": "answer"}}, 1)
 	first, err := realtimeIdentityFromPreparedBody(buyer, profile, body)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	second, err := realtimeIdentityFromPreparedBody(buyer, profile, body)
 	if err != nil || second != first {
 		t.Fatalf("cache hit identity=%q first=%q err=%v", second, first, err)

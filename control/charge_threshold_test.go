@@ -50,9 +50,7 @@ func TestAgedSubThresholdBalanceIsNotCharged(t *testing.T) {
 	}
 
 	due, err := store.BuyersDueForBatch(ctx, defaultChargeMinUSD, chargeBatchMaxAge, 100)
-	if err != nil {
-		t.Fatalf("BuyersDueForBatch: %v", err)
-	}
+	mustf(t, err, "BuyersDueForBatch: %v")
 	for _, id := range due {
 		if id == buyer {
 			t.Fatalf("a $0.60 balance was charged on age alone; Stripe would keep %.1f%% of it",
@@ -81,9 +79,7 @@ func TestBalanceAtThresholdIsCharged(t *testing.T) {
 	}
 
 	due, err := store.BuyersDueForBatch(ctx, defaultChargeMinUSD, chargeBatchMaxAge, 100)
-	if err != nil {
-		t.Fatalf("BuyersDueForBatch: %v", err)
-	}
+	mustf(t, err, "BuyersDueForBatch: %v")
 	found := false
 	for _, id := range due {
 		if id == buyer {

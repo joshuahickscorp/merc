@@ -26,9 +26,7 @@ func TestDecodeStrictJSONObjectAcceptsOneTypedObject(t *testing.T) {
 	 }
 	`)
 	var got strictJSONFixture
-	if err := decodeStrictJSONObject(raw, &got); err != nil {
-		t.Fatalf("decodeStrictJSONObject: %v", err)
-	}
+	mustf(t, decodeStrictJSONObject(raw, &got), "decodeStrictJSONObject: %v")
 	if got.FundRef != "fund-1" || got.Cents != 123 || got.Nested.Name != "inside" ||
 		len(got.Items) != 2 || got.Items[0].Name != "first" || got.Items[1].Name != "second" {
 		t.Fatalf("decoded value = %+v", got)
@@ -164,9 +162,7 @@ func TestDecodeStrictJSONObjectRejectsNilDestination(t *testing.T) {
 }
 
 func TestRejectDuplicateJSONKeysCanValidateWithoutTypedDecode(t *testing.T) {
-	if err := rejectDuplicateJSONKeys([]byte(`{"arbitrary":{"shape":[1,true,null,"ok"]}}`)); err != nil {
-		t.Fatalf("valid arbitrary object rejected: %v", err)
-	}
+	mustf(t, rejectDuplicateJSONKeys([]byte(`{"arbitrary":{"shape":[1,true,null,"ok"]}}`)), "valid arbitrary object rejected: %v")
 	if err := rejectDuplicateJSONKeys([]byte(`{"arbitrary":{"x":1,"x":2}}`)); err == nil {
 		t.Fatal("nested duplicate accepted")
 	}

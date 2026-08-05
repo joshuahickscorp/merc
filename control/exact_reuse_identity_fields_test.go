@@ -140,9 +140,7 @@ func TestProfileSHA256ChangesDurableIdentity(t *testing.T) {
 	buyer := identityProbeBuyer()
 	p := baseCacheablePayload()
 	id1, err := realtimeIdentityFromPayload(buyer, profile, p)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	changed := profile
 	// Same model revision, different profile digest (engine/container/dtype).
 	changed.ProfileSHA256 = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
@@ -150,9 +148,7 @@ func TestProfileSHA256ChangesDurableIdentity(t *testing.T) {
 		t.Fatal("test setup: need a distinct profile digest")
 	}
 	id2, err := realtimeIdentityFromPayload(buyer, changed, p)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if id1 == id2 {
 		t.Fatalf("ProfileSHA256 change did not change durable identity: %q", id1)
 	}
@@ -165,13 +161,9 @@ func TestIdentityVersionBumpMissesOldRows(t *testing.T) {
 	base := detIdentity("version-bump-fixed-input")
 	base.ProfileSHA256 = "deadbeef"
 	current, err := base.Compute()
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	legacy, err := base.computeRequestIdentityWithDomain("merc-request-identity-v2")
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if current == legacy {
 		t.Fatalf("v2 and v3 domain separators collided: %q", current)
 	}
@@ -184,9 +176,7 @@ func TestIdentityVersionBumpMissesOldRows(t *testing.T) {
 	}
 
 	ctx, store, _ := openPayoutTestStore(t)
-	if err := store.RecordExactResult(ctx, legacy, "cas/sha256/legacy-version-row", 8); err != nil {
-		t.Fatalf("store legacy: %v", err)
-	}
+	mustf(t, store.RecordExactResult(ctx, legacy, "cas/sha256/legacy-version-row", 8), "store legacy: %v")
 	// Lookup under the current identity must miss the legacy row.
 	if _, ok, err := store.LookupExactResult(ctx, current); err != nil || ok {
 		t.Fatalf("current identity served a legacy-version row: ok=%v err=%v", ok, err)

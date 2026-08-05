@@ -313,6 +313,26 @@ func buildEconomicContributionView(
 	// is the integer authority; do not re-derive a historical decision under a
 	// later schedule.
 	if pricing.FixedPoint != nil && pricing.FixedPoint.TrueNetContributionNanos != nil {
+		// The fixed-point unknown set predates the frozen runtime cell and names
+		// only four categories: storage, egress, provider, risk reserve. The cell
+		// block also tracks energy allocation and reliability retry overhead, and
+		// refuses a true net when either is unknown.
+		//
+		// When they disagree, the receipt contradicts itself: runtime_cell says
+		// REFUSED_UNKNOWN_COST_CATEGORIES while this branch publishes a settled
+		// amount described as "after every named cost" -- and because
+		// known_variable_costs_nanos is 0 on that path, the amount it publishes is
+		// the gross spread, unreduced. That is the gross-ledger-row-as-profit
+		// defect the contribution view exists to prevent, emitted by the
+		// contribution view itself.
+		//
+		// The stricter authority wins. Refuse rather than publish a number the
+		// same document declines to compute.
+		if cell := pricing.RuntimeCell; cell != nil && !cell.MercTrueNetAvailable() {
+			out.MercNetContribution = contributionUnknown(
+				"frozen runtime cell refuses a true net: " + cell.MercTrueNetStatus)
+			return out
+		}
 		trueNet := *pricing.FixedPoint.TrueNetContributionNanos
 		out.TrueNetContributionNanos = &trueNet
 		out.MercNetContribution = contributionAmount("settled",

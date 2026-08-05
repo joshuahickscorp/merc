@@ -18,20 +18,14 @@ func TestClaimingNVIDIADefersSharedWorkToIdleOwnedMac(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	pool, err := pgxpool.New(ctx, databaseURL)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	defer pool.Close()
 	store := NewStore(pool)
-	if err := store.Migrate(ctx); err != nil {
-		t.Fatal(err)
-	}
+	must(t, store.Migrate(ctx))
 
 	buyerID, err := store.CreateBuyerAccount(ctx,
 		"hw-defer-"+uuid.NewString()+"@example.test", "integration-password", 100)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 
 	// Unique model_ref so leftover workers from the shared test DB cannot match
 	// the cheaper-class EXISTS (or claim eligibility) for these jobs.
@@ -164,9 +158,7 @@ func TestClaimingNVIDIADefersSharedWorkToIdleOwnedMac(t *testing.T) {
 	got, err := store.ClaimTasksTx(ctx, WorkerAuth{
 		WorkerID: nvidia.workerID, SupplierID: nvidia.supplierID,
 	})
-	if err != nil {
-		t.Fatalf("nvidia claim: %v", err)
-	}
+	mustf(t, err, "nvidia claim: %v")
 	if got == nil {
 		t.Fatal("nvidia claimed nothing; expected the nvidia-only task")
 	}

@@ -32,9 +32,7 @@ func TestEarningsReportsHeldByReasonAndManualGate(t *testing.T) {
 	})
 
 	earnings, err := store.WorkerEarnings(ctx, hold.supplierID)
-	if err != nil {
-		t.Fatalf("WorkerEarnings: %v", err)
-	}
+	mustf(t, err, "WorkerEarnings: %v")
 	if !earnings.ManualPayoutGate {
 		t.Fatal("manual_payout_gate must be true under canary")
 	}
@@ -77,9 +75,7 @@ func TestEarningsReportsHeldByReasonAndManualGate(t *testing.T) {
 		t.Fatal(err)
 	}
 	e2, err := store.WorkerEarnings(ctx, plain.supplierID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if e2.ManualPayoutGate {
 		t.Fatal("manual gate must be off outside canary")
 	}

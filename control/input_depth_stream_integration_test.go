@@ -27,21 +27,15 @@ func TestStreamSplitAndUploadMeasuresExactFullInputDepth(t *testing.T) {
 			"{\"id\":\"3\",\"text\":%s}\n",
 		mustJSONString(longBody),
 	))
-	if err := validateWorkloadJSONL("embed", input); err != nil {
-		t.Fatalf("fixture rejected: %v", err)
-	}
+	mustf(t, validateWorkloadJSONL("embed", input), "fixture rejected: %v")
 	quoteScan := scanJSONL(input)
-	if err := validateInputDepthProfile(quoteScan.InputDepth); err != nil {
-		t.Fatalf("quote scan depth invalid: %v", err)
-	}
+	mustf(t, validateInputDepthProfile(quoteScan.InputDepth), "quote scan depth invalid: %v")
 
 	jobID := uuid.New()
 	tasks, totalBytes, records, exactBytes, streamedDepth, sum, err :=
 		server.streamSplitAndUpload(ctx, jobID, "embed", bytes.NewReader(input), 2, nil)
 	defer server.discardOrphanedJobObjects(ctx, jobID, "", tasks)
-	if err != nil {
-		t.Fatalf("stream split/upload: %v", err)
-	}
+	mustf(t, err, "stream split/upload: %v")
 	if records != 3 || len(tasks) != 2 {
 		t.Fatalf("stream geometry records=%d tasks=%d, want 3/2", records, len(tasks))
 	}

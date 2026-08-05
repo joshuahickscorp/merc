@@ -69,9 +69,7 @@ func TestServiceLeaseMarketClearingReceiptBindsLiveOfferBook(t *testing.T) {
 	if _, err := pool.Exec(ctx, `INSERT INTO buyers (id,email) VALUES ($1,$2)`, buyerID, buyerID.String()+"@service-clearing.invalid"); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.SeedPrepaidBalance(ctx, buyerID, 1_000_000, "service-clearing-"+buyerID.String()); err != nil {
-		t.Fatal(err)
-	}
+	must(t, store.SeedPrepaidBalance(ctx, buyerID, 1_000_000, "service-clearing-"+buyerID.String()))
 	first, _ := newFabricMeasurementWorker(t, ctx, store)
 	second, _ := newFabricMeasurementWorker(t, ctx, store)
 	seedMeasuredWarmResidency(t, ctx, pool, first.WorkerID, profile.ModelAlias)
@@ -81,26 +79,18 @@ func TestServiceLeaseMarketClearingReceiptBindsLiveOfferBook(t *testing.T) {
 	firstOffer.Region = region
 	secondOffer := firstOffer
 	secondOffer.SupplierNanosPerReplicaHour += 100_000_000
-	if err := store.UpsertServiceLeaseOffer(ctx, first, firstOffer); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.UpsertServiceLeaseOffer(ctx, second, secondOffer); err != nil {
-		t.Fatal(err)
-	}
+	must(t, store.UpsertServiceLeaseOffer(ctx, first, firstOffer))
+	must(t, store.UpsertServiceLeaseOffer(ctx, second, secondOffer))
 	request := ServiceLeaseRequest{RuntimeProfileID: profile.RuntimeProfileID, Region: region,
 		MinimumReplicas: 1, MaximumReplicas: 1, TermSeconds: 60, MaximumP95LatencyMilliseconds: 500,
 		BuyerDeclaredCeilingNanos: 135_000_000}
 	lease, err := store.CreateServiceLease(ctx, buyerID, request)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if lease.WorkerID != first.WorkerID || lease.SupplierID != first.SupplierID {
 		t.Fatalf("clearing did not choose the lowest measured ask: lease=%+v first=%+v", lease, first)
 	}
 	receipt, err := store.GetServiceLeaseReceipt(ctx, buyerID, lease.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	market := receipt.MarketClearing
 	if market == nil || market.Version != serviceLeaseMarketClearingVersion || market.CandidateCount != 2 ||
 		market.SelectedRank != 1 || market.SelectedWorkerID != first.WorkerID ||
@@ -124,9 +114,7 @@ func TestServiceLeaseOfferRefreshCannotRaceCapacityReservation(t *testing.T) {
 	offer := serviceLeaseOffer(profile)
 	offer.Region = "ca-race-" + uuid.NewString()
 	offer.MaximumWarmReplicas, offer.AvailableWarmReplicas = 1, 1
-	if err := store.UpsertServiceLeaseOffer(ctx, worker, offer); err != nil {
-		t.Fatal(err)
-	}
+	must(t, store.UpsertServiceLeaseOffer(ctx, worker, offer))
 	buyers := []uuid.UUID{uuid.New(), uuid.New()}
 	for _, buyerID := range buyers {
 		if _, err := pool.Exec(ctx, `INSERT INTO buyers (id,email,free_credit_usd) VALUES ($1,$2,10)`, buyerID, buyerID.String()+"@lease-race.invalid"); err != nil {
@@ -135,9 +123,7 @@ func TestServiceLeaseOfferRefreshCannotRaceCapacityReservation(t *testing.T) {
 		// A service may not use the legacy sandbox grant as cash authority.
 		// Give each racing buyer actual prepaid liability; capacity, not an
 		// accidental funding shortage, is what this test is measuring.
-		if err := store.SeedPrepaidBalance(ctx, buyerID, 1_000_000, "service-race-"+buyerID.String()); err != nil {
-			t.Fatal(err)
-		}
+		must(t, store.SeedPrepaidBalance(ctx, buyerID, 1_000_000, "service-race-"+buyerID.String()))
 	}
 	request := ServiceLeaseRequest{RuntimeProfileID: profile.RuntimeProfileID, Region: offer.Region,
 		MinimumReplicas: 1, MaximumReplicas: 1, TermSeconds: 60, MaximumP95LatencyMilliseconds: 500,
@@ -176,9 +162,7 @@ func TestServiceLeaseOfferRefreshCannotRaceCapacityReservation(t *testing.T) {
 	}
 
 	var active, available int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM service_leases WHERE worker_id=$1 AND state='ACTIVE'`, worker.WorkerID).Scan(&active); err != nil {
-		t.Fatal(err)
-	}
+	must(t, pool.QueryRow(ctx, `SELECT count(*) FROM service_leases WHERE worker_id=$1 AND state='ACTIVE'`, worker.WorkerID).Scan(&active))
 	if err := pool.QueryRow(ctx, `SELECT available_warm_replicas FROM service_lease_worker_offers
 		WHERE worker_id=$1 AND runtime_profile_id=$2 AND region=$3`, worker.WorkerID, profile.RuntimeProfileID, offer.Region).Scan(&available); err != nil {
 		t.Fatal(err)
@@ -202,17 +186,13 @@ func TestServiceLeaseRequiresCollectedPrepaidCashAndFreezesItsMaximum(t *testing
 	seedMeasuredWarmResidency(t, ctx, pool, worker.WorkerID, profile.ModelAlias)
 	offer := serviceLeaseOffer(profile)
 	offer.Region = "ca-prepaid-" + uuid.NewString()
-	if err := store.UpsertServiceLeaseOffer(ctx, worker, offer); err != nil {
-		t.Fatal(err)
-	}
+	must(t, store.UpsertServiceLeaseOffer(ctx, worker, offer))
 	request := ServiceLeaseRequest{RuntimeProfileID: profile.RuntimeProfileID, Region: offer.Region,
 		MinimumReplicas: 1, MaximumReplicas: 3, TermSeconds: 60, MaximumP95LatencyMilliseconds: 500,
 		BuyerDeclaredCeilingNanos: 135_000_000}
 	pricing, err := newServiceLeasePricingDecision(serviceLeasePricingInputs(profile, MustParseCurrency("cad"), request,
 		offer.SupplierNanosPerReplicaHour, offer.ResidencyNanosPerReplicaHour))
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	reserve, err := LedgerMicrosFromNanos(MoneyNanos{Currency: MustParseCurrency("cad"), Nanos: pricing.FixedPoint.AcceptedCeilingNanos})
 	if err != nil || reserve <= 1 {
 		t.Fatalf("service reserve=%d err=%v", reserve, err)
@@ -220,15 +200,11 @@ func TestServiceLeaseRequiresCollectedPrepaidCashAndFreezesItsMaximum(t *testing
 	if _, err := store.CreateServiceLease(ctx, buyerID, request); !errors.Is(err, errRealtimeInsufficientFunds) {
 		t.Fatalf("lease used free credit rather than prepaid cash: %v", err)
 	}
-	if err := store.SeedPrepaidBalance(ctx, buyerID, reserve-1, "service-underfunded-"+buyerID.String()); err != nil {
-		t.Fatal(err)
-	}
+	must(t, store.SeedPrepaidBalance(ctx, buyerID, reserve-1, "service-underfunded-"+buyerID.String()))
 	if _, err := store.CreateServiceLease(ctx, buyerID, request); !errors.Is(err, errRealtimeInsufficientFunds) {
 		t.Fatalf("lease accepted one micro below its frozen maximum: %v", err)
 	}
-	if err := store.SeedPrepaidBalance(ctx, buyerID, 1, "service-exact-"+buyerID.String()); err != nil {
-		t.Fatal(err)
-	}
+	must(t, store.SeedPrepaidBalance(ctx, buyerID, 1, "service-exact-"+buyerID.String()))
 	lease, err := store.CreateServiceLease(ctx, buyerID, request)
 	if err != nil || lease.ReservedBuyerMicros != reserve {
 		t.Fatalf("exact prepaid service admission lease=%+v err=%v", lease, err)
@@ -250,13 +226,9 @@ func TestServiceLeaseCADBuyerAndWorkerPathUsesFrozenPricingAndCumulativeMetering
 	if _, err := pool.Exec(ctx, `INSERT INTO buyers (id,email,free_credit_usd) VALUES ($1,$2,10)`, buyerID, buyerID.String()+"@lease.invalid"); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.SeedPrepaidBalance(ctx, buyerID, 1_000_000, "service-path-"+buyerID.String()); err != nil {
-		t.Fatal(err)
-	}
+	must(t, store.SeedPrepaidBalance(ctx, buyerID, 1_000_000, "service-path-"+buyerID.String()))
 	_, buyerKey, _, err := store.CreateAPIKey(ctx, buyerID, "lease-path", true)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	primaryWorker, workerToken := newFabricMeasurementWorker(t, ctx, store)
 	profile := sortedVLLMProfiles()[0]
 	seedMeasuredWarmResidency(t, ctx, pool, primaryWorker.WorkerID, profile.ModelAlias)
@@ -266,9 +238,7 @@ func TestServiceLeaseCADBuyerAndWorkerPathUsesFrozenPricingAndCumulativeMetering
 
 	post := func(path, token string, body any) *httptest.ResponseRecorder {
 		raw, err := json.Marshal(body)
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		req := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(raw))
 		if token == workerToken {
 			req.Header.Set("X-Worker-Token", token)
@@ -295,9 +265,7 @@ func TestServiceLeaseCADBuyerAndWorkerPathUsesFrozenPricingAndCumulativeMetering
 		t.Fatalf("create lease status=%d body=%s", created.Code, created.Body.String())
 	}
 	var lease ServiceLease
-	if err := json.Unmarshal(created.Body.Bytes(), &lease); err != nil {
-		t.Fatal(err)
-	}
+	must(t, json.Unmarshal(created.Body.Bytes(), &lease))
 	if lease.Pricing.ExecutionMode != pricingExecutionServiceLease || lease.Pricing.FixedPoint == nil ||
 		lease.Pricing.FixedPoint.AcceptedCeilingNanos != request.BuyerDeclaredCeilingNanos || lease.ActiveReplicas != 1 ||
 		lease.ReservedBuyerMicros != 135_000 {
@@ -379,9 +347,7 @@ func TestServiceLeaseCADBuyerAndWorkerPathUsesFrozenPricingAndCumulativeMetering
 		t.Fatalf("receipt status=%d body=%s", rec.Code, rec.Body.String())
 	}
 	var receipt ServiceLeaseReceipt
-	if err := json.Unmarshal(rec.Body.Bytes(), &receipt); err != nil {
-		t.Fatal(err)
-	}
+	must(t, json.Unmarshal(rec.Body.Bytes(), &receipt))
 	if receipt.Lease.State != "ACTIVE" || receipt.Lease.BuyerChargeNanos <= 0 ||
 		receipt.Lease.BuyerChargeNanos != receipt.Lease.SupplierPayableNanos+receipt.Lease.KnownVariableCostNanos+receipt.Lease.KnownContributionNanos ||
 		receipt.BuyerFundingState != "PREPAID_MAXIMUM_RESERVED" ||
@@ -395,20 +361,14 @@ func TestServiceLeaseCADBuyerAndWorkerPathUsesFrozenPricingAndCumulativeMetering
 	}
 	var events []string
 	rows, err := pool.Query(ctx, `SELECT kind FROM service_lease_events WHERE lease_id=$1 ORDER BY created_at,id`, lease.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	defer rows.Close()
 	for rows.Next() {
 		var kind string
-		if err := rows.Scan(&kind); err != nil {
-			t.Fatal(err)
-		}
+		must(t, rows.Scan(&kind))
 		events = append(events, kind)
 	}
-	if err := rows.Err(); err != nil {
-		t.Fatal(err)
-	}
+	must(t, rows.Err())
 	has := func(want string) bool {
 		for _, event := range events {
 			if event == want {
@@ -421,13 +381,9 @@ func TestServiceLeaseCADBuyerAndWorkerPathUsesFrozenPricingAndCumulativeMetering
 		t.Fatalf("rolling upgrade receipt events=%v", events)
 	}
 	var activationRaw []byte
-	if err := pool.QueryRow(ctx, `SELECT detail FROM service_lease_events WHERE lease_id=$1 AND kind='ACTIVATED' ORDER BY created_at,id LIMIT 1`, lease.ID).Scan(&activationRaw); err != nil {
-		t.Fatal(err)
-	}
+	must(t, pool.QueryRow(ctx, `SELECT detail FROM service_lease_events WHERE lease_id=$1 AND kind='ACTIVATED' ORDER BY created_at,id LIMIT 1`, lease.ID).Scan(&activationRaw))
 	var activation serviceLeaseActivationDetail
-	if err := json.Unmarshal(activationRaw, &activation); err != nil {
-		t.Fatal(err)
-	}
+	must(t, json.Unmarshal(activationRaw, &activation))
 	if activation.PricingDecisionSHA256 != lease.PricingDecisionSHA256 ||
 		activation.Currency != "cad" || activation.ReservedCeilingNanos != request.BuyerDeclaredCeilingNanos ||
 		activation.ReservedBuyerMicros != lease.ReservedBuyerMicros ||
@@ -450,9 +406,7 @@ func TestServiceLeaseCADBuyerAndWorkerPathUsesFrozenPricingAndCumulativeMetering
 	seedMeasuredWarmResidency(t, ctx, pool, fallback.WorkerID, profile.ModelAlias)
 	fallbackOffer := serviceLeaseOffer(profile)
 	fallbackOffer.Region = request.Region
-	if err := store.UpsertServiceLeaseOffer(ctx, fallback, fallbackOffer); err != nil {
-		t.Fatal(err)
-	}
+	must(t, store.UpsertServiceLeaseOffer(ctx, fallback, fallbackOffer))
 	if _, err := pool.Exec(ctx, `UPDATE service_leases SET last_metered_at=now()-interval '60 seconds',last_worker_heartbeat_at=now()-interval '60 seconds' WHERE id=$1`, lease.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -529,9 +483,7 @@ func TestServiceLeaseCADBuyerAndWorkerPathUsesFrozenPricingAndCumulativeMetering
 		t.Fatal(err)
 	}
 	_, otherKey, _, err := store.CreateAPIKey(ctx, otherID, "other", true)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	foreign := httptest.NewRequest(http.MethodGet, "/v1/service-leases/"+lease.ID.String(), nil)
 	foreign.Header.Set("Authorization", "Bearer "+otherKey)
 	foreignRec := httptest.NewRecorder()
@@ -548,29 +500,21 @@ func TestBuyerCancelsServiceLeaseAtLastAuthenticatedMeterAndReleasesUnusedReserv
 	if _, err := pool.Exec(ctx, `INSERT INTO buyers (id,email) VALUES ($1,$2)`, buyerID, buyerID.String()+"@lease-cancel.invalid"); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.SeedPrepaidBalance(ctx, buyerID, 1_000_000, "service-cancel-"+buyerID.String()); err != nil {
-		t.Fatal(err)
-	}
+	must(t, store.SeedPrepaidBalance(ctx, buyerID, 1_000_000, "service-cancel-"+buyerID.String()))
 	_, buyerKey, _, err := store.CreateAPIKey(ctx, buyerID, "lease-cancel", true)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	profile := sortedVLLMProfiles()[0]
 	worker, workerToken := newFabricMeasurementWorker(t, ctx, store)
 	seedMeasuredWarmResidency(t, ctx, pool, worker.WorkerID, profile.ModelAlias)
 	offer := serviceLeaseOffer(profile)
 	offer.Region = "ca-cancel-" + uuid.NewString()
-	if err := store.UpsertServiceLeaseOffer(ctx, worker, offer); err != nil {
-		t.Fatal(err)
-	}
+	must(t, store.UpsertServiceLeaseOffer(ctx, worker, offer))
 	lease, err := store.CreateServiceLease(ctx, buyerID, ServiceLeaseRequest{
 		RuntimeProfileID: profile.RuntimeProfileID, Region: offer.Region,
 		MinimumReplicas: 1, MaximumReplicas: 1, TermSeconds: 90, MaximumP95LatencyMilliseconds: 500,
 		BuyerDeclaredCeilingNanos: 135_000_000,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	// Model a verified worker observation that is older than the buyer's stop
 	// request. Cancellation must meter through this point, not through now.
 	observedAt := time.Now().UTC().Add(-2 * time.Second)
@@ -592,9 +536,7 @@ func TestBuyerCancelsServiceLeaseAtLastAuthenticatedMeterAndReleasesUnusedReserv
 		t.Fatalf("cancel status=%d body=%s", rec.Code, rec.Body.String())
 	}
 	var receipt ServiceLeaseReceipt
-	if err := json.Unmarshal(rec.Body.Bytes(), &receipt); err != nil {
-		t.Fatal(err)
-	}
+	must(t, json.Unmarshal(rec.Body.Bytes(), &receipt))
 	if receipt.Lease.State != "CANCELLED" || receipt.Lease.FinalizedAt == nil || receipt.Settlement == nil ||
 		receipt.Settlement.BuyerChargeMicros <= 0 ||
 		receipt.Settlement.BuyerChargeMicros != receipt.Settlement.PrepaidDebitMicros ||

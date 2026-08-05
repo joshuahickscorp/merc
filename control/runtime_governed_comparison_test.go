@@ -331,9 +331,7 @@ func TestGovernedComparisonWillNotRuleOnPriorFromUnboundActuals(t *testing.T) {
 	cmp, err := BuildGovernedComparison(shadow, costs, catalogueMinilm(), map[string]any{
 		"note": "test fixture; live writer records real uptime",
 	}, true)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 
 	// The actuals favour candle, and that is still not a verdict.
 	status, _ := cmp.PriorThroughputClaim["status"].(string)
@@ -353,9 +351,7 @@ func TestGovernedComparisonWillNotRuleOnPriorFromUnboundActuals(t *testing.T) {
 		bound[id] = c
 	}
 	boundCmp, err := BuildGovernedComparison(shadow, bound, catalogueMinilm(), nil, true)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if s, _ := boundCmp.PriorThroughputClaim["status"].(string); s != "FALSIFIED_CANDLE_FASTER_ON_GOVERNED_CONTRACT" {
 		t.Fatalf("bound actuals status = %q, want FALSIFIED once provenance exists", s)
 	}
@@ -441,9 +437,7 @@ func TestGovernedComparisonNoPriorKeepsLadderPrediction(t *testing.T) {
 		},
 	}
 	cmp, err := BuildGovernedComparison(shadow, costs, catalogueMinilm(), nil, false)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if cmp.Decision.PredictedWinner != candleEmbedCell {
 		t.Fatalf("predicted = %q", cmp.Decision.PredictedWinner)
 	}
@@ -662,13 +656,9 @@ func TestWriteGovernedComparisonReceipt(t *testing.T) {
 		Tier:        "batch",
 		Constraints: JobConstraints{MaxDurationSecs: 3600},
 	}, strings.Repeat("d", 64))
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	shadow, err := planShadowSelection(decision)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	// Apply measured ranking the same way createJob would after costs exist.
 	shadow = shadow.rankedByMeasuredCost(map[string]map[string]MeasuredCellCost{
 		"apple_silicon_ultra": costs,
@@ -684,24 +674,16 @@ func TestWriteGovernedComparisonReceipt(t *testing.T) {
 	}
 
 	cmp, err := BuildGovernedComparison(shadow, costs, catalogueMinilm(), hostLoad, true)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 
 	// Serialise as map for the bound writer.
 	raw, err := json.Marshal(cmp)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	var payload map[string]any
-	if err := json.Unmarshal(raw, &payload); err != nil {
-		t.Fatal(err)
-	}
+	must(t, json.Unmarshal(raw, &payload))
 
 	dir := filepath.Join("..", "evidence", "perf", "selector")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
-	}
+	must(t, os.MkdirAll(dir, 0o755))
 	path := filepath.Join(dir, "governed-candle-vs-llama-shadow-decision.json")
 
 	// The bound writer would stamp BOUND from THIS harness's identity, which

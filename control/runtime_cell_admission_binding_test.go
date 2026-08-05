@@ -63,9 +63,7 @@ func TestFrozenRuntimeCellEconomicsSurvivesBenchmarkRevalidation(t *testing.T) {
 		workload, compute, fasterPlacement, economic, settled.Catalogue,
 		settled.Tier, "", faster,
 	)
-	if err != nil {
-		t.Fatalf("rebuild at revalidated rate: %v", err)
-	}
+	mustf(t, err, "rebuild at revalidated rate: %v")
 
 	if !reflect.DeepEqual(before, *settled.RuntimeCell) {
 		t.Fatal("revalidation mutated the settled decision's frozen runtime-cell economics")
@@ -103,9 +101,7 @@ func TestFrozenRuntimeCellIsDeterministicAcrossBuilds(t *testing.T) {
 			workload, compute, placement, economic, first.Catalogue, first.Tier,
 			first.OriginQuotePricingDecisionSHA256, first.ExpectedSupplierUnitsPerSec,
 		)
-		if err != nil {
-			t.Fatalf("rebuild %d: %v", i, err)
-		}
+		mustf(t, err, "rebuild %d: %v", i)
 		if !reflect.DeepEqual(first, again) {
 			a, _ := json.Marshal(first.RuntimeCell)
 			b, _ := json.Marshal(again.RuntimeCell)
@@ -262,9 +258,7 @@ func TestFrozenRuntimeCellDigestCoversEveryTerm(t *testing.T) {
 		t.Fatal("fixture froze no runtime-cell economics")
 	}
 	recomputed, err := digestFrozenRuntimeCellEconomics(f)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if recomputed != f.Digest {
 		t.Fatalf("digest does not reproduce: stored %s recomputed %s", f.Digest, recomputed)
 	}
@@ -282,9 +276,7 @@ func TestFrozenRuntimeCellDigestCoversEveryTerm(t *testing.T) {
 		mutant := *f
 		mutate(&mutant)
 		got, err := digestFrozenRuntimeCellEconomics(&mutant)
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		if got == f.Digest {
 			t.Fatalf("digest is blind to %s", name)
 		}
@@ -324,13 +316,9 @@ func TestLegacyPricingDecisionWithoutFrozenCellStillReplays(t *testing.T) {
 	// block that is correct in memory and different after a round trip would
 	// fail every reload. This is the check that catches that, not a formality.
 	raw, err := json.Marshal(pricing)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	var reloaded PricingDecision
-	if err := json.Unmarshal(raw, &reloaded); err != nil {
-		t.Fatal(err)
-	}
+	must(t, json.Unmarshal(raw, &reloaded))
 	if !reflect.DeepEqual(pricing, reloaded) {
 		t.Fatal("pricing decision did not survive a JSON round trip unchanged")
 	}

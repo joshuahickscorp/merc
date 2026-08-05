@@ -14,14 +14,10 @@ func TestListWorkersToleratesLegacyNullTelemetry(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	pool, err := pgxpool.New(ctx, databaseURL)
-	if err != nil {
-		t.Fatalf("connect disposable PostgreSQL: %v", err)
-	}
+	mustf(t, err, "connect disposable PostgreSQL: %v")
 	defer pool.Close()
 	store := NewStore(pool)
-	if err := store.Migrate(ctx); err != nil {
-		t.Fatalf("apply canonical schema: %v", err)
-	}
+	mustf(t, store.Migrate(ctx), "apply canonical schema: %v")
 
 	supplierID, workerID := uuid.New(), uuid.New()
 	if _, err := pool.Exec(ctx, `
@@ -44,9 +40,7 @@ func TestListWorkersToleratesLegacyNullTelemetry(t *testing.T) {
 	})
 
 	workers, err := store.ListWorkers(ctx)
-	if err != nil {
-		t.Fatalf("list workers with nullable legacy telemetry: %v", err)
-	}
+	mustf(t, err, "list workers with nullable legacy telemetry: %v")
 	for _, worker := range workers {
 		if worker.ID == workerID {
 			if worker.MemoryGB != 0 || worker.Reputation != 0 || worker.Tier != 0 || worker.Status != "pending" {

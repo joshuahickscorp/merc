@@ -9,17 +9,13 @@ import (
 func readSurfaceFixture(t *testing.T, path string) string {
 	t.Helper()
 	raw, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	return string(raw)
 }
 
 func TestBuyerSurfaceCallsEveryRequiredBuyerCapability(t *testing.T) {
 	raw, err := os.ReadFile("../web/buyer.html")
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	page := string(raw)
 	for _, required := range []string{
 		"/v1/public/config", "/v1/signup", "/v1/login", "/v1/me",
@@ -50,9 +46,7 @@ func TestBuyerSurfaceCallsEveryRequiredBuyerCapability(t *testing.T) {
 
 func TestSupplierSurfaceSeparatesOwnerAndWorkerAuthority(t *testing.T) {
 	raw, err := os.ReadFile("../web/supplier.html")
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	page := string(raw)
 	for _, required := range []string{
 		"/v1/public/config", "/v1/supplier/onboard", "/v1/supplier/status",

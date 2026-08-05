@@ -28,9 +28,7 @@ func TestNewWebhookSigningSecretSealsAndRoundTrips(t *testing.T) {
 	t.Setenv("MERC_TOKEN_KEY", "webhook-secret-test-key-with-at-least-32-bytes")
 
 	plaintext, sealed, err := newWebhookSigningSecret()
-	if err != nil {
-		t.Fatalf("minting: %v", err)
-	}
+	mustf(t, err, "minting: %v")
 	if !strings.HasPrefix(plaintext, webhookSigningSecretPrefix) {
 		t.Fatalf("plaintext lost its %q prefix: %q", webhookSigningSecretPrefix, plaintext)
 	}
@@ -45,9 +43,7 @@ func TestNewWebhookSigningSecretSealsAndRoundTrips(t *testing.T) {
 	}
 
 	opened, err := openWebhookSigningSecret(sealed)
-	if err != nil {
-		t.Fatalf("opening a value we just sealed: %v", err)
-	}
+	mustf(t, err, "opening a value we just sealed: %v")
 	if opened != plaintext {
 		t.Fatalf("round trip changed the secret: %q -> %q", plaintext, opened)
 	}
@@ -58,9 +54,7 @@ func TestNewWebhookSigningSecretIsUniquePerCall(t *testing.T) {
 	seen := map[string]bool{}
 	for i := 0; i < 32; i++ {
 		plaintext, _, err := newWebhookSigningSecret()
-		if err != nil {
-			t.Fatalf("minting: %v", err)
-		}
+		mustf(t, err, "minting: %v")
 		if seen[plaintext] {
 			t.Fatalf("secret repeated after %d mints", i)
 		}

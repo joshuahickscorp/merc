@@ -29,9 +29,7 @@ func TestPlanTaskResultRecordsHoneypotFailureWithoutWrites(t *testing.T) {
 	}
 
 	decision, err := v.PlanTaskResult(context.Background(), info, TaskCommit{TaskID: taskID}, []byte("wrong answer"), nil)
-	if err != nil {
-		t.Fatalf("PlanTaskResult: %v", err)
-	}
+	mustf(t, err, "PlanTaskResult: %v")
 	if decision.Outcome != OutcomeFail {
 		t.Fatalf("outcome = %q, want %q", decision.Outcome, OutcomeFail)
 	}
@@ -97,13 +95,9 @@ func TestPlanTaskResultTiebreakEffectIsDeterministicPerAttempt(t *testing.T) {
 	}
 
 	first, err := v.PlanTaskResult(context.Background(), info, TaskCommit{TaskID: taskID}, []byte("a"), []byte("b"))
-	if err != nil {
-		t.Fatalf("first plan: %v", err)
-	}
+	mustf(t, err, "first plan: %v")
 	second, err := v.PlanTaskResult(context.Background(), info, TaskCommit{TaskID: taskID}, []byte("a"), []byte("b"))
-	if err != nil {
-		t.Fatalf("second plan: %v", err)
-	}
+	mustf(t, err, "second plan: %v")
 	if !reflect.DeepEqual(first, second) {
 		t.Fatalf("same attempt planned differently:\nfirst  %#v\nsecond %#v", first, second)
 	}
@@ -124,9 +118,7 @@ func TestPlanTaskResultTiebreakEffectIsDeterministicPerAttempt(t *testing.T) {
 	nextAttempt := *info
 	nextAttempt.Attempt++
 	third, err := v.PlanTaskResult(context.Background(), &nextAttempt, TaskCommit{TaskID: taskID}, []byte("a"), []byte("b"))
-	if err != nil {
-		t.Fatalf("next-attempt plan: %v", err)
-	}
+	mustf(t, err, "next-attempt plan: %v")
 	if third.Effects[1].ID == tiebreak.ID {
 		t.Fatal("tiebreak effect id did not change across attempts")
 	}
@@ -169,9 +161,7 @@ func TestVerifyTaskResultStillWritesThrough(t *testing.T) {
 	info := &CommitTaskInfo{TaskID: uuid.New(), SupplierID: uuid.New()}
 
 	outcome, err := v.verifyTaskResult(context.Background(), info, TaskCommit{TaskID: info.TaskID}, []byte("result"), nil)
-	if err != nil {
-		t.Fatalf("verifyTaskResult: %v", err)
-	}
+	mustf(t, err, "verifyTaskResult: %v")
 	if outcome != OutcomePass || store.mutationCalls != 1 {
 		t.Fatalf("outcome = %q, mutation calls = %d", outcome, store.mutationCalls)
 	}
@@ -202,9 +192,7 @@ func TestHoneypotAlwaysCheckedWhenSampleDecisionFalse(t *testing.T) {
 	}
 
 	decision, err := v.PlanTaskResult(context.Background(), info, TaskCommit{TaskID: taskID}, []byte("wrong answer"), nil)
-	if err != nil {
-		t.Fatalf("PlanTaskResult: %v", err)
-	}
+	mustf(t, err, "PlanTaskResult: %v")
 	if decision.Outcome != OutcomeFail {
 		t.Fatalf("outcome = %q, want %q (honeypot must run even when sample is false)", decision.Outcome, OutcomeFail)
 	}
@@ -258,9 +246,7 @@ func TestHoneypotClassMismatchFailsClosed(t *testing.T) {
 	}
 
 	decision, err := v.PlanTaskResult(context.Background(), info, TaskCommit{TaskID: taskID}, []byte("known answer"), nil)
-	if err != nil {
-		t.Fatalf("PlanTaskResult: %v", err)
-	}
+	mustf(t, err, "PlanTaskResult: %v")
 	if decision.Outcome != OutcomeFail {
 		t.Fatalf("outcome = %q, want %q (class mismatch must fail closed, not pass)", decision.Outcome, OutcomeFail)
 	}
@@ -377,9 +363,7 @@ func TestHoneypotWithoutStoredAnswerFailsClosedWithoutSanctioningSupplier(t *tes
 	}
 
 	decision, err := v.PlanTaskResult(context.Background(), info, TaskCommit{TaskID: taskID}, []byte("anything"), nil)
-	if err != nil {
-		t.Fatalf("PlanTaskResult: %v", err)
-	}
+	mustf(t, err, "PlanTaskResult: %v")
 	if decision.Outcome != OutcomeFail {
 		t.Fatalf("outcome = %q, want %q (an unbacked probe must not pass)", decision.Outcome, OutcomeFail)
 	}

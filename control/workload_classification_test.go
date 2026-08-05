@@ -43,9 +43,7 @@ func validBatchWorkloadSubmit(t *testing.T) jobSubmit {
 func TestWorkloadDecisionIsServerClassifiedAndRevisionPinned(t *testing.T) {
 	sub := validBatchWorkloadSubmit(t)
 	decision, err := buildWorkloadDecision(sub, strings.Repeat("a", 64))
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if decision.WorkloadClass != "embeddings" ||
 		decision.RuntimeJobType != "embed" ||
 		decision.ModelRevision != "1110a243fdf4706b3f48f1d95db1a4f5529b4d41" {
@@ -60,18 +58,14 @@ func TestWorkloadDecisionIsServerClassifiedAndRevisionPinned(t *testing.T) {
 		decision.PrefixReuseEligible || decision.InflightCoalescingEligible {
 		t.Fatalf("decision over/under-stated reuse eligibility: %+v", decision)
 	}
-	if err := ValidateWorkloadDecisionSnapshot(decision); err != nil {
-		t.Fatalf("untouched decision rejected: %v", err)
-	}
+	mustf(t, ValidateWorkloadDecisionSnapshot(decision), "untouched decision rejected: %v")
 }
 
 func TestWorkloadBindingCoversEveryExecutionAssumption(t *testing.T) {
 	base := validBatchWorkloadSubmit(t)
 	inputSHA := strings.Repeat("b", 64)
 	original, err := buildWorkloadDecision(base, inputSHA)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 
 	mutations := map[string]func(*jobSubmit){
 		"max tokens": func(s *jobSubmit) { s.JobType.MaxTokens = 64 },
@@ -99,9 +93,7 @@ func TestWorkloadBindingCoversEveryExecutionAssumption(t *testing.T) {
 				changedInputSHA = strings.Repeat("c", 64)
 			}
 			decision, err := buildWorkloadDecision(changed, changedInputSHA)
-			if err != nil {
-				t.Fatal(err)
-			}
+			must(t, err)
 			if decision.BindingSHA256 == original.BindingSHA256 {
 				t.Fatalf("%s changed but workload binding digest did not", name)
 			}
@@ -113,9 +105,7 @@ func TestWorkloadBindingCoversEveryExecutionAssumption(t *testing.T) {
 	nonExecution.WebhookURL = "https://example.test/hook"
 	nonExecution.IdempotencyKey = "different-idempotency-key"
 	same, err := buildWorkloadDecision(nonExecution, inputSHA)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if same.BindingSHA256 != original.BindingSHA256 {
 		t.Fatal("budget/delivery/idempotency metadata changed the execution-shape binding")
 	}
@@ -123,9 +113,7 @@ func TestWorkloadBindingCoversEveryExecutionAssumption(t *testing.T) {
 
 func TestWorkloadDecisionRejectsTampering(t *testing.T) {
 	decision, err := buildWorkloadDecision(validBatchWorkloadSubmit(t), strings.Repeat("d", 64))
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	decision.MinimumMemoryGB = 0
 	if err := ValidateWorkloadDecisionSnapshot(decision); err == nil {
 		t.Fatal("tampered workload decision was accepted")
@@ -137,13 +125,9 @@ func TestPlacementRequirementRejectsEveryClaimAuthorityMutation(t *testing.T) {
 	sub.Constraints.HWClasses = []string{"apple_silicon_max"}
 	sub.Constraints.DataResidency = []string{"CA"}
 	decision, err := buildWorkloadDecision(sub, strings.Repeat("e", 64))
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	base, err := placementRequirementFor(sub, decision, 1.25)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 
 	tests := []struct {
 		name   string
@@ -185,13 +169,9 @@ func TestJobClaimProjectionRejectsFrozenWorkloadMismatch(t *testing.T) {
 	sub.Constraints.HWClasses = []string{"apple_silicon_max"}
 	sub.Constraints.DataResidency = []string{"CA"}
 	decision, err := buildWorkloadDecision(sub, strings.Repeat("f", 64))
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	placement, err := placementRequirementFor(sub, decision, 1.25)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	base := jobRow{
 		JobType:              decision.RuntimeJobType,
 		ModelRef:             decision.Binding.Model.Ref,
@@ -205,9 +185,7 @@ func TestJobClaimProjectionRejectsFrozenWorkloadMismatch(t *testing.T) {
 		WorkloadDecision:     decision,
 		PlacementRequirement: placement,
 	}
-	if err := validateJobClaimAuthority(&base); err != nil {
-		t.Fatalf("valid claim projection rejected: %v", err)
-	}
+	mustf(t, validateJobClaimAuthority(&base), "valid claim projection rejected: %v")
 	tests := []struct {
 		name   string
 		mutate func(*jobRow)
@@ -240,18 +218,12 @@ func TestJobClaimProjectionRejectsFrozenWorkloadMismatch(t *testing.T) {
 
 func TestWorkloadDecisionDigestBindsDerivedAuthority(t *testing.T) {
 	decision, err := buildWorkloadDecision(validBatchWorkloadSubmit(t), strings.Repeat("d", 64))
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	original, err := workloadDecisionDigest(decision)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	decision.ModelRevision = "different-revision"
 	changed, err := workloadDecisionDigest(decision)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if changed == original {
 		t.Fatal("derived runtime authority changed without changing the full decision digest")
 	}
@@ -260,9 +232,7 @@ func TestWorkloadDecisionDigestBindsDerivedAuthority(t *testing.T) {
 func TestBatchExactReuseIsDisabledForCurrentAndHistoricalDecisions(t *testing.T) {
 	sub := validBatchWorkloadSubmit(t)
 	decision, err := buildWorkloadDecision(sub, strings.Repeat("1", 64))
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if decision.ExactResultCacheEligible {
 		t.Fatal("new workload decision re-enabled the unsafe batch exact-result cache")
 	}
@@ -281,14 +251,10 @@ func TestBatchExactReuseIsDisabledForCurrentAndHistoricalDecisions(t *testing.T)
 
 func TestFrozenWorkloadDecisionSurvivesAuthorityHistoryWithoutAcceptingBindingTamper(t *testing.T) {
 	decision, err := buildWorkloadDecision(validBatchWorkloadSubmit(t), strings.Repeat("4", 64))
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	historical := decision
 	historical.ModelRevision = strings.Repeat("5", 40)
-	if err := ValidateFrozenWorkloadDecisionSnapshot(historical); err != nil {
-		t.Fatalf("self-contained historical decision rejected: %v", err)
-	}
+	mustf(t, ValidateFrozenWorkloadDecisionSnapshot(historical), "self-contained historical decision rejected: %v")
 	if err := ValidateWorkloadDecisionSnapshot(historical); err == nil {
 		t.Fatal("historical decision unexpectedly matched current runtime authority")
 	}
@@ -302,9 +268,7 @@ func TestFrozenWorkloadDecisionSurvivesAuthorityHistoryWithoutAcceptingBindingTa
 
 func TestWorkloadInputShapeFailsBeforeExecution(t *testing.T) {
 	valid := []byte("{\"id\":\"1\",\"text\":\"hello\"}\n{\"prompt\":\"world\"}\n")
-	if err := validateWorkloadJSONL("embed", valid); err != nil {
-		t.Fatalf("valid input rejected: %v", err)
-	}
+	mustf(t, validateWorkloadJSONL("embed", valid), "valid input rejected: %v")
 	for name, input := range map[string][]byte{
 		"malformed":       []byte("{not-json}\n"),
 		"array":           []byte("[\"not\",\"an\",\"object\"]\n"),
@@ -421,9 +385,7 @@ func TestQuoteSupplyRequirementsMatchClaimTimeHardFilters(t *testing.T) {
 	}
 
 	all, err := store.EligibleWorkerCount(ctx, "embed", "all-minilm-l6-v2", 0)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if all < 2 {
 		t.Fatalf("unconstrained eligible workers=%d, want at least the two fixture workers", all)
 	}
@@ -435,25 +397,19 @@ func TestQuoteSupplyRequirementsMatchClaimTimeHardFilters(t *testing.T) {
 		TrustedOnly:   true,
 	}
 	constrained, err := store.EligibleWorkerCountFor(ctx, "embed", "all-minilm-l6-v2", req)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if constrained != 1 {
 		t.Fatalf("constraint-aware eligible workers=%d, want only the XZ trusted Max worker", constrained)
 	}
 	reputation, err := store.EligiblePoolReputationFor(ctx, "embed", "all-minilm-l6-v2", req)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if reputation != 1 {
 		t.Fatalf("constraint-aware pool reputation=%v, want 1.0", reputation)
 	}
 
 	req.HWClasses = []string{"apple_silicon_base"}
 	none, err := store.EligibleWorkerCountFor(ctx, "embed", "all-minilm-l6-v2", req)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if none != 0 {
 		t.Fatalf("incompatible residency+hardware constraints reported %d eligible workers", none)
 	}
@@ -478,16 +434,12 @@ func TestClaimUsesFrozenRuntimeCandidate(t *testing.T) {
 
 	tasks := makeTasks(fixture, 1)
 	job := validJobRow(t, fixture, tasks)
-	if err := store.SubmitJobTx(ctx, job, tasks); err != nil {
-		t.Fatalf("submit frozen-runtime job: %v", err)
-	}
+	mustf(t, store.SubmitJobTx(ctx, job, tasks), "submit frozen-runtime job: %v")
 
 	wrong, err := store.ClaimTasksTx(ctx, WorkerAuth{
 		WorkerID: fixture.OtherWorkerID, SupplierID: fixture.OtherSupplierID,
 	})
-	if err != nil {
-		t.Fatalf("wrong-cell claim: %v", err)
-	}
+	mustf(t, err, "wrong-cell claim: %v")
 	// Shared DBs may have other claimable jobs; only THIS fixture job must be
 	// refused to the wrong-cell worker.
 	if wrong != nil && wrong.JobID == fixture.JobID {
@@ -497,9 +449,7 @@ func TestClaimUsesFrozenRuntimeCandidate(t *testing.T) {
 	right, err := store.ClaimTasksTx(ctx, WorkerAuth{
 		WorkerID: fixture.WorkerID, SupplierID: fixture.SupplierID,
 	})
-	if err != nil {
-		t.Fatalf("frozen-cell claim: %v", err)
-	}
+	mustf(t, err, "frozen-cell claim: %v")
 	if right == nil || right.JobID != fixture.JobID {
 		t.Fatalf("worker on frozen runtime candidate did not receive job: %+v", right)
 	}

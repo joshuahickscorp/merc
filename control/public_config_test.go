@@ -46,9 +46,7 @@ func TestPublicConfigReturnsOnlyCompleteTestModeBrowserAuthority(t *testing.T) {
 		t.Fatalf("status=%d cache=%q", recorder.Code, recorder.Header().Get("Cache-Control"))
 	}
 	var got publicBrowserConfig
-	if err := json.Unmarshal(recorder.Body.Bytes(), &got); err != nil {
-		t.Fatal(err)
-	}
+	must(t, json.Unmarshal(recorder.Body.Bytes(), &got))
 	if !got.StripePaymentFormEnabled || got.StripePublishableKey != "pk_test_browser_fixture" ||
 		!got.Contacts.Configured || len(got.Contacts.Missing) != 0 {
 		t.Fatalf("config = %+v", got)

@@ -37,9 +37,7 @@ func TestLedgerWriterMicroRoundTripProperty(t *testing.T) {
 		50_000_123_456, // $50_000.123456 — needs NUMERIC(12,6)
 	}
 	for _, micros := range boundCases {
-		if err := validateLedgerInsert(ledgerInsert{Kind: KindPlatformTake, AmountMicros: micros}); err != nil {
-			t.Fatalf("validate bound %d: %v", micros, err)
-		}
+		mustf(t, validateLedgerInsert(ledgerInsert{Kind: KindPlatformTake, AmountMicros: micros}), "validate bound %d: %v", micros)
 		roundTripLedgerMicros(t, ctx, pool, supplierID, micros)
 	}
 
@@ -79,9 +77,7 @@ func TestLedgerWriterMicroRoundTripProperty(t *testing.T) {
 		roundTripLedgerMicros(t, ctx, pool, supplierID, micros)
 		return true
 	}, cfg)
-	if err != nil {
-		t.Fatalf("property: %v", err)
-	}
+	mustf(t, err, "property: %v")
 }
 
 func roundTripLedgerMicros(t *testing.T, ctx context.Context, pool *pgxpool.Pool, supplierID uuid.UUID, micros int64) {
@@ -106,9 +102,7 @@ func roundTripLedgerMicros(t *testing.T, ctx context.Context, pool *pgxpool.Pool
 		}
 	}
 	ct, err := insertLedgerEntryTx(ctx, pool, entry)
-	if err != nil {
-		t.Fatalf("insert micros=%d: %v", micros, err)
-	}
+	mustf(t, err, "insert micros=%d: %v", micros)
 	if ct.RowsAffected() != 1 {
 		t.Fatalf("insert micros=%d rows=%d", micros, ct.RowsAffected())
 	}

@@ -9,9 +9,7 @@ import (
 // checked: the values are compile-time constants, so a boot-time check would
 // never fire.
 func TestTrafficClassPoliciesAreConsistent(t *testing.T) {
-	if err := ValidateTrafficClassPolicies(); err != nil {
-		t.Fatalf("promoted traffic-class table is inconsistent: %v", err)
-	}
+	mustf(t, ValidateTrafficClassPolicies(), "promoted traffic-class table is inconsistent: %v")
 	if got := len(DeclaredTrafficClasses()); got != 4 {
 		t.Fatalf("declared traffic classes = %d, want the four merc.md names", got)
 	}
@@ -23,9 +21,7 @@ func TestTrafficClassPoliciesAreConsistent(t *testing.T) {
 // The exit gate: interactive latency is never traded for aggregate throughput.
 func TestInteractiveIsNeverBatchedAtTheThroughputKnee(t *testing.T) {
 	interactive, err := PolicyForTrafficClass(TrafficInteractive)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if interactive.TokenBudget >= maxBatchTokens {
 		t.Fatalf("interactive budget %d is at the throughput knee %d",
 			interactive.TokenBudget, maxBatchTokens)
@@ -43,9 +39,7 @@ func TestInteractiveIsNeverBatchedAtTheThroughputKnee(t *testing.T) {
 		TrafficBatchPriority, TrafficBatchStandard, TrafficBackground,
 	} {
 		policy, err := PolicyForTrafficClass(class)
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		if policy.Priority >= interactive.Priority {
 			t.Fatalf("%s outranks or ties INTERACTIVE", class)
 		}
