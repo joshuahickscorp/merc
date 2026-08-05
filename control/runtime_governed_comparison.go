@@ -108,10 +108,23 @@ type GovernedShadowDecision struct {
 	// DecidingTerm is the single projection term that broke the tie, or
 	// TIE_NO_DECISION when none did. Distinct from ActualBasis only when a
 	// reader needs the short name without the selection-policy vocabulary.
-	DecidingTerm    string  `json:"deciding_term"`
-	SelectionReason string  `json:"selection_reason"`
+	DecidingTerm    string `json:"deciding_term"`
+	SelectionReason string `json:"selection_reason"`
+	// LatencyRegretMs / CostRegretUSD are PREDICTION error on the predicted
+	// winner: predicted − actual. Positive means the prior overstated latency
+	// or cost. These are not selection opportunity cost.
 	LatencyRegretMs float64 `json:"latency_regret_ms_per_unit"`
 	CostRegretUSD   float64 `json:"cost_regret_usd_per_unit"`
+	// SelectionLatencyRegretMs / SelectionCostRegretUSD are the deliverable
+	// selector regret: chosen − best_available in absolute user-visible units
+	// (ms/unit, USD/unit). Zero means the selector picked the optimum on that
+	// axis; positive means it left money or latency on the table. Never a ratio.
+	SelectionLatencyRegretMs float64 `json:"selection_latency_regret_ms_per_unit"`
+	SelectionCostRegretUSD   float64 `json:"selection_cost_regret_usd_per_unit"`
+	// BestAvailableLatencyCell / BestAvailableCostCell name the cell that sets
+	// the best_available baseline for each selection-regret axis.
+	BestAvailableLatencyCell string `json:"best_available_latency_cell,omitempty"`
+	BestAvailableCostCell    string `json:"best_available_cost_cell,omitempty"`
 	// QualityOutcome summarises whether both cells cleared the same quality
 	// contract on the comparison corpus / chain.
 	QualityOutcome string  `json:"quality_outcome"`
@@ -362,14 +375,44 @@ func BuildGovernedComparison(
 		}
 	}
 
-	// Decision-level regret: predicted−actual for the predicted winner's
-	// metrics. If the prior named llama and llama was slower than predicted,
-	// latency regret is negative (predicted lower ms than actual).
+	// Decision-level PREDICTION error: predicted−actual for the predicted
+	// winner's metrics. If the prior named llama and llama was slower than
+	// predicted, latency prediction-error is negative (predicted lower ms than
+	// actual). Distinct from selection regret below.
 	decisionLatencyRegret := 0.0
 	decisionCostRegret := 0.0
 	if row, ok := cells[predictedWinner]; ok {
 		decisionLatencyRegret = row.LatencyRegretMsPerUnit
 		decisionCostRegret = row.CostRegretUSDPerUnit
+	}
+
+	// Selection regret: chosen − best_available in absolute units. A selector
+	// that picks the optimum has zero on both axes; one that always picks the
+	// faster engine pays positive cost regret when reliability (or another
+	// non-latency term) makes the slower cell cheaper per verified outcome.
+	selectionLatencyRegret, selectionCostRegret := 0.0, 0.0
+	bestLatencyCell, bestCostCell := "", ""
+	if row, ok := cells[actualWinner]; ok && row.ActualLatencyMsPerUnit > 0 {
+		bestMs := row.ActualLatencyMsPerUnit
+		bestLatencyCell = actualWinner
+		for id, other := range cells {
+			if other.ActualLatencyMsPerUnit > 0 && other.ActualLatencyMsPerUnit < bestMs {
+				bestMs = other.ActualLatencyMsPerUnit
+				bestLatencyCell = id
+			}
+		}
+		selectionLatencyRegret = row.ActualLatencyMsPerUnit - bestMs
+	}
+	if row, ok := cells[actualWinner]; ok && row.ActualPhysicalCostUSDUnit > 0 {
+		bestCost := row.ActualPhysicalCostUSDUnit
+		bestCostCell = actualWinner
+		for id, other := range cells {
+			if other.ActualPhysicalCostUSDUnit > 0 && other.ActualPhysicalCostUSDUnit < bestCost {
+				bestCost = other.ActualPhysicalCostUSDUnit
+				bestCostCell = id
+			}
+		}
+		selectionCostRegret = row.ActualPhysicalCostUSDUnit - bestCost
 	}
 
 	// Quality outcome: both measured cells must show zero verification failures
@@ -428,26 +471,30 @@ func BuildGovernedComparison(
 	}
 
 	decision := GovernedShadowDecision{
-		EligibleCells:    eligible,
-		ExcludedCells:    excluded,
-		PredictedWinner:  predictedWinner,
-		PredictedBasis:   predictedBasis,
-		ActualWinner:     actualWinner,
-		ActualBasis:      actualBasis,
-		DecidingTerm:     actualBasis,
-		SelectionReason:  selectionReason,
-		LatencyRegretMs:  decisionLatencyRegret,
-		CostRegretUSD:    decisionCostRegret,
-		QualityOutcome:   qualityOutcome,
-		Confidence:       confidence,
-		RoutedCellID:     shadow.RoutedCellID,
-		ShadowCellID:     actualWinner,
-		Diverged:         actualWinner != shadow.RoutedCellID,
-		Promoted:         false,
-		RoutingChanged:   false,
-		SelectionPolicy:  shadowSelectionPolicy,
-		RuntimeMatrixSHA: firstNonEmpty(shadow.RuntimeMatrixSHA, generatedRuntimeMatrixSHA256),
-		CostHWClass:      firstNonEmpty(shadow.CostHWClass, "apple_silicon_ultra"),
+		EligibleCells:            eligible,
+		ExcludedCells:            excluded,
+		PredictedWinner:          predictedWinner,
+		PredictedBasis:           predictedBasis,
+		ActualWinner:             actualWinner,
+		ActualBasis:              actualBasis,
+		DecidingTerm:             actualBasis,
+		SelectionReason:          selectionReason,
+		LatencyRegretMs:          decisionLatencyRegret,
+		CostRegretUSD:            decisionCostRegret,
+		SelectionLatencyRegretMs: selectionLatencyRegret,
+		SelectionCostRegretUSD:   selectionCostRegret,
+		BestAvailableLatencyCell: bestLatencyCell,
+		BestAvailableCostCell:    bestCostCell,
+		QualityOutcome:           qualityOutcome,
+		Confidence:               confidence,
+		RoutedCellID:             shadow.RoutedCellID,
+		ShadowCellID:             actualWinner,
+		Diverged:                 actualWinner != shadow.RoutedCellID,
+		Promoted:                 false,
+		RoutingChanged:           false,
+		SelectionPolicy:          shadowSelectionPolicy,
+		RuntimeMatrixSHA:         firstNonEmpty(shadow.RuntimeMatrixSHA, generatedRuntimeMatrixSHA256),
+		CostHWClass:              firstNonEmpty(shadow.CostHWClass, "apple_silicon_ultra"),
 	}
 	digest, err := digestGovernedDecision(decision)
 	if err != nil {
