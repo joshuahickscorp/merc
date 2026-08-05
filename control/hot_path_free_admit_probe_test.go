@@ -25,7 +25,7 @@ import (
 //
 // It does NOT wire a production path that skips the durable contract insert —
 // that design dies under concurrent ceiling and crash recovery (see
-// docs/HOT_PATH_DURABLE_ADMISSION.md). It measures the surviving floor:
+// docs/RUNTIME_AND_PERF.md). It measures the surviving floor:
 // amortized O(1) durable holds still synchronous before dispatch.
 //
 // Opt-in:
@@ -435,7 +435,7 @@ func TestHotPathFreeAdmitProbe(t *testing.T) {
 			"safety of zero-durable-before-dispatch (disqualified by argument, not measured)",
 			"O(1) materialised committed-micros counter (named next step on short-reserve branch; not built here)",
 		},
-		"design_doc": "docs/HOT_PATH_DURABLE_ADMISSION.md",
+		"design_doc": "docs/RUNTIME_AND_PERF.md",
 	}
 
 	dir := filepath.Join("..", "evidence", "perf")

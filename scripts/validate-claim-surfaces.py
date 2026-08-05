@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -27,6 +28,46 @@ WATTS_BY_CLASS = {
     "apple_silicon_ultra": 65.0,
     "cpu": 25.0,
 }
+
+
+# A repo-relative docs/*.md citation, in prose, a markdown link, or a JSON string.
+DOC_PATH_RE = re.compile(r"(?<![A-Za-z0-9_./-])(docs/[A-Za-z0-9_./-]+\.md)(?![A-Za-z0-9_./-])")
+
+# Text files git tracks, minus binaries. Scoped to the index deliberately: a
+# filesystem walk also hits agent/target/ and .artifacts/ build output.
+TEXT_SUFFIXES = (".md", ".json", ".py", ".sh", ".go", ".yml", ".yaml", ".html", ".mjs", ".js")
+
+# Documents that were never absorbed anywhere and are cited from code comments
+# and ops JSON. Enumerated as dangling in docs/PROGRAMME.md's L6 contradiction
+# ledger under "Three dangling references (do not create files)" — writing a
+# file to satisfy a citation would be inventing a source. Exempt by name so the
+# gate stays green on a known, recorded absence and red on a new one.
+# Files whose citations are frozen at the moment they were written. Rewriting a
+# path inside one either falsifies a record or changes a value the tree pins:
+#   evidence/                      recorded receipts, name the tree as it was
+#   control/runtime-authority.json content-addressed capability manifest; its
+#                                  per-profile digests are pinned in
+#                                  runtime_authority_v2_test.go, so editing a
+#                                  doc string here shifts every profile digest
+#                                  and forces agents to re-enrol
+FROZEN_CITERS = ("evidence/", "control/runtime-authority.json")
+
+KNOWN_DANGLING = frozenset({
+    "docs/REBRAND.md",
+    "docs/GPU_CAPABILITY.md",
+    "docs/CREED_AND_PATH_TO_TEN.md",
+    "docs/internal/CREED_AND_PATH_TO_TEN.md",
+    # FROZEN in docs/RENAME_REGISTER.md: a dated finding, cited as a path
+    # predicate by scripts/rename-residue-audit.py rather than as a live link.
+    "docs/WEBSITE_3D_BLENDER_STATUS_2026-07-19.md",
+})
+
+
+def tracked_text_files() -> list[str]:
+    out = subprocess.run(
+        ["git", "ls-files"], cwd=ROOT, capture_output=True, text=True, check=True
+    ).stdout
+    return [p for p in out.split("\n") if p.endswith(TEXT_SUFFIXES) and (ROOT / p).is_file()]
 
 
 def fail(message: str) -> None:
@@ -131,6 +172,34 @@ def main() -> None:
             if model_id not in catalog_ids:
                 errors.append(f"{relative}: model id {model_id} not in runtime catalogue")
 
+    # Cited doc paths must resolve. The L6 consolidation (68 markdown -> 19)
+    # absorbed four operator docs and left every inbound reference pointing at
+    # the deleted path, so the facet pack told an operator to open a 404 and
+    # ops/governance-review-packets.json listed a missing file as required
+    # evidence. The rename-residue audit reported RESIDUE=0 throughout: it
+    # classifies the old *name*, and has nothing to say about a path that no
+    # longer exists. This is the check that would have caught it.
+    cited_docs = 0
+    for relative in tracked_text_files():
+        if relative.startswith(FROZEN_CITERS):
+            continue
+        text = (ROOT / relative).read_text(encoding="utf-8", errors="replace")
+        historical = False
+        for lineno, line in enumerate(text.split("\n"), 1):
+            if "historical-doc-names:begin" in line:
+                historical = True
+                continue
+            if "historical-doc-names:end" in line:
+                historical = False
+                continue
+            if historical or "<!-- source:" in line:
+                continue  # names a former file on purpose, not a live link
+            for cited in DOC_PATH_RE.findall(line):
+                cited_docs += 1
+                if cited in KNOWN_DANGLING or (ROOT / cited).is_file():
+                    continue
+                errors.append(f"{relative}:{lineno}: cites {cited}, which does not exist")
+
     if errors:
         print("claim-surfaces: FAIL:", file=sys.stderr)
         for err in errors:
@@ -140,7 +209,8 @@ def main() -> None:
     print(
         f"claim-surfaces: PASS "
         f"({len(policy.get('active_surfaces', []))} surfaces; "
-        f"capability path/price/model checks clean)"
+        f"capability path/price/model checks clean; "
+        f"{cited_docs} cited doc paths resolve)"
     )
 
 

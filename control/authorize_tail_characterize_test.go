@@ -43,7 +43,7 @@ import (
 // offer capacity) is not altered by this probe.
 //
 // Reading the 1-offer multi-buyer cell: it isolates "one capacity row is one
-// capacity row" (docs/OFFER_MULTIPLICITY.md). That tail is a thin-book /
+// capacity row" (docs/RUNTIME_AND_PERF.md). That tail is a thin-book /
 // fixture number, not a standing production defect — seed leaves 0 realtime
 // offers, one local agent registers one, canary is two workers, and N-offer
 // cells already show SKIP LOCKED recovering multi-supplier books. Do not

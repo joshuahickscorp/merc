@@ -10,7 +10,7 @@ and passing, the derived total is 84/100. The remaining 16 points have
 receipt rows wired to external evidence paths under evidence/external/, but
 those artifacts are absent today and their content checks refuse local or
 paper substitutes — so the score stays 84 until real external work lands.
-Operator steps for those points: docs/FACET_EXTERNAL_ACTION_PACK.md.
+Operator steps for those points: docs/PROGRAMME.md § "Facet external action pack".
 Do not loosen content checks to "make room".
 """
 

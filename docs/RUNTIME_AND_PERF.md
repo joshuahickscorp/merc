@@ -303,10 +303,10 @@ below F16 still clear 0.999.
 > **Historical planning snapshot — superseded.** These MLX / llama.cpp multiples
 > rest on unbound bench logs and must not be labelled as today's physical or
 > delivered performance under bound identity. The 145× accounting error retired
-> in `docs/FRONTIER_300X.md` is the same chain. Use `docs/SHIPPABILITY_STATUS.md`
+> in `docs/RUNTIME_AND_PERF.md § "Merc efficiency frontier"` is the same chain. Use `docs/PROGRAMME.md § "Merc shippability status"`
 > and bound receipts under `evidence/` for current claims. This file is retained
 > as an audit trail, not a live speed claim. (Banner pattern matches
-> `docs/PATH_TO_TEN.md`.)
+> `docs/PROGRAMME.md § "Path to 10 — what an agent can finish alone, and what only you can do"`.)
 
 Target was ≥50× the 138.7 tok/s on record. The table below records what an
 unbound 2026-07-27 harness reported on an M3 Ultra; those figures are historical
@@ -376,7 +376,7 @@ cap at 49.2×.
 
 ## What this does and does not mean for the economics
 
-`docs/LANE_RESEARCH.md` computes the supplier break-even. Restating it against
+`docs/PROGRAMME.md § "Which lane can actually pay a supplier"` computes the supplier break-even. Restating it against
 today's measurement rather than the M3 Pro number:
 
 | | tok/s | supplier net /hr at $0.0090/1M, 97% share |
@@ -411,9 +411,9 @@ scratchpad; both are pinned to the 4-bit Llama-3.2-1B the catalogue prices.
 > **Historical planning snapshot — superseded.** These MLX profile tables rest
 > on the same unbound bench chain as the retired speed-lane logs. They are not
 > bound at this commit and must not be labelled as today's physical or delivered
-> multiples. Use `docs/SHIPPABILITY_STATUS.md` and bound receipts under
+> multiples. Use `docs/PROGRAMME.md § "Merc shippability status"` and bound receipts under
 > `evidence/` for current claims. This file is retained as an audit trail, not
-> an operator performance reference. (Banner pattern matches `docs/PATH_TO_TEN.md`.)
+> an operator performance reference. (Banner pattern matches `docs/PROGRAMME.md § "Path to 10 — what an agent can finish alone, and what only you can do"`.)
 
 - hardware: **Apple M3 Ultra / 96GB**
 - runtime: **mlx**
@@ -699,7 +699,7 @@ Branch: `perf/execution-frontier`. `release/rc1-go-closure` stays frozen.
 This maps the ten-step faster/cheaper order onto what the tree actually
 contains, so no step is started against a wall that was already visible.
 Everything below was probed against the code on 2026-07-30, not inferred from
-intent. `docs/FRONTIER_300X.md` and `docs/SPEED_LANE_2026-07-27.md` hold the
+intent. `docs/RUNTIME_AND_PERF.md § "Merc efficiency frontier"` and `docs/RUNTIME_AND_PERF.md § "Speed lane, measured 2026-07-27"` hold the
 measured throughput authorities and are not restated here.
 
 No global refactor. The boundaries the Execution Brain needs mostly exist
@@ -856,8 +856,8 @@ Four profiles are registered:
 | profile | lifecycle | routable | evidence |
 |---|---|---|---|
 | `candle_metal` | ACTIVE | yes | `evidence/canary/real-runtime-realtime.json` (unbound historical chain; not candidate-bound) |
-| `mlx_metal` | VALIDATED | no | `docs/SPEED_LANE_2026-07-27.md` |
-| `llama_cpp_metal` | VALIDATED | no | `docs/SPEED_LANE_2026-07-27.md` |
+| `mlx_metal` | VALIDATED | no | `docs/RUNTIME_AND_PERF.md § "Speed lane, measured 2026-07-27"` |
+| `llama_cpp_metal` | VALIDATED | no | `docs/RUNTIME_AND_PERF.md § "Speed lane, measured 2026-07-27"` |
 | `vllm_cuda` | DRAFT | no | `evidence/runpod/cuda-first-proof.json` (unbound provider proof; not Merc-chain canary) |
 
 Only CANARY and ACTIVE profiles project into the advertised capability set, so
@@ -885,7 +885,7 @@ The migration is deliberately mid-transition: `runtime_profile_id` is nullable,
 dual-validates. `ReconcileWorkerRuntimeProfiles` is the gate for the rest.
 
 **Update 2026-07-30, later.** The second runtime is chosen, driven and measured.
-`docs/runtime/SECOND_RUNTIME_CENSUS.md` records why it is `llama_cpp_metal` on
+`docs/RUNTIME_AND_PERF.md § "Which runtime becomes the second one — wiring census"` records why it is `llama_cpp_metal` on
 the **embed** cell and not MLX and not the infer cell: MLX is not installed and
 has no agent code path at all, and llama.cpp's `batch_infer` cell is `byte_exact`
 in the one configuration where llama.cpp is byte-deterministic on Metal and runs
@@ -937,7 +937,7 @@ infer cell from that profile, not arguing with the rule.
 ### The original blocker, for the record
 
 MLX versus llama.cpp is already **measured** on this hardware
-(`docs/SPEED_LANE_2026-07-27.md`). What does not exist is the authority to
+(`docs/RUNTIME_AND_PERF.md § "Speed lane, measured 2026-07-27"`). What does not exist is the authority to
 select among runtimes:
 
 - `control/runtime-authority.json` describes exactly one runtime
@@ -964,7 +964,7 @@ so it should be scheduled after steps 1–3 produce measurements, not before.
 
 A governed quality suite already exists and already rejected a quantization:
 `evidence/bench/quality-suite.jsonl` approved 8-bit as OUTCOME-EQUIVALENT and
-refused 4-bit (`docs/FRONTIER_300X.md`). Mixed-bit profiles, dequant/GEMM
+refused 4-bit (`docs/RUNTIME_AND_PERF.md § "Merc efficiency frontier"`). Mixed-bit profiles, dequant/GEMM
 profiling, weight prepacking and graph/shape compilation do not exist.
 
 ## 6. Speculation portfolio — PRIMITIVE ONLY
@@ -987,7 +987,7 @@ actuals plus per-device power, neither of which is metered today.
 
 No small-model-then-evaluator-then-large-model path exists. The
 `OUTCOME_EQUIVALENT` label is already defined and defended in
-`docs/FRONTIER_300X.md`, so a cascade must report under it and never as
+`docs/RUNTIME_AND_PERF.md § "Merc efficiency frontier"`, so a cascade must report under it and never as
 model-exact.
 
 ## Promotion rule
@@ -1028,7 +1028,7 @@ supplier work.
 **Yes — if “nearly free” means amortized O(1) durable work still before dispatch.**
 
 Pre-authorize funding (execution envelopes, already shipped) and pre-authorize
-capacity (capacity leases, designed in `docs/CAPACITY_LEASES.md`, not shipped).
+capacity (capacity leases, designed in `docs/ARCHITECTURE.md § "Capacity leases (design only)"`, not shipped).
 Per request then does:
 
 1. O(1) envelope spend `UPDATE` (or O(1) committed-micros counter)
@@ -1097,7 +1097,7 @@ Rails when ACTIVE:
 | `prepaidOpenReservationMicros` | Same ACTIVE term + expired-envelope EXECUTING fallback |
 | `BuyerFreeCreditRemaining` | Same ACTIVE `(cap−spent)` residual + ACTIVE-conditional EXECUTING exclusion as the other two rails. Used by job intake (not advisory-only) when free credit gates MaxUSD without a payment method |
 
-### 2. Capacity leases (`docs/CAPACITY_LEASES.md`, not implemented)
+### 2. Capacity leases (`docs/ARCHITECTURE.md § "Capacity leases (design only)"`, not implemented)
 
 **Survives** as design if Postgres remains authority and cost-class rules hold.
 Hot path becomes O(1) slot `UPDATE` instead of ranking CTE. Composes with
@@ -2120,7 +2120,7 @@ for that profile**.
 | Seeded dev (`make seed` / `control/seed.go`) | **0** until an agent registers | Seed inserts 2 batch workers (`demoWorkerID`, `demoWorkerID2`) for embed/batch_infer only. **No** `realtime_worker_offers` rows. |
 | Local agent after register | **1** per agent process × profile | One `register_realtime` per pinned profile (`vllm.rs`). Typical laptop: one worker → one offer for `cx-chat-1b`. |
 | VLLM profile catalogue in-repo | **1 profile** today | `control/runtime-profiles/vllm-llama-3.2-1b-instruct-bf16.json` → `cx-chat-1b` |
-| Level-B / go-closure canary design | **2** distinct approved workers | `docs/LEVEL_B_OPERATOR_HANDOFF.md`, `ops/go-closure-inputs.json` ("two distinct operator-controlled Metal worker identities") — still a thin book, not a marketplace. |
+| Level-B / go-closure canary design | **2** distinct approved workers | `docs/PROGRAMME.md § "Level-B operator handoff"`, `ops/go-closure-inputs.json` ("two distinct operator-controlled Metal worker identities") — still a thin book, not a marketplace. |
 | Tail probe 1-offer cell | **1** (deliberate) | `TestAuthorizeTailCharacterize` drains all other offers. |
 | Tail probe N-offer cell | **N = concurrency** equal-rank offers | Same test; SKIP LOCKED fans out. |
 | Intended production marketplace | **N independent suppliers/workers** | Order book ranking, liquidity slices (`current_active_offers`), multi-offer SKIP LOCKED path. |
@@ -2167,7 +2167,7 @@ an accidental missing index.
 | Keep one counter row per worker×profile | Serialises concurrent admits on that worker for the TX duration | Strong: decrement + contract insert in one TX; release on terminal | **Current** |
 | Row-per-slot | Parallel claims on distinct free slots of the same worker | Feasible but multiplies bookkeeping; orphan-slot recovery must match finalize/void/stale paths | Not justified while multi-offer is the production shape |
 | Decrement without holding lock through insert | Would shrink hold time only if claim and contract insert split | Splitting risks oversubscribe or stranded capacity across commit boundaries | Rejected for capacity truth |
-| Capacity leases (many slots pre-claimed) | Amortises re-ranking; does not remove concurrent multi-buyer wait on one worker's remaining slots | Design only — `docs/CAPACITY_LEASES.md` | Future, after envelopes prove out |
+| Capacity leases (many slots pre-claimed) | Amortises re-ranking; does not remove concurrent multi-buyer wait on one worker's remaining slots | Design only — `docs/ARCHITECTURE.md § "Capacity leases (design only)"` | Future, after envelopes prove out |
 
 Capacity truth is non-negotiable: a supplier must never be oversubscribed, and
 an abandoned claim must not strand sequences. The current counter + lock
@@ -2199,7 +2199,7 @@ trade.
 - Claim SQL + SKIP LOCKED notes: `control/realtime_supplier_outcome_stats.go`,
   `control/realtime_store.go` (`AuthorizeRealtimeContract`)
 - Bound numbers: `evidence/perf/authorize-auth-tails-latest.json`
-- Lease design (not implemented): `docs/CAPACITY_LEASES.md`
+- Lease design (not implemented): `docs/ARCHITECTURE.md § "Capacity leases (design only)"`
 
 
 <!-- contradiction-ledger: mlx-throughput -->
@@ -2210,7 +2210,7 @@ These figures are intentionally left side-by-side. Merging is not resolution.
 
 | Claim | Source | Notes |
 |---|---|---|
-| MLX peak **6,828 t/s** | `docs/SPEED_LANE_2026-07-27.md` | Speed-lane harness |
-| MLX **310.7 t/s** | `docs/RUNTIME_CROSS_TEST_2026-07-30.md` | Cross-test harness; different setup |
+| MLX peak **6,828 t/s** | `docs/RUNTIME_AND_PERF.md § "Speed lane, measured 2026-07-27"` | Speed-lane harness |
+| MLX **310.7 t/s** | `docs/RUNTIME_AND_PERF.md § "Four runtimes, one harness, two platforms — final"` | Cross-test harness; different setup |
 
 

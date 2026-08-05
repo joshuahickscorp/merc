@@ -49,7 +49,7 @@
       "status": "PENDING",
       "qualified_reviewer_required": true,
       "review_scope": ["test-mode-only boundary", "authorization through reconciliation", "refunds and disputes", "Connect transfer and payout state", "live-key quarantine"],
-      "required_evidence": ["evidence/autonomous/payment-simulator.json", "ops/stripe-secret-exposure.json", "docs/STRIPE_SANDBOX_SETUP.md", "ops/economics-readiness.json"],
+      "required_evidence": ["evidence/autonomous/payment-simulator.json", "ops/stripe-secret-exposure.json", "docs/ARCHITECTURE.md", "ops/economics-readiness.json"],
       "decision_required": "approve or reject a supervised Stripe test-mode exercise; live money remains separately prohibited"
     },
     {

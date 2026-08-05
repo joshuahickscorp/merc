@@ -28,7 +28,7 @@ type realtimeSupplierOutcomeStats struct {
 // (PK lookup) instead of aggregating execution_contracts history per request.
 //
 // Tail note (see evidence/perf/authorize-auth-tails-*.json and
-// docs/OFFER_MULTIPLICITY.md): under concurrency every contender used to
+// docs/RUNTIME_AND_PERF.md): under concurrency every contender used to
 // target selected_rank=1 and serialise on that one offer row even when other
 // equal-or-next-rank offers had free capacity. The claim path now prefers
 // FOR UPDATE SKIP LOCKED ordered by rank so multi-offer books admit in

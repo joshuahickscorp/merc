@@ -447,7 +447,7 @@ func TestBenchmarkAuthorityMustNameTheProfileItEvidences(t *testing.T) {
 		{"a path that is not a known receipt", "not a known receipt",
 			func(d *runtimeAuthorityDocument) {
 				d.Runtimes[runtimeIndex(t, *d, "candle_metal")].BenchmarkAuthority =
-					"docs/SPEED_LANE_2026-07-27.md"
+					"docs/RUNTIME_AND_PERF.md"
 			}},
 		{"the original defect verbatim", "not a known receipt",
 			func(d *runtimeAuthorityDocument) {
