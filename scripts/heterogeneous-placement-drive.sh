@@ -54,7 +54,7 @@ from pathlib import Path
 
 root = Path(".").resolve()
 auth = json.loads((root / "control/runtime-authority.json").read_text())
-matrix_md = (root / "docs/RUNTIME_MATRIX.md").read_text()
+matrix_md = (root / "docs/RUNTIME_AND_PERF.md").read_text()
 shape = (root / "control/shape_routing.go").read_text()
 shadow = (root / "control/runtime_shadow_selection.go").read_text()
 workload = (root / "control/workload_classification.go").read_text()
@@ -107,7 +107,7 @@ else:
         "refs": [
             "control/workload_classification.go:runtimeCapabilityForBindingDirected",
             "control/runtime_shadow_selection.go",
-            "docs/RUNTIME_MATRIX.md",
+            "docs/RUNTIME_AND_PERF.md",
         ],
     })
 

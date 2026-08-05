@@ -157,7 +157,7 @@ delivered to an on-call receiver. The machine-derived readiness facet is
 **84/100** — that is the **machine-reachable maximum** without staging, offsite
 storage, or human approvers, not a local shortfall. The remaining 16 points and
 the exact operator steps that close them are in
-[docs/FACET_EXTERNAL_ACTION_PACK.md](docs/FACET_EXTERNAL_ACTION_PACK.md). The
+[docs/PROGRAMME.md](docs/PROGRAMME.md) § "Facet external action pack". The
 decision is in [ops/go-no-go.json](ops/go-no-go.json), the detail in
 [RELEASE_READINESS.md](RELEASE_READINESS.md).
 
@@ -188,6 +188,6 @@ limitations. It is a register, not a certification.
 Finishing the five external proofs above, then soak testing and the missing buyer
 account features. See [docs/PROGRAMME.md](docs/PROGRAMME.md).
 
-Also: [runtime matrix](docs/RUNTIME_MATRIX.md) (what may run),
+Also: [runtime matrix](docs/RUNTIME_AND_PERF.md § "Runtime capability matrix") (what may run),
 [runbooks](docs/RUNBOOKS.md) (backup, restore, rollback, alerts), and the
-[frontend contract](docs/FRONTEND_CONTRACT.md) (what a UI may claim).
+[frontend contract](docs/ARCHITECTURE.md § "Frontend and API contract") (what a UI may claim).

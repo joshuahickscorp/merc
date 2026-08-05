@@ -555,7 +555,7 @@ Audited against the code on 2026-08-02. Statuses use the goal's vocabulary.
 Nothing here is inferred from intent; each row was probed against the tree.
 
 > Newer than this file for the runtime selector, batching, execution modes and
-> the §20 prohibitions: `docs/MASTER_PROGRAMME_LEDGER.md`, with machine-readable
+> the §20 prohibitions: `docs/PROGRAMME.md § "Master Programme Ledger"`, with machine-readable
 > receipts at `evidence/state/branch-state-step1.json` and
 > `evidence/state/must-not-do-audit.json` (both unbound; session-state inventory,
 > not bound identity). Where the two disagree, the receipts are the authority —
@@ -929,7 +929,7 @@ offsite storage, and no human approvers — the other 16 points are externally
 blocked by design (Stripe sandbox matrix, qualifying 24 h soak, independent
 offsite copy/restore, external attack rehearsal, and qualified
 privacy/licensing/abuse approvals). Do not hunt for local code that will raise
-the facet; use `docs/FACET_EXTERNAL_ACTION_PACK.md`. Level B is `NO_GO`; Level C
+the facet; use `docs/PROGRAMME.md § "Facet external action pack"`. Level B is `NO_GO`; Level C
 live money/public launch is prohibited. No historical credential, deployment, or
 canary receipt overrides those gates.
 
@@ -1897,7 +1897,7 @@ The objective is to make Merc a complete, aggressively verified, economically su
 ```
 ```
 
-<!-- auto-closed unbalanced fence from docs/MERC_SHIPPABILITY_DIRECTIVE.md -->
+<!-- auto-closed unbalanced fence from docs/PROGRAMME.md -->
 
 
 <!-- source: docs/PATH_TO_TEN.md -->
@@ -2067,7 +2067,7 @@ Ranked by what they unblock per second of your time.
 |---|---|---|---|
 | 1 | `gh repo edit joshuahickscorp/merc --visibility private` | 5 s | The only open legal exposure |
 | 2 | **A working RunPod API key** (or any GPU provider) into `.secrets/runpod.env` | 30 s | Performance 6→8; real vLLM parity; the CUDA lane's entire evidence base |
-| 3 | **Decision Zero** — `[KILL-RT]` or `[KEEP-RT]`, see `docs/DECISION_ZERO.md` | one call | ~Half the remaining roadmap; ends dual-tracking |
+| 3 | **Decision Zero** — `[KILL-RT]` or `[KEEP-RT]`, see `docs/ARCHITECTURE.md § "Decision Zero — realtime lane: keep or kill"` | one call | ~Half the remaining roadmap; ends dual-tracking |
 | 4 | Choose a LICENSE | minutes | PyPI publish → DX 7→8.5; resolves `NOTICE` contradiction |
 | 5 | Real support + incident contacts in `docs/SUPPORT_AND_INCIDENT_RUNBOOK.md` | minutes | `make release-gates`; claims 9→9.5 |
 | 6 | A real paging destination (PagerDuty/Opsgenie/Slack webhook) | minutes | Operability 8→9 |
@@ -2188,7 +2188,7 @@ competitive throughput number, not basic correctness.
 analyses landed on opposite sides (78% vs 72%) — that overlap means the evidence
 genuinely underdetermines it.
 
-**Read:** `docs/DECISION_ZERO.md`. It costs both branches.
+**Read:** `docs/ARCHITECTURE.md § "Decision Zero — realtime lane: keep or kill"`. It costs both branches.
 
 **The question that resolves it:** *within 90 days, can you get a Linux/CUDA
 supplier to register and serve real traffic?*
@@ -2364,7 +2364,7 @@ that is not the code's to make. Nothing here can be closed by writing software.
 
 For the **readiness facet** specifically (current machine-derived **84/100**,
 which is the machine-reachable ceiling without staging/offsite/approvers), use
-the ordered operator checklist in `docs/FACET_EXTERNAL_ACTION_PACK.md`. This
+the ordered operator checklist in `docs/PROGRAMME.md § "Facet external action pack"`. This
 queue remains the broader external inventory for canary inputs and rename
 cutovers.
 
@@ -2626,7 +2626,7 @@ that host. Items 2 and 3 need neither.
 
 Store values only in gitignored mode-0600 `.env.go-closure` (or the approved
 secret manager). Never commit them. Full input list:
-`docs/STRIPE_SANDBOX_SETUP.md`, `ops/go-closure-inputs.json`.
+`docs/ARCHITECTURE.md § "Stripe Sandbox setup"`, `ops/go-closure-inputs.json`.
 
 ### Commands / gate
 
@@ -2636,7 +2636,7 @@ chmod 600 .env.go-closure
 # fill STAGING_TLS_HOSTNAME, Stripe test inputs, MERC_CONNECT_CLIENT_ID, …
 
 # Recreate both webhook endpoints against the live hostname with API version
-# 2025-06-30.basil (see scripts/stripe-webhooks.sh and docs/STRIPE_SANDBOX_SETUP.md).
+# 2025-06-30.basil (see scripts/stripe-webhooks.sh and docs/ARCHITECTURE.md § "Stripe Sandbox setup").
 # Stale tunnel hostnames and api_version:null endpoints fail the contract.
 
 set -a; . ./.env.go-closure; set +a
@@ -2797,7 +2797,7 @@ with the exact candidate image.
 
 | Input | Form | Who provides it |
 |---|---|---|
-| Persistent staging stack | Host + TLS + compose state from `docs/STAGING_DEPLOYMENT_PLAN.md` | Operations |
+| Persistent staging stack | Host + TLS + compose state from `docs/RUNBOOKS.md § "Staging deployment command plan"` | Operations |
 | `MERC_CANDIDATE_CONTROL_IMAGE` / `MERC_CANDIDATE_COMMIT` | Immutable `@sha256:` image and matching full commit | Release engineering |
 | Wall-clock window | ≥ 86400 s uninterrupted candidate container | Operations |
 | Soak bounds | `MERC_SOAK_MAX_*` growth limits as in go-closure env | Operations |
@@ -2810,7 +2810,7 @@ intentionally worth **0** points so short local runs cannot inflate the domain.
 ### Commands / gate
 
 ```bash
-# After candidate is live on staging (see docs/STAGING_DEPLOYMENT_PLAN.md):
+# After candidate is live on staging (see docs/RUNBOOKS.md § "Staging deployment command plan"):
 scripts/go-closure-deploy.sh --target ssh --activate candidate --execute
 curl -sf "https://${STAGING_TLS_HOSTNAME}/healthz"
 curl -s  "https://${STAGING_TLS_HOSTNAME}/readyz" \
@@ -2959,11 +2959,11 @@ Hitting 95 on the facet is necessary but not sufficient while open P1s remain.
 | `ops/go-no-go.json` | Level A/B/C decisions and P1 exit criteria |
 | `ops/readiness.json` | Advisory ledger; `earned` ignored by the scorer |
 | `ops/go-closure-inputs.json` | Exact operator input names |
-| `docs/EXTERNAL_OPERATOR_HANDOFF.md` | Broader external-only release handoff |
-| `docs/STAGING_DEPLOYMENT_PLAN.md` | Ordered staging deploy commands |
-| `docs/STRIPE_SANDBOX_SETUP.md` | Stripe test inputs and matrix |
+| `docs/PROGRAMME.md § "External-only release handoff"` | Broader external-only release handoff |
+| `docs/RUNBOOKS.md § "Staging deployment command plan"` | Ordered staging deploy commands |
+| `docs/ARCHITECTURE.md § "Stripe Sandbox setup"` | Stripe test inputs and matrix |
 | `RELEASE_READINESS.md` | Scope-separated release narrative |
-| `docs/SHIPPABILITY_STATUS.md` | Capability vs release authority |
+| `docs/PROGRAMME.md § "Merc shippability status"` | Capability vs release authority |
 
 ---
 
@@ -2982,7 +2982,7 @@ any commit. Readiness is **84/100**, P0 is **0**, P1 is **8**, Level B is
 **NO-GO**, and Level C is **NO-GO / NOT ASSESSED**. **84/100 is the
 machine-reachable ceiling** without staging, offsite storage, or human
 approvers; the remaining 16 points are external-only (see
-`docs/FACET_EXTERNAL_ACTION_PACK.md`). A Stripe live credential is prohibited
+`docs/PROGRAMME.md § "Facet external action pack"`). A Stripe live credential is prohibited
 and is not an input to this procedure.
 
 The eight P1s are: persistent TLS staging; independent encrypted offsite
@@ -3050,7 +3050,7 @@ operator shell.
 | Independent offsite backup destination | Approved storage provider and a separate backup administrator | Write encrypted backup objects and read them back in the dedicated backup prefix; no plaintext permission | Backup-provider secret manager under a principal separate from staging | `scripts/go-closure-rollback-rehearsal.sh --target ssh --execute` | `P1-OFFSITE-RESTORE` |
 | Stripe sandbox `sk_test` key | Stripe Dashboard in test mode from the authorized payments administrator | Test-mode customers, PaymentIntents, refunds, disputes, and required read-only reconciliation; no live resources | Organization secret manager mapped only to `STRIPE_SECRET_KEY` in `.env.go-closure` | `scripts/cx release stripe-check` | `P1-STRIPE-TEST` configuration half |
 | Stripe sandbox webhook `whsec` secret | Stripe Dashboard test-mode webhook endpoint settings | Sign only the dedicated account webhook endpoint; use a distinct Connect endpoint secret | Organization secret manager mapped to the bounded webhook variable; never source a live environment | `scripts/cx release stripe-check` | `P1-STRIPE-TEST` webhook half |
-| Stripe test Connect configuration | Stripe Dashboard test-mode Connect settings and a disposable Canadian test connected account | CAD test accounts, transfers, payout simulation, restrictions, and account status only | Organization secret manager and `.env.go-closure` variable names documented in `docs/STRIPE_SANDBOX_SETUP.md` | `scripts/cx release stripe-matrix` | `P1-STRIPE-TEST` |
+| Stripe test Connect configuration | Stripe Dashboard test-mode Connect settings and a disposable Canadian test connected account | CAD test accounts, transfers, payout simulation, restrictions, and account status only | Organization secret manager and `.env.go-closure` variable names documented in `docs/ARCHITECTURE.md § "Stripe Sandbox setup"` | `scripts/cx release stripe-matrix` | `P1-STRIPE-TEST` |
 | Real alert receiver credential | Approved paging provider/on-call administrator | Post only to the private-canary service/route with firing, acknowledgement, and resolution visibility | Paging-provider secret manager referenced by staging Alertmanager | `scripts/cx release alert-page --real-receiver-env MERC_ALERT_RECEIVER_<APPROVED_NAME>` | `P1-ALERT-DELIVERY` |
 | Reviewed staging action adapters | Release engineering owner for the staging host and both Metal devices | Implement only the documented schema-v2 canary scenarios and two-agent supervisor restart action; independently record each reviewed executable SHA-256 in `.env.go-closure` | Root-owned/non-group-writable staging path; non-secret approved digests in `.env.go-closure` | `scripts/go-closure-restart-storm.sh --target ssh --check && scripts/go-closure-canary-rehearsal.sh --target ssh --check` | Execution half of `P1-RECOVERY-SOAK` and `P1-CANARY-REHEARSAL` |
 | Qualified governance approvals | Named security, privacy, legal, licensing, payments, operations, supplier-policy, and release authorities | Review and approve or reject the exact clean commit and bounded test-only canary scope, including qualified human tabletop evidence | Signed approval bundle in the restricted governance evidence store; pass only its path | `scripts/cx release approvals-check --bundle <secure-bundle-path>` | `P1-INDEPENDENT-APPROVAL` and `P1-GOVERNANCE` |
@@ -3156,7 +3156,7 @@ privacy/legal review, and private-canary approval.
 # Requirement proof matrix
 
 > **Superseded on 2026-07-29. Do not read this table as current state.**
-> `docs/SHIPPABILITY_STATUS.md` carries the maintained rung for every lane, and
+> `docs/PROGRAMME.md § "Merc shippability status"` carries the maintained rung for every lane, and
 > `ops/go-no-go.json` plus `RELEASE_READINESS.md` carry the release decision.
 >
 > The rows below were accurate on 2026-07-21 and the tree has moved past several
@@ -3315,6 +3315,9 @@ reports under `~/.claude-grok/tasks/consult-20260726-1551*/`.
 
 ---
 
+<!-- historical-doc-names:begin — this ledger names documents by their
+     pre-consolidation identity on purpose; the names are the record of which
+     sources contradicted each other, not links to live files. -->
 # Documentation contradiction ledger (L6)
 
 Surfaced, not resolved. Merging placed contradictory claims side by side; this
@@ -3360,3 +3363,5 @@ ledger stops that reading as a merge error.
 - Do not rewrite historical receipt paths or SHAs while documenting them.
 - Legal/frozen paths were not merged into these homes.
 
+
+<!-- historical-doc-names:end -->
