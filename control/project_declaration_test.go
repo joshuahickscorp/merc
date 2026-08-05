@@ -52,9 +52,7 @@ func writeRenderFixtureAssets(t *testing.T, root string, declaration *ProjectDec
 func writeDeclarationFixture(t *testing.T, root string, declaration ProjectDeclaration) {
 	t.Helper()
 	blob, err := json.Marshal(declaration)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	writeProjectFixture(t, root, projectDeclarationName, string(blob))
 }
 
@@ -65,9 +63,7 @@ func TestProjectDeclarationSuppliesEvidenceBoundDAG(t *testing.T) {
 	writeDeclarationFixture(t, root, declaration)
 	writeProjectFixture(t, root, "pipeline.py", "json_schema rendering")
 	ir, err := compileProject(projectCompileOptions{Root: root})
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if len(ir.Steps) != 2 || ir.Steps[0].ID != "extract" || ir.Steps[1].ID != "render" {
 		t.Fatalf("declared graph was not canonicalized: %+v", ir.Steps)
 	}
@@ -104,9 +100,7 @@ func TestProjectDeclarationCannotSupplyCompilerTopology(t *testing.T) {
 
 func TestProjectDeclarationResolvesExactAdvertisedContract(t *testing.T) {
 	contracts, err := advertisedProjectRuntimeContracts()
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	var contract ProjectRuntimeContract
 	for _, candidate := range contracts {
 		if candidate.WorkloadKind == "embeddings" {
@@ -129,9 +123,7 @@ func TestProjectDeclarationResolvesExactAdvertisedContract(t *testing.T) {
 	writeDeclarationFixture(t, root, declaration)
 	writeProjectFixture(t, root, "pipeline.py", "embedding")
 	ir, err := compileProject(projectCompileOptions{Root: root})
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if len(ir.Steps) != 1 || ir.Steps[0].RuntimeID != contract.RuntimeID || ir.Steps[0].ModelID != contract.ModelID {
 		t.Fatalf("exact advertised contract did not resolve: %+v", ir.Steps)
 	}
@@ -259,9 +251,7 @@ func TestRenderWorkPlanRefusesCombinatorialDecomposition(t *testing.T) {
 
 func TestDeclaredStepProbeIsScopedToItsInputArtifact(t *testing.T) {
 	contracts, err := advertisedProjectRuntimeContracts()
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	var contract ProjectRuntimeContract
 	for _, candidate := range contracts {
 		if candidate.WorkloadKind == "embeddings" {
@@ -286,15 +276,11 @@ func TestDeclaredStepProbeIsScopedToItsInputArtifact(t *testing.T) {
 	input := "{\"text\":\"alpha\"}\n{\"text\":\"beta\"}\n"
 	writeProjectFixture(t, root, "samples/input.jsonl", input)
 	proposal, err := compileProject(projectCompileOptions{Root: root})
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	probed, err := compileProject(projectCompileOptions{
 		Root: root, ProbeRequested: true, BuyerApprovedIRSHA256: proposal.IRSHA256,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	resource := probed.Steps[0].ResourceEstimate
 	if resource.State != "SHAPE_MEASURED_CALIBRATION_REQUIRED" ||
 		resource.ArtifactBytes != int64(len(input)) || resource.SampleRecords != 2 ||
@@ -349,9 +335,7 @@ func TestProjectRenderingDeclarationBindsEveryExecutableAsset(t *testing.T) {
 		writeDeclarationFixture(t, root, declaration)
 		writeProjectFixture(t, root, "pipeline.py", "json_schema rendering")
 		ir, err := compileProject(projectCompileOptions{Root: root})
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		var render *ProjectIRStep
 		for i := range ir.Steps {
 			if ir.Steps[i].ID == "render" {
@@ -457,9 +441,7 @@ func TestProjectLoRAOutcomeContractKeepsEvaluationSeparate(t *testing.T) {
 		writeDeclarationFixture(t, root, declaration)
 		writeProjectFixture(t, root, "training.py", "lora adapter training")
 		ir, err := compileProject(projectCompileOptions{Root: root})
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		if len(ir.Steps) != 1 || ir.Steps[0].LoRA == nil ||
 			ir.Steps[0].LoRA.HeldOutSet.SHA256 != declaration.Steps[0].LoRA.HeldOutSet.SHA256 {
 			t.Fatalf("compiled IR lost LoRA authority: %+v", ir.Steps)
@@ -477,13 +459,9 @@ func TestLoRAProbeValidatesOnlyCompleteSchemaBoundDatasets(t *testing.T) {
 		declaration := loraProjectDeclarationFixture()
 		writeSchemaValidatedLoRAFixture(t, root, &declaration, validHeldOut)
 		proposal, err := compileProject(projectCompileOptions{Root: root})
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		probed, err := compileProject(projectCompileOptions{Root: root, ProbeRequested: true, BuyerApprovedIRSHA256: proposal.IRSHA256})
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		if got := probed.Steps[0].ResourceEstimate.State; got != "DATASET_SCHEMA_VALIDATED_CALIBRATION_REQUIRED" {
 			t.Fatalf("LoRA dataset probe state=%q, want exact bounded schema validation", got)
 		}
@@ -501,13 +479,9 @@ func TestLoRAProbeValidatesOnlyCompleteSchemaBoundDatasets(t *testing.T) {
 		declaration := loraProjectDeclarationFixture()
 		writeSchemaValidatedLoRAFixture(t, root, &declaration, "{\"target\":\"first completion\",\"input\":\"first prompt\"}\n")
 		proposal, err := compileProject(projectCompileOptions{Root: root})
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		probed, err := compileProject(projectCompileOptions{Root: root, ProbeRequested: true, BuyerApprovedIRSHA256: proposal.IRSHA256})
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		if got := probed.Steps[0].ResourceEstimate.State; got != "DATASET_SCHEMA_REFUSED" {
 			t.Fatalf("overlapping held-out data state=%q", got)
 		}
@@ -545,13 +519,9 @@ func TestLoRAProbeValidatesOnlyCompleteSchemaBoundDatasets(t *testing.T) {
 				writeDeclarationFixture(t, root, declaration)
 
 				proposal, err := compileProject(projectCompileOptions{Root: root})
-				if err != nil {
-					t.Fatal(err)
-				}
+				must(t, err)
 				probed, err := compileProject(projectCompileOptions{Root: root, ProbeRequested: true, BuyerApprovedIRSHA256: proposal.IRSHA256})
-				if err != nil {
-					t.Fatal(err)
-				}
+				must(t, err)
 				if got := probed.Steps[0].ResourceEstimate.State; got != "DATASET_SCHEMA_REFUSED" {
 					t.Fatalf("duplicate %s state=%q", tc.name, got)
 				}

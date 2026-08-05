@@ -110,9 +110,7 @@ func runArchetype(t *testing.T, ctx context.Context, store *Store, worker uuid.U
 			Input: fmt.Sprintf("%s/%d/%d", a.name, p, s),
 			TopP:  1, Seed: 1, MaxTokens: a.outputTokens,
 		}.Compute()
-		if err != nil {
-			t.Fatalf("identity: %v", err)
-		}
+		mustf(t, err, "identity: %v")
 
 		out.requests++
 		out.deliveredPromptToks += int64(a.promptTokens)
@@ -144,9 +142,7 @@ func runArchetype(t *testing.T, ctx context.Context, store *Store, worker uuid.U
 		out.prefixHitTokens += int64(reusable)
 		out.physicalPromptToks += int64(a.promptTokens - reusable)
 
-		if err := store.MarkPrefixChainWarm(ctx, worker, chain); err != nil {
-			t.Fatalf("warm: %v", err)
-		}
+		mustf(t, store.MarkPrefixChainWarm(ctx, worker, chain), "warm: %v")
 		seen[ident] = true
 		inflight[ident] = 0
 	}
@@ -261,9 +257,7 @@ func TestConcurrentCoalescingElectsExactlyOneLeaderPerIdentity(t *testing.T) {
 			Input: fmt.Sprintf("concurrent-%s-%d", uuid.NewString(), i),
 			TopP:  1, Seed: 1, MaxTokens: 32,
 		}.Compute()
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		idents[i] = id
 	}
 
@@ -308,9 +302,7 @@ func TestConcurrentCoalescingElectsExactlyOneLeaderPerIdentity(t *testing.T) {
 	var totalFollowers int64
 	for _, id := range idents {
 		f, err := store.InflightFollowers(ctx, id)
-		if err != nil {
-			t.Fatalf("follower count: %v", err)
-		}
+		mustf(t, err, "follower count: %v")
 		totalFollowers += f
 	}
 	wantFollowers := int64(identities * (callersEach - 1))
@@ -355,13 +347,9 @@ func TestHostileBuyerCannotWeaponiseReuseMechanisms(t *testing.T) {
 
 	for _, h := range hostile {
 		// Routing hints: a forged value must cost at most a cache miss.
-		if err := store.MarkPrefixWarm(ctx, worker, h); err != nil {
-			t.Fatalf("hostile prefix %q produced an error rather than being ignored: %v", h, err)
-		}
+		mustf(t, store.MarkPrefixWarm(ctx, worker, h), "hostile prefix %q produced an error rather than being ignored: %v", h)
 		warm, err := store.PrefixIsWarm(ctx, worker, h)
-		if err != nil {
-			t.Fatalf("hostile prefix %q errored on lookup: %v", h, err)
-		}
+		mustf(t, err, "hostile prefix %q errored on lookup: %v", h)
 		if warm {
 			t.Fatalf("hostile prefix %q reported warm; routing would trust a forged hint", h)
 		}
@@ -382,9 +370,7 @@ func TestHostileBuyerCannotWeaponiseReuseMechanisms(t *testing.T) {
 		// ineligible rather than quietly taking a governed slot under a forged
 		// key.
 		role, err := store.ClaimInflightExecution(ctx, h, uuid.New(), "hostile")
-		if err != nil {
-			t.Fatalf("hostile identity %q errored on claim: %v", h, err)
-		}
+		mustf(t, err, "hostile identity %q errored on claim: %v", h)
 		if !role.Leader {
 			t.Fatalf("hostile identity %q coalesced onto another request", h)
 		}
@@ -395,12 +381,8 @@ func TestHostileBuyerCannotWeaponiseReuseMechanisms(t *testing.T) {
 
 	// The tables survived: no injection landed.
 	var n int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM worker_prefix_state`).Scan(&n); err != nil {
-		t.Fatalf("worker_prefix_state did not survive hostile input: %v", err)
-	}
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM exact_result_cache`).Scan(&n); err != nil {
-		t.Fatalf("exact_result_cache did not survive hostile input: %v", err)
-	}
+	mustf(t, pool.QueryRow(ctx, `SELECT count(*) FROM worker_prefix_state`).Scan(&n), "worker_prefix_state did not survive hostile input: %v")
+	mustf(t, pool.QueryRow(ctx, `SELECT count(*) FROM exact_result_cache`).Scan(&n), "exact_result_cache did not survive hostile input: %v")
 
 	// A buyer cannot make their own prefix look warm on a worker that never
 	// served it: warmth is recorded by merc, never asserted by the client.
@@ -429,9 +411,7 @@ func TestRequestIdentitiesAreDerivedNeverSupplied(t *testing.T) {
 	// The protection is that no real request can produce it: the identity is a
 	// SHA-256 over the request fields, so a buyer would have to find a preimage.
 	derived, err := detIdentity("some prompt").Compute()
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if derived == invented {
 		t.Fatal("a derived identity collided with a hand-written one")
 	}
@@ -440,9 +420,7 @@ func TestRequestIdentitiesAreDerivedNeverSupplied(t *testing.T) {
 	// identity from the wire. If that ever changes, this comment is the place
 	// the reviewer should be looking.
 	handlers, err := os.ReadFile("api.go")
-	if err != nil {
-		t.Fatalf("read api.go: %v", err)
-	}
+	mustf(t, err, "read api.go: %v")
 	for _, forbidden := range []string{"request_identity", "RequestIdentity{"} {
 		if strings.Contains(string(handlers), forbidden) {
 			t.Fatalf("api.go references %q: a client-supplied identity would let a buyer "+

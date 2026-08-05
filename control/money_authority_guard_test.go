@@ -176,6 +176,7 @@ var declaredMoneyAuthoritySinks = []string{
 	"creditPrepaidBalanceTx",                     // store_prepaid.go
 	"debitPrepaidForExecutionContractTx",         // store_prepaid.go
 	"debitPrepaidForSLAPremiumTx",                // store_prepaid.go
+	"debitPrepaidByRefTx",                        // store_prepaid.go: shared path for the two callers below
 	"debitPrepaidForServiceLeaseTx",              // store_prepaid.go
 	"debitPrepaidForTaskTx",                      // store_prepaid.go
 	"maybeDebitPrepaidForRealtimeTx",             // store_prepaid.go
@@ -452,6 +453,7 @@ var declaredMoneyAuthority = []string{
 	"currentActivationEntries",                            // activation_policy.go
 	"debitPrepaidForExecutionContractTx",                  // store_prepaid.go
 	"debitPrepaidForSLAPremiumTx",                         // store_prepaid.go
+	"debitPrepaidByRefTx",                                 // store_prepaid.go: shared path for the two callers below
 	"debitPrepaidForServiceLeaseTx",                       // store_prepaid.go
 	"debitPrepaidForTaskTx",                               // store_prepaid.go
 	"directedRuntimeCapabilities",                         // activation_policy.go
@@ -541,7 +543,6 @@ var declaredMoneyAuthority = []string{
 	"runProjectSubmitStep",                                // dev_project_compile.go
 	"runWorkerLeader",                                     // worker_leader.go
 	"runtimeActivation.cellRoutable",                      // activation_policy.go
-	"runtimeCapabilityForBinding",                         // workload_classification.go
 	"runtimeCapabilityForBindingDirected",                 // workload_classification.go
 	"runtimeProfileByID",                                  // runtime_profile_admission.go
 	"scanRealtimeContract",                                // realtime_store.go

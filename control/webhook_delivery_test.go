@@ -11,9 +11,7 @@ import (
 
 func TestBuildPinnedWebhookTransportDisablesProxyAndDialsOnlyResolved(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	t.Cleanup(func() { _ = ln.Close() })
 	go func() {
 		for {
@@ -26,9 +24,7 @@ func TestBuildPinnedWebhookTransportDisablesProxyAndDialsOnlyResolved(t *testing
 	}()
 
 	_, port, err := net.SplitHostPort(ln.Addr().String())
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 
 	// Happy path: pin the real listener address; DialContext must ignore the
 	// hostname argument and connect to the pre-resolved IP only.
@@ -44,9 +40,7 @@ func TestBuildPinnedWebhookTransportDisablesProxyAndDialsOnlyResolved(t *testing
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	conn, err := tr.DialContext(ctx, "tcp", net.JoinHostPort("webhook.example.test", port))
-	if err != nil {
-		t.Fatalf("dial with hostname argument should still use pre-resolved IP: %v", err)
-	}
+	mustf(t, err, "dial with hostname argument should still use pre-resolved IP: %v")
 	remote := conn.RemoteAddr().String()
 	_ = conn.Close()
 	host, _, err := net.SplitHostPort(remote)
@@ -81,9 +75,7 @@ func TestWebhookPinnedTransportIgnoresHTTPProxyEnv(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	host, _, err := net.SplitHostPort(srv.Listener.Addr().String())
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	ip := net.ParseIP(host)
 	if ip == nil {
 		t.Fatalf("test server address is not an IP: %s", host)
@@ -103,9 +95,7 @@ func TestWebhookPinnedTransportIgnoresHTTPProxyEnv(t *testing.T) {
 		allowHTTP:    true,
 	})
 	resp, err := client.Post(srv.URL+"/hook", "application/json", nil)
-	if err != nil {
-		t.Fatalf("pinned client failed despite Proxy=nil: %v", err)
-	}
+	mustf(t, err, "pinned client failed despite Proxy=nil: %v")
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("status = %d, want 204", resp.StatusCode)

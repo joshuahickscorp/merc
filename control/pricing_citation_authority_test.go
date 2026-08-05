@@ -6,9 +6,7 @@ import (
 )
 
 func TestPricedThroughputCitationsBind(t *testing.T) {
-	if err := validateAllRepricingBenchmarkCitations(); err != nil {
-		t.Fatalf("priced throughput citations must bind: %v", err)
-	}
+	mustf(t, validateAllRepricingBenchmarkCitations(), "priced throughput citations must bind: %v")
 	for _, b := range repricingBenchmarks {
 		if b.ModelID == "ffmpeg-transcode-v1" || b.ModelID == "svg-scene-render-v1" {
 			t.Fatalf("%s must not set a catalogue price until its cited artifact binds", b.ModelID)
@@ -63,9 +61,7 @@ func TestCatalogueScheduleRefusesUnbindableCitation(t *testing.T) {
 }
 
 func TestEveryWattConstantDeclaresProvenance(t *testing.T) {
-	if err := validateSustainedWattsTable(); err != nil {
-		t.Fatal(err)
-	}
+	must(t, validateSustainedWattsTable())
 	for class, entry := range sustainedWattsByHWClass {
 		if entry.Kind() != wattKindMeasured && entry.Kind() != wattKindAssumed {
 			t.Fatalf("%s: kind %q is not MEASURED or ASSUMED", class, entry.Kind())

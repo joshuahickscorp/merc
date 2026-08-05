@@ -20,9 +20,7 @@ func TestParseStripeChargeRefundedUsesCumulativeExactMinorUnits(t *testing.T) {
 	event, err := parseStripeCashEvent(
 		"evt_refund", stripeEventChargeRefunded, 1_700_000_000, object, payload,
 	)
-	if err != nil {
-		t.Fatalf("parseStripeCashEvent: %v", err)
-	}
+	mustf(t, err, "parseStripeCashEvent: %v")
 	if event.ObjectID != "ch_exact" || event.ChargeID != "ch_exact" ||
 		event.PaymentIntent != "pi_exact" || event.AmountCents != 1200 ||
 		event.RefundedCents != 275 || event.Currency != "usd" {

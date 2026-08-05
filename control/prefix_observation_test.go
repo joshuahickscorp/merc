@@ -37,27 +37,19 @@ func TestStalePrefixIndexCorrectedByObservationMiss(t *testing.T) {
 		t.Fatal("empty chain")
 	}
 	f := seedPayoutFixture(t, ctx, pool, payoutFixtureOpts{creditUSD: 1.00, supplierID: supplier})
-	if err := store.RecordJobPrefixChain(ctx, f.jobID, chain); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.MarkPrefixChainWarm(ctx, worker, chain); err != nil {
-		t.Fatal(err)
-	}
+	must(t, store.RecordJobPrefixChain(ctx, f.jobID, chain))
+	must(t, store.MarkPrefixChainWarm(ctx, worker, chain))
 
 	// Precondition: belief says warm.
 	depth, err := store.DeepestWarmPrefix(ctx, worker, f.jobID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if depth == 0 {
 		t.Fatal("fixture not warm before observation")
 	}
 
 	// Engine reports a miss (vLLM-shaped cached_tokens == 0).
 	out, err := store.CorrectPrefixBeliefFromObservation(ctx, worker, f.jobID, true, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if out.Action != PrefixObsInvalidated {
 		t.Fatalf("action = %s, want %s (believed=%d cached=%d)",
 			out.Action, PrefixObsInvalidated, out.BelievedDepth, out.CachedTokens)
@@ -68,9 +60,7 @@ func TestStalePrefixIndexCorrectedByObservationMiss(t *testing.T) {
 
 	// Postcondition: no longer trusted.
 	depth, err = store.DeepestWarmPrefix(ctx, worker, f.jobID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if depth != 0 {
 		t.Fatalf("stale belief still reports depth %d after observed miss", depth)
 	}
@@ -78,9 +68,7 @@ func TestStalePrefixIndexCorrectedByObservationMiss(t *testing.T) {
 	// A second observation against the now-cold index is a cold_serve, not a
 	// repeated invalidate — we do not thrash empty state.
 	out2, err := store.CorrectPrefixBeliefFromObservation(ctx, worker, f.jobID, true, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if out2.Action != PrefixObsColdServe {
 		t.Fatalf("second miss against cold index: action=%s, want %s", out2.Action, PrefixObsColdServe)
 	}
@@ -106,24 +94,16 @@ func TestObservationHitConfirmsRatherThanInvalidates(t *testing.T) {
 	}
 	chain := ComputePrefixChain(tokens)
 	f := seedPayoutFixture(t, ctx, pool, payoutFixtureOpts{creditUSD: 1.00, supplierID: supplier})
-	if err := store.RecordJobPrefixChain(ctx, f.jobID, chain); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.MarkPrefixChainWarm(ctx, worker, chain); err != nil {
-		t.Fatal(err)
-	}
+	must(t, store.RecordJobPrefixChain(ctx, f.jobID, chain))
+	must(t, store.MarkPrefixChainWarm(ctx, worker, chain))
 
 	out, err := store.CorrectPrefixBeliefFromObservation(ctx, worker, f.jobID, true, 64)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if out.Action != PrefixObsConfirmed {
 		t.Fatalf("action = %s, want %s", out.Action, PrefixObsConfirmed)
 	}
 	depth, err := store.DeepestWarmPrefix(ctx, worker, f.jobID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if depth == 0 {
 		t.Fatal("confirmed hit cleared warmth; confirm must not invalidate")
 	}
@@ -149,25 +129,17 @@ func TestNoEngineSignalLeavesBeliefUntouched(t *testing.T) {
 	}
 	chain := ComputePrefixChain(tokens)
 	f := seedPayoutFixture(t, ctx, pool, payoutFixtureOpts{creditUSD: 1.00, supplierID: supplier})
-	if err := store.RecordJobPrefixChain(ctx, f.jobID, chain); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.MarkPrefixChainWarm(ctx, worker, chain); err != nil {
-		t.Fatal(err)
-	}
+	must(t, store.RecordJobPrefixChain(ctx, f.jobID, chain))
+	must(t, store.MarkPrefixChainWarm(ctx, worker, chain))
 
 	// hasSignal=false: absence of the field is not a miss.
 	out, err := store.CorrectPrefixBeliefFromObservation(ctx, worker, f.jobID, false, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if out.Action != PrefixObsNoSignal {
 		t.Fatalf("action = %s, want %s", out.Action, PrefixObsNoSignal)
 	}
 	depth, err := store.DeepestWarmPrefix(ctx, worker, f.jobID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if depth == 0 {
 		t.Fatal("no-signal path must not clear belief (would thrash local engines)")
 	}
@@ -197,9 +169,7 @@ func TestWarmExpensiveClassDoesNotBeatColdCheapClass(t *testing.T) {
 	chain := uniqueTokenChain(t, 256)
 	// Shared job: both classes can take it; expensive worker is warm.
 	sharedJob, sharedTask := seedPrefixClaimJob(t, ctx, pool, store, buyerID, chain)
-	if err := store.MarkPrefixChainWarm(ctx, dear.workerID, chain); err != nil {
-		t.Fatal(err)
-	}
+	must(t, store.MarkPrefixChainWarm(ctx, dear.workerID, chain))
 	// Age shared older so without cost-class preference age would pick it first.
 	if _, err := pool.Exec(ctx,
 		`UPDATE tasks SET created_at = now() - interval '2 minutes',

@@ -39,9 +39,7 @@ func TestSingleCheapOutlierCannotSetThePrice(t *testing.T) {
 	}}
 
 	price, chosen, err := confidenceWeightedMedianUSDPer1K("infer_small", class)
-	if err != nil {
-		t.Fatalf("governed selector refused a well-populated class: %v", err)
-	}
+	mustf(t, err, "governed selector refused a well-populated class: %v")
 	cheapest := 0.01 / 1000.0
 	if price <= cheapest {
 		t.Fatalf("selector still anchored to the cheap outlier: got %.8f, outlier %.8f", price, cheapest)

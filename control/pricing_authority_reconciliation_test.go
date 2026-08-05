@@ -56,9 +56,7 @@ func TestExactTaskEconomicsUsesOneSettlementCurrencyAuthority(t *testing.T) {
 		SupplierShare:             fixtureSupplierShare,
 	}
 	gross, floor, err := exactTaskEconomics(authority, "batch", fixtureUnitsPerTask)
-	if err != nil {
-		t.Fatalf("derive exact task economics: %v", err)
-	}
+	mustf(t, err, "derive exact task economics: %v")
 	if gross.Currency.Code() != "cad" || floor.Currency.Code() != "cad" {
 		t.Fatalf("decision crossed currency authority: gross=%s floor=%s",
 			gross.Currency.Code(), floor.Currency.Code())
@@ -68,9 +66,7 @@ func TestExactTaskEconomicsUsesOneSettlementCurrencyAuthority(t *testing.T) {
 			gross.Nanos, floor.Nanos, fixtureExactGrossNanos, fixtureExactFloorNanos)
 	}
 	wantFloor, err := SupplierEntitlementNanos(gross, authority.SupplierShare)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if floor != wantFloor {
 		t.Fatalf("supplier floor %+v is not the entitlement %+v from the same gross",
 			floor, wantFloor)
@@ -93,18 +89,14 @@ func TestSubSecondTaskFloorIsNotRoundedUpToAWholeSecond(t *testing.T) {
 	ceiling := expectedSupplierUSDHr(
 		fixtureThroughputPerSec, fixtureReferencePricePer1K, fixtureSupplierShare, "batch")
 	ceilingNanos, err := MoneyNanosFromUSDFloat(cad, ceiling)
-	if err != nil {
-		t.Fatalf("hourly ceiling to nanos: %v", err)
-	}
+	mustf(t, err, "hourly ceiling to nanos: %v")
 
 	got, err := RequiredTaskNanosFromThroughput(
 		cad, NanoUSDPerHour(ceilingNanos.Nanos),
 		NanoWorkUnitsFromFloat(fixtureUnitsPerTask),
 		NanoUnitsPerSecond(fixtureThroughputPerSec*float64(NanosPerMajorUnit)),
 	)
-	if err != nil {
-		t.Fatalf("derive task floor from throughput: %v", err)
-	}
+	mustf(t, err, "derive task floor from throughput: %v")
 
 	// One whole second at the ceiling. If the truncation is back, this is what
 	// the floor collapses to, and it is 28x the real answer.
@@ -136,13 +128,9 @@ func TestFractionalUnitsAreNotInflatedToWholeUnits(t *testing.T) {
 	price := nanosPer1KFromFloat(fixtureSettlementPricePer1K())
 
 	fractional, err := CatalogueGrossNanos(cad, price, NanoWorkUnitsFromFloat(fixtureUnitsPerTask))
-	if err != nil {
-		t.Fatalf("exact gross for fractional units: %v", err)
-	}
+	mustf(t, err, "exact gross for fractional units: %v")
 	ceiled, err := CatalogueGrossNanos(cad, price, NanoWorkUnitsFromFloat(math.Ceil(fixtureUnitsPerTask)))
-	if err != nil {
-		t.Fatalf("exact gross for ceiled units: %v", err)
-	}
+	mustf(t, err, "exact gross for ceiled units: %v")
 	if fractional.Nanos != fixtureExactGrossNanos {
 		t.Fatalf("exact buyer gross is %d nanos, want %d", fractional.Nanos, fixtureExactGrossNanos)
 	}
@@ -164,13 +152,9 @@ func TestBuyerGrossIsNotQuantisedToMicrosBeforeTheSupplierShare(t *testing.T) {
 	price := nanosPer1KFromFloat(fixtureSettlementPricePer1K())
 
 	gross, err := CatalogueGrossNanos(cad, price, NanoWorkUnitsFromFloat(fixtureUnitsPerTask))
-	if err != nil {
-		t.Fatalf("exact gross: %v", err)
-	}
+	mustf(t, err, "exact gross: %v")
 	entitlement, err := SupplierEntitlementNanos(gross, fixtureSupplierShare)
-	if err != nil {
-		t.Fatalf("exact entitlement: %v", err)
-	}
+	mustf(t, err, "exact entitlement: %v")
 	if entitlement.Nanos != fixtureExactFloorNanos {
 		t.Fatalf("exact supplier entitlement is %d nanos, want %d",
 			entitlement.Nanos, fixtureExactFloorNanos)
@@ -180,13 +164,9 @@ func TestBuyerGrossIsNotQuantisedToMicrosBeforeTheSupplierShare(t *testing.T) {
 	// through roundUSD costs the supplier 30% of a job this size.
 	quantised := roundUSD(gross.USDFloat())
 	quantisedNanos, err := MoneyNanosFromUSDFloat(cad, quantised)
-	if err != nil {
-		t.Fatalf("quantised gross: %v", err)
-	}
+	mustf(t, err, "quantised gross: %v")
 	quantisedEntitlement, err := SupplierEntitlementNanos(quantisedNanos, fixtureSupplierShare)
-	if err != nil {
-		t.Fatalf("quantised entitlement: %v", err)
-	}
+	mustf(t, err, "quantised entitlement: %v")
 	if quantisedEntitlement.Nanos >= entitlement.Nanos {
 		t.Fatalf("micro quantisation no longer loses value (%d vs %d); this fixture has "+
 			"stopped exercising the defect and needs a smaller job",
@@ -214,21 +194,13 @@ func TestTheEntitlementAndItsFloorAreOneQuantity(t *testing.T) {
 		0.25, 1, 3, 58.25, 59, 100.5, 1000, 12345.75, 1e6,
 	} {
 		gross, err := CatalogueGrossNanos(cad, price, NanoWorkUnitsFromFloat(units))
-		if err != nil {
-			t.Fatalf("%g units: exact gross: %v", units, err)
-		}
+		mustf(t, err, "%g units: exact gross: %v", units)
 		entitlement, err := SupplierEntitlementNanos(gross, fixtureSupplierShare)
-		if err != nil {
-			t.Fatalf("%g units: exact entitlement: %v", units, err)
-		}
+		mustf(t, err, "%g units: exact entitlement: %v", units)
 		floor, err := SupplierEntitlementNanos(gross, fixtureSupplierShare)
-		if err != nil {
-			t.Fatalf("%g units: exact floor: %v", units, err)
-		}
+		mustf(t, err, "%g units: exact floor: %v", units)
 		ok, err := entitlement.AtLeast(floor)
-		if err != nil {
-			t.Fatalf("%g units: compare: %v", units, err)
-		}
+		mustf(t, err, "%g units: compare: %v", units)
 		if !ok {
 			t.Fatalf("%g units: entitlement %d nanos is below its own floor %d nanos",
 				units, entitlement.Nanos, floor.Nanos)

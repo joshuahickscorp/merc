@@ -163,6 +163,15 @@ type FrozenRuntimeCellEconomics struct {
 // is pinned by placement.RuntimeMatrixSHA256, which validatePlacementRequirement
 // compares against the binary's own generatedRuntimeMatrixSHA256, so reading it
 // cannot make this binding time-dependent.
+// MercTrueNetAvailable reports whether every named cost category resolved, so a
+// true net contribution may be published. False means at least one category is
+// unknown and the amount must be refused rather than approximated: with no known
+// variable costs subtracted, an "approximation" is just the gross spread wearing
+// the name of profit.
+func (c *FrozenRuntimeCellEconomics) MercTrueNetAvailable() bool {
+	return c != nil && len(c.UnknownCategories) == 0 && c.MercTrueNetUSD != nil
+}
+
 func freezeRuntimeCellEconomics(
 	placement PlacementRequirement,
 	catalogue CataloguePriceAuthority,

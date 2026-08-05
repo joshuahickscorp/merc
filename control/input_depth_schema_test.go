@@ -16,9 +16,7 @@ func TestInputDepthSchemaAppliesTwice(t *testing.T) {
 	// openIsolatedTestStore already migrated once; migrate again must be a no-op.
 	second, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
-	if err := store.Migrate(second); err != nil {
-		t.Fatalf("second schema apply failed: %v", err)
-	}
+	mustf(t, store.Migrate(second), "second schema apply failed: %v")
 	// Spot-check the new columns, constraints, and scoped indexes.
 	var etaBand, taskBand, geometryBand, etaConstraint, taskConstraint, geometryConstraint, geometryTrigger, etaIndex, taskIndex bool
 	if err := store.pool.QueryRow(second, `

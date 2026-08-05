@@ -40,9 +40,7 @@ func embedArtifact(t *testing.T, dim int, vectors [][]float64) []byte {
 		"count":    len(vectors),
 		"vectors":  vectors,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	return body
 }
 

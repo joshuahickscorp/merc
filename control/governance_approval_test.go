@@ -41,9 +41,7 @@ func validGovernanceApprovalBundle(t *testing.T, commit string, now time.Time) [
 		Approvals:       approvals,
 		Exercises:       exercises,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	return raw
 }
 
@@ -52,29 +50,21 @@ func TestGovernanceApprovalBundleRequiresCompleteExactAuthority(t *testing.T) {
 	commit := strings.Repeat("a", 40)
 	valid := validGovernanceApprovalBundle(t, commit, now)
 	digest, err := validateGovernanceApprovalBundle(valid, commit, now)
-	if err != nil {
-		t.Fatalf("valid governance approval bundle rejected: %v", err)
-	}
+	mustf(t, err, "valid governance approval bundle rejected: %v")
 	want := sha256.Sum256(valid)
 	if digest != hex.EncodeToString(want[:]) {
 		t.Fatalf("approval digest=%s, want %x", digest, want)
 	}
 
 	var base governanceApprovalBundle
-	if err := json.Unmarshal(valid, &base); err != nil {
-		t.Fatal(err)
-	}
+	must(t, json.Unmarshal(valid, &base))
 	mutate := func(t *testing.T, change func(*governanceApprovalBundle)) {
 		t.Helper()
 		var candidate governanceApprovalBundle
-		if err := json.Unmarshal(valid, &candidate); err != nil {
-			t.Fatal(err)
-		}
+		must(t, json.Unmarshal(valid, &candidate))
 		change(&candidate)
 		raw, err := json.Marshal(candidate)
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		if _, err := validateGovernanceApprovalBundle(raw, commit, now); err == nil {
 			t.Fatal("hostile governance approval mutation was accepted")
 		}

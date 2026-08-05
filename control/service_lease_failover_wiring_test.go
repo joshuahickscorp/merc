@@ -20,34 +20,26 @@ func TestRecoverServiceLeasesSweepFailsoverToReplacement(t *testing.T) {
 		buyerID, buyerID.String()+"@failover-wire.invalid"); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.SeedPrepaidBalance(ctx, buyerID, 1_000_000, "failover-wire-"+buyerID.String()); err != nil {
-		t.Fatal(err)
-	}
+	must(t, store.SeedPrepaidBalance(ctx, buyerID, 1_000_000, "failover-wire-"+buyerID.String()))
 	profile := sortedVLLMProfiles()[0]
 	primary, _ := newFabricMeasurementWorker(t, ctx, store)
 	seedMeasuredWarmResidency(t, ctx, pool, primary.WorkerID, profile.ModelAlias)
 	region := "ca-fo-" + uuid.NewString()
 	primaryOffer := serviceLeaseOffer(profile)
 	primaryOffer.Region = region
-	if err := store.UpsertServiceLeaseOffer(ctx, primary, primaryOffer); err != nil {
-		t.Fatal(err)
-	}
+	must(t, store.UpsertServiceLeaseOffer(ctx, primary, primaryOffer))
 	lease, err := store.CreateServiceLease(ctx, buyerID, ServiceLeaseRequest{
 		RuntimeProfileID: profile.RuntimeProfileID, Region: region,
 		MinimumReplicas: 1, MaximumReplicas: 1, TermSeconds: 120, MaximumP95LatencyMilliseconds: 500,
 		BuyerDeclaredCeilingNanos: 135_000_000,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	// Replacement is live under the same frozen ceilings before the worker dies.
 	fallback, _ := newFabricMeasurementWorker(t, ctx, store)
 	seedMeasuredWarmResidency(t, ctx, pool, fallback.WorkerID, profile.ModelAlias)
 	fallbackOffer := serviceLeaseOffer(profile)
 	fallbackOffer.Region = region
-	if err := store.UpsertServiceLeaseOffer(ctx, fallback, fallbackOffer); err != nil {
-		t.Fatal(err)
-	}
+	must(t, store.UpsertServiceLeaseOffer(ctx, fallback, fallbackOffer))
 	// last_metered behind last_heartbeat, heartbeat past the 45s timeout:
 	// RecoverServiceLeases meters the primary's authenticated interval, then
 	// FailoverPendingServiceLeases moves the lease to the replacement.
@@ -63,13 +55,9 @@ func TestRecoverServiceLeasesSweepFailsoverToReplacement(t *testing.T) {
 	// or terminate. This is what Workers.recoverServiceLeases runs — not a
 	// direct FailoverServiceLease call.
 	wk := &Workers{store: store}
-	if err := wk.recoverServiceLeases(ctx); err != nil {
-		t.Fatal(err)
-	}
+	must(t, wk.recoverServiceLeases(ctx))
 	receipt, err := store.GetServiceLeaseReceipt(ctx, buyerID, lease.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if receipt.Lease.State != "ACTIVE" {
 		t.Fatalf("sweep did not restore ACTIVE service: state=%s", receipt.Lease.State)
 	}
@@ -79,15 +67,11 @@ func TestRecoverServiceLeasesSweepFailsoverToReplacement(t *testing.T) {
 	}
 	var events []string
 	rows, err := pool.Query(ctx, `SELECT kind FROM service_lease_events WHERE lease_id=$1 ORDER BY created_at,id`, lease.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	defer rows.Close()
 	for rows.Next() {
 		var kind string
-		if err := rows.Scan(&kind); err != nil {
-			t.Fatal(err)
-		}
+		must(t, rows.Scan(&kind))
 		events = append(events, kind)
 	}
 	has := func(want string) bool {
@@ -114,9 +98,7 @@ func TestRecoverServiceLeasesSweepFailsoverToReplacement(t *testing.T) {
 		t.Fatalf("finalize completed=%d err=%v", completed, err)
 	}
 	done, err := store.GetServiceLeaseReceipt(ctx, buyerID, lease.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	credited := map[uuid.UUID]bool{}
 	for _, credit := range done.Settlement.SupplierCredits {
 		if credit.CreditMicros > 0 {
@@ -140,18 +122,14 @@ func TestRecoverServiceLeasesSweepTerminatesWhenNoReplacement(t *testing.T) {
 		t.Fatal(err)
 	}
 	const topup int64 = 1_000_000
-	if err := store.SeedPrepaidBalance(ctx, buyerID, topup, "failover-none-"+buyerID.String()); err != nil {
-		t.Fatal(err)
-	}
+	must(t, store.SeedPrepaidBalance(ctx, buyerID, topup, "failover-none-"+buyerID.String()))
 	profile := sortedVLLMProfiles()[0]
 	primary, _ := newFabricMeasurementWorker(t, ctx, store)
 	seedMeasuredWarmResidency(t, ctx, pool, primary.WorkerID, profile.ModelAlias)
 	region := "ca-none-" + uuid.NewString()
 	offer := serviceLeaseOffer(profile)
 	offer.Region = region
-	if err := store.UpsertServiceLeaseOffer(ctx, primary, offer); err != nil {
-		t.Fatal(err)
-	}
+	must(t, store.UpsertServiceLeaseOffer(ctx, primary, offer))
 	// Term is short enough to clear the frozen ceiling; expires_at is then
 	// pushed forward so the bug under test (holding reserve until term end)
 	// would still have days of residual reservation without termination.
@@ -160,16 +138,12 @@ func TestRecoverServiceLeasesSweepTerminatesWhenNoReplacement(t *testing.T) {
 		MinimumReplicas: 1, MaximumReplicas: 1, TermSeconds: 120, MaximumP95LatencyMilliseconds: 500,
 		BuyerDeclaredCeilingNanos: 135_000_000,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if _, err := pool.Exec(ctx, `UPDATE service_leases SET expires_at=now()+interval '6 days' WHERE id=$1`, lease.ID); err != nil {
 		t.Fatal(err)
 	}
 	reservedBefore, err := store.BuyerPrepaidAvailableMicros(ctx, buyerID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	// Accrue authenticated usage on the primary, then lose the worker with no
 	// replacement. last_metered < last_heartbeat so recovery records real usage
 	// before FAILOVER_REQUIRED; heartbeat is past the 45s timeout.
@@ -183,13 +157,9 @@ func TestRecoverServiceLeasesSweepTerminatesWhenNoReplacement(t *testing.T) {
 	// Lease still has a long expires_at; without termination the reservation
 	// would sit in FAILOVER_REQUIRED for the remainder of the term.
 	wk := &Workers{store: store}
-	if err := wk.recoverServiceLeases(ctx); err != nil {
-		t.Fatal(err)
-	}
+	must(t, wk.recoverServiceLeases(ctx))
 	receipt, err := store.GetServiceLeaseReceipt(ctx, buyerID, lease.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if receipt.Lease.State != "CANCELLED" {
 		t.Fatalf("no-replacement path must terminate, got state=%s (would hold reserve to expires_at=%s)",
 			receipt.Lease.State, receipt.Lease.ExpiresAt.Format(time.RFC3339))
@@ -203,16 +173,12 @@ func TestRecoverServiceLeasesSweepTerminatesWhenNoReplacement(t *testing.T) {
 		t.Fatalf("FAILOVER_TERMINATED event missing: %v", err)
 	}
 	var payload map[string]any
-	if err := json.Unmarshal(detail, &payload); err != nil {
-		t.Fatal(err)
-	}
+	must(t, json.Unmarshal(detail, &payload))
 	if payload["path"] != "no_replacement_under_frozen_ceiling" {
 		t.Fatalf("termination path not recorded: %+v", payload)
 	}
 	available, err := store.BuyerPrepaidAvailableMicros(ctx, buyerID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	// Reservation released: available should be topup minus any settled usage,
 	// not topup minus the full reserved ceiling.
 	if available <= reservedBefore {

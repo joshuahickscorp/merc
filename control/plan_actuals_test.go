@@ -121,14 +121,10 @@ func planActualsTestStore(t *testing.T) (*Store, *pgxpool.Pool, context.Context)
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	t.Cleanup(cancel)
 	pool, err := pgxpool.New(ctx, databaseURL)
-	if err != nil {
-		t.Fatalf("connect: %v", err)
-	}
+	mustf(t, err, "connect: %v")
 	t.Cleanup(pool.Close)
 	store := NewStore(pool)
-	if err := store.Migrate(ctx); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	mustf(t, store.Migrate(ctx), "migrate: %v")
 	return store, pool, ctx
 }
 
@@ -291,9 +287,7 @@ func TestRecordPlanActualsCapturesEveryObservableMetric(t *testing.T) {
 			{status: "complete", redundancy: true, tokens: 500, runtimeID: "candle_metal", hwClass: "apple_silicon_ultra"},
 		}, planActualsFixtureOptions{})
 
-	if err := store.RecordPlanActuals(ctx, jobID); err != nil {
-		t.Fatalf("RecordPlanActuals: %v", err)
-	}
+	mustf(t, store.RecordPlanActuals(ctx, jobID), "RecordPlanActuals: %v")
 
 	for _, want := range []struct {
 		metric              string
@@ -325,9 +319,7 @@ func TestRecordPlanActualsCapturesEveryObservableMetric(t *testing.T) {
 
 	// Re-running finalize must not double-count. A job that is swept twice would
 	// otherwise write a second row per metric and halve the apparent error.
-	if err := store.RecordPlanActuals(ctx, jobID); err != nil {
-		t.Fatalf("RecordPlanActuals (repeat): %v", err)
-	}
+	mustf(t, store.RecordPlanActuals(ctx, jobID), "RecordPlanActuals (repeat): %v")
 	var rowCount int
 	if err := pool.QueryRow(ctx,
 		`SELECT COUNT(*) FROM plan_actuals WHERE job_id=$1`, jobID).Scan(&rowCount); err != nil {
@@ -349,9 +341,7 @@ func TestRecordPlanActualsRefusesToAttributeAMixedFleetJob(t *testing.T) {
 			{status: "complete", tokens: 1000, runtimeID: "candle_metal", hwClass: "apple_silicon_ultra"},
 			{status: "complete", tokens: 1000, runtimeID: "candle_metal", hwClass: "apple_silicon_base"},
 		}, planActualsFixtureOptions{})
-	if err := store.RecordPlanActuals(ctx, jobID); err != nil {
-		t.Fatalf("RecordPlanActuals: %v", err)
-	}
+	mustf(t, store.RecordPlanActuals(ctx, jobID), "RecordPlanActuals: %v")
 	_, _, runtimeID, hwClass, _ := planActualsRow(t, pool, ctx, jobID, planMetricOutputTokens)
 	if runtimeID != "candle_metal" {
 		t.Errorf("runtime_id = %q, want candle_metal (both tasks agree)", runtimeID)
@@ -384,9 +374,7 @@ func TestRecordPlanActualsLabelsExactReuseAsCacheHit(t *testing.T) {
 		_, _ = pool.Exec(c, `DELETE FROM plan_actuals WHERE job_id=$1`, jobID)
 		_, _ = pool.Exec(c, `DELETE FROM jobs WHERE id=$1`, jobID)
 	})
-	if err := store.RecordPlanActuals(ctx, jobID); err != nil {
-		t.Fatalf("RecordPlanActuals: %v", err)
-	}
+	mustf(t, store.RecordPlanActuals(ctx, jobID), "RecordPlanActuals: %v")
 
 	var class string
 	var realized float64
@@ -433,9 +421,7 @@ func TestRecordPlanActualsCountsAHedgedChunkOnce(t *testing.T) {
 				hedgedFromChunk: chunk(1),
 				runtimeID:       "candle_metal", hwClass: "apple_silicon_ultra"},
 		}, planActualsFixtureOptions{})
-	if err := store.RecordPlanActuals(ctx, jobID); err != nil {
-		t.Fatalf("RecordPlanActuals: %v", err)
-	}
+	mustf(t, store.RecordPlanActuals(ctx, jobID), "RecordPlanActuals: %v")
 	_, realized, _, _, _ := planActualsRow(t, pool, ctx, jobID, planMetricOutputTokens)
 	if realized != 800 {
 		t.Fatalf("realized output tokens = %v, want 800 (two chunks, the hedge counted once)", realized)
@@ -456,9 +442,7 @@ func TestRecordPlanActualsLabelsSeededBuyersAsSynthetic(t *testing.T) {
 		[]planActualsFixtureTask{
 			{status: "complete", tokens: 500, runtimeID: "candle_metal", hwClass: "apple_silicon_ultra"},
 		}, planActualsFixtureOptions{buyerID: demoBuyerID})
-	if err := store.RecordPlanActuals(ctx, jobID); err != nil {
-		t.Fatalf("RecordPlanActuals: %v", err)
-	}
+	mustf(t, store.RecordPlanActuals(ctx, jobID), "RecordPlanActuals: %v")
 	var class string
 	if err := pool.QueryRow(ctx,
 		`SELECT observation_class FROM plan_actuals WHERE job_id=$1 AND metric=$2`,
@@ -480,9 +464,7 @@ func TestRecordPlanActualsRefusesNonTerminalCompleteJobs(t *testing.T) {
 			[]planActualsFixtureTask{
 				{status: "complete", tokens: 500, runtimeID: "candle_metal", hwClass: "apple_silicon_ultra"},
 			}, planActualsFixtureOptions{jobStatus: status})
-		if err := store.RecordPlanActuals(ctx, jobID); err != nil {
-			t.Fatalf("RecordPlanActuals(%s): %v", status, err)
-		}
+		mustf(t, store.RecordPlanActuals(ctx, jobID), "RecordPlanActuals(%s): %v", status)
 		var rowCount int
 		if err := pool.QueryRow(ctx,
 			`SELECT COUNT(*) FROM plan_actuals WHERE job_id=$1`, jobID).Scan(&rowCount); err != nil {
@@ -506,15 +488,11 @@ func TestPlanAccuracyReportsUntrustedBucketsWithoutHidingThem(t *testing.T) {
 				{status: "complete", tokens: 250, runtimeID: "candle_metal", hwClass: "apple_silicon_ultra"},
 				{status: "complete", tokens: 250, runtimeID: "candle_metal", hwClass: "apple_silicon_ultra"},
 			}, planActualsFixtureOptions{})
-		if err := store.RecordPlanActuals(ctx, jobID); err != nil {
-			t.Fatalf("RecordPlanActuals: %v", err)
-		}
+		mustf(t, store.RecordPlanActuals(ctx, jobID), "RecordPlanActuals: %v")
 	}
 
 	rows, err := store.PlanAccuracy(ctx)
-	if err != nil {
-		t.Fatalf("PlanAccuracy: %v", err)
-	}
+	mustf(t, err, "PlanAccuracy: %v")
 	var found *PlanAccuracyRow
 	for i := range rows {
 		if rows[i].JobType == jobType && rows[i].Metric == planMetricOutputTokens {

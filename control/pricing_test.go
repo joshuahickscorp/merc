@@ -73,14 +73,10 @@ func TestPublishedCatalogueResultsOmitsUnmeasuredModels(t *testing.T) {
 
 func TestMarketBoardIsWeightedMedianTimesMultiplier(t *testing.T) {
 	board, err := loadPriceBoard()
-	if err != nil {
-		t.Fatalf("load price board: %v", err)
-	}
+	mustf(t, err, "load price board: %v")
 	class := board.Classes["embed_small"]
 	median, _, err := confidenceWeightedMedianUSDPer1K("embed_small", class)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	r, ok := repriceFromMarketBoard("all-minilm-l6-v2", "embed", board)
 	if !ok {
 		t.Fatal("expected board price for all-minilm-l6-v2")
@@ -94,12 +90,8 @@ func TestMarketBoardIsWeightedMedianTimesMultiplier(t *testing.T) {
 func TestCatalogueScheduleDigestBindsBoardPolicyAndEveryResult(t *testing.T) {
 	pinBoardClockForPublication(t)
 	schedule, err := BuildCataloguePriceSchedule()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := validateCataloguePriceSchedule(schedule); err != nil {
-		t.Fatalf("valid schedule rejected: %v", err)
-	}
+	must(t, err)
+	mustf(t, validateCataloguePriceSchedule(schedule), "valid schedule rejected: %v")
 	tests := []struct {
 		name   string
 		mutate func(*CataloguePriceSchedule)
@@ -133,9 +125,7 @@ func TestCatalogueScheduleDigestBindsBoardPolicyAndEveryResult(t *testing.T) {
 func TestPublishedCatalogueCarriesDistinctPhysicalWorkloadShares(t *testing.T) {
 	pinBoardClockForPublication(t)
 	schedule, err := BuildCataloguePriceSchedule()
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if schedule.SupplierShare != 0 || schedule.SupplierSharePolicyRevision != supplierSharePolicyRevision {
 		t.Fatalf("schedule still carries a global supplier share: %+v", schedule)
 	}
@@ -171,9 +161,7 @@ func TestCatalogueScheduleRequiresExplicitCrossCurrencyFX(t *testing.T) {
 	t.Setenv(priceFXRateEnv, "1.375")
 	t.Setenv(priceFXRevisionEnv, "operator-approved-2026-07-28T1400Z")
 	schedule, err := BuildCataloguePriceSchedule()
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if schedule.ReferenceCurrency != "usd" ||
 		schedule.SettlementCurrency != "cad" ||
 		schedule.ReferenceToSettlement != 1.375 ||
@@ -201,9 +189,7 @@ func TestCatalogueScheduleRequiresExplicitCrossCurrencyFX(t *testing.T) {
 	mutant := schedule
 	mutant.ReferenceToSettlement = 1.5
 	mutant.SHA256, err = cataloguePriceScheduleDigest(mutant)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if err := validateCataloguePriceSchedule(mutant); err == nil ||
 		!strings.Contains(err.Error(), "inconsistent with FX") {
 		t.Fatalf("internally inconsistent recomputed FX schedule accepted: %v", err)
@@ -218,13 +204,9 @@ func TestBuyerSettlementPriceAndWorkerUSDFloorStayDistinct(t *testing.T) {
 		ReferencePricePer1K: 1, PriceReferenceCurrency: "usd",
 	}
 	buyerPrice, err := modelPrice(model)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	workerFloorPrice, err := modelReferencePriceUSD(model)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if buyerPrice != 1.375 || workerFloorPrice != 1 {
 		t.Fatalf("buyer price=%v CAD worker reference=%v USD", buyerPrice, workerFloorPrice)
 	}
@@ -293,9 +275,7 @@ func TestFinalizeCostDriftRowNamesBasisAndFailsClosed(t *testing.T) {
 		t.Fatalf("tuning block reason = %q, want %q", row.TuningBlockReason, priceTuningBlockedNoIndependentTelemetry)
 	}
 	encoded, err := json.Marshal(row)
-	if err != nil {
-		t.Fatalf("marshal admin row: %v", err)
-	}
+	mustf(t, err, "marshal admin row: %v")
 	for _, want := range []string{
 		`"actual_usd_basis":"quote_derived_per_task_buyer_charge_settlement"`,
 		`"using_for_tuning":false`,

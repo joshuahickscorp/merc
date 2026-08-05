@@ -94,17 +94,13 @@ func strangerAdmissionUnderCurrency(t *testing.T, settlement string) {
 	ctx, store, pool := openIsolatedTestStore(t)
 
 	schedule, err := BuildCataloguePriceSchedule()
-	if err != nil {
-		t.Fatalf("build catalogue price schedule: %v", err)
-	}
+	mustf(t, err, "build catalogue price schedule: %v")
 	if _, err := store.ApplyRepricing(ctx, schedule); err != nil {
 		t.Fatalf("publish catalogue price schedule: %v", err)
 	}
 	// Merc refuses work it cannot verify, correctly. seedDemo installs the governed
 	// embed honeypot and the input object the verifier fetches.
-	if err := seedDemo(ctx, pool, artifacts.storage); err != nil {
-		t.Fatalf("seed the verification floor: %v", err)
-	}
+	mustf(t, seedDemo(ctx, pool, artifacts.storage), "seed the verification floor: %v")
 
 	verifier := NewVerifier(store).WithStorage(artifacts.storage)
 	srv := httptest.NewServer(NewServer(store, artifacts.storage, verifier, nil).Routes())
@@ -169,13 +165,9 @@ func strangerAdmissionUnderCurrency(t *testing.T, settlement string) {
 		t.Fatalf("read frozen job authority: %v", err)
 	}
 	var pricing PricingDecision
-	if err := json.Unmarshal(pricingJSON, &pricing); err != nil {
-		t.Fatalf("decode frozen pricing decision: %v", err)
-	}
+	mustf(t, json.Unmarshal(pricingJSON, &pricing), "decode frozen pricing decision: %v")
 	var economic EconomicPlan
-	if err := json.Unmarshal(economicJSON, &economic); err != nil {
-		t.Fatalf("decode frozen economic plan: %v", err)
-	}
+	mustf(t, json.Unmarshal(economicJSON, &economic), "decode frozen economic plan: %v")
 
 	if pricing.SupplierEntitlementPolicy != economicRoundingPolicy {
 		t.Fatalf("job was admitted under %q, not the exact policy %q; the legacy hourly "+
@@ -221,9 +213,7 @@ func strangerAdmissionUnderCurrency(t *testing.T, settlement string) {
 			economic.BaseComputePerTaskNanos)
 	}
 	full, err := fullSuccessEconomicScenario(economic)
-	if err != nil {
-		t.Fatalf("full-success economics: %v", err)
-	}
+	mustf(t, err, "full-success economics: %v")
 	if full.ContributionMarginUSD <= 0 {
 		t.Fatalf("tiny job is admitted at non-positive modeled contribution: %+v", full)
 	}
@@ -323,9 +313,7 @@ func TestAdmissionRefusesAnEntitlementBelowItsFloor(t *testing.T) {
 		}
 	}
 	decision.SupplierGrossNanos = 1393
-	if err := admissionEntitlementRefusal(decision); err != nil {
-		t.Fatalf("an entitlement exactly at its floor was refused: %v", err)
-	}
+	mustf(t, admissionEntitlementRefusal(decision), "an entitlement exactly at its floor was refused: %v")
 
 	// A floor of zero is an ABSENT floor, not a permissive one, and a decision that
 	// claims the exact policy while carrying one has turned the check off while

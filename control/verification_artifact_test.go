@@ -82,9 +82,7 @@ func TestReadExactObjectSizeBoundedCapPlusOneIsTypedOversize(t *testing.T) {
 func TestReadExactObjectSizeBoundedExactBody(t *testing.T) {
 	r := &countedArtifactReader{r: strings.NewReader("12345678")}
 	got, err := readExactObjectSizeBounded(r, "sealed", 8, 8)
-	if err != nil {
-		t.Fatalf("exact bounded read: %v", err)
-	}
+	mustf(t, err, "exact bounded read: %v")
 	if string(got) != "12345678" || cap(got) > 9 {
 		t.Fatalf("exact bounded read = %q len/cap=%d/%d", got, len(got), cap(got))
 	}

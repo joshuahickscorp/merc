@@ -57,9 +57,7 @@ func TestBuildEconomicPlanReservesFullLiabilityUnderFloorCentCarryPolicy(t *test
 	}
 	liabilityMicros := int64(math.Round(plan.SupplierPayoutPerTaskUSD * 1_000_000))
 	cents, remainder, err := splitSupplierLiabilityMicros(liabilityMicros)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if cents != 1 || remainder != 9_999 {
 		t.Fatalf("settlement split=(%d cents,%d microusd), want (1,9999)", cents, remainder)
 	}
@@ -172,13 +170,9 @@ func TestBuildEconomicPlanIsDeterministicAndJSONFinite(t *testing.T) {
 	a := BuildEconomicPlan(in, testEconomicSchedule())
 	b := BuildEconomicPlan(in, testEconomicSchedule())
 	ja, err := json.Marshal(a)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	jb, err := json.Marshal(b)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if string(ja) != string(jb) {
 		t.Fatalf("non-deterministic plan:\n%s\n%s", ja, jb)
 	}
@@ -192,9 +186,7 @@ func TestValidateEconomicPlanSnapshotRejectsScalarAndScenarioTampering(t *testin
 		BaseComputeUSD: 2.5, InitialTaskCount: 3, ExtraTaskReserve: 2,
 		SupplierShare: .97, SLAPremiumUSD: .4,
 	}, testEconomicSchedule())
-	if err := ValidateEconomicPlanSnapshot(plan); err != nil {
-		t.Fatalf("untouched plan rejected: %v", err)
-	}
+	mustf(t, ValidateEconomicPlanSnapshot(plan), "untouched plan rejected: %v")
 
 	scalar := plan
 	scalar.SupplierPayoutPerTaskUSD += .01
@@ -229,9 +221,7 @@ func TestLoadEconomicScheduleFromEnvFailsClosedAndParsesBasisPoints(t *testing.T
 	t.Setenv(minimumContributionUSDEnv, "0.000001")
 	t.Setenv(targetMarginBPSEnv, "300")
 	s, err := LoadEconomicScheduleFromEnv()
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if s.Currency != SettlementCurrencyCode() ||
 		s.ProcessorPercent != .035 || s.TargetMarginRate != .03 || s.ProcessorFixedUSD != .35 ||
 		s.ControlPlanePerBatchUSD != .005 ||

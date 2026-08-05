@@ -67,9 +67,7 @@ func TestCanaryPolicyIsFailClosedAndBounded(t *testing.T) {
 		Constraints: JobConstraints{MaxDurationSecs: 600},
 		MaxUSD:      10,
 	}
-	if err := p.validateJobShape(valid); err != nil {
-		t.Fatalf("valid shape: %v", err)
-	}
+	mustf(t, p.validateJobShape(valid), "valid shape: %v")
 	for name, mutate := range map[string]func(*jobSubmit){
 		"temperature": func(s *jobSubmit) { s.JobType.Temperature = 0.1 },
 		"tokens":      func(s *jobSubmit) { s.JobType.MaxTokens++ },
@@ -160,9 +158,7 @@ func TestCanaryMoneyModeRefusesLiveAndAmbiguousRails(t *testing.T) {
 	valid := func(key, cash, connect, client, payoutExport string) error {
 		return validateCanaryMoneyMode("true", key, cash, connect, client, payoutExport)
 	}
-	if err := valid("sk_test_example", "whsec_cash", "whsec_connect", "ca_test", ""); err != nil {
-		t.Fatalf("valid test-mode configuration rejected: %v", err)
-	}
+	mustf(t, valid("sk_test_example", "whsec_cash", "whsec_connect", "ca_test", ""), "valid test-mode configuration rejected: %v")
 	for name, err := range map[string]error{
 		"live":              valid("sk_live_forbidden", "whsec_cash", "whsec_connect", "ca_test", ""),
 		"missing":           valid("", "whsec_cash", "whsec_connect", "ca_test", ""),

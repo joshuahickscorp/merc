@@ -66,9 +66,7 @@ func TestActivationPolicyChangesDoNotMoveTheCapabilityMatrixDigest(t *testing.T)
 			doc := deepCopyAuthority(t)
 			mutate(&doc)
 			got, err := capabilityMatrixDigest(doc)
-			if err != nil {
-				t.Fatal(err)
-			}
+			must(t, err)
 			if got != generatedRuntimeMatrixSHA256 {
 				t.Fatalf("an activation-policy change moved the capability matrix digest; "+
 					"every agent would have to be rebuilt to deploy it\n  got  %s\n  want %s",
@@ -140,9 +138,7 @@ func TestCapabilityChangesMoveTheCapabilityMatrixDigest(t *testing.T) {
 			doc := deepCopyAuthority(t)
 			mutate(&doc)
 			got, err := capabilityMatrixDigest(doc)
-			if err != nil {
-				t.Fatal(err)
-			}
+			must(t, err)
 			if got == generatedRuntimeMatrixSHA256 {
 				t.Fatalf("changing the %s did not move the capability matrix digest; "+
 					"an agent running the old capability set would execute work "+
@@ -161,9 +157,7 @@ func TestCellCapabilityDigestsAreUniquePerProfile(t *testing.T) {
 	for _, profile := range runtimeAuthority.Runtimes {
 		for _, cell := range profile.Cells {
 			digest, err := profile.CellCapabilityDigest(cell, runtimeAuthorityModels)
-			if err != nil {
-				t.Fatal(err)
-			}
+			must(t, err)
 			where := profile.RuntimeID + "/" + cell.ID
 			if owner, taken := seen[digest]; taken {
 				t.Fatalf("%s and %s share one cell capability digest", owner, where)

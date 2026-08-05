@@ -429,51 +429,49 @@ func (p *VerificationProcessor) processLeasedOnce(ctx context.Context, leased Le
 }
 
 func (p *VerificationProcessor) createUnavailableArtifactPlan(ctx context.Context, lease VerificationLease, work VerificationWork, info *CommitTaskInfo) (VerificationWorkPlan, error) {
-	if work.Artifact == nil || !isUnavailableVerificationEvidenceKey(work.Artifact.Key) ||
-		work.SamplingProbability == nil || work.SamplingSelected == nil ||
-		work.SamplingPolicy != verificationSamplingPolicy {
-		return VerificationWorkPlan{}, ErrVerificationWorkConflict
-	}
-	effects := []VerificationEffect{
-		{Kind: VerificationEffectDockReputation, SupplierID: info.SupplierID, ReputationEvent: EventTimeout},
-		{Kind: VerificationEffectRecordEvent, JobID: info.JobID, TaskID: info.TaskID, SupplierID: info.SupplierID, EventKind: "artifact_unavailable"},
-		{Kind: VerificationEffectRequeue, TaskID: info.TaskID},
-	}
-	for i := range effects {
-		effects[i].ID = verificationEffectPayloadID(info.TaskID, info.Attempt, i, effects[i])
-	}
-	decision := VerificationDecision{
-		Outcome: OutcomeFail, Effects: effects,
-		Failure: &VerificationFailure{Kind: "artifact_unavailable", Code: "retry_exhausted", JobType: info.jobType},
-	}
-	plan, _, err := p.store.PersistVerificationWorkPlan(ctx, lease, work,
-		*work.SamplingProbability, *work.SamplingSelected, decision, nil)
-	if err != nil {
-		return VerificationWorkPlan{}, err
-	}
-	reachRecoveryBoundary(ctx, p.probe, BoundaryVerifyAfterDecision)
-	return plan, nil
+	return p.createArtifactFailurePlan(ctx, lease, work, info,
+		isUnavailableVerificationEvidenceKey,
+		[]VerificationEffect{
+			{Kind: VerificationEffectDockReputation, SupplierID: info.SupplierID, ReputationEvent: EventTimeout},
+			{Kind: VerificationEffectRecordEvent, JobID: info.JobID, TaskID: info.TaskID, SupplierID: info.SupplierID, EventKind: "artifact_unavailable"},
+			{Kind: VerificationEffectRequeue, TaskID: info.TaskID},
+		},
+		&VerificationFailure{Kind: "artifact_unavailable", Code: "retry_exhausted", JobType: info.jobType},
+	)
 }
 
 func (p *VerificationProcessor) createOversizedArtifactPlan(ctx context.Context, lease VerificationLease, work VerificationWork, info *CommitTaskInfo) (VerificationWorkPlan, error) {
-	if work.Artifact == nil || !isOversizedVerificationEvidenceKey(work.Artifact.Key) ||
+	// Oversized must quarantine the supplier; unavailable does not.
+	return p.createArtifactFailurePlan(ctx, lease, work, info,
+		isOversizedVerificationEvidenceKey,
+		[]VerificationEffect{
+			{Kind: VerificationEffectDockReputation, SupplierID: info.SupplierID, ReputationEvent: EventArtifactOversize},
+			{Kind: VerificationEffectRecordEvent, JobID: info.JobID, TaskID: info.TaskID, SupplierID: info.SupplierID, EventKind: "artifact_oversize"},
+			{Kind: VerificationEffectQuarantine, SupplierID: info.SupplierID},
+			{Kind: VerificationEffectRequeue, TaskID: info.TaskID},
+		},
+		&VerificationFailure{Kind: "artifact_oversize", Code: "too_large", JobType: info.jobType},
+	)
+}
+
+func (p *VerificationProcessor) createArtifactFailurePlan(
+	ctx context.Context,
+	lease VerificationLease,
+	work VerificationWork,
+	info *CommitTaskInfo,
+	keyOK func(string) bool,
+	effects []VerificationEffect,
+	failure *VerificationFailure,
+) (VerificationWorkPlan, error) {
+	if work.Artifact == nil || !keyOK(work.Artifact.Key) ||
 		work.SamplingProbability == nil || work.SamplingSelected == nil ||
 		work.SamplingPolicy != verificationSamplingPolicy {
 		return VerificationWorkPlan{}, ErrVerificationWorkConflict
 	}
-	effects := []VerificationEffect{
-		{Kind: VerificationEffectDockReputation, SupplierID: info.SupplierID, ReputationEvent: EventArtifactOversize},
-		{Kind: VerificationEffectRecordEvent, JobID: info.JobID, TaskID: info.TaskID, SupplierID: info.SupplierID, EventKind: "artifact_oversize"},
-		{Kind: VerificationEffectQuarantine, SupplierID: info.SupplierID},
-		{Kind: VerificationEffectRequeue, TaskID: info.TaskID},
-	}
 	for i := range effects {
 		effects[i].ID = verificationEffectPayloadID(info.TaskID, info.Attempt, i, effects[i])
 	}
-	decision := VerificationDecision{
-		Outcome: OutcomeFail, Effects: effects,
-		Failure: &VerificationFailure{Kind: "artifact_oversize", Code: "too_large", JobType: info.jobType},
-	}
+	decision := VerificationDecision{Outcome: OutcomeFail, Effects: effects, Failure: failure}
 	plan, _, err := p.store.PersistVerificationWorkPlan(ctx, lease, work,
 		*work.SamplingProbability, *work.SamplingSelected, decision, nil)
 	if err != nil {

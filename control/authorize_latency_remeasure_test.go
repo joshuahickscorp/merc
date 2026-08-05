@@ -22,9 +22,7 @@ func TestAuthorizeLatencyRemeasureAfterHierarchy(t *testing.T) {
 	profile := sortedVLLMProfiles()[0]
 	buyerID, err := store.CreateBuyerAccount(ctx,
 		"auth-rem-"+uuid.NewString()+"@example.test", "integration-password", 10_000)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	worker := newRealtimeClearingOffer(t, ctx, store, pool, profile, "HOT", 0.08, 0.30, 10_000)
 	refresh := time.NewTicker(5 * time.Second)
 	t.Cleanup(refresh.Stop)
@@ -48,9 +46,7 @@ func TestAuthorizeLatencyRemeasureAfterHierarchy(t *testing.T) {
 		MaximumPromptTokens: 8_330, MaximumCompletionTokens: 1,
 		EstimatedPromptTokens: 4_163, EstimatedCompletionTokens: 1, BuyerDeclaredCeilingUSD: 0.0011,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	_, _ = store.FinalizeRealtimeFailure(ctx, c0.ID, uuid.New(), 500, 1, "warm", "warm", false)
 
 	for _, c := range []int{1, 8, 32} {

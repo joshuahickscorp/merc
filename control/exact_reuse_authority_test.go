@@ -32,35 +32,23 @@ func TestBatchReuseIdentityBindsRuntimeAuthorityNotJustRequestShape(t *testing.T
 		Tier:        "batch",
 		Constraints: JobConstraints{MaxDurationSecs: 3600},
 	}, strings.Repeat("a", 64))
-	if err != nil {
-		t.Fatalf("build workload decision: %v", err)
-	}
+	mustf(t, err, "build workload decision: %v")
 	directed, err := buildWorkloadDecisionDirected(jobSubmit{
 		JobType:     JobType{Type: "embed"},
 		Model:       ModelRef{Kind: "hf", Ref: "all-minilm-l6-v2"},
 		Tier:        "batch",
 		Constraints: JobConstraints{MaxDurationSecs: 3600},
 	}, strings.Repeat("a", 64), llamaEmbedCell)
-	if err != nil {
-		t.Fatalf("build directed workload decision: %v", err)
-	}
+	mustf(t, err, "build directed workload decision: %v")
 
 	baseBinding, err := workloadBindingDigest(base.Binding)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	directedBinding, err := workloadBindingDigest(directed.Binding)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	baseDecision, err := workloadDecisionDigest(base)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	directedDecision, err := workloadDecisionDigest(directed)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 
 	// The bindings agree — same buyer request — and the decisions do not, because
 	// one is frozen onto a different runtime cell. That gap IS the reuse hazard.
@@ -77,9 +65,7 @@ func TestBatchReuseIdentityBindsRuntimeAuthorityNotJustRequestShape(t *testing.T
 	// Now the derivation actually in the source. Read rather than called, because
 	// the flag makes the call unreachable.
 	raw, err := os.ReadFile("exact_reuse_batch.go")
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	source := string(raw)
 	if !strings.Contains(source, "const batchExactReuseEnabled = false") {
 		t.Skip("batch exact reuse is enabled again; assert this through behaviour " +

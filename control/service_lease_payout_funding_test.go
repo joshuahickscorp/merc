@@ -44,17 +44,13 @@ func TestServiceLeaseSupplierPayoutFundingUsesCollectedTopup(t *testing.T) {
 	seedMeasuredWarmResidency(t, ctx, pool, worker.WorkerID, profile.ModelAlias)
 	offer := serviceLeaseOffer(profile)
 	offer.Region = "ca-service-payout-" + uuid.NewString()
-	if err := store.UpsertServiceLeaseOffer(ctx, worker, offer); err != nil {
-		t.Fatal(err)
-	}
+	must(t, store.UpsertServiceLeaseOffer(ctx, worker, offer))
 	lease, err := store.CreateServiceLease(ctx, buyerID, ServiceLeaseRequest{
 		RuntimeProfileID: profile.RuntimeProfileID, Region: offer.Region,
 		MinimumReplicas: 1, MaximumReplicas: 1, TermSeconds: 60,
 		MaximumP95LatencyMilliseconds: 500, BuyerDeclaredCeilingNanos: 135_000_000,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	// Make a short but billable terminal interval. The supplier rate is fixed
 	// point, so ~19 seconds is enough to cross one CAD cent after accrual while
 	// remaining well below the frozen buyer ceiling.
@@ -80,9 +76,7 @@ func TestServiceLeaseSupplierPayoutFundingUsesCollectedTopup(t *testing.T) {
 		t.Fatal(err)
 	}
 	claimed, sent, err := store.ClaimPayout(ctx, entryID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if !sent || claimed.RequestedCents <= 0 || claimed.Currency != "cad" {
 		t.Fatalf("service lease payout was not funded from collected topup: sent=%v claim=%+v", sent, claimed)
 	}
@@ -107,9 +101,7 @@ func TestServiceLeaseSupplierPayoutFundingUsesCollectedTopup(t *testing.T) {
 	}
 
 	receipt, err := store.GetServiceLeaseReceipt(ctx, buyerID, lease.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if receipt.Settlement == nil || receipt.Settlement.FundingAuthorityState != "PREPAID_CASH_ALLOCATED_TO_SUPPLIER_LIABILITIES" ||
 		receipt.SupplierSettlementState != "SUPPLIER_CREDIT_FUNDED_PAYOUT_SENDING" {
 		t.Fatalf("service receipt did not expose allocated supplier funding: %+v", receipt)
@@ -120,12 +112,8 @@ func TestServiceLeaseSupplierPayoutFundingUsesCollectedTopup(t *testing.T) {
 		t.Fatalf("service payout replay sent=%v err=%v", sentAgain, err)
 	}
 	var fundingRows, operationRows int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM supplier_payout_funding WHERE ledger_entry_id=$1`, entryID).Scan(&fundingRows); err != nil {
-		t.Fatal(err)
-	}
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM supplier_payout_operations WHERE ledger_entry_id=$1`, entryID).Scan(&operationRows); err != nil {
-		t.Fatal(err)
-	}
+	must(t, pool.QueryRow(ctx, `SELECT count(*) FROM supplier_payout_funding WHERE ledger_entry_id=$1`, entryID).Scan(&fundingRows))
+	must(t, pool.QueryRow(ctx, `SELECT count(*) FROM supplier_payout_operations WHERE ledger_entry_id=$1`, entryID).Scan(&operationRows))
 	if fundingRows != 1 || operationRows != 1 {
 		t.Fatalf("service payout replay duplicated immutable rows: funding=%d operations=%d", fundingRows, operationRows)
 	}

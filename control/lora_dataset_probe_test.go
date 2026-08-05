@@ -15,9 +15,7 @@ func TestCanonicalLoRAJSONNormalizesFiniteNumberSpellings(t *testing.T) {
 	var canonical []byte
 	for _, form := range forms {
 		got, err := canonicalLoRAJSON([]byte(form))
-		if err != nil {
-			t.Fatalf("canonicalize %s: %v", form, err)
-		}
+		mustf(t, err, "canonicalize %s: %v", form)
 		if canonical == nil {
 			canonical = got
 		} else if !bytes.Equal(canonical, got) {
@@ -38,13 +36,9 @@ func TestLoRAProbeRejectsSemanticNumericDuplicateAcrossTrainingAndHeldOut(t *tes
 		Required: []string{"input", "target", "weight", "meta"},
 	}
 	training, err := validateLoRAJSONL([]byte(`{"input":"prompt","target":"completion","weight":1.0,"meta":{"score":1e0}}`), schema, "training set")
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	heldOut, err := validateLoRAJSONL([]byte(`{"meta":{"score":1.00},"weight":1E+0,"target":"completion","input":"prompt"}`), schema, "held-out set")
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	for id := range heldOut.rowIDs {
 		if _, overlap := training.rowIDs[id]; !overlap {
 			t.Fatal("numeric spelling evaded training/held-out canonical overlap detection")

@@ -53,9 +53,7 @@ func TestLiveServingMatrixCandleVsLlamaCppMetal(t *testing.T) {
 		t.Skip("pinned GGUF not found; set MERC_LLAMA_GGUF")
 	}
 	sum, err := fileSHA256(gguf)
-	if err != nil {
-		t.Fatalf("hash gguf: %v", err)
-	}
+	mustf(t, err, "hash gguf: %v")
 	if sum != pinnedGGUFDigest {
 		t.Fatalf("GGUF digest %s != authority pin %s", sum, pinnedGGUFDigest)
 	}
@@ -92,13 +90,9 @@ func TestLiveServingMatrixCandleVsLlamaCppMetal(t *testing.T) {
 			"--model", "llama-3.2-1b-instruct-q4",
 		)
 		candleStdout, err := candleCmd.StdoutPipe()
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		candleCmd.Stderr = io.MultiWriter(os.Stderr, &candleStderr)
-		if err := candleCmd.Start(); err != nil {
-			t.Fatalf("start merc-agent serve-openai: %v", err)
-		}
+		mustf(t, candleCmd.Start(), "start merc-agent serve-openai: %v")
 		candleDone := make(chan error, 1)
 		go func() { candleDone <- candleCmd.Wait() }()
 		candleBase, err := waitCandleReady(ctx, candleStdout, candleDone, &candleStderr, 10*time.Minute)
@@ -157,9 +151,7 @@ func TestLiveServingMatrixCandleVsLlamaCppMetal(t *testing.T) {
 		)
 		llamaCmd.Stdout = os.Stdout
 		llamaCmd.Stderr = io.MultiWriter(os.Stderr, &llamaStderr)
-		if err := llamaCmd.Start(); err != nil {
-			t.Fatalf("start llama-server: %v", err)
-		}
+		mustf(t, llamaCmd.Start(), "start llama-server: %v")
 		llamaDone := make(chan error, 1)
 		go func() { llamaDone <- llamaCmd.Wait() }()
 		llamaBase := fmt.Sprintf("http://127.0.0.1:%d/v1", llamaPort)
@@ -359,13 +351,9 @@ func TestLiveServingMatrixCandleVsLlamaCppMetal(t *testing.T) {
 	}
 
 	raw, err := json.Marshal(out)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	var payload map[string]any
-	if err := json.Unmarshal(raw, &payload); err != nil {
-		t.Fatal(err)
-	}
+	must(t, json.Unmarshal(raw, &payload))
 
 	t.Logf("WINNER=%s primary_ratio=%.3f lower_bound=%.3f margin_survives_ci=%v measured_cells=%d",
 		winner, margin, ranking.PrimaryRatioLowerBound, marginSurvivesCI, countMeasured(cells))
@@ -377,9 +365,7 @@ func TestLiveServingMatrixCandleVsLlamaCppMetal(t *testing.T) {
 			"control/serving_matrix_candle_llama_test.go#TestLiveServingMatrixCandleVsLlamaCppMetal",
 			"dual-arm LocalEvidenceServingMatrixSelection on pinned GGUF; candle serve-openai + llama-server -ngl 99",
 			"embedded cells[].metrics from OpenAI SSE samples")
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		id.ModelArtifactDigest = IdentitySlotValue(pinnedGGUFDigest)
 		id.ImageDigest = IdentitySlotNA("host processes (merc-agent serve-openai + llama-server); no container image")
 		id.CorpusDigest = IdentitySlotNA("synthetic ServingMatrixPromptCorpus; no external corpus digest")
@@ -863,9 +849,7 @@ func mlxHonestEntryArgument() map[string]any {
 func sealTournamentHostScopeR2(t *testing.T, art ServingMatrixArtifact, ranking engineRanking, energy map[string]armEnergyWindow, marginSurvives bool) {
 	t.Helper()
 	commit, err := ResolveRepoSourceCommit("..")
-	if err != nil {
-		t.Fatalf("commit: %v", err)
-	}
+	mustf(t, err, "commit: %v")
 	payload := map[string]any{
 		"schema_version":      1,
 		"kind":                "engine_tournament_host_scope",
@@ -934,9 +918,7 @@ func sealTournamentHostScopeR2(t *testing.T, art ServingMatrixArtifact, ranking 
 		"control/serving_matrix_candle_llama_test.go#sealTournamentHostScopeR2",
 		"dual-arm ranking envelope; physical cells in serving-matrix-candle-vs-llama-cpp-metal-r1.json",
 		"ranking aggregates over embedded dual-arm cells")
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	id.ModelArtifactDigest = IdentitySlotValue(pinnedGGUFDigest)
 	id.ImageDigest = IdentitySlotNA("host processes; no container image")
 	id.CorpusDigest = IdentitySlotNA("synthetic ServingMatrixPromptCorpus")
@@ -955,9 +937,7 @@ func sealTournamentHostScopeR2(t *testing.T, art ServingMatrixArtifact, ranking 
 func freeLocalPort(t *testing.T) int {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	port := ln.Addr().(*net.TCPAddr).Port
 	_ = ln.Close()
 	return port

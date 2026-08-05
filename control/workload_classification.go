@@ -195,10 +195,6 @@ func workloadDecisionDigest(decision WorkloadDecision) (string, error) {
 	return hex.EncodeToString(sum[:]), nil
 }
 
-func runtimeCapabilityForBinding(binding WorkloadBinding) (generatedRuntimeCapability, error) {
-	return runtimeCapabilityForBindingDirected(binding, "")
-}
-
 // runtimeCapabilityForBindingDirected resolves the cell that will execute a
 // workload, optionally forced to a named one.
 //

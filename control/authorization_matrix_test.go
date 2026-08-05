@@ -27,13 +27,9 @@ func concreteAuthorizationPath(pattern string) string {
 
 func TestAuthorizationMatrixProtectedRoutesRejectAnonymousAndWrongCredentialNamespace(t *testing.T) {
 	raw, err := os.ReadFile("../ops/authorization-matrix.json")
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	var matrix authorizationMatrix
-	if err := json.Unmarshal(raw, &matrix); err != nil {
-		t.Fatal(err)
-	}
+	must(t, json.Unmarshal(raw, &matrix))
 
 	checked := 0
 	for _, class := range matrix.RouteClasses {

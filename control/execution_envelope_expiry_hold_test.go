@@ -50,9 +50,7 @@ func TestExpiredEnvelopeStillHoldsFundsForInFlightWork(t *testing.T) {
 		PerRequestCeilingNanos: needNanos,
 		TTLSeconds:             600,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 
 	// Real in-flight work through the production path: this binds the spend to
 	// an EXECUTING contract, which is the case orphan recovery will not touch.

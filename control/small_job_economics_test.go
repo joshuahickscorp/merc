@@ -23,9 +23,7 @@ func economicScheduleForTest(t *testing.T) EconomicSchedule {
 	t.Setenv("MERC_MIN_CONTRIBUTION_PER_BATCH_USD", "0.000001")
 	t.Setenv("MERC_TARGET_MARGIN_BPS", "1000")
 	schedule, err := LoadEconomicScheduleFromEnv()
-	if err != nil {
-		t.Fatalf("loading the economic schedule: %v", err)
-	}
+	mustf(t, err, "loading the economic schedule: %v")
 	return schedule
 }
 

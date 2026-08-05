@@ -168,9 +168,7 @@ func seedSupplierFailureRate(t *testing.T, ctx context.Context, store *Store, po
 		   AND status='ACTIVE'
 		 RETURNING worker_id`,
 		worker.WorkerID, profile.RuntimeProfileID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	var drainedIDs []uuid.UUID
 	for drained.Next() {
 		var id uuid.UUID
@@ -181,9 +179,7 @@ func seedSupplierFailureRate(t *testing.T, ctx context.Context, store *Store, po
 		drainedIDs = append(drainedIDs, id)
 	}
 	drained.Close()
-	if err := drained.Err(); err != nil {
-		t.Fatal(err)
-	}
+	must(t, drained.Err())
 	t.Cleanup(func() {
 		c, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
@@ -212,9 +208,7 @@ func seedSupplierFailureRate(t *testing.T, ctx context.Context, store *Store, po
 			MaximumPromptTokens: 8_330, MaximumCompletionTokens: 1,
 			EstimatedPromptTokens: 4_163, EstimatedCompletionTokens: 1, BuyerDeclaredCeilingUSD: 0.0011,
 		})
-		if err != nil {
-			t.Fatalf("seed fail authorize: %v", err)
-		}
+		mustf(t, err, "seed fail authorize: %v")
 		if contract.SupplierID != worker.SupplierID {
 			t.Fatalf("seed fail cleared wrong supplier %s", contract.SupplierID)
 		}
@@ -232,9 +226,7 @@ func seedSupplierFailureRate(t *testing.T, ctx context.Context, store *Store, po
 			MaximumPromptTokens: 8_330, MaximumCompletionTokens: 1,
 			EstimatedPromptTokens: 4_163, EstimatedCompletionTokens: 1, BuyerDeclaredCeilingUSD: 0.0011,
 		})
-		if err != nil {
-			t.Fatalf("seed ok authorize: %v", err)
-		}
+		mustf(t, err, "seed ok authorize: %v")
 		if contract.SupplierID != worker.SupplierID {
 			t.Fatalf("seed ok cleared wrong supplier %s", contract.SupplierID)
 		}
@@ -272,9 +264,7 @@ func authorizeClearingContract(t *testing.T, ctx context.Context, store *Store,
 		MaximumPromptTokens: 8_330, MaximumCompletionTokens: 1,
 		EstimatedPromptTokens: 4_163, EstimatedCompletionTokens: 1, BuyerDeclaredCeilingUSD: 0.0011,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	return contract
 }
 
@@ -290,9 +280,7 @@ func TestRealtimeClearingSelfDeclaredHOTDoesNotBeatCheaperVerifiedCost(t *testin
 
 	buyerID, err := store.CreateBuyerAccount(ctx,
 		"clearing-hot-"+uuid.NewString()+"@example.test", "integration-password", 5)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	profile := sortedVLLMProfiles()[0]
 	// Expensive HOT vs cheap COLD: warmth-first would pick HOT; cost-first picks COLD.
 	hot := newRealtimeClearingOffer(t, ctx, store, pool, profile, "HOT", 0.08, 0.30, 2)
@@ -325,9 +313,7 @@ func TestRealtimeClearingHigherAskWithNoFailuresBeatsCheaperThatNeedsDoubleExecu
 
 	buyerID, err := store.CreateBuyerAccount(ctx,
 		"clearing-retry-"+uuid.NewString()+"@example.test", "integration-password", 5)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	profile := sortedVLLMProfiles()[0]
 
 	// Cheap base ask 0.05+0.20=0.25 with 50% failure → verified cost 0.50.
@@ -369,9 +355,7 @@ func TestRealtimeClearingReceiptRecordsEveryRankingInput(t *testing.T) {
 
 	buyerID, err := store.CreateBuyerAccount(ctx,
 		"clearing-receipt-"+uuid.NewString()+"@example.test", "integration-password", 5)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	profile := sortedVLLMProfiles()[0]
 	worker := newRealtimeClearingOffer(t, ctx, store, pool, profile, "WARM", 0.08, 0.30, 16)
 	seedSupplierFailureRate(t, ctx, store, pool, buyerID, worker, profile, 8, 2)
@@ -400,9 +384,7 @@ func TestRealtimeClearingReceiptRecordsEveryRankingInput(t *testing.T) {
 	}
 	// Buyer receipt path must carry the same authority.
 	receipt, err := store.RealtimeReceipt(ctx, buyerID, contract.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if receipt.MarketClearing == nil || receipt.MarketClearing.RankingInputs == nil ||
 		receipt.MarketClearing.RankingInputs.VerifiedOutcomeCostNanos != in.VerifiedOutcomeCostNanos {
 		t.Fatalf("buyer receipt lost ranking inputs: %+v", receipt.MarketClearing)
@@ -420,9 +402,7 @@ func TestRealtimeClearingSameCostClassKeepsWarmthTiebreak(t *testing.T) {
 
 	buyerID, err := store.CreateBuyerAccount(ctx,
 		"clearing-tie-"+uuid.NewString()+"@example.test", "integration-password", 5)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	profile := sortedVLLMProfiles()[0]
 	hot := newRealtimeClearingOffer(t, ctx, store, pool, profile, "HOT", 0.08, 0.30, 2)
 	_ = newRealtimeClearingOffer(t, ctx, store, pool, profile, "WARM", 0.08, 0.30, 2)
@@ -452,9 +432,7 @@ func TestServiceLeaseClearingRanksByTotalSupplierPlusResidency(t *testing.T) {
 		buyerID, buyerID.String()+"@residency-rank.invalid"); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.SeedPrepaidBalance(ctx, buyerID, 2_000_000, "residency-rank-"+buyerID.String()); err != nil {
-		t.Fatal(err)
-	}
+	must(t, store.SeedPrepaidBalance(ctx, buyerID, 2_000_000, "residency-rank-"+buyerID.String()))
 	cheapSupplier, _ := newFabricMeasurementWorker(t, ctx, store)
 	cheaperTotal, _ := newFabricMeasurementWorker(t, ctx, store)
 	// Available warm capacity is measured and fail-closed: without a fresh
@@ -477,12 +455,8 @@ func TestServiceLeaseClearingRanksByTotalSupplierPlusResidency(t *testing.T) {
 	higherSupplierLowRes.SupplierNanosPerReplicaHour = 1_500_000_000
 	higherSupplierLowRes.ResidencyNanosPerReplicaHour = 200_000_000
 
-	if err := store.UpsertServiceLeaseOffer(ctx, cheapSupplier, lowSupplierHighRes); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.UpsertServiceLeaseOffer(ctx, cheaperTotal, higherSupplierLowRes); err != nil {
-		t.Fatal(err)
-	}
+	must(t, store.UpsertServiceLeaseOffer(ctx, cheapSupplier, lowSupplierHighRes))
+	must(t, store.UpsertServiceLeaseOffer(ctx, cheaperTotal, higherSupplierLowRes))
 	t.Cleanup(func() {
 		c, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
@@ -506,17 +480,13 @@ func TestServiceLeaseClearingRanksByTotalSupplierPlusResidency(t *testing.T) {
 		BuyerDeclaredCeilingNanos: 500_000_000,
 	}
 	lease, err := store.CreateServiceLease(ctx, buyerID, request)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if lease.WorkerID != cheaperTotal.WorkerID {
 		t.Fatalf("residency not honoured in ranking: chose worker=%s (supplier-only cheap) want total-cheap=%s",
 			lease.WorkerID, cheaperTotal.WorkerID)
 	}
 	receipt, err := store.GetServiceLeaseReceipt(ctx, buyerID, lease.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if receipt.MarketClearing == nil ||
 		receipt.MarketClearing.OrderBookPolicy != "lowest_total_supplier_plus_residency_ask_v1" ||
 		receipt.MarketClearing.SelectedResidencyRateNanos != higherSupplierLowRes.ResidencyNanosPerReplicaHour {

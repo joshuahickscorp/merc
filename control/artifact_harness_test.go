@@ -75,9 +75,7 @@ func newArtifactHarness(t *testing.T) *artifactHarness {
 	t.Cleanup(cancel)
 
 	storage, err := NewStorage(ctx)
-	if err != nil {
-		t.Fatalf("open object storage: %v", err)
-	}
+	mustf(t, err, "open object storage: %v")
 	h := &artifactHarness{
 		storage: storage,
 		prefix:  "cas/test/" + strings.ReplaceAll(uuid.NewString(), "-", "") + "/",
@@ -148,9 +146,7 @@ func TestArtifactHarnessRoundTripsThroughRealStorage(t *testing.T) {
 	}
 
 	read, err := h.get(key)
-	if err != nil {
-		t.Fatalf("round trip: %v", err)
-	}
+	mustf(t, err, "round trip: %v")
 	if string(read) != string(body) {
 		t.Fatal("bytes changed in storage")
 	}
@@ -182,9 +178,7 @@ func TestArtifactFailureModes(t *testing.T) {
 		// claims one digest and the content now has another. This is the shape
 		// of both a corruption and a swap, and read-side verification is what
 		// separates "we stored something" from "we stored THIS".
-		if err := h.storage.PutObject(h.ctx, key, []byte("tampered"), "application/octet-stream"); err != nil {
-			t.Fatalf("overwrite: %v", err)
-		}
+		mustf(t, h.storage.PutObject(h.ctx, key, []byte("tampered"), "application/octet-stream"), "overwrite: %v")
 		if _, err := h.get(key); err == nil {
 			t.Fatal("an object whose content no longer matches its key was accepted")
 		} else if !strings.Contains(err.Error(), "does not hash to its own key") {
@@ -196,9 +190,7 @@ func TestArtifactFailureModes(t *testing.T) {
 		body := []byte("honest bytes")
 		key, digest := h.put(body, "application/octet-stream")
 		read, err := h.storage.GetObject(h.ctx, key)
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		claimed := strings.Repeat("f", 64)
 		sum := sha256.Sum256(read)
 		if hex.EncodeToString(sum[:]) == claimed {
@@ -230,9 +222,7 @@ func TestArtifactFailureModes(t *testing.T) {
 		identity, err := RequestIdentity{
 			TenantScope: uuid.NewString(), ModelID: "m", Input: "i", TopP: 1,
 		}.Compute()
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		store := &Store{}
 		err = store.RecordExactResult(context.Background(), identity,
 			"jobs/"+uuid.NewString()+"/tasks/x/result.json", 1)
@@ -247,13 +237,9 @@ func TestArtifactFailureModes(t *testing.T) {
 	t.Run("cleanup removes everything under the prefix", func(t *testing.T) {
 		scratch := newArtifactHarness(t)
 		key, _ := scratch.put([]byte("temporary"), "application/octet-stream")
-		if err := scratch.storage.RemovePrefix(scratch.ctx, scratch.prefix); err != nil {
-			t.Fatalf("remove prefix: %v", err)
-		}
+		mustf(t, scratch.storage.RemovePrefix(scratch.ctx, scratch.prefix), "remove prefix: %v")
 		exists, err := scratch.storage.ObjectExists(scratch.ctx, key)
-		if err != nil {
-			t.Fatalf("exists after cleanup: %v", err)
-		}
+		mustf(t, err, "exists after cleanup: %v")
 		if exists {
 			t.Fatal("cleanup left an object behind; tests would leak into each other")
 		}
@@ -268,13 +254,9 @@ func TestArtifactHarnessPresignsBothDirections(t *testing.T) {
 	key := h.contentAddressedKey(body)
 
 	putURL, err := h.storage.PresignPut(h.ctx, key, 5*time.Minute)
-	if err != nil {
-		t.Fatalf("presign put: %v", err)
-	}
+	mustf(t, err, "presign put: %v")
 	getURL, err := h.storage.PresignGet(h.ctx, key, 5*time.Minute)
-	if err != nil {
-		t.Fatalf("presign get: %v", err)
-	}
+	mustf(t, err, "presign get: %v")
 	for name, url := range map[string]string{"put": putURL, "get": getURL} {
 		if !strings.Contains(url, key) {
 			t.Errorf("%s URL does not address the key: %s", name, url)

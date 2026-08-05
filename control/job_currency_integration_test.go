@@ -24,9 +24,7 @@ func TestAcceptedJobCurrencyFencesDispatchSettlementAndCollection(t *testing.T) 
 	tasks := makeTasks(f, 1)
 	f.TaskIDs = []uuid.UUID{tasks[0].ID}
 	job := validJobRow(t, f, tasks)
-	if err := store.SubmitJobTx(ctx, job, tasks); err != nil {
-		t.Fatalf("submit CAD job: %v", err)
-	}
+	mustf(t, store.SubmitJobTx(ctx, job, tasks), "submit CAD job: %v")
 
 	var jobCurrency, planCurrency, jsonCurrency string
 	if err := pool.QueryRow(ctx, `
@@ -61,9 +59,7 @@ func TestAcceptedJobCurrencyFencesDispatchSettlementAndCollection(t *testing.T) 
 	claimed, err := store.ClaimTasksTx(ctx, WorkerAuth{
 		WorkerID: f.WorkerID, SupplierID: f.SupplierID,
 	})
-	if err != nil {
-		t.Fatalf("cross-currency claim should be an inert no-match, got %v", err)
-	}
+	mustf(t, err, "cross-currency claim should be an inert no-match, got %v")
 	if claimed != nil {
 		t.Fatalf("USD deployment claimed CAD job: %+v", claimed)
 	}
@@ -78,9 +74,7 @@ func TestAcceptedJobCurrencyFencesDispatchSettlementAndCollection(t *testing.T) 
 	}
 
 	setSettlementCurrency(MustParseCurrency("cad"))
-	if err := store.StartTask(ctx, tasks[0].ID, f.WorkerID, 0); err != nil {
-		t.Fatalf("CAD deployment could not start CAD job: %v", err)
-	}
+	mustf(t, store.StartTask(ctx, tasks[0].ID, f.WorkerID, 0), "CAD deployment could not start CAD job: %v")
 	if _, err := pool.Exec(ctx, `
 		UPDATE tasks SET status='verifying' WHERE id=$1`, tasks[0].ID); err != nil {
 		t.Fatal(err)
@@ -115,9 +109,7 @@ func TestAcceptedJobCurrencyFencesDispatchSettlementAndCollection(t *testing.T) 
 	}
 
 	setSettlementCurrency(MustParseCurrency("cad"))
-	if err := store.FinalizeTaskVerification(ctx, info, OutcomePass, entries); err != nil {
-		t.Fatalf("CAD settlement failed: %v", err)
-	}
+	mustf(t, store.FinalizeTaskVerification(ctx, info, OutcomePass, entries), "CAD settlement failed: %v")
 	var distinctCurrencies int
 	if err := pool.QueryRow(ctx, `
 		SELECT count(*),count(DISTINCT currency)
@@ -163,9 +155,7 @@ func TestJobEconomicCurrencyConstraintsRejectDirectBypasses(t *testing.T) {
 	badJSONPlan := plan
 	badJSONPlan.Schedule.Currency = "usd"
 	badJSON, err := json.Marshal(badJSONPlan)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	insertPlan := `
 		INSERT INTO job_economic_plans (
 		  job_id,plan_version,schedule_version,currency,plan_json,initial_task_count,
@@ -184,9 +174,7 @@ func TestJobEconomicCurrencyConstraintsRejectDirectBypasses(t *testing.T) {
 	}
 
 	goodJSON, err := json.Marshal(badJSONPlan)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	args[3], args[4] = "usd", goodJSON
 	if _, err := pool.Exec(ctx, insertPlan, args...); err == nil ||
 		!strings.Contains(err.Error(), "currency") {

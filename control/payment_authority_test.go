@@ -55,27 +55,19 @@ func installLivePaymentActivation(
 ) (path string, raw []byte) {
 	t.Helper()
 	signed, err := paymentActivationSignedBytes(envelope)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	mac := hmac.New(sha256.New, []byte(testLiveActivationHMACKey))
 	_, _ = mac.Write(signed)
 	envelope.HMACSHA256 = hex.EncodeToString(mac.Sum(nil))
 	raw, err = json.Marshal(envelope)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	path = filepath.Join(t.TempDir(), "live-payment-activation.json")
-	if err := os.WriteFile(path, raw, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	must(t, os.WriteFile(path, raw, 0o600))
 	digest := sha256.Sum256(raw)
 	t.Setenv(livePaymentActivationFileEnv, path)
 	t.Setenv(livePaymentActivationDigestEnv, hex.EncodeToString(digest[:]))
 	keyPath := filepath.Join(t.TempDir(), "live-payment-activation-hmac-key")
-	if err := os.WriteFile(keyPath, []byte(testLiveActivationHMACKey+"\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	must(t, os.WriteFile(keyPath, []byte(testLiveActivationHMACKey+"\n"), 0o600))
 	t.Setenv(livePaymentActivationHMACKeyFileEnv, keyPath)
 	t.Setenv(livePaymentActivationHMACKeyEnv, "")
 	return path, raw
@@ -86,9 +78,7 @@ func configureLivePaymentTestEnv(t *testing.T) {
 	t.Setenv("MERC_ENV", "production")
 	t.Setenv(paymentModeEnv, "live")
 	keyPath := filepath.Join(t.TempDir(), "stripe-secret-key")
-	if err := os.WriteFile(keyPath, []byte("sk_live_payment_authority_test\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	must(t, os.WriteFile(keyPath, []byte("sk_live_payment_authority_test\n"), 0o600))
 	t.Setenv(stripeSecretKeyFileEnv, keyPath)
 	t.Setenv("STRIPE_SECRET_KEY", "")
 	t.Setenv("MERC_PAYMENT_PROVIDER", "stripe")
@@ -162,9 +152,7 @@ func TestLiveModeRequiresPermissionRestrictedHMACKeyFile(t *testing.T) {
 	envelope := validLivePaymentActivation(now, build)
 	installLivePaymentActivation(t, envelope)
 	keyPath := os.Getenv(livePaymentActivationHMACKeyFileEnv)
-	if err := os.Chmod(keyPath, 0o644); err != nil {
-		t.Fatal(err)
-	}
+	must(t, os.Chmod(keyPath, 0o644))
 	if _, err := loadPaymentAuthorityAt(now, build, "sk_live_payment_authority_test"); err == nil {
 		t.Fatal("LIVE mode accepted an activation HMAC key readable by other users")
 	}
@@ -177,9 +165,7 @@ func TestLiveModeRequiresPermissionRestrictedStripeKeyFile(t *testing.T) {
 	installLivePaymentActivation(t, validLivePaymentActivation(now, build))
 
 	keyPath := os.Getenv(stripeSecretKeyFileEnv)
-	if err := os.Chmod(keyPath, 0o644); err != nil {
-		t.Fatal(err)
-	}
+	must(t, os.Chmod(keyPath, 0o644))
 	if _, err := loadPaymentAuthorityAt(now, build, "sk_live_payment_authority_test"); err == nil {
 		t.Fatal("LIVE mode accepted a Stripe key readable by other users")
 	}
@@ -223,9 +209,7 @@ func TestLiveActivationBindsCandidateWindowCapsAndApprovals(t *testing.T) {
 	installLivePaymentActivation(t, validLivePaymentActivation(now, build))
 
 	authority, err := loadPaymentAuthorityAt(now, build, "sk_live_payment_authority_test")
-	if err != nil {
-		t.Fatalf("valid LIVE authority rejected: %v", err)
-	}
+	mustf(t, err, "valid LIVE authority rejected: %v")
 	if !authority.LiveValueMovementEnabled() || authority.Activation == nil ||
 		authority.Activation.CandidateCommit != build.Commit {
 		t.Fatalf("LIVE authority incomplete: %+v", authority)
@@ -259,9 +243,7 @@ func TestExpiredLiveWindowAllowsOnlyBoundedRecovery(t *testing.T) {
 	installLivePaymentActivation(t, envelope)
 
 	authority, err := loadPaymentAuthorityAt(now, build, "sk_live_payment_authority_test")
-	if err != nil {
-		t.Fatalf("recovery authority rejected: %v", err)
-	}
+	mustf(t, err, "recovery authority rejected: %v")
 	if authority.Active || !authority.RecoveryActive {
 		t.Fatalf("window state = active:%t recovery:%t", authority.Active, authority.RecoveryActive)
 	}
@@ -304,9 +286,7 @@ func TestLiveActivationTamperAndWeakApprovalFailClosed(t *testing.T) {
 	envelope := validLivePaymentActivation(now, build)
 	path, raw := installLivePaymentActivation(t, envelope)
 	raw[len(raw)-2] ^= 1
-	if err := os.WriteFile(path, raw, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	must(t, os.WriteFile(path, raw, 0o600))
 	if _, err := loadPaymentAuthorityAt(now, build, "sk_live_payment_authority_test"); err == nil {
 		t.Fatal("tampered activation file was accepted")
 	}

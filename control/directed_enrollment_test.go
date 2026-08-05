@@ -23,9 +23,7 @@ func TestLlamaCppWorkerCanEnrolAgainstItsDirectedCell(t *testing.T) {
 		SupportedModels: []string{"all-minilm-l6-v2"},
 	}
 	projected, err := projectWorkerRuntimeCapabilities(cap)
-	if err != nil {
-		t.Fatalf("a llama.cpp embed worker could not enrol: %v", err)
-	}
+	mustf(t, err, "a llama.cpp embed worker could not enrol: %v")
 	if len(projected) != 1 || projected[0].ID != llamaEmbedCell {
 		t.Fatalf("projected %+v, want exactly the llama.cpp embed cell", projected)
 	}
@@ -96,9 +94,7 @@ func TestLegacyClaimBranchRequiresARoutableCapability(t *testing.T) {
 	// named constant, and asserting against the text is how the other authority
 	// gates in this package check a property of the query itself.
 	raw, err := os.ReadFile("scheduler.go")
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	sql := string(raw)
 	legacy := strings.Count(sql, "j.workload_decision IS NULL")
 	if legacy == 0 {

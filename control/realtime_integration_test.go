@@ -35,14 +35,10 @@ func TestRealtimeStreamContractVerificationSettlementAndReceipt(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), suiteTimeout)
 	defer cancel()
 	pool, err := pgxpool.New(ctx, databaseURL)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	defer pool.Close()
 	store := NewStore(pool)
-	if err := store.Migrate(ctx); err != nil {
-		t.Fatal(err)
-	}
+	must(t, store.Migrate(ctx))
 
 	// This test asserts on RealtimeOperationalSnapshot and on the /metrics
 	// gauges, both of which count platform-wide.  Those assertions only hold if
@@ -68,13 +64,9 @@ func TestRealtimeStreamContractVerificationSettlementAndReceipt(t *testing.T) {
 
 	suffix := uuid.NewString()
 	buyerID, err := store.CreateBuyerAccount(ctx, "realtime-"+suffix+"@example.test", "integration-password", 5)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	_, buyerKey, _, err := store.CreateAPIKey(ctx, buyerID, "realtime integration", true)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	supplierID := uuid.New()
 	if _, err := pool.Exec(ctx, `INSERT INTO suppliers (id,email,status) VALUES ($1,$2,'pending')`,
 		supplierID, "supplier-"+suffix+"@example.test"); err != nil {
@@ -108,14 +100,10 @@ func TestRealtimeStreamContractVerificationSettlementAndReceipt(t *testing.T) {
 			}
 		}
 		probe, err := http.NewRequestWithContext(ctx, http.MethodGet, modelsURL, nil)
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		probe.Header.Set("Authorization", "Bearer "+realKey)
 		probeResp, err := http.DefaultClient.Do(probe)
-		if err != nil {
-			t.Fatalf("configured real inference runtime unreachable at %s: %v", realURL, err)
-		}
+		mustf(t, err, "configured real inference runtime unreachable at %s: %v", realURL)
 		probeResp.Body.Close()
 		if probeResp.StatusCode != http.StatusOK {
 			t.Fatalf("configured real inference runtime at %s answered HTTP %d", realURL, probeResp.StatusCode)
@@ -198,9 +186,7 @@ func TestRealtimeStreamContractVerificationSettlementAndReceipt(t *testing.T) {
 		t.Fatal(err)
 	}
 	poorBuyerID, err := store.CreateBuyerAccount(ctx, "realtime-no-credit-"+suffix+"@example.test", "integration-password", 0)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if _, _, err := store.AuthorizeRealtimeContract(ctx, RealtimeContractAuthorization{
 		RequestID: "req-no-credit-" + suffix, BuyerID: poorBuyerID, Profile: profile,
 		InputCommitment: strings.Repeat("c", 64), RequestSHA256: strings.Repeat("d", 64),
@@ -222,9 +208,7 @@ func TestRealtimeStreamContractVerificationSettlementAndReceipt(t *testing.T) {
 		MaximumPromptTokens: 8330, MaximumCompletionTokens: 1,
 		EstimatedPromptTokens: 4163, EstimatedCompletionTokens: 1,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if _, err := store.FinalizeRealtimeSuccess(ctx, bounded.ID, RealtimeExecutionEvidence{
 		ID: uuid.New(), HTTPStatus: http.StatusOK, StreamRootSHA256: strings.Repeat("1", 64),
 		OutputCommitment: strings.Repeat("2", 64), PromptTokens: 8331, CompletionTokens: 1,
@@ -248,21 +232,15 @@ func TestRealtimeStreamContractVerificationSettlementAndReceipt(t *testing.T) {
 	defer server.Close()
 	requestBody := []byte(`{"model":"cx-chat-1b","messages":[{"role":"user","content":"say hello"}],"stream":true,"max_tokens":8}`)
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, server.URL+"/v1/chat/completions", bytes.NewReader(requestBody))
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	request.Header.Set("Authorization", "Bearer "+buyerKey)
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Idempotency-Key", "realtime-integration-"+suffix)
 	response, err := http.DefaultClient.Do(request)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	streamBody, err := io.ReadAll(response.Body)
 	response.Body.Close()
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if response.StatusCode != http.StatusOK {
 		t.Fatalf("chat status=%d body=%s", response.StatusCode, streamBody)
 	}
@@ -278,9 +256,7 @@ func TestRealtimeStreamContractVerificationSettlementAndReceipt(t *testing.T) {
 		t.Fatalf("real-upstream stream was empty")
 	}
 	contractID, err := uuid.Parse(response.Header.Get("X-Merc-Contract-ID"))
-	if err != nil {
-		t.Fatalf("missing contract header: %v", err)
-	}
+	mustf(t, err, "missing contract header: %v")
 	if _, err := store.RealtimeReceipt(ctx, buyerID, contractID); err != nil {
 		t.Fatalf("direct realtime receipt read failed: %v", err)
 	}
@@ -297,14 +273,10 @@ func TestRealtimeStreamContractVerificationSettlementAndReceipt(t *testing.T) {
 		server.URL+"/v1/realtime/requests/"+contractID.String()+"/receipt", nil)
 	receiptRequest.Header.Set("Authorization", "Bearer "+buyerKey)
 	receiptResponse, err := http.DefaultClient.Do(receiptRequest)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	defer receiptResponse.Body.Close()
 	var receipt RealtimeReceipt
-	if err := json.NewDecoder(receiptResponse.Body).Decode(&receipt); err != nil {
-		t.Fatal(err)
-	}
+	must(t, json.NewDecoder(receiptResponse.Body).Decode(&receipt))
 	if receiptResponse.StatusCode != http.StatusOK || receipt.State != "VERIFIED" || receipt.Verification != "PASSED" {
 		t.Fatalf("unexpected receipt: status=%d receipt=%+v", receiptResponse.StatusCode, receipt)
 	}
@@ -333,15 +305,11 @@ func TestRealtimeStreamContractVerificationSettlementAndReceipt(t *testing.T) {
 	expectedBuyer, err := BuyerRealtimeTokenChargeNanos(usd(t), receipt.PromptTokens, receipt.CompletionTokens,
 		NanoMajorPerMillionTokens(pricingAuthority.BuyerInputNanosPerMillion),
 		NanoMajorPerMillionTokens(pricingAuthority.BuyerOutputNanosPerMillion))
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	expectedSupplier, err := SupplierRealtimeTokenEntitlementNanos(usd(t), receipt.PromptTokens, receipt.CompletionTokens,
 		NanoMajorPerMillionTokens(pricingAuthority.SupplierInputNanosPerMillion),
 		NanoMajorPerMillionTokens(pricingAuthority.SupplierOutputNanosPerMillion))
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if receipt.BuyerChargeNanos != expectedBuyer.Nanos ||
 		receipt.SupplierPayableNanos != expectedSupplier.Nanos ||
 		receipt.KnownCostContributionNanos != expectedBuyer.Nanos-expectedSupplier.Nanos {
@@ -430,9 +398,7 @@ func TestRealtimeStreamContractVerificationSettlementAndReceipt(t *testing.T) {
 	replay.Header.Set("Content-Type", "application/json")
 	replay.Header.Set("Idempotency-Key", "realtime-integration-"+suffix)
 	replayResponse, err := http.DefaultClient.Do(replay)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	replayResponse.Body.Close()
 	if replayResponse.StatusCode != http.StatusConflict || replayResponse.Header.Get("X-Merc-Contract-ID") != contractID.String() {
 		t.Fatalf("idempotent replay status=%d contract=%q", replayResponse.StatusCode, replayResponse.Header.Get("X-Merc-Contract-ID"))
@@ -541,24 +507,20 @@ func TestRealtimeStreamContractVerificationSettlementAndReceipt(t *testing.T) {
 	conflictingRefundRequest.Header.Set("Authorization", "Bearer "+adminKey)
 	conflictingRefundRequest.Header.Set("Content-Type", "application/json")
 	conflictingRefundResponse, err := http.DefaultClient.Do(conflictingRefundRequest)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	_, _ = io.Copy(io.Discard, conflictingRefundResponse.Body)
 	conflictingRefundResponse.Body.Close()
 	if conflictingRefundResponse.StatusCode != http.StatusConflict {
 		t.Fatalf("second refund correlation returned %d, want 409", conflictingRefundResponse.StatusCode)
 	}
 	refundedReceipt, err := store.RealtimeReceipt(ctx, buyerID, contractID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if refundedReceipt.AuthorizationState != "REFUNDED" || refundedReceipt.RefundID != refund.RefundID ||
 		refundedReceipt.RefundUSD != refundedReceipt.BuyerChargeUSD ||
 		refundedReceipt.SupplierClawbackUSD != refundedReceipt.SupplierPayableUSD ||
-		refundedReceipt.PlatformRefundUSD != refundedReceipt.PlatformMarginUSD ||
+		refundedReceipt.PlatformRefundUSD != refundedReceipt.PlatformGrossSpreadUSD ||
 		refundedReceipt.NetBuyerChargeUSD != 0 || refundedReceipt.NetSupplierPayableUSD != 0 ||
-		refundedReceipt.NetPlatformMarginUSD != 0 || refundedReceipt.SupplierPayoutState != "REVERSED" ||
+		refundedReceipt.NetPlatformGrossSpreadUSD != 0 || refundedReceipt.SupplierPayoutState != "REVERSED" ||
 		refundedReceipt.ExternalCashState != "NOT_REQUESTED" {
 		t.Fatalf("refunded receipt did not reconcile: %+v", refundedReceipt)
 	}
@@ -675,18 +637,14 @@ func TestRealtimeStreamContractVerificationSettlementAndReceipt(t *testing.T) {
 		t.Fatalf("parity benchmark harness integration failed: %v\n%s", err, output)
 	}
 	benchmarkRaw, err := os.ReadFile(benchmarkOutput)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	var benchmarkEvidence struct {
 		EvidenceLevel       string `json:"evidence_level"`
 		GatePassed          bool   `json:"gate_passed"`
 		RealRuntimeAttested bool   `json:"real_runtime_attested"`
 		PublicClaimAllowed  bool   `json:"public_claim_allowed"`
 	}
-	if err := json.Unmarshal(benchmarkRaw, &benchmarkEvidence); err != nil {
-		t.Fatal(err)
-	}
+	must(t, json.Unmarshal(benchmarkRaw, &benchmarkEvidence))
 	// Against the httptest fake the harness must not claim a real-runtime
 	// attestation. Against a real engine the evidence level may rise, but a
 	// public claim still requires an explicit runtime attestation header.
@@ -724,19 +682,13 @@ func TestRealtimeStreamContractVerificationSettlementAndReceipt(t *testing.T) {
 	failedRequest.Header.Set("Authorization", "Bearer "+buyerKey)
 	failedRequest.Header.Set("Content-Type", "application/json")
 	failedResponse, err := http.DefaultClient.Do(failedRequest)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	_, _ = io.ReadAll(failedResponse.Body)
 	failedResponse.Body.Close()
 	failedContractID, err := uuid.Parse(failedResponse.Header.Get("X-Merc-Contract-ID"))
-	if err != nil {
-		t.Fatalf("worker-death request did not create a contract: %v", err)
-	}
+	mustf(t, err, "worker-death request did not create a contract: %v")
 	failedReceipt, err := store.RealtimeReceipt(ctx, buyerID, failedContractID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if failedReceipt.State != "FAILED" || failedReceipt.Verification != "FAILED" || failedReceipt.FailureCode != "usage_reconciliation_failed" {
 		t.Fatalf("worker death was not failed and receipted: %+v", failedReceipt)
 	}
@@ -771,9 +723,7 @@ func TestRealtimeStreamContractVerificationSettlementAndReceipt(t *testing.T) {
 		return contract, err
 	}
 	reserved, err := authorize("first")
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO realtime_authorization_events (contract_id,kind,amount_usd)
 		VALUES ($1,'CAPTURED',0.000001)`, reserved.ID); err == nil {
@@ -791,9 +741,7 @@ func TestRealtimeStreamContractVerificationSettlementAndReceipt(t *testing.T) {
 		t.Fatal(err)
 	}
 	released, err := authorize("released")
-	if err != nil {
-		t.Fatalf("finalization did not release the reserved slot: %v", err)
-	}
+	mustf(t, err, "finalization did not release the reserved slot: %v")
 	if finalized, err := store.FinalizeRealtimeFailure(ctx, released.ID, uuid.New(), 0, 1, "capacity_test", "capacity test cleanup", false); err != nil || !finalized {
 		t.Fatal(err)
 	}
@@ -816,22 +764,16 @@ func TestRealtimeStreamContractVerificationSettlementAndReceipt(t *testing.T) {
 	// absolute value only held on a database no other test had touched, which is
 	// not a property a shared suite can offer.
 	baseline, err := store.RealtimeOperationalSnapshot(ctx)
-	if err != nil {
-		t.Fatalf("baseline snapshot: %v", err)
-	}
+	mustf(t, err, "baseline snapshot: %v")
 	stale, err := authorize("stale")
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if _, err := pool.Exec(ctx, `UPDATE execution_contracts
 		SET deadline_at=now()-make_interval(secs=>$2::double precision)
 		WHERE id=$1`, stale.ID, (realtimeRecoveryGrace + time.Second).Seconds()); err != nil {
 		t.Fatal(err)
 	}
 	beforeRecovery, err := store.RealtimeOperationalSnapshot(ctx)
-	if err != nil {
-		t.Fatalf("pre-recovery snapshot: %v err=%v", beforeRecovery, err)
-	}
+	mustf(t, err, "pre-recovery snapshot: %v err=%v", beforeRecovery)
 	if got := beforeRecovery.ExecutingContracts - baseline.ExecutingContracts; got != 1 {
 		t.Fatalf("stale authorize added %d executing contracts, want 1 (baseline %+v, now %+v)",
 			got, baseline, beforeRecovery)
@@ -860,9 +802,7 @@ func TestRealtimeStreamContractVerificationSettlementAndReceipt(t *testing.T) {
 		t.Fatalf("realtime recovery was not idempotent: count=%d err=%v", recovered, err)
 	}
 	staleReceipt, err := store.RealtimeReceipt(ctx, buyerID, stale.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if staleReceipt.State != "FAILED" || staleReceipt.FailureCode != "control_recovery_timeout" || staleReceipt.Verification != "FAILED" {
 		t.Fatalf("stale contract did not receive recovery evidence: %+v", staleReceipt)
 	}
@@ -876,9 +816,7 @@ func TestRealtimeStreamContractVerificationSettlementAndReceipt(t *testing.T) {
 	// must return this contract's own reservation, which is a change of one
 	// against whatever else the suite has left EXECUTING.
 	afterRecovery, err := store.RealtimeOperationalSnapshot(ctx)
-	if err != nil {
-		t.Fatalf("post-recovery snapshot: %v", err)
-	}
+	mustf(t, err, "post-recovery snapshot: %v")
 	if got := beforeRecovery.ExecutingContracts - afterRecovery.ExecutingContracts; got != 1 {
 		t.Fatalf("recovery cleared %d executing contracts, want exactly the stale one (before %+v, after %+v)",
 			got, beforeRecovery, afterRecovery)
@@ -974,9 +912,7 @@ func TestRealtimeStreamContractVerificationSettlementAndReceipt(t *testing.T) {
 		t.Fatalf("buyer disconnect did not cancel its contract: id=%s state=%q err=%v", cancelledID, cancelledState, err)
 	}
 	cancelledReceipt, err := store.RealtimeReceipt(ctx, buyerID, cancelledID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if cancelledReceipt.FailureCode != "client_cancelled" || cancelledReceipt.Verification != "FAILED" {
 		t.Fatalf("buyer disconnect did not receive cancellation evidence: %+v", cancelledReceipt)
 	}
@@ -987,9 +923,7 @@ func TestRealtimeStreamContractVerificationSettlementAndReceipt(t *testing.T) {
 		t.Fatalf("cancelled contract created money effects: rows=%d err=%v", rows, err)
 	}
 	metricsResponse, err := http.Get(server.URL + "/metrics")
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	metricsBody, err := io.ReadAll(metricsResponse.Body)
 	metricsResponse.Body.Close()
 	if err != nil || metricsResponse.StatusCode != http.StatusOK {

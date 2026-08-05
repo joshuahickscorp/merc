@@ -30,19 +30,13 @@ func seedPrefixClaimEnv(t *testing.T) (context.Context, *Store, *pgxpool.Pool, u
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	t.Cleanup(cancel)
 	pool, err := pgxpool.New(ctx, databaseURL)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	t.Cleanup(pool.Close)
 	store := NewStore(pool)
-	if err := store.Migrate(ctx); err != nil {
-		t.Fatal(err)
-	}
+	must(t, store.Migrate(ctx))
 	buyerID, err := store.CreateBuyerAccount(ctx,
 		"pfx-wire-"+uuid.NewString()+"@example.test", "integration-password", 100)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	return ctx, store, pool, buyerID
 }
 
@@ -118,9 +112,7 @@ func seedPrefixClaimJob(t *testing.T, ctx context.Context, pool *pgxpool.Pool, s
 		t.Fatal(err)
 	}
 	if len(chain) > 0 {
-		if err := store.RecordJobPrefixChain(ctx, jobID, chain); err != nil {
-			t.Fatal(err)
-		}
+		must(t, store.RecordJobPrefixChain(ctx, jobID, chain))
 	}
 	t.Cleanup(func() {
 		c, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -135,9 +127,7 @@ func seedPrefixClaimJob(t *testing.T, ctx context.Context, pool *pgxpool.Pool, s
 func claimAs(t *testing.T, ctx context.Context, store *Store, w prefixClaimWorker) *ClaimedTask {
 	t.Helper()
 	got, err := store.ClaimTasksTx(ctx, WorkerAuth{WorkerID: w.workerID, SupplierID: w.supplierID})
-	if err != nil {
-		t.Fatalf("claim: %v", err)
-	}
+	mustf(t, err, "claim: %v")
 	return got
 }
 
@@ -211,9 +201,7 @@ func TestDeeperWarmPrefixPreferredWithinSameCostClass(t *testing.T) {
 	_ = deepJob
 
 	// Worker holds the deep chain fully warm; nothing for the cold job.
-	if err := store.MarkPrefixChainWarm(ctx, worker.workerID, deepChain); err != nil {
-		t.Fatal(err)
-	}
+	must(t, store.MarkPrefixChainWarm(ctx, worker.workerID, deepChain))
 
 	got := claimAs(t, ctx, store, worker)
 	if got == nil {
@@ -226,9 +214,7 @@ func TestDeeperWarmPrefixPreferredWithinSameCostClass(t *testing.T) {
 
 	// Depth distinguishes deep from shallow on the same job family.
 	depth, err := store.DeepestWarmPrefix(ctx, worker.workerID, deepJob)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if want := deepChain[len(deepChain)-1].Depth; depth != want {
 		t.Fatalf("deepest warm = %d, want %d", depth, want)
 	}
@@ -249,9 +235,7 @@ func TestColdCheapWorkerNotDisplacedByWarmExpensive(t *testing.T) {
 	chain := uniqueTokenChain(t, 256)
 	_, taskID := seedPrefixClaimJob(t, ctx, pool, store, buyerID, chain)
 	// Expensive worker is fully warm; cheap worker is cold.
-	if err := store.MarkPrefixChainWarm(ctx, dear.workerID, chain); err != nil {
-		t.Fatal(err)
-	}
+	must(t, store.MarkPrefixChainWarm(ctx, dear.workerID, chain))
 
 	// Expensive warm worker asks first: must be deferred to the cheap ask.
 	if got := claimAs(t, ctx, store, dear); got != nil {
@@ -304,9 +288,7 @@ func TestStaleWarmthStopsInfluencingRouting(t *testing.T) {
 	_ = staleJob
 	_ = freshJob
 
-	if err := store.MarkPrefixChainWarm(ctx, worker.workerID, warmChain); err != nil {
-		t.Fatal(err)
-	}
+	must(t, store.MarkPrefixChainWarm(ctx, worker.workerID, warmChain))
 	// Age every warm row past the TTL.
 	if _, err := pool.Exec(ctx,
 		`UPDATE worker_prefix_state SET last_seen_warm = now() - $2::interval
@@ -316,9 +298,7 @@ func TestStaleWarmthStopsInfluencingRouting(t *testing.T) {
 	}
 
 	depth, err := store.DeepestWarmPrefix(ctx, worker.workerID, staleJob)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if depth != 0 {
 		t.Fatalf("stale warmth still reports depth %d", depth)
 	}
@@ -342,9 +322,7 @@ func TestStaleWarmthStopsInfluencingRouting(t *testing.T) {
 		t.Fatal(err)
 	}
 	n, err := store.SweepStalePrefixState(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if n == 0 {
 		t.Fatal("SweepStalePrefixState removed nothing for rows past 20×TTL")
 	}
@@ -373,13 +351,9 @@ func TestCompletionMarksPrefixChainWarm(t *testing.T) {
 	}
 
 	// Mark warm as the commit path does.
-	if err := store.markWorkerWarmForJob(ctx, worker.workerID, jobID); err != nil {
-		t.Fatal(err)
-	}
+	must(t, store.markWorkerWarmForJob(ctx, worker.workerID, jobID))
 	depth, err := store.DeepestWarmPrefix(ctx, worker.workerID, jobID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if want := chain[len(chain)-1].Depth; depth != want {
 		t.Fatalf("after completion warm depth = %d, want %d", depth, want)
 	}
@@ -391,9 +365,7 @@ func TestCompletionMarksPrefixChainWarm(t *testing.T) {
 // Pattern matches TestNoRawLedgerInsertsOutsideWriter.
 func TestNoPerPrefixWarmthOracleInProductionSurfaces(t *testing.T) {
 	entries, err := os.ReadDir(".")
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 
 	// HTTP surfaces that would let a client query warmth by prefix id.
 	routeNeedles := []string{
@@ -431,9 +403,7 @@ func TestNoPerPrefixWarmthOracleInProductionSurfaces(t *testing.T) {
 			continue
 		}
 		body, err := os.ReadFile(name)
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		src := string(body)
 
 		if name == "api.go" || name == "metrics.go" {
@@ -475,9 +445,7 @@ func TestNoPerPrefixWarmthOracleInProductionSurfaces(t *testing.T) {
 	// Workers loop must register the sweep (dead SweepStalePrefixState was the
 	// original defect).
 	workersSrc, err := os.ReadFile("workers.go")
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if !strings.Contains(string(workersSrc), "SweepStalePrefixState") {
 		t.Fatal("workers.go does not call SweepStalePrefixState")
 	}

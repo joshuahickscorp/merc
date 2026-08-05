@@ -81,9 +81,7 @@ func newFabricMeasurementWorker(t *testing.T, ctx context.Context, store *Store)
 		t.Fatal(err)
 	}
 	token, err := store.CreateWorkerToken(ctx, workerID, supplierID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	return WorkerAuth{WorkerID: workerID, SupplierID: supplierID}, token
 }
 
@@ -108,9 +106,7 @@ func requestFabricCollectiveReceipt(t *testing.T, handler http.Handler, token st
 func requestFabricJSON(t *testing.T, handler http.Handler, token, path string, value any) *httptest.ResponseRecorder {
 	t.Helper()
 	body, err := json.Marshal(value)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	req := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(body))
 	req.Header.Set("X-Worker-Token", token)
 	rec := httptest.NewRecorder()
@@ -122,9 +118,7 @@ func newFabricPeerWorker(t *testing.T, ctx context.Context, store *Store, suppli
 	t.Helper()
 	workerID := uuid.New()
 	token, err := store.CreateWorkerToken(ctx, workerID, supplierID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	return WorkerAuth{WorkerID: workerID, SupplierID: supplierID}, token
 }
 
@@ -132,9 +126,7 @@ func registerFabricIdentity(t *testing.T, ctx context.Context, store *Store, wor
 	t.Helper()
 	sum := sha256.Sum256([]byte("fabric-test-worker-certificate:" + worker.WorkerID.String()))
 	fingerprint := hex.EncodeToString(sum[:])
-	if err := store.RegisterFabricWorkerIdentity(ctx, worker, FabricWorkerIdentity{CertificateSHA256: fingerprint}); err != nil {
-		t.Fatal(err)
-	}
+	must(t, store.RegisterFabricWorkerIdentity(ctx, worker, FabricWorkerIdentity{CertificateSHA256: fingerprint}))
 	return fingerprint
 }
 
@@ -143,9 +135,7 @@ func TestFabricReceiptIsWorkerAuthenticatedRecomputedImmutableAndNonAdmissible(t
 	worker, token := newFabricMeasurementWorker(t, ctx, store)
 	receipt := fabricReceipt()
 	raw, err := json.Marshal(receipt)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	handler := NewServer(store, nil, nil, nil).Routes()
 	if got := requestFabricReceipt(t, handler, token, raw).Code; got != http.StatusNoContent {
 		t.Fatalf("fabric receipt status=%d", got)
@@ -187,9 +177,7 @@ func TestFabricReceiptIsWorkerAuthenticatedRecomputedImmutableAndNonAdmissible(t
 	// Nor can a worker mutate the receipt after a successful upload.
 	receipt.DeclaredSite = "different-site"
 	mutated, err := json.Marshal(receipt)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if got := requestFabricReceipt(t, handler, token, mutated).Code; got != http.StatusConflict {
 		t.Fatalf("mutated receipt replay status=%d, want 409", got)
 	}
@@ -203,18 +191,14 @@ func TestFabricReceiptRefusesSelfPromotionAndMalformedEvidence(t *testing.T) {
 	receipt := fabricReceipt()
 	receipt.LocalClusterAdmissible = true
 	raw, err := json.Marshal(receipt)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if got := requestFabricReceipt(t, handler, token, raw).Code; got != http.StatusBadRequest {
 		t.Fatalf("self-promoting receipt status=%d, want 400", got)
 	}
 	receipt = fabricReceipt()
 	receipt.Rounds[0].PayloadGoodputMbps = 20.49
 	raw, err = json.Marshal(receipt)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if got := requestFabricReceipt(t, handler, token, raw).Code; got != http.StatusBadRequest {
 		t.Fatalf("non-reproducible rate status=%d, want 400", got)
 	}
@@ -308,9 +292,7 @@ func TestFabricSessionRequiresEveryRoundFromTheReservedPeerAndStaysNonAdmissible
 		t.Fatalf("fabric observation status body=%+v err=%v", status, err)
 	}
 	raw, err := json.Marshal(receipt)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if got := requestFabricReceipt(t, handler, initiatorToken, raw).Code; got != http.StatusNoContent {
 		t.Fatalf("mutual fabric receipt status=%d", got)
 	}
@@ -334,9 +316,7 @@ func TestFabricSessionRequiresEveryRoundFromTheReservedPeerAndStaysNonAdmissible
 		t.Fatalf("second fabric session status=%d", created.Code)
 	}
 	var unobservedSession FabricSessionCreateResponse
-	if err := json.NewDecoder(created.Body).Decode(&unobservedSession); err != nil {
-		t.Fatal(err)
-	}
+	must(t, json.NewDecoder(created.Body).Decode(&unobservedSession))
 	second := fabricReceipt()
 	second.Transport = "MERC_FABRIC_MTLS_ECHO_V1"
 	second.PeerAuthentication = "MUTUAL_TLS_WORKER_CERTIFICATE_BOUND"
@@ -346,15 +326,11 @@ func TestFabricSessionRequiresEveryRoundFromTheReservedPeerAndStaysNonAdmissible
 	second.ExpectedPeerWorkerID = &peer.WorkerID
 	second.ReceiptID = uuid.New()
 	secondRaw, err := json.Marshal(second)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if got := requestFabricReceipt(t, handler, initiatorToken, secondRaw).Code; got != http.StatusNoContent {
 		t.Fatalf("partially observed receipt status=%d", got)
 	}
-	if err := pool.QueryRow(ctx, `SELECT classification FROM fabric_link_measurements WHERE receipt_id=$1`, second.ReceiptID).Scan(&classification); err != nil {
-		t.Fatal(err)
-	}
+	must(t, pool.QueryRow(ctx, `SELECT classification FROM fabric_link_measurements WHERE receipt_id=$1`, second.ReceiptID).Scan(&classification))
 	if classification != "SELF_REPORTED_UNQUALIFIED" {
 		t.Fatalf("partial observation classification=%q", classification)
 	}
@@ -375,18 +351,14 @@ func TestFabricCollectiveReceiptRequiresPeerObservationAndStaysEvidenceOnly(t *t
 		t.Fatalf("fabric collective session status=%d body=%s", created.Code, created.Body.String())
 	}
 	var session FabricSessionCreateResponse
-	if err := json.NewDecoder(created.Body).Decode(&session); err != nil {
-		t.Fatal(err)
-	}
+	must(t, json.NewDecoder(created.Body).Decode(&session))
 	receipt := fabricCollectiveReceipt()
 	receipt.FabricSessionID = &session.FabricSessionID
 	receipt.ExpectedPeerWorkerID = &peer.WorkerID
 	receipt.LocalCertificateSHA256 = initiatorCertificate
 	receipt.PeerCertificateSHA256 = peerCertificate
 	raw, err := json.Marshal(receipt)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if got := requestFabricCollectiveReceipt(t, handler, initiatorToken, raw).Code; got != http.StatusBadRequest {
 		t.Fatalf("unobserved fabric collective receipt status=%d, want 400", got)
 	}
@@ -442,18 +414,14 @@ func TestFabricCollectiveReceiptRequiresPeerObservationAndStaysEvidenceOnly(t *t
 	tampered.Rounds = append([]FabricCollectiveMeasurementRound(nil), receipt.Rounds...)
 	tampered.Rounds[0].ReducedPayloadSHA256 = strings.Repeat("7", 64)
 	tamperedRaw, err := json.Marshal(tampered)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if got := requestFabricCollectiveReceipt(t, handler, initiatorToken, tamperedRaw).Code; got != http.StatusBadRequest {
 		t.Fatalf("tampered collective payload digest status=%d, want 400", got)
 	}
 	// An otherwise valid mutation must not adopt the original immutable receipt id.
 	receipt.NonAdmissionReasons[0] = "mutated but still non-empty"
 	mutated, err := json.Marshal(receipt)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if got := requestFabricCollectiveReceipt(t, handler, initiatorToken, mutated).Code; got != http.StatusConflict {
 		t.Fatalf("mutated collective receipt retry status=%d, want 409", got)
 	}
@@ -468,9 +436,7 @@ func recordQualifiedMutualFabricLink(t *testing.T, handler http.Handler, from Wo
 		t.Fatalf("create qualified fabric session status=%d body=%s", created.Code, created.Body.String())
 	}
 	var session FabricSessionCreateResponse
-	if err := json.NewDecoder(created.Body).Decode(&session); err != nil {
-		t.Fatal(err)
-	}
+	must(t, json.NewDecoder(created.Body).Decode(&session))
 	if session.PeerCertificateSHA256 != toCertificate {
 		t.Fatalf("reserved peer certificate=%s want=%s", session.PeerCertificateSHA256, toCertificate)
 	}
@@ -508,9 +474,7 @@ func recordQualifiedMutualFabricLink(t *testing.T, handler http.Handler, from Wo
 		}
 	}
 	raw, err := json.Marshal(receipt)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if got := requestFabricReceipt(t, handler, fromToken, raw).Code; got != http.StatusNoContent {
 		t.Fatalf("qualified fabric receipt status=%d", got)
 	}
@@ -525,9 +489,7 @@ func recordQualifiedMutualFabricCollective(t *testing.T, handler http.Handler, f
 		t.Fatalf("create qualified fabric collective session status=%d body=%s", created.Code, created.Body.String())
 	}
 	var session FabricSessionCreateResponse
-	if err := json.NewDecoder(created.Body).Decode(&session); err != nil {
-		t.Fatal(err)
-	}
+	must(t, json.NewDecoder(created.Body).Decode(&session))
 
 	const payloadBytes = 256 * 1024
 	const roundTripMicros = int64(1_000)
@@ -567,9 +529,7 @@ func recordQualifiedMutualFabricCollective(t *testing.T, handler http.Handler, f
 		}
 	}
 	raw, err := json.Marshal(receipt)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if got := requestFabricCollectiveReceipt(t, handler, fromToken, raw).Code; got != http.StatusNoContent {
 		t.Fatalf("qualified fabric collective receipt status=%d", got)
 	}
@@ -593,9 +553,7 @@ func TestFabricTopologyRequiresFreshBidirectionalMTLSMeshAndRefusesClusterPromot
 		t.Fatalf("fabric topology evaluation status=%d body=%s", response.Code, response.Body.String())
 	}
 	var evaluation FabricTopologyEvaluation
-	if err := json.NewDecoder(response.Body).Decode(&evaluation); err != nil {
-		t.Fatal(err)
-	}
+	must(t, json.NewDecoder(response.Body).Decode(&evaluation))
 	if evaluation.Status != "LINK_MESH_MEASURED_COLLECTIVE_REQUIRED" ||
 		evaluation.RequiredDirectedLinks != 2 || evaluation.VerifiedDirectedLinks != 2 || len(evaluation.Links) != 2 {
 		t.Fatalf("fabric topology did not derive the complete mesh: %+v", evaluation)
@@ -653,9 +611,7 @@ func TestFabricTopologyRetainsSyntheticCollectivesButStillRefusesGangPlacement(t
 		t.Fatalf("synthetic collective topology evaluation status=%d body=%s", response.Code, response.Body.String())
 	}
 	var evaluation FabricTopologyEvaluation
-	if err := json.NewDecoder(response.Body).Decode(&evaluation); err != nil {
-		t.Fatal(err)
-	}
+	must(t, json.NewDecoder(response.Body).Decode(&evaluation))
 	if evaluation.Status != "SYNTHETIC_COLLECTIVES_MEASURED_GANG_SCHEDULER_REQUIRED" ||
 		evaluation.RequiredDirectedLinks != 2 || evaluation.VerifiedDirectedLinks != 2 ||
 		evaluation.RequiredDirectedCollectives != 2 || evaluation.VerifiedDirectedCollectives != 2 ||

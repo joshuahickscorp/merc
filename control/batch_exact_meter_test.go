@@ -10,9 +10,7 @@ func TestBatchInferCompletionTokensCountsCommittedTokensNotRecords(t *testing.T)
 "job_type":"batch_infer",
 "completions":[{"index":0,"tokens":2},{"index":1,"tokens":97}]
 }`), 2)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if !metered {
 		t.Fatal("complete batch_infer artifact was not metered")
 	}
@@ -29,9 +27,7 @@ func TestBatchInferCompletionTokensFailsClosedWithoutExactMeter(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			got, metered, err := batchInferCompletionTokens([]byte(body), 1)
-			if err != nil {
-				t.Fatalf("incomplete meter should disable caching, not fail merge: %v", err)
-			}
+			mustf(t, err, "incomplete meter should disable caching, not fail merge: %v")
 			if metered || got != 0 {
 				t.Fatalf("incomplete meter = (%d, %t), want (0, false)", got, metered)
 			}

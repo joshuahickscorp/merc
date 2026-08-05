@@ -41,9 +41,7 @@ func killAgent(t *testing.T, agent *enrolledAgent) {
 	if agent.cmd.Process == nil {
 		t.Fatalf("%s: no process to kill", agent.name)
 	}
-	if err := agent.cmd.Process.Kill(); err != nil {
-		t.Fatalf("%s: kill: %v", agent.name, err)
-	}
+	mustf(t, agent.cmd.Process.Kill(), "%s: kill: %v", agent.name)
 	_, _ = agent.cmd.Process.Wait()
 	t.Logf("%s: agent process killed", agent.name)
 }
@@ -60,13 +58,9 @@ func submitDirectedEmbedJob(
 	job := validJobRowDirected(t, f, tasks, cell)
 	corpus := []byte(`{"id":"0","text":"the agent may not survive this"}` + "\n")
 	for _, key := range []string{job.InputRef, tasks[0].InputRef} {
-		if err := artifacts.storage.PutObject(ctx, key, corpus, "application/x-ndjson"); err != nil {
-			t.Fatalf("upload %s: %v", key, err)
-		}
+		mustf(t, artifacts.storage.PutObject(ctx, key, corpus, "application/x-ndjson"), "upload %s: %v", key)
 	}
-	if err := store.SubmitJobTx(ctx, job, tasks); err != nil {
-		t.Fatalf("submit: %v", err)
-	}
+	mustf(t, store.SubmitJobTx(ctx, job, tasks), "submit: %v")
 	return f, tasks[0].ID
 }
 
@@ -184,9 +178,7 @@ func TestFailureMatrixAgentDeathAfterClaim(t *testing.T) {
 	}
 
 	// The stale-task sweep is what production runs; call the same function.
-	if err := store.RequeueStaleTask(ctx, taskID, 0); err != nil {
-		t.Fatalf("requeue after agent death: %v", err)
-	}
+	mustf(t, store.RequeueStaleTask(ctx, taskID, 0), "requeue after agent death: %v")
 	assertFailureInvariants(t, ctx, pool, "agent death after claim", f.JobID, taskID,
 		failureExpectation{
 			MaxSupplierRows:       0,
@@ -199,9 +191,7 @@ func TestFailureMatrixAgentDeathAfterClaim(t *testing.T) {
 	// Exactly once per death: a second sweep against an unclaimed task must not
 	// keep incrementing the retry count, or a supervisor loop would exhaust the
 	// task's retries without anything having failed.
-	if err := store.RequeueStaleTask(ctx, taskID, 0); err != nil {
-		t.Fatalf("second sweep: %v", err)
-	}
+	mustf(t, store.RequeueStaleTask(ctx, taskID, 0), "second sweep: %v")
 	var retries int
 	if err := pool.QueryRow(ctx, `SELECT retry_count FROM tasks WHERE id=$1`, taskID).
 		Scan(&retries); err != nil {

@@ -67,30 +67,22 @@ func TestManualReviewEndsTheAutomaticLoop(t *testing.T) {
 	}
 
 	due, err := store.FailedChargesDue(ctx, 100)
-	if err != nil {
-		t.Fatalf("FailedChargesDue: %v", err)
-	}
+	mustf(t, err, "FailedChargesDue: %v")
 	if !containsJob(due, f.jobID) {
 		t.Fatal("a failed job should be selected for retry before the cap")
 	}
 
-	if err := store.MarkChargeManualReview(ctx, f.jobID); err != nil {
-		t.Fatalf("MarkChargeManualReview: %v", err)
-	}
+	mustf(t, store.MarkChargeManualReview(ctx, f.jobID), "MarkChargeManualReview: %v")
 
 	status, err := store.JobChargeStatus(ctx, f.jobID)
-	if err != nil {
-		t.Fatalf("JobChargeStatus: %v", err)
-	}
+	mustf(t, err, "JobChargeStatus: %v")
 	if status != chargeStatusManualReview {
 		t.Fatalf("charge_status = %q, want %q", status, chargeStatusManualReview)
 	}
 
 	// The whole point: it must no longer be selected for automatic retry.
 	due, err = store.FailedChargesDue(ctx, 100)
-	if err != nil {
-		t.Fatalf("FailedChargesDue after manual review: %v", err)
-	}
+	mustf(t, err, "FailedChargesDue after manual review: %v")
 	if containsJob(due, f.jobID) {
 		t.Fatal("job in manual_review is still being retried automatically")
 	}

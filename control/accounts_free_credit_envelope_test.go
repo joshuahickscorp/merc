@@ -36,9 +36,7 @@ func TestBuyerFreeCreditRemainingHoldsActiveEnvelope(t *testing.T) {
 	}
 
 	before, err := store.BuyerFreeCreditRemaining(ctx, buyerID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if before != freeCreditUSD {
 		t.Fatalf("seed free credit remaining=%v, want %v", before, freeCreditUSD)
 	}
@@ -54,14 +52,10 @@ func TestBuyerFreeCreditRemainingHoldsActiveEnvelope(t *testing.T) {
 		PerRequestCeilingNanos: capNanos,
 		TTLSeconds:             600,
 	})
-	if err != nil {
-		t.Fatalf("create envelope: %v", err)
-	}
+	mustf(t, err, "create envelope: %v")
 
 	afterCreate, err := store.BuyerFreeCreditRemaining(ctx, buyerID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	wantAfterCreate := freeCreditUSD - capUSD
 	if math.Abs(afterCreate-wantAfterCreate) > 1e-9 {
 		t.Fatalf("after ACTIVE envelope create remaining=%v, want %v: "+
@@ -97,9 +91,7 @@ func TestBuyerFreeCreditRemainingHoldsActiveEnvelope(t *testing.T) {
 	// in-flight ceiling. Unconditional EXECUTING would subtract maxUSD again
 	// and under-report free credit (or floor at zero incorrectly).
 	afterAuth, err := store.BuyerFreeCreditRemaining(ctx, buyerID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	// spent_nanos is still 0 until finalize; residual hold stays full cap.
 	if math.Abs(afterAuth-wantAfterCreate) > 1e-9 {
 		t.Fatalf("after envelope-funded EXECUTING remaining=%v, want %v (no double-hold): got delta would mean EXECUTING is counted on top of ACTIVE residual",
@@ -118,9 +110,7 @@ func TestBuyerFreeCreditRemainingHoldsActiveEnvelope(t *testing.T) {
 	}
 
 	afterExpiry, err := store.BuyerFreeCreditRemaining(ctx, buyerID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	wantAfterExpiry := freeCreditUSD - maxUSD
 	if math.Abs(afterExpiry-wantAfterExpiry) > 1e-6 {
 		t.Fatalf("after envelope expiry with EXECUTING still live remaining=%v, want %v: "+

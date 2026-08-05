@@ -62,9 +62,7 @@ func TestContractGovernedEvidenceArtifactsAreNotStampedInPlace(t *testing.T) {
 		present := bindingMetaPresent(raw)
 		stripped := stripBindingMeta(raw)
 		strippedBytes, err := json.Marshal(stripped)
-		if err != nil {
-			t.Fatalf("re-marshal %s: %v", path, err)
-		}
+		mustf(t, err, "re-marshal %s: %v", path)
 
 		// Try each retained job contract. Model ref is taken from the payload
 		// when present so known-model dimension checks still run.
@@ -92,9 +90,7 @@ func TestContractGovernedEvidenceArtifactsAreNotStampedInPlace(t *testing.T) {
 		}
 		return nil
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if scanned == 0 {
 		t.Fatal("walked evidence/ but found no JSON objects; the guard is vacuous")
 	}

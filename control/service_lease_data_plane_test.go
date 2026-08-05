@@ -22,13 +22,9 @@ func TestServiceLeaseDataPlaneUsesReservedWorkerAndFailsClosed(t *testing.T) {
 	if _, err := pool.Exec(ctx, `INSERT INTO buyers (id,email) VALUES ($1,$2)`, buyerID, buyerID.String()+"@service-data-plane.invalid"); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.SeedPrepaidBalance(ctx, buyerID, 1_000_000, "service-data-plane-"+buyerID.String()); err != nil {
-		t.Fatal(err)
-	}
+	must(t, store.SeedPrepaidBalance(ctx, buyerID, 1_000_000, "service-data-plane-"+buyerID.String()))
 	_, buyerKey, _, err := store.CreateAPIKey(ctx, buyerID, "service-data-plane", true)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	worker, workerToken := newFabricMeasurementWorker(t, ctx, store)
 
 	var upstreamCalls atomic.Int32
@@ -104,9 +100,7 @@ func TestServiceLeaseDataPlaneUsesReservedWorkerAndFailsClosed(t *testing.T) {
 		t.Fatalf("service lease status=%d body=%s", created.Code, created.Body.String())
 	}
 	var lease ServiceLease
-	if err := json.Unmarshal(created.Body.Bytes(), &lease); err != nil {
-		t.Fatal(err)
-	}
+	must(t, json.Unmarshal(created.Body.Bytes(), &lease))
 	if lease.WorkerID != worker.WorkerID || lease.State != "ACTIVE" {
 		t.Fatalf("lease did not bind reserved worker: %+v", lease)
 	}
@@ -117,9 +111,7 @@ func TestServiceLeaseDataPlaneUsesReservedWorkerAndFailsClosed(t *testing.T) {
 		"max_tokens": 1,
 	}
 	raw, err := json.Marshal(requestBody)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	req := httptest.NewRequest(http.MethodPost, "/v1/service-leases/"+lease.ID.String()+"/chat/completions", bytes.NewReader(raw))
 	req.Header.Set("Authorization", "Bearer "+buyerKey)
 	rec := httptest.NewRecorder()
@@ -141,9 +133,7 @@ func TestServiceLeaseDataPlaneUsesReservedWorkerAndFailsClosed(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, foreignKey, _, err := store.CreateAPIKey(ctx, foreignID, "foreign", true)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	foreignReq := httptest.NewRequest(http.MethodPost, "/v1/service-leases/"+lease.ID.String()+"/chat/completions", bytes.NewReader(raw))
 	foreignReq.Header.Set("Authorization", "Bearer "+foreignKey)
 	foreignRec := httptest.NewRecorder()

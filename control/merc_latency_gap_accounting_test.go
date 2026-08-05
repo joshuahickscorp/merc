@@ -85,14 +85,10 @@ func TestMercLatencyGapAccounting(t *testing.T) {
 		t.Fatal("MERC_REALTIME_UPSTREAM and MERC_REALTIME_UPSTREAM_KEY are required")
 	}
 	probe, err := http.NewRequest(http.MethodGet, strings.TrimRight(upstream, "/")+"/models", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	probe.Header.Set("Authorization", "Bearer "+upstreamKey)
 	probeResp, err := http.DefaultClient.Do(probe)
-	if err != nil {
-		t.Fatalf("engine not reachable at %s: %v", upstream, err)
-	}
+	mustf(t, err, "engine not reachable at %s: %v", upstream)
 	probeResp.Body.Close()
 	if probeResp.StatusCode != http.StatusOK {
 		t.Fatalf("engine at %s answered HTTP %d", upstream, probeResp.StatusCode)
@@ -474,9 +470,7 @@ func TestMercLatencyGapAccounting(t *testing.T) {
 	path := filepath.Join(dir, fmt.Sprintf("merc-latency-gap-accounting-%s.json", stamp))
 	id, bin, err := DefaultBoundIdentity("..", "control/merc_latency_gap_accounting_test.go",
 		"embedded method + cells + accounting_table", "embedded cell summaries; raw durations not retained")
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	id.ModelArtifactDigest = IdentitySlotValue("3f5a22426976ab26cfe84dba63c1d08391717abb1af893e10f1b2968d862dcc1")
 	if err := WriteBoundEvidenceJSON(EvidenceWriteRequest{
 		RepoRoot: "..", Path: path, Payload: out,

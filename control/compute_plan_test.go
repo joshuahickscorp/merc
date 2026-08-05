@@ -20,9 +20,7 @@ func computePlanFixture(t *testing.T) (WorkloadDecision, ComputePlan, EconomicPl
 		t.Fatalf("normalize compute-plan fixture: %s", herr.msg)
 	}
 	decision, err := buildWorkloadDecision(sub, strings.Repeat("a", 64))
-	if err != nil {
-		t.Fatalf("build compute-plan workload: %v", err)
-	}
+	mustf(t, err, "build compute-plan workload: %v")
 	economic := BuildEconomicPlan(EconomicPlanInput{
 		BaseComputeUSD:   0.40,
 		InitialTaskCount: 4,
@@ -48,12 +46,8 @@ func computePlanFixture(t *testing.T) (WorkloadDecision, ComputePlan, EconomicPl
 		QuoteConfidence{Score: 0.8, Reasons: []string{"fixture planner evidence"}},
 		[]string{"fixture unknown"},
 	)
-	if err != nil {
-		t.Fatalf("build compute plan: %v", err)
-	}
-	if err := ValidateComputePlanEconomicSnapshot(plan, decision, economic); err != nil {
-		t.Fatalf("valid compute/economic authority rejected: %v", err)
-	}
+	mustf(t, err, "build compute plan: %v")
+	mustf(t, ValidateComputePlanEconomicSnapshot(plan, decision, economic), "valid compute/economic authority rejected: %v")
 	return decision, plan, economic
 }
 
@@ -91,15 +85,11 @@ func TestComputePlanRejectsGeometryPlacementAndEconomicTampering(t *testing.T) {
 func TestComputePlanDigestBindsEveryExecutionField(t *testing.T) {
 	_, plan, _ := computePlanFixture(t)
 	original, err := computePlanDigest(plan)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	mutant := plan
 	mutant.ETAWorstCaseSecs++
 	changed, err := computePlanDigest(mutant)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if original == changed {
 		t.Fatal("compute-plan digest did not bind ETA authority")
 	}
@@ -139,9 +129,7 @@ func TestBoundQuoteSplitNeverConsultsLivePlanner(t *testing.T) {
 		calls++
 		return plan.SplitSize * 100
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if got != plan.SplitSize {
 		t.Fatalf("bound split=%d, want frozen %d", got, plan.SplitSize)
 	}
@@ -194,12 +182,8 @@ func TestComputePlanKeepsUnflooredEstimateUnderMinBillableSettlementFloor(t *tes
 		QuoteConfidence{Score: 0.8, Reasons: []string{"unfloored estimate freeze"}},
 		nil,
 	)
-	if err != nil {
-		t.Fatalf("unfloored compute plan: %v", err)
-	}
-	if err := ValidateComputePlanEconomicSnapshot(plan, decision, economic); err != nil {
-		t.Fatalf("unfloored compute must bind floored settlement economics: %v", err)
-	}
+	mustf(t, err, "unfloored compute plan: %v")
+	mustf(t, ValidateComputePlanEconomicSnapshot(plan, decision, economic), "unfloored compute must bind floored settlement economics: %v")
 	computeSum := roundEconomicUSD(plan.BaseComputeUSD + plan.VerificationOverheadUSD)
 	if computeSum != unfloored {
 		t.Fatalf("compute sum %v drifted from unfloored estimate %v", computeSum, unfloored)
@@ -281,22 +265,16 @@ func TestSettlementBaseFromComputeEstimateMatchesBuildEconomicPlanFloor(t *testi
 func TestExactReusePlanBindsOriginWithoutInventingPhysicalWork(t *testing.T) {
 	decision, origin, _ := computePlanFixture(t)
 	reuse, err := newExactReuseComputePlan(decision, 4, 512, testInputDepthProfile(4), 0.05, &origin)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if reuse.TotalInitialTasks != 0 || reuse.SplitSize != 0 || reuse.ETAP50Secs != 0 {
 		t.Fatalf("exact reuse invented physical work: %+v", reuse)
 	}
 	wantOrigin, err := computePlanDigest(origin)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if reuse.OriginComputePlanSHA256 != wantOrigin {
 		t.Fatal("exact reuse did not bind its originating distributed plan")
 	}
-	if err := ValidateFrozenComputePlanSnapshot(reuse, decision); err != nil {
-		t.Fatalf("exact reuse plan rejected: %v", err)
-	}
+	mustf(t, ValidateFrozenComputePlanSnapshot(reuse, decision), "exact reuse plan rejected: %v")
 	if reuse.InputDepthProfile == nil || reuse.Version != computePlanVersion {
 		t.Fatal("exact reuse plan must carry current input depth profile authority")
 	}
@@ -399,9 +377,7 @@ func TestHistoricalV1ComputePlanRemainsValidUnderOldTokenRule(t *testing.T) {
 		historicalDecision.RuntimeCandidates[i].ModelKind = ""
 	}
 	historicalDecisionSHA, err := workloadDecisionDigest(historicalDecision)
-	if err != nil {
-		t.Fatalf("hash historical workload decision: %v", err)
-	}
+	mustf(t, err, "hash historical workload decision: %v")
 	// Reconstruct a version-1 plan shape with the historical bytes/4 token rule.
 	v1 := modern
 	v1.Version = computePlanVersionV1
@@ -413,13 +389,9 @@ func TestHistoricalV1ComputePlanRemainsValidUnderOldTokenRule(t *testing.T) {
 	// This historical fixture predates v4 ETA-band semantics and must preserve
 	// its already-published digest exactly.
 	v1.ETAP90Secs = 60
-	if err := ValidateFrozenComputePlanSnapshot(v1, historicalDecision); err != nil {
-		t.Fatalf("historical v1 plan rejected: %v", err)
-	}
+	mustf(t, ValidateFrozenComputePlanSnapshot(v1, historicalDecision), "historical v1 plan rejected: %v")
 	digest, err := computePlanDigest(v1)
-	if err != nil {
-		t.Fatalf("historical v1 plan not hashable: %v", err)
-	}
+	mustf(t, err, "historical v1 plan not hashable: %v")
 	if digest == "" || len(digest) != 64 {
 		t.Fatalf("unexpected v1 digest %q", digest)
 	}
@@ -449,9 +421,7 @@ func TestHistoricalV1ComputePlanRemainsValidUnderOldTokenRule(t *testing.T) {
 	v2.WorkloadDecisionSHA256 = historicalDecisionSHA
 	v2.SettlementInputUnits = 0
 	v2.ETAConfidenceBandMethod = ""
-	if err := ValidateFrozenComputePlanSnapshot(v2, historicalDecision); err != nil {
-		t.Fatalf("historical v2 plan rejected: %v", err)
-	}
+	mustf(t, ValidateFrozenComputePlanSnapshot(v2, historicalDecision), "historical v2 plan rejected: %v")
 	tampered = v2
 	tampered.SettlementInputUnits = settlementInputUnitsForGeometry(v2.InputRecords, v2.InputBytes)
 	if err := ValidateFrozenComputePlanSnapshot(tampered, historicalDecision); err == nil {

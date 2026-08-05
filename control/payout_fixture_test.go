@@ -43,14 +43,10 @@ func openPayoutTestStore(t *testing.T) (context.Context, *Store, *pgxpool.Pool) 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	t.Cleanup(cancel)
 	pool, err := pgxpool.New(ctx, databaseURL)
-	if err != nil {
-		t.Fatalf("connect test PostgreSQL: %v", err)
-	}
+	mustf(t, err, "connect test PostgreSQL: %v")
 	t.Cleanup(pool.Close)
 	store := NewStore(pool)
-	if err := store.Migrate(ctx); err != nil {
-		t.Fatalf("apply canonical schema: %v", err)
-	}
+	mustf(t, store.Migrate(ctx), "apply canonical schema: %v")
 	return ctx, store, pool
 }
 
@@ -68,15 +64,11 @@ func seedPayoutFixture(t *testing.T, ctx context.Context, pool *pgxpool.Pool, op
 	if opts.currency == "" {
 		opts.currency = SettlementCurrencyCode()
 	}
-	if err := RequireSettlementCurrency(opts.currency); err != nil {
-		t.Fatalf("fixture currency %q: %v", opts.currency, err)
-	}
+	mustf(t, RequireSettlementCurrency(opts.currency), "fixture currency %q: %v", opts.currency)
 
 	creditMicros := usdToMicros(opts.creditUSD)
 	cashCents, _, err := splitSupplierLiabilityMicros(creditMicros)
-	if err != nil {
-		t.Fatalf("split liability: %v", err)
-	}
+	mustf(t, err, "split liability: %v")
 	if opts.collectionCents == 0 {
 		opts.collectionCents = cashCents
 	}
@@ -169,9 +161,7 @@ func seedSiblingCredit(
 	micros := usdToMicros(creditUSD)
 	var err error
 	cashCents, _, err = splitSupplierLiabilityMicros(micros)
-	if err != nil {
-		t.Fatalf("split sibling liability: %v", err)
-	}
+	mustf(t, err, "split sibling liability: %v")
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO tasks (id,job_id,status,verification_outcome,completed_at)
 		VALUES ($1,$2,'complete','pass',now())`, taskID, f.jobID); err != nil {

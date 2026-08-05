@@ -21,9 +21,7 @@ func overheadRows(t *testing.T, pool *pgxpool.Pool, ctx context.Context,
 		        measured_supplier_usd, avoided_estimate_usd,
 		        runtime_profile_id, hw_class, job_terminal_status
 		   FROM execution_overhead_actuals WHERE job_id=$1`, jobID)
-	if err != nil {
-		t.Fatalf("read overhead: %v", err)
-	}
+	mustf(t, err, "read overhead: %v")
 	defer rows.Close()
 	out := map[string]OverheadRow{}
 	for rows.Next() {
@@ -38,9 +36,7 @@ func overheadRows(t *testing.T, pool *pgxpool.Pool, ctx context.Context,
 		r.Tasks, r.Attempts = int64(tasks), int64(attempts)
 		out[r.OverheadClass] = r
 	}
-	if err := rows.Err(); err != nil {
-		t.Fatalf("overhead rows: %v", err)
-	}
+	mustf(t, rows.Err(), "overhead rows: %v")
 	return out
 }
 
@@ -75,9 +71,7 @@ func TestExecutionOverheadSeparatesEveryCostClass(t *testing.T) {
 				runtimeID: "candle_metal", hwClass: "apple_silicon_ultra"},
 		}, planActualsFixtureOptions{})
 
-	if err := store.RecordExecutionOverhead(ctx, jobID); err != nil {
-		t.Fatalf("RecordExecutionOverhead: %v", err)
-	}
+	mustf(t, store.RecordExecutionOverhead(ctx, jobID), "RecordExecutionOverhead: %v")
 	got := overheadRows(t, pool, ctx, jobID)
 
 	for _, want := range []struct {
@@ -141,9 +135,7 @@ func TestExecutionOverheadWritesNothingForACleanJob(t *testing.T) {
 			{status: "complete", tokens: 500, runtimeID: "candle_metal", hwClass: "apple_silicon_ultra"},
 			{status: "complete", tokens: 500, runtimeID: "candle_metal", hwClass: "apple_silicon_ultra"},
 		}, planActualsFixtureOptions{})
-	if err := store.RecordExecutionOverhead(ctx, jobID); err != nil {
-		t.Fatalf("RecordExecutionOverhead: %v", err)
-	}
+	mustf(t, store.RecordExecutionOverhead(ctx, jobID), "RecordExecutionOverhead: %v")
 	if rows := overheadRows(t, pool, ctx, jobID); len(rows) != 0 {
 		t.Fatalf("a clean job wrote %d overhead rows, want 0: %v", len(rows), rows)
 	}
@@ -159,18 +151,14 @@ func TestExecutionOverheadRecordsFailedAndCancelledJobs(t *testing.T) {
 			[]planActualsFixtureTask{
 				{status: "failed", runtimeID: "candle_metal", hwClass: "apple_silicon_ultra"},
 			}, planActualsFixtureOptions{jobStatus: status})
-		if err := store.RecordExecutionOverhead(ctx, jobID); err != nil {
-			t.Fatalf("RecordExecutionOverhead(%s): %v", status, err)
-		}
+		mustf(t, store.RecordExecutionOverhead(ctx, jobID), "RecordExecutionOverhead(%s): %v", status)
 		rows := overheadRows(t, pool, ctx, jobID)
 		if len(rows) == 0 {
 			t.Errorf("a %s job produced no overhead rows", status)
 		}
 
 		// And plan_actuals must still refuse it, so the two datasets stay apart.
-		if err := store.RecordPlanActuals(ctx, jobID); err != nil {
-			t.Fatalf("RecordPlanActuals(%s): %v", status, err)
-		}
+		mustf(t, store.RecordPlanActuals(ctx, jobID), "RecordPlanActuals(%s): %v", status)
 		var baseRows int
 		if err := pool.QueryRow(ctx,
 			`SELECT COUNT(*) FROM plan_actuals WHERE job_id=$1`, jobID).Scan(&baseRows); err != nil {
@@ -206,9 +194,7 @@ func TestExecutionOverheadRecordsCacheSavingAsAnEstimate(t *testing.T) {
 		_, _ = pool.Exec(c, `DELETE FROM plan_actuals WHERE job_id=$1`, jobID)
 		_, _ = pool.Exec(c, `DELETE FROM jobs WHERE id=$1`, jobID)
 	})
-	if err := store.RecordExecutionOverhead(ctx, jobID); err != nil {
-		t.Fatalf("RecordExecutionOverhead: %v", err)
-	}
+	mustf(t, store.RecordExecutionOverhead(ctx, jobID), "RecordExecutionOverhead: %v")
 	row, ok := overheadRows(t, pool, ctx, jobID)[overheadClassCacheAvoided]
 	if !ok {
 		t.Fatal("a cache hit produced no CACHE_AVOIDED row")
@@ -233,9 +219,7 @@ func TestExecutionOverheadSweepIsIdempotent(t *testing.T) {
 		}, planActualsFixtureOptions{})
 
 	pending, err := store.JobsMissingOverheadActuals(ctx, 500)
-	if err != nil {
-		t.Fatalf("JobsMissingOverheadActuals: %v", err)
-	}
+	mustf(t, err, "JobsMissingOverheadActuals: %v")
 	found := false
 	for _, id := range pending {
 		if id == jobID {
@@ -247,9 +231,7 @@ func TestExecutionOverheadSweepIsIdempotent(t *testing.T) {
 	}
 
 	for i := 0; i < 2; i++ {
-		if err := store.RecordExecutionOverhead(ctx, jobID); err != nil {
-			t.Fatalf("RecordExecutionOverhead pass %d: %v", i, err)
-		}
+		mustf(t, store.RecordExecutionOverhead(ctx, jobID), "RecordExecutionOverhead pass %d: %v", i)
 	}
 	if got := overheadRows(t, pool, ctx, jobID)[overheadClassFailed].Tasks; got != 1 {
 		t.Fatalf("FAILED_COMPUTE tasks after two sweeps = %d, want 1", got)
@@ -257,9 +239,7 @@ func TestExecutionOverheadSweepIsIdempotent(t *testing.T) {
 
 	// After recording, the job must not be offered again.
 	pending, err = store.JobsMissingOverheadActuals(ctx, 500)
-	if err != nil {
-		t.Fatalf("JobsMissingOverheadActuals: %v", err)
-	}
+	mustf(t, err, "JobsMissingOverheadActuals: %v")
 	for _, id := range pending {
 		if id == jobID {
 			t.Fatal("a swept job is still offered to the sweep")
@@ -294,9 +274,7 @@ func TestOverheadAndBaseActualsCannotTrainEachOther(t *testing.T) {
 		"workers.go": true,
 	}
 	guarded, err := filepath.Glob("*.go")
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	for _, name := range guarded {
 		if allowed[name] || strings.HasSuffix(name, "_test.go") {
 			continue
@@ -340,9 +318,7 @@ func TestOverheadMoneyIsIncrementalAndConserved(t *testing.T) {
 				runtimeID: "candle_metal", hwClass: "apple_silicon_ultra"},
 		}, planActualsFixtureOptions{})
 
-	if err := store.RecordExecutionOverhead(ctx, jobID); err != nil {
-		t.Fatalf("RecordExecutionOverhead: %v", err)
-	}
+	mustf(t, store.RecordExecutionOverhead(ctx, jobID), "RecordExecutionOverhead: %v")
 
 	var jobSupplierTotal, overheadTotal, retryMoney float64
 	if err := pool.QueryRow(ctx,
@@ -480,9 +456,7 @@ func TestOverheadSweepIsAdvisoryAndNeverGatesReadiness(t *testing.T) {
 func TestOverheadHealthReportsBacklogWithoutAsserting(t *testing.T) {
 	store, _, ctx := planActualsTestStore(t)
 	health, err := store.ExecutionOverheadHealth(ctx)
-	if err != nil {
-		t.Fatalf("ExecutionOverheadHealth: %v", err)
-	}
+	mustf(t, err, "ExecutionOverheadHealth: %v")
 	if health.BacklogThreshold != overheadBacklogAlertThreshold {
 		t.Errorf("threshold = %d, want %d", health.BacklogThreshold, overheadBacklogAlertThreshold)
 	}

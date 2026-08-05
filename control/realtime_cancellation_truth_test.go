@@ -24,13 +24,9 @@ func TestRealtimeJSONBodyReadCancelRecordsCancelled(t *testing.T) {
 	profile, supplierID, workerID := realtimeFundingFixture(t, ctx, store, pool)
 
 	buyerID, err := store.CreateBuyerAccount(ctx, "json-body-cancel-"+uuid.NewString()+"@example.test", "pw", 5)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	_, buyerKey, _, err := store.CreateAPIKey(ctx, buyerID, "json-body-cancel", true)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 
 	upstreamStarted := make(chan struct{}, 1)
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -64,9 +60,7 @@ func TestRealtimeJSONBodyReadCancelRecordsCancelled(t *testing.T) {
 	cancelCtx, cancelRequest := context.WithCancel(ctx)
 	req, err := http.NewRequestWithContext(cancelCtx, http.MethodPost, server.URL+"/v1/chat/completions",
 		bytes.NewReader([]byte(`{"model":"cx-chat-1b","messages":[{"role":"user","content":"hi"}],"stream":false,"max_tokens":8}`)))
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	req.Header.Set("Authorization", "Bearer "+buyerKey)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Idempotency-Key", "json-body-cancel-"+uuid.NewString())
@@ -98,16 +92,12 @@ func TestRealtimeJSONBodyReadCancelRecordsCancelled(t *testing.T) {
 		t.Fatalf("buyer disconnect during JSON body read recorded state=%q contract=%s, want CANCELLED", state, contractID)
 	}
 	receipt, err := store.RealtimeReceipt(ctx, buyerID, contractID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if receipt.FailureCode != "client_cancelled" {
 		t.Fatalf("failure_code=%q, want client_cancelled (cancellation truth, not a hard-coded non-cancel failure)", receipt.FailureCode)
 	}
 	var ledgerRows int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM ledger_entries WHERE execution_contract_id=$1`, contractID).Scan(&ledgerRows); err != nil {
-		t.Fatal(err)
-	}
+	must(t, pool.QueryRow(ctx, `SELECT count(*) FROM ledger_entries WHERE execution_contract_id=$1`, contractID).Scan(&ledgerRows))
 	if ledgerRows != 0 {
 		t.Fatalf("incomplete cancelled JSON body must not settle money: ledger_rows=%d", ledgerRows)
 	}
@@ -130,13 +120,9 @@ func TestRealtimeJSONSettlementSurvivesBuyerCancel(t *testing.T) {
 	profile, supplierID, workerID := realtimeFundingFixture(t, ctx, store, pool)
 
 	buyerID, err := store.CreateBuyerAccount(ctx, "json-settle-cancel-"+uuid.NewString()+"@example.test", "pw", 5)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	_, buyerKey, _, err := store.CreateAPIKey(ctx, buyerID, "json-settle-cancel", true)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 
 	const jsonBody = `{"id":"chatcmpl_settle_cancel","object":"chat.completion","created":1,"model":"cx-chat-1b","choices":[{"index":0,"message":{"role":"assistant","content":"hello"},"finish_reason":"stop"}],"usage":{"prompt_tokens":7,"completion_tokens":2,"total_tokens":9}}`
 	// Gate the upstream body until the test holds the contract row lock, so
@@ -172,9 +158,7 @@ func TestRealtimeJSONSettlementSurvivesBuyerCancel(t *testing.T) {
 	cancelCtx, cancelRequest := context.WithCancel(ctx)
 	req, err := http.NewRequestWithContext(cancelCtx, http.MethodPost, server.URL+"/v1/chat/completions",
 		bytes.NewReader([]byte(`{"model":"cx-chat-1b","messages":[{"role":"user","content":"hi"}],"stream":false,"max_tokens":8}`)))
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	req.Header.Set("Authorization", "Bearer "+buyerKey)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Idempotency-Key", "json-settle-cancel-"+uuid.NewString())
@@ -213,9 +197,7 @@ func TestRealtimeJSONSettlementSurvivesBuyerCancel(t *testing.T) {
 		t.Fatal("no EXECUTING contract while upstream held")
 	}
 	lockTx, err := pool.Begin(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if _, err := lockTx.Exec(ctx, `SELECT id FROM execution_contracts WHERE id=$1 FOR UPDATE`, contractID); err != nil {
 		_ = lockTx.Rollback(ctx)
 		t.Fatal(err)
@@ -229,9 +211,7 @@ func TestRealtimeJSONSettlementSurvivesBuyerCancel(t *testing.T) {
 	// Settlement is either blocked on the row or already failed Begin(ctx) on
 	// the unmodified tree. Release the row either way.
 	time.Sleep(30 * time.Millisecond)
-	if err := lockTx.Rollback(ctx); err != nil {
-		t.Fatal(err)
-	}
+	must(t, lockTx.Rollback(ctx))
 
 	select {
 	case <-done:
@@ -245,9 +225,7 @@ func TestRealtimeJSONSettlementSurvivesBuyerCancel(t *testing.T) {
 		t.Fatalf("delivered non-stream work after buyer cancel recorded state=%q contract=%s, want VERIFIED (settled)", state, contractID)
 	}
 	receipt, err := store.RealtimeReceipt(ctx, buyerID, contractID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if receipt.AuthorizationState != "CAPTURED" || receipt.BuyerChargeUSD <= 0 {
 		t.Fatalf("settled receipt missing capture: %+v", receipt)
 	}

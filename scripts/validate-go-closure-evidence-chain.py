@@ -22,6 +22,19 @@ import unicodedata
 from decimal import Decimal, InvalidOperation
 from pathlib import Path, PurePosixPath
 from types import SimpleNamespace
+_SCRIPTS = Path(__file__).resolve().parent
+if str(_SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS))
+
+from lib.receipt_json import (
+    all_strings,
+    exact_keys,
+    fail,
+    finite_numbers,
+    object_without_duplicate_keys,
+    reject_constant,
+    sha256_file,
+)
 
 
 COMMIT = re.compile(r"^[0-9a-f]{40}$")
@@ -106,27 +119,6 @@ REQUIRED_COUNTS = {
 }
 
 
-def fail(message: str) -> None:
-    raise ValueError(message)
-
-
-def object_without_duplicate_keys(pairs):
-    result = {}
-    for key, value in pairs:
-        if key in result:
-            fail(f"duplicate JSON key {key!r}")
-        result[key] = value
-    return result
-
-
-def reject_constant(value: str):
-    fail(f"non-finite JSON number {value}")
-
-
-def exact_keys(value, expected: set[str], field: str) -> None:
-    if not isinstance(value, dict) or set(value) != expected:
-        fail(f"{field} does not match its closed schema")
-
 
 def exact_integer(value, field: str, minimum: int = 0, maximum: int | None = None) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
@@ -169,36 +161,6 @@ def bounded_text(value, field: str, maximum: int) -> str:
     ):
         fail(f"{field} must be non-empty, trimmed, control-free, and <= {maximum} bytes")
     return value
-
-
-def all_strings(value):
-    if isinstance(value, str):
-        yield value
-    elif isinstance(value, dict):
-        for key, item in value.items():
-            yield str(key)
-            yield from all_strings(item)
-    elif isinstance(value, list):
-        for item in value:
-            yield from all_strings(item)
-
-
-def finite_numbers(value) -> bool:
-    if isinstance(value, float) and not math.isfinite(value):
-        return False
-    if isinstance(value, dict):
-        return all(finite_numbers(item) for item in value.values())
-    if isinstance(value, list):
-        return all(finite_numbers(item) for item in value)
-    return True
-
-
-def sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1 << 20), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def resolve_under_root(root: Path, supplied: str, field: str) -> Path:

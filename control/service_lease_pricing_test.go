@@ -22,9 +22,7 @@ func serviceLeasePricingFixture(t *testing.T) ServiceLeasePricingInputs {
 func TestServiceLeasePricingDecisionBindsExactLeaseAuthority(t *testing.T) {
 	in := serviceLeasePricingFixture(t)
 	decision, err := newServiceLeasePricingDecision(in)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if decision.ExecutionMode != pricingExecutionServiceLease || decision.ServiceLease == nil ||
 		decision.FixedPoint == nil || decision.FixedPoint.BuyerChargeNanos != 8_100_000_000 ||
 		decision.FixedPoint.SupplierEntitlementsNanos != 6_000_000_000 ||
@@ -33,29 +31,19 @@ func TestServiceLeasePricingDecisionBindsExactLeaseAuthority(t *testing.T) {
 		decision.FixedPoint.TrueNetContributionNanos != nil {
 		t.Fatalf("service pricing did not preserve exact authority or unknown true net: %+v", decision)
 	}
-	if err := ValidateServiceLeasePricingDecisionSnapshot(decision, in); err != nil {
-		t.Fatal(err)
-	}
+	must(t, ValidateServiceLeasePricingDecisionSnapshot(decision, in))
 }
 
 func TestServiceLeaseCumulativeMeteringDoesNotChangeEconomicsAtHeartbeatBoundaries(t *testing.T) {
 	in := serviceLeasePricingFixture(t)
 	decision, err := newServiceLeasePricingDecision(in)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	full, err := ServiceLeaseMoneyForReplicaDuration(in.Currency, *decision.ServiceLease, 3_600*1_000_000_000)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	part, err := ServiceLeaseMoneyForReplicaDuration(in.Currency, *decision.ServiceLease, 1_799*1_000_000_000)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	whole, err := ServiceLeaseMoneyForReplicaDuration(in.Currency, *decision.ServiceLease, 1_800*1_000_000_000)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if full.BuyerCharge.Nanos <= whole.BuyerCharge.Nanos || part.SupplierPayable.Nanos <= 0 ||
 		full.BuyerCharge.Nanos != full.SupplierPayable.Nanos+full.ResidencyCost.Nanos+
 			full.ControlPlaneCost.Nanos+full.RiskReserve.Nanos+full.MercContribution.Nanos {

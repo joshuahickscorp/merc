@@ -73,9 +73,7 @@ func TestResolvePlanCalibrationWidensAndNamesTheLevelItLandedOn(t *testing.T) {
 	// Nothing recorded yet: no level resolves, and the result says so rather
 	// than returning a fabricated 1.0.
 	cal, err := store.ResolvePlanCalibration(ctx, planMetricOutputTokens, scope)
-	if err != nil {
-		t.Fatalf("ResolvePlanCalibration: %v", err)
-	}
+	mustf(t, err, "ResolvePlanCalibration: %v")
 	if cal.Resolved() || cal.Level != calibrationLevelNone || cal.Samples != 0 {
 		t.Fatalf("empty table resolved to %+v, want an unresolved result", cal)
 	}
@@ -92,9 +90,7 @@ func TestResolvePlanCalibrationWidensAndNamesTheLevelItLandedOn(t *testing.T) {
 		planMetricOutputTokens, wide, pairs)
 
 	cal, err = store.ResolvePlanCalibration(ctx, planMetricOutputTokens, scope)
-	if err != nil {
-		t.Fatalf("ResolvePlanCalibration: %v", err)
-	}
+	mustf(t, err, "ResolvePlanCalibration: %v")
 	if cal.Level != calibrationLevelRuntimeModelDepth {
 		t.Fatalf("level = %q, want %q (exact bucket is empty, runtime+model+depth is not)",
 			cal.Level, calibrationLevelRuntimeModelDepth)
@@ -110,9 +106,7 @@ func TestResolvePlanCalibrationWidensAndNamesTheLevelItLandedOn(t *testing.T) {
 	insertPlanActualRows(t, pool, ctx, planClassPrimaryExecution,
 		planMetricOutputTokens, scope, pairs)
 	cal, err = store.ResolvePlanCalibration(ctx, planMetricOutputTokens, scope)
-	if err != nil {
-		t.Fatalf("ResolvePlanCalibration: %v", err)
-	}
+	mustf(t, err, "ResolvePlanCalibration: %v")
 	if cal.Level != calibrationLevelExact {
 		t.Fatalf("level = %q, want %q once the exact bucket is populated",
 			cal.Level, calibrationLevelExact)
@@ -137,9 +131,7 @@ func TestResolvePlanCalibrationIgnoresNonPrimaryObservations(t *testing.T) {
 		planMetricOutputTokens, scope, pairs)
 
 	cal, err := store.ResolvePlanCalibration(ctx, planMetricOutputTokens, scope)
-	if err != nil {
-		t.Fatalf("ResolvePlanCalibration: %v", err)
-	}
+	mustf(t, err, "ResolvePlanCalibration: %v")
 	if cal.Resolved() {
 		t.Fatalf("resolved to %+v from cache-hit and fixture rows alone, want unresolved", cal)
 	}
@@ -164,9 +156,7 @@ func TestResolvePlanCalibrationSkipsLevelsItCannotAddress(t *testing.T) {
 	unknownModel := populated
 	unknownModel.ModelRef = ""
 	cal, err := store.ResolvePlanCalibration(ctx, planMetricComputeUSD, unknownModel)
-	if err != nil {
-		t.Fatalf("ResolvePlanCalibration: %v", err)
-	}
+	mustf(t, err, "ResolvePlanCalibration: %v")
 	for _, forbidden := range []string{
 		calibrationLevelExact, calibrationLevelRuntimeModelDepth,
 		calibrationLevelModelDepth, calibrationLevelModel,
@@ -322,9 +312,7 @@ func TestCalibrationIsUnreachableFromMoneyAndAdmissionPaths(t *testing.T) {
 	// And nothing outside the allowlist may read it either, so a new money file
 	// cannot quietly appear without this test noticing.
 	entries, err := filepath.Glob("*.go")
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	for _, name := range entries {
 		// Test files cannot be a decision path, and excluding them keeps the
 		// allowlist about production code rather than about fixtures.

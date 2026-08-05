@@ -53,9 +53,7 @@ func (t rewriteHostTransport) RoundTrip(r *http.Request) (*http.Response, error)
 func TestSettlementPreflightAcceptsPlatformThatCanHoldUSD(t *testing.T) {
 	srv, version := stripeBalanceStub(t, http.StatusOK,
 		`{"available":[{"currency":"usd"},{"currency":"cad"}],"pending":[{"currency":"usd"}]}`)
-	if err := payoutAgainst(t, srv, "sk_test_x").verifySettlementCurrency(context.Background()); err != nil {
-		t.Fatalf("USD bucket present but preflight rejected it: %v", err)
-	}
+	mustf(t, payoutAgainst(t, srv, "sk_test_x").verifySettlementCurrency(context.Background()), "USD bucket present but preflight rejected it: %v")
 	if *version != stripeAPIVersion {
 		t.Fatalf("probe did not pin the API version: got %q want %q", *version, stripeAPIVersion)
 	}
@@ -87,9 +85,7 @@ func TestSettlementPreflightRejectsCADOnlyPlatform(t *testing.T) {
 // refuse to boot a correctly configured platform that simply has not been funded.
 func TestSettlementPreflightAcceptsZeroUSDBalance(t *testing.T) {
 	srv, _ := stripeBalanceStub(t, http.StatusOK, `{"available":[{"currency":"usd"}],"pending":[]}`)
-	if err := payoutAgainst(t, srv, "sk_test_x").verifySettlementCurrency(context.Background()); err != nil {
-		t.Fatalf("zero USD balance rejected: %v", err)
-	}
+	mustf(t, payoutAgainst(t, srv, "sk_test_x").verifySettlementCurrency(context.Background()), "zero USD balance rejected: %v")
 }
 
 // Fail closed, never open: an unreachable or erroring Stripe must not read as

@@ -26,9 +26,7 @@ func TestRealtimeClearingIdenticalDecisionLegacyVsStats(t *testing.T) {
 
 	buyerID, err := store.CreateBuyerAccount(ctx,
 		"outcome-stats-parity-"+uuid.NewString()+"@example.test", "integration-password", 5)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	profile := sortedVLLMProfiles()[0]
 
 	// Cheap unreliable HOT: 50% failure → verified cost doubles past the
@@ -49,15 +47,11 @@ func TestRealtimeClearingIdenticalDecisionLegacyVsStats(t *testing.T) {
 	legacy, err := probeRealtimeClearingWinnerLegacy(ctx, pool,
 		profile.RuntimeProfileID, profile.ProfileSHA256,
 		profile.BuyerInputUSDPerMillionTokens, profile.BuyerOutputUSDPerMillionTokens)
-	if err != nil {
-		t.Fatalf("legacy probe: %v", err)
-	}
+	mustf(t, err, "legacy probe: %v")
 	stats, err := probeRealtimeClearingWinnerStats(ctx, pool,
 		profile.RuntimeProfileID, profile.ProfileSHA256,
 		profile.BuyerInputUSDPerMillionTokens, profile.BuyerOutputUSDPerMillionTokens)
-	if err != nil {
-		t.Fatalf("stats probe: %v", err)
-	}
+	mustf(t, err, "stats probe: %v")
 	if err := assertRealtimeClearingProbesMatch(legacy, stats); err != nil {
 		t.Fatalf("clearing decision diverged: %v\nlegacy=%+v\nstats=%+v", err, legacy, stats)
 	}
@@ -85,9 +79,7 @@ func TestRealtimeSupplierOutcomeStatsNoDriftAfterTerminalPaths(t *testing.T) {
 
 	buyerID, err := store.CreateBuyerAccount(ctx,
 		"outcome-stats-drift-"+uuid.NewString()+"@example.test", "integration-password", 5)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	profile := sortedVLLMProfiles()[0]
 	worker := newRealtimeClearingOffer(t, ctx, store, pool, profile, "WARM", 0.08, 0.30, 32)
 
@@ -109,9 +101,7 @@ func TestRealtimeSupplierOutcomeStatsNoDriftAfterTerminalPaths(t *testing.T) {
 		MaximumPromptTokens: 8_330, MaximumCompletionTokens: 1,
 		EstimatedPromptTokens: 4_163, EstimatedCompletionTokens: 1, BuyerDeclaredCeilingUSD: 0.0011,
 	})
-	if err != nil {
-		t.Fatalf("authorize for cancel: %v", err)
-	}
+	mustf(t, err, "authorize for cancel: %v")
 	ok, err := store.FinalizeRealtimeFailure(ctx, cancelled.ID, uuid.New(), 499, 1,
 		"seed_cancel", "cancelled must not enter terminal_attempts", true)
 	if err != nil || !ok {
@@ -119,13 +109,9 @@ func TestRealtimeSupplierOutcomeStatsNoDriftAfterTerminalPaths(t *testing.T) {
 	}
 
 	agg, err := loadRealtimeSupplierOutcomeStatsFromAggregate(ctx, pool, profile.RuntimeProfileID)
-	if err != nil {
-		t.Fatalf("aggregate: %v", err)
-	}
+	mustf(t, err, "aggregate: %v")
 	tab, err := loadRealtimeSupplierOutcomeStatsFromTable(ctx, pool, profile.RuntimeProfileID)
-	if err != nil {
-		t.Fatalf("table: %v", err)
-	}
+	mustf(t, err, "table: %v")
 	if diffs := diffRealtimeSupplierOutcomeStats(agg, tab); len(diffs) > 0 {
 		t.Fatalf("stats drifted from fresh aggregate:\n%s", strings.Join(diffs, "\n"))
 	}
@@ -161,9 +147,7 @@ func TestRealtimeAuthorizeReadsStatsTableNotLiveAggregate(t *testing.T) {
 
 	buyerID, err := store.CreateBuyerAccount(ctx,
 		"outcome-stats-wire-"+uuid.NewString()+"@example.test", "integration-password", 5)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	profile := sortedVLLMProfiles()[0]
 	// Single offer, no contract history. Inject synthetic stats that would
 	// only appear if authorize joins the table.
@@ -186,9 +170,7 @@ func TestRealtimeAuthorizeReadsStatsTableNotLiveAggregate(t *testing.T) {
 
 	// Fresh aggregate over contracts must still be empty for this supplier.
 	agg, err := loadRealtimeSupplierOutcomeStatsFromAggregate(ctx, pool, profile.RuntimeProfileID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	for _, s := range agg {
 		if s.SupplierID == worker.SupplierID && s.TerminalAttempts != 0 {
 			t.Fatalf("fixture polluted: aggregate already has history %+v", s)
@@ -234,9 +216,7 @@ func TestRealtimeSupplierOutcomeStatsDriftCheckFailsWhenTableWrong(t *testing.T)
 
 	buyerID, err := store.CreateBuyerAccount(ctx,
 		"outcome-stats-neg-"+uuid.NewString()+"@example.test", "integration-password", 5)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	profile := sortedVLLMProfiles()[0]
 	worker := newRealtimeClearingOffer(t, ctx, store, pool, profile, "WARM", 0.08, 0.30, 16)
 	seedSupplierFailureRate(t, ctx, store, pool, buyerID, worker, profile, 5, 5)
@@ -250,13 +230,9 @@ func TestRealtimeSupplierOutcomeStatsDriftCheckFailsWhenTableWrong(t *testing.T)
 		t.Fatal(err)
 	}
 	agg, err := loadRealtimeSupplierOutcomeStatsFromAggregate(ctx, pool, profile.RuntimeProfileID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	tab, err := loadRealtimeSupplierOutcomeStatsFromTable(ctx, pool, profile.RuntimeProfileID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	diffs := diffRealtimeSupplierOutcomeStats(agg, tab)
 	if len(diffs) == 0 {
 		t.Fatal("drift detector returned no diffs after deliberate corruption")
@@ -277,9 +253,7 @@ func TestRealtimeReputationDoesNotEnterBuyerCharge(t *testing.T) {
 
 	buyerID, err := store.CreateBuyerAccount(ctx,
 		"outcome-stats-money-"+uuid.NewString()+"@example.test", "integration-password", 5)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	profile := sortedVLLMProfiles()[0]
 	worker := newRealtimeClearingOffer(t, ctx, store, pool, profile, "HOT", 0.08, 0.30, 4)
 
@@ -323,9 +297,7 @@ func TestRealtimeReputationDoesNotEnterBuyerCharge(t *testing.T) {
 		TimeToFirstEventMS: 1, DurationMS: 1,
 	}
 	settlement, err := store.FinalizeRealtimeSuccess(ctx, contract.ID, evidence)
-	if err != nil {
-		t.Fatalf("settle: %v", err)
-	}
+	mustf(t, err, "settle: %v")
 	// Settlement charge is metered from offer rates * tokens, not ranking cost.
 	if settlement.BuyerChargeUSD <= 0 {
 		t.Fatalf("buyer charge missing: %+v", settlement)

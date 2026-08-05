@@ -59,9 +59,7 @@ func TestLoadSettlementCurrencyRefusesUnsupported(t *testing.T) {
 func TestLoadSettlementCurrencyAcceptsCAD(t *testing.T) {
 	t.Setenv(settlementCurrencyEnv, "CAD")
 	c, err := LoadSettlementCurrencyFromEnv()
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	t.Cleanup(func() {
 		_ = os.Setenv(settlementCurrencyEnv, "usd")
 		_, _ = LoadSettlementCurrencyFromEnv()
@@ -188,9 +186,7 @@ func TestSettlementPreflightUsesConfiguredCurrencyBothDirections(t *testing.T) {
 	installSettlementCurrencyForTest(t, "cad")
 	srv, _ := stripeBalanceStub(t, http.StatusOK,
 		`{"available":[{"currency":"cad"}],"pending":[]}`)
-	if err := payoutAgainst(t, srv, "sk_test_x").verifySettlementCurrency(context.Background()); err != nil {
-		t.Fatalf("CAD platform should pass under cad settlement: %v", err)
-	}
+	mustf(t, payoutAgainst(t, srv, "sk_test_x").verifySettlementCurrency(context.Background()), "CAD platform should pass under cad settlement: %v")
 	// Configured CAD + platform holds only USD → fail.
 	srvUSD, _ := stripeBalanceStub(t, http.StatusOK,
 		`{"available":[{"currency":"usd"}],"pending":[]}`)
@@ -210,9 +206,7 @@ func TestSettlementPreflightUsesConfiguredCurrencyBothDirections(t *testing.T) {
 	installSettlementCurrencyForTest(t, "usd")
 	srv2, _ := stripeBalanceStub(t, http.StatusOK,
 		`{"available":[{"currency":"usd"}],"pending":[]}`)
-	if err := payoutAgainst(t, srv2, "sk_test_x").verifySettlementCurrency(context.Background()); err != nil {
-		t.Fatalf("USD platform should pass under usd settlement: %v", err)
-	}
+	mustf(t, payoutAgainst(t, srv2, "sk_test_x").verifySettlementCurrency(context.Background()), "USD platform should pass under usd settlement: %v")
 	// Configured USD + platform holds only CAD → fail (the original regression).
 	srvCAD, _ := stripeBalanceStub(t, http.StatusOK,
 		`{"available":[{"currency":"cad"}],"pending":[]}`)
@@ -228,9 +222,7 @@ func TestCurrencyExponentRecordedNotAssumedTwoDecimals(t *testing.T) {
 		t.Fatalf("jpy exponent=%d", jpy.Exponent())
 	}
 	micros, err := jpy.MicrosPerMinorUnit()
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	// Zero-decimal: one yen is 1e6 ledger micro-units, not 1e4 (which would be
 	// a silent *100 if exponent were hardcoded to 2).
 	if micros != 1_000_000 {
