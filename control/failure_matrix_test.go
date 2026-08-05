@@ -458,6 +458,105 @@ func TestFailureMatrixVerifierRestartDecidesOnce(t *testing.T) {
 		})
 }
 
+// A process crash after the ledger insert statements run but before the
+// surrounding transaction commits must leave ZERO durable payables, and a
+// subsequent verification pass must create exactly one.
+//
+// This is the "crash during settlement" case: the apply path is one serializable
+// transaction (verification_apply.go), so an unrecovered panic at
+// BoundaryAcceptedAfterLedger rolls everything back. Without that property a
+// restart would either double-pay or leave a half-applied terminal decision.
+func TestFailureMatrixCrashAfterLedgerBeforeCommitPaysOnce(t *testing.T) {
+	c := newFailureCase(t)
+	c.claim(t)
+	c.h.commitThroughStorage(c.ctx, c.f, c.task, c.body)
+
+	crash := &crashAtBoundary{at: BoundaryAcceptedAfterLedger}
+	c.h.processor.probe = crash
+
+	panicked := false
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				panicked = true
+				t.Logf("simulated crash: %v", r)
+			}
+		}()
+		_, _ = c.h.processor.ProcessAttempt(c.ctx, c.task, 0)
+	}()
+	if !panicked {
+		t.Fatal("expected simulated crash at BoundaryAcceptedAfterLedger; process did not panic")
+	}
+	if !crash.hit {
+		t.Fatal("crash probe never reached BoundaryAcceptedAfterLedger")
+	}
+
+	// Nothing durable may stand after the rolled-back transaction.
+	var supplierRows int
+	if err := c.h.pool().QueryRow(c.ctx, `
+		SELECT COUNT(*) FROM ledger_entries
+		 WHERE task_id=$1 AND supplier_id IS NOT NULL`, c.task).Scan(&supplierRows); err != nil {
+		t.Fatal(err)
+	}
+	if supplierRows != 0 {
+		t.Fatalf("crash left %d durable supplier ledger row(s); settlement is not transactional", supplierRows)
+	}
+	var terminals int
+	if err := c.h.pool().QueryRow(c.ctx, `
+		SELECT COUNT(*) FROM verification_work
+		 WHERE task_id=$1 AND terminal_outcome IS NOT NULL`, c.task).Scan(&terminals); err != nil {
+		t.Fatal(err)
+	}
+	if terminals != 0 {
+		t.Fatalf("crash left a terminal verification outcome without a committed ledger")
+	}
+
+	// A dead process does not release its verification lease; reclaim waits until
+	// lease_expires_at. Expire it the way the wall clock would, then recover.
+	if _, err := c.h.pool().Exec(c.ctx, `
+		UPDATE verification_work
+		   SET lease_expires_at=now()-interval '1 second'
+		 WHERE task_id=$1 AND status='leased'`, c.task); err != nil {
+		t.Fatalf("expire abandoned verification lease: %v", err)
+	}
+
+	// Recovery: clear the probe and process again. Exactly one payable.
+	c.h.processor.probe = nil
+	if _, err := c.h.processor.ProcessAttempt(c.ctx, c.task, 0); err != nil {
+		t.Fatalf("recovery ProcessAttempt: %v", err)
+	}
+	assertFailureInvariants(t, c.ctx, c.h.pool(), "crash-after-ledger recovery", c.f.JobID, c.task,
+		failureExpectation{
+			MaxSupplierRows:      1,
+			BuyerCharges:         1,
+			TerminalTaskStatuses: []string{"verifying", "complete"},
+			MaxRetries:           0,
+		})
+	if err := c.h.pool().QueryRow(c.ctx, `
+		SELECT COUNT(*) FROM ledger_entries
+		 WHERE task_id=$1 AND kind='supplier_credit'`, c.task).Scan(&supplierRows); err != nil {
+		t.Fatal(err)
+	}
+	if supplierRows != 1 {
+		t.Errorf("after recovery: %d supplier_credit rows, want exactly 1", supplierRows)
+	}
+}
+
+// crashAtBoundary panics once when the named recovery boundary is reached.
+// Used only by failure-matrix tests to simulate an OS-level process death mid
+// settlement; production never installs this probe.
+type crashAtBoundary struct {
+	at  RecoveryBoundary
+	hit bool
+}
+
+func (p *crashAtBoundary) Reach(_ context.Context, b RecoveryBoundary) {
+	if b == p.at {
+		p.hit = true
+		panic("simulated process crash at " + string(b))
+	}
+}
+
 // Finalization and settlement retried. One invoice, one debit, one payable.
 func TestFailureMatrixFinalizerAndSettlementRetry(t *testing.T) {
 	c := newFailureCase(t)

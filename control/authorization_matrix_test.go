@@ -130,7 +130,10 @@ func TestAuthorizationMatrixProtectedRoutesRejectAnonymousAndWrongCredentialName
 	// cell. Both are authAdmin, and both are now covered by this exhaustive
 	// anonymous / wrong-namespace check like every other protected route. Neither
 	// can move money, and neither can promote a cell without the promotion gate.
-	if checked != 103 {
-		t.Fatalf("checked %d protected routes, want 103", checked)
+	// 104 after GET /v1/worker/ledger entered the worker_owned surface: the
+	// per-credit payout trail a supplier sees beside earnings aggregates. Same
+	// worker token boundary as /v1/worker/earnings; no cash movement.
+	if checked != 104 {
+		t.Fatalf("checked %d protected routes, want 104", checked)
 	}
 }

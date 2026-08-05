@@ -844,6 +844,56 @@ func (s *Store) WorkerEarnings(ctx context.Context, supplierID uuid.UUID) (Earni
 	return e, nil
 }
 
+// WorkerPayoutLedger returns recent supplier_credit and clawback rows for the
+// supplier that owns this worker credential. Newest first. Bounded so a
+// multi-year history cannot balloon a stranger-facing console response.
+func (s *Store) WorkerPayoutLedger(ctx context.Context, supplierID uuid.UUID, limit int) (PayoutLedger, error) {
+	var out PayoutLedger
+	settlement, err := SettlementCurrency()
+	if err != nil {
+		return out, err
+	}
+	out.Currency = settlement.Code()
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT le.id, le.kind, le.amount_usd::float8, le.currency, le.payout_status,
+		       le.task_id, t.job_id, le.release_at, le.created_at
+		  FROM ledger_entries le
+		  LEFT JOIN tasks t ON t.id = le.task_id
+		 WHERE le.supplier_id = $1
+		   AND le.kind IN ('supplier_credit','clawback')
+		 ORDER BY le.created_at DESC, le.id DESC
+		 LIMIT $2`, supplierID, limit)
+	if err != nil {
+		return out, err
+	}
+	defer rows.Close()
+	out.Entries = make([]PayoutLedgerEntry, 0, limit)
+	for rows.Next() {
+		var e PayoutLedgerEntry
+		var releaseAt *time.Time
+		var createdAt time.Time
+		if err := rows.Scan(
+			&e.ID, &e.Kind, &e.AmountUSD, &e.Currency, &e.PayoutStatus,
+			&e.TaskID, &e.JobID, &releaseAt, &createdAt,
+		); err != nil {
+			return out, err
+		}
+		if releaseAt != nil {
+			t := releaseAt.Unix()
+			e.ReleaseAt = &t
+		}
+		e.CreatedAt = createdAt.UTC().Format(time.RFC3339)
+		out.Entries = append(out.Entries, e)
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) SupplierVerification(ctx context.Context, supplierID uuid.UUID) (SupplierVerification, error) {
 	var sv SupplierVerification
 	rows, err := s.pool.Query(ctx,

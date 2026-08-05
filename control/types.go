@@ -328,6 +328,29 @@ type Earnings struct {
 	NextPayoutAt *int64 `json:"next_payout_at,omitempty"` // unix seconds
 }
 
+// PayoutLedgerEntry is one supplier-visible credit or clawback row. This is the
+// line-item half of "earnings and a payout ledger": aggregates live on Earnings,
+// the per-job trail lives here.
+type PayoutLedgerEntry struct {
+	ID           uuid.UUID  `json:"id"`
+	Kind         string     `json:"kind"`
+	AmountUSD    float64    `json:"amount_usd"`
+	Currency     string     `json:"currency"`
+	PayoutStatus string     `json:"payout_status"`
+	TaskID       *uuid.UUID `json:"task_id,omitempty"`
+	JobID        *uuid.UUID `json:"job_id,omitempty"`
+	// ReleaseAt is unix seconds when the hold window ends, if any.
+	ReleaseAt *int64 `json:"release_at,omitempty"`
+	// CreatedAt is RFC3339 wall time of the ledger insert.
+	CreatedAt string `json:"created_at"`
+}
+
+// PayoutLedger is the supplier's recent payable trail.
+type PayoutLedger struct {
+	Currency string              `json:"currency"`
+	Entries  []PayoutLedgerEntry `json:"entries"`
+}
+
 type SupplierVerification struct {
 	HoneypotsPassed int    `json:"honeypots_passed"`
 	HoneypotsFailed int    `json:"honeypots_failed"`

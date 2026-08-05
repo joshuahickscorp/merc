@@ -393,16 +393,69 @@ pub struct FailReport {
     pub memory: Option<FailMemory>,
 }
 
+/// One exclusive hold bucket from WorkerEarnings.HeldByReason.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EarningsHoldReason {
+    pub reason: String,
+    pub amount_usd: f64,
+    #[serde(default)]
+    pub entry_count: i64,
+    #[serde(default)]
+    pub earliest_release_at: Option<i64>,
+    #[serde(default)]
+    pub detail: String,
+}
+
+/// Mirrors control/types.go Earnings. Historical `_usd` field names are ledger
+/// scale labels, not a USD-only authority — see `currency`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Earnings {
+    #[serde(default)]
+    pub currency: String,
     pub balance_usd: f64,
     pub lifetime_usd: f64,
+    #[serde(default)]
+    pub carried_usd: f64,
+    #[serde(default)]
+    pub held_usd: f64,
+    #[serde(default)]
+    pub held_by_reason: Vec<EarningsHoldReason>,
+    #[serde(default)]
+    pub manual_payout_gate: bool,
+    #[serde(default)]
+    pub manual_payout_gate_note: String,
     #[serde(default)]
     pub last_payout_usd: Option<f64>,
     #[serde(default)]
     pub last_payout_at: Option<u64>,
     #[serde(default)]
     pub next_payout_at: Option<u64>,
+}
+
+/// One supplier-visible ledger credit / clawback row.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PayoutLedgerEntry {
+    pub id: Uuid,
+    pub kind: String,
+    pub amount_usd: f64,
+    #[serde(default)]
+    pub currency: String,
+    pub payout_status: String,
+    #[serde(default)]
+    pub task_id: Option<Uuid>,
+    #[serde(default)]
+    pub job_id: Option<Uuid>,
+    #[serde(default)]
+    pub release_at: Option<i64>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PayoutLedger {
+    #[serde(default)]
+    pub currency: String,
+    #[serde(default)]
+    pub entries: Vec<PayoutLedgerEntry>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
