@@ -100,6 +100,63 @@ class InstalledPackageTests(unittest.TestCase):
             {"ref": "all-minilm-l6-v2", "kind": "hf"},
         )
 
+    def test_stranger_identity_and_receipt_paths(self):
+        """A stranger must not need curl for signup, keys, or the receipt."""
+
+        class RecordingClient(Client):
+            def __init__(self):
+                super().__init__("https://example.invalid", "")
+                self.calls = []
+
+            def _request(self, method, path, body=None, query=None, headers=None):
+                self.calls.append((method, path, body, query, headers))
+                if path == "/v1/signup":
+                    return {
+                        "buyer_id": "b1",
+                        "token": "cx_sess_test",
+                        "sandbox_key": "cx_test_sandbox",
+                        "free_credit_usd": 5.0,
+                    }
+                if path == "/v1/login":
+                    return {"buyer_id": "b1", "token": "cx_sess_login"}
+                if path == "/v1/keys":
+                    if method == "POST":
+                        return {"id": "k1", "key": "cx_test_new", "name": "cli"}
+                    return {"keys": [{"id": "k1", "name": "cli"}]}
+                if path == "/v1/me":
+                    return {"buyer_id": "b1", "free_credit_remaining_usd": 4.5}
+                if path.endswith("/receipt"):
+                    return {"job_id": "j1", "invoice": {"charged_usd": 0.01}}
+                if path.endswith("/invoice"):
+                    return {"job_id": "j1", "charged_usd": 0.01}
+                return {}
+
+        client = RecordingClient()
+        signed = client.signup("buyer@example.test", "password-long-enough")
+        self.assertEqual(signed["sandbox_key"], "cx_test_sandbox")
+        self.assertEqual(client.api_key, "cx_test_sandbox")
+        self.assertEqual(client.calls[0][:2], ("POST", "/v1/signup"))
+
+        client.login("buyer@example.test", "password-long-enough")
+        self.assertEqual(client.api_key, "cx_sess_login")
+
+        client.create_key("ci", test=True)
+        self.assertEqual(client.calls[-1][0:2], ("POST", "/v1/keys"))
+        self.assertEqual(client.calls[-1][2], {"name": "ci", "test": True})
+
+        keys = client.list_keys()
+        self.assertEqual(keys, [{"id": "k1", "name": "cli"}])
+
+        me = client.me()
+        self.assertEqual(me["free_credit_remaining_usd"], 4.5)
+
+        receipt = client.receipt("j1")
+        self.assertEqual(receipt["job_id"], "j1")
+        self.assertEqual(client.calls[-1][:2], ("GET", "/v1/jobs/j1/receipt"))
+
+        invoice = client.invoice("j1")
+        self.assertEqual(invoice["charged_usd"], 0.01)
+
 
 if __name__ == "__main__":
     unittest.main()

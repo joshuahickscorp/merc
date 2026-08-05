@@ -2376,7 +2376,22 @@ func (s *Server) handleCancelJob(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "cancelled"})
+	// Cancelling a still-queued job never wrote a buyer_charge; the hold was the
+	// open estimate on free credit / prepaid. Surface remaining credit so a
+	// stranger can see the reservation was released without a second round trip.
+	resp := map[string]any{
+		"status": "cancelled",
+		"job_id": id,
+		"refund": map[string]any{
+			"kind":    "reservation_release",
+			"detail":  "queued jobs hold budget against free credit or prepaid balance; cancel releases that hold. No buyer_charge ledger row is written until work settles.",
+			"charged": false,
+		},
+	}
+	if free, ferr := s.store.BuyerFreeCreditRemaining(r.Context(), auth.BuyerID); ferr == nil {
+		resp["free_credit_remaining_usd"] = free
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
