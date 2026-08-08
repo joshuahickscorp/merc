@@ -236,6 +236,10 @@ trap cleanup EXIT INT TERM
 # objects, alternates, or LFS cache inherited from the candidate checkout.
 git init -q "$CLONE"
 git -C "$CLONE" remote add origin "$REMOTE_URL"
+# Keep the LFS filter installation in the disposable repository. The proof
+# deliberately ignores global/system configuration, so checkout must not rely
+# on a machine-wide `git lfs install` entry.
+git -C "$CLONE" lfs install --local >/dev/null
 git -C "$CLONE" config lfs.storage "$CLONE/.git/lfs"
 # Do not configure lfs.url here. For an SSH origin, Git LFS derives the
 # GitHub credential flow from the remote; forcing an HTTPS endpoint can discard
