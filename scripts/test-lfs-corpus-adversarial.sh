@@ -99,6 +99,19 @@ make_disposable_clone() {
   overlay_authority "$dest"
 }
 
+force_index_lfs_pointers() {
+  # A local clone may inherit hydrated working-tree bytes even when its own LFS
+  # object directory is empty.  This proof needs the inverse state: the index
+  # still names every pointer, and the worktree exposes those raw pointers so
+  # the evidence reader must refuse rather than obtaining bytes elsewhere.
+  local dest="$1" rel
+  while IFS= read -r rel; do
+    [[ -z "$rel" ]] && continue
+    mkdir -p "$(dirname "$dest/$rel")"
+    git -C "$dest" cat-file blob ":$rel" >"$dest/$rel"
+  done < <(git -C "$dest" lfs ls-files -n)
+}
+
 seed_all_lfs_objects() {
   local dest="$1"
   while IFS= read -r oid; do
@@ -265,10 +278,24 @@ fi
 
 # Empty-LFS clone: binding gate must refuse unresolved pointers (not parse as JSON).
 make_disposable_clone "$CLONE"
-# Do NOT seed objects.
+# Force raw index pointers into the worktree and make the clone's configured
+# LFS storage genuinely empty. `git lfs smudge` is disabled below as well, so a
+# globally configured cache or authenticated remote cannot turn this refusal
+# test into an accidental hydration pass.
+force_index_lfs_pointers "$CLONE"
+rm -rf "$CLONE/.git/lfs/objects"
+mkdir -p "$CLONE/.git/lfs/objects"
+POINTERS="$(git -C "$CLONE" lfs ls-files -n | while IFS= read -r rel; do
+  [[ -z "$rel" ]] && continue
+  head -n1 "$CLONE/$rel" 2>/dev/null | grep -q 'git-lfs.github.com/spec/v1' && printf '1\n'
+done | wc -l | tr -d ' ')"
+if [[ "$POINTERS" -lt 1 ]]; then
+  bad "empty-LFS refusal fixture did not expose any raw pointers"
+fi
 set +e
 # Capture full output then trim — do not pipe to head under pipefail.
-OUT="$(cd "$CLONE" && python3 scripts/validate-evidence-binding.py 2>&1)"
+OUT="$(cd "$CLONE" && env GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \
+  GIT_LFS_SKIP_SMUDGE=1 python3 scripts/validate-evidence-binding.py 2>&1)"
 RC=$?
 set -e
 log "$(printf '%s\n' "$OUT" | head -n 60)"
