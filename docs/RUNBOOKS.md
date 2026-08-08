@@ -679,7 +679,7 @@ approved, recreate them through the supervised Stripe procedure:
 
 ```bash
 stripe_secret="$(tr -d '\r\n' < "$STRIPE_SECRET_KEY_SOURCE")"
-curl -s https://api.stripe.com/v1/webhook_endpoints -u "$stripe_secret:" \
+printf 'user = "%s:"\n' "$stripe_secret" | curl -s --config - https://api.stripe.com/v1/webhook_endpoints \
   -H 'Stripe-Version: 2025-06-30.basil' \
   -d url=https://mercmerc.net/v1/stripe/webhook \
   -d api_version=2025-06-30.basil \
@@ -694,7 +694,7 @@ unset stripe_secret
 
 ```bash
 stripe_secret="$(tr -d '\r\n' < "$STRIPE_SECRET_KEY_SOURCE")"
-curl -s https://api.stripe.com/v1/webhook_endpoints -u "$stripe_secret:" \
+printf 'user = "%s:"\n' "$stripe_secret" | curl -s --config - https://api.stripe.com/v1/webhook_endpoints \
   -H 'Stripe-Version: 2025-06-30.basil' \
   -d url=https://mercmerc.net/v1/stripe/connect-webhook \
   -d connect=true \
@@ -1466,4 +1466,3 @@ amtool --alertmanager.url http://alertmanager:9093 silence add \
 ```
 
 Never silence by `severity` alone; that would suppress unrelated canary failures.
-
