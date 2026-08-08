@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // The rule the gate exists for: a receipt with a skipped or failed step
@@ -132,6 +133,58 @@ func TestCheckpointReceiptRoundTrips(t *testing.T) {
 	if back.Head != receipt.Head || !back.MutationRestored ||
 		len(back.Steps) != 1 || back.CapabilityMatrixSHA256 != generatedRuntimeMatrixSHA256 {
 		t.Fatalf("receipt did not round-trip: %+v", back)
+	}
+}
+
+func TestCheckpointCommandForwardsInterruptBeforeReturning(t *testing.T) {
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skipf("shell unavailable: %v", err)
+	}
+	dir := t.TempDir()
+	source := filepath.Join(dir, "source")
+	mutated := filepath.Join(dir, "mutated")
+	target := filepath.Join(dir, "target")
+	must(t, os.WriteFile(source, []byte("original"), 0o600))
+	must(t, os.WriteFile(mutated, []byte("mutated"), 0o600))
+	must(t, os.WriteFile(target, []byte("original"), 0o600))
+	t.Cleanup(func() { _ = os.WriteFile(target, []byte("original"), 0o600) })
+
+	// The child simulates mutation-test.sh: it changes a target, restores it in
+	// its INT trap, and then exits.  The checkpoint runner must not return as
+	// soon as its own parent is interrupted, or the target is stranded mutated.
+	cmd := exec.Command("sh", "-c",
+		`cp "$1" "$2"; trap 'cp "$3" "$2"; exit 130' INT; while :; do sleep 1; done`,
+		"checkpoint-child", mutated, target, source)
+	interrupts := make(chan os.Signal, 1)
+	done := make(chan error, 1)
+	go func() { done <- runCheckpointCommand(cmd, interrupts) }()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		body, err := os.ReadFile(target)
+		must(t, err)
+		if string(body) == "mutated" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("child never reached its mutable state: %q", body)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	interrupts <- os.Interrupt
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("interrupted checkpoint child reported success")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("checkpoint runner did not wait for interrupted child")
+	}
+	body, err := os.ReadFile(target)
+	must(t, err)
+	if string(body) != "original" {
+		t.Fatalf("interrupted child returned before restoring target: %q", body)
 	}
 }
 

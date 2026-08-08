@@ -79,7 +79,10 @@ jobs:
       - name: schema is idempotent
         run: |
           sudo apt-get update
-          sudo apt-get install -y postgresql-client
+          # The segmented-media reassembly test is a production ffmpeg concat
+          # contract, so install the tool and run it rather than allowlisting a
+          # skipped assertion on the control lane.
+          sudo apt-get install -y postgresql-client ffmpeg
           psql -h localhost -U cx -d cx -v ON_ERROR_STOP=1 --single-transaction -f control/schema.sql
           psql -h localhost -U cx -d cx -v ON_ERROR_STOP=1 --single-transaction -f control/schema.sql
       - name: format, vet, test, race
