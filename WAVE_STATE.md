@@ -3,8 +3,15 @@
 Written after the 5-hour session limit killed 216 of 515 workflow agents mid-flight.
 Everything below marked **verified** was re-checked by hand after the fact.
 
-**Teardown HEAD `114135a1`. Main untouched at `ff441d1e`** with the 100 uncommitted
+**Historical wave: teardown HEAD `114135a1`. Main untouched at `ff441d1e`** with the 100 uncommitted
 lines in `control/dev_checkpoint.go` intact.
+
+> Current inventory supersession (2026-08-08 working candidate): this document
+> preserves the historical wave report below. Its **85 pointers / 70 OIDs** is
+> not current authority; `scripts/verify-lfs-corpus.py` independently verifies
+> **88 pointers / 73 unique OIDs / 15 aliases** with zero missing, corrupt, or
+> hydrated-body mismatches. The candidate is not yet committed or pushed, so
+> this is not an off-machine durability result.
 
 ---
 

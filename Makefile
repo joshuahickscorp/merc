@@ -107,12 +107,14 @@ ci:
 	python3 -m json.tool ops/live-payment-activation.schema.json >/dev/null
 	python3 scripts/runpod-spend-guard.py --self-test
 	python3 scripts/test-runpod-orphan-reconcile.py
+	python3 scripts/test-runpod-create-payload.py
 	python3 scripts/runpod-spend-guard.py revalidate
 	python3 scripts/validate-authorization-matrix.py
 	python3 scripts/validate-sdk-routes.py
 	python3 scripts/validate-independent-reviews.py
 	python3 scripts/validate-governance.py
 	python3 scripts/validate-readiness.py
+	python3 scripts/test-readiness-candidate-binding.py
 	python3 scripts/assert-soak-claims.py
 	python3 scripts/validate-claim-surfaces.py
 	python3 scripts/rename-residue-audit.py
@@ -123,7 +125,9 @@ ci:
 	python3 scripts/test-bench-accounting.py
 	python3 scripts/test-gateway-parity-receipt.py
 	python3 scripts/validate-evidence-binding.py
+	python3 scripts/test-evidence-binding-historical-lfs.py
 	python3 scripts/verify-lfs-corpus.py
+	bash scripts/test-lfs-origin-durability.sh
 	python3 scripts/test-evidence-writer-bypass.py
 	bash scripts/test-readiness-gaming.sh
 	bash scripts/test-agent-review-gaming.sh

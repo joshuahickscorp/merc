@@ -2,6 +2,12 @@
 
 Governed by `TRUE_REDUCTION_SYNTHESIS.md`. Three buckets, no MOVE.
 
+> Current inventory supersession (2026-08-08 working candidate): the historic
+> **85 pointers / 70 OIDs** statement in §5 is retained below as a snapshot, not
+> current authority. The independently verified live corpus is **88 pointers /
+> 73 OIDs / 15 aliases**, zero missing/corrupt/hydrated mismatches. The candidate
+> is still uncommitted and unpushed, so this does not assert remote durability.
+
 Each audit partitioned its ledger to the exact line and produced an enumerated
 change list rather than an estimate — which is what P1 demanded after D1's
 top-down 65–85k claim collapsed for being unlisted.

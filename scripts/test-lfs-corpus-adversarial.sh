@@ -9,8 +9,9 @@
 #   2. Corrupt object with correct filename fails
 #   3. Tampered hydrated worktree fails
 #   4. Pointer text cannot be parsed as a receipt
-#   5. Fresh clone with empty LFS cache succeeds after hydrate-style resolve
-#   6. Release image contents / boots (delegates; reports env blocks honestly)
+#   5. Forged-size alias behind a healthy shared OID fails
+#   6. Fresh clone with empty LFS cache succeeds after hydrate-style resolve
+#   7. Release image contents / boots (delegates; reports env blocks honestly)
 #
 #   bash scripts/test-lfs-corpus-adversarial.sh
 set -euo pipefail
@@ -127,6 +128,26 @@ path_for_oid() {
   local oid="$1"
   set +o pipefail
   git -C "$ROOT" lfs ls-files -l | awk -v o="$oid" 'tolower($1)==o { print $3; exit }'
+  set -o pipefail
+}
+
+pick_shared_oid() {
+  # Select an OID with at least two indexed paths.  The verifier must validate
+  # both pointer sizes, not merely whichever alias happens to be encountered
+  # first in its unique-object loop.
+  set +o pipefail
+  git -C "$ROOT" lfs ls-files -l | awk '
+    { oid=tolower($1); seen[oid]++; if (seen[oid] == 2) { print oid; exit } }
+  '
+  set -o pipefail
+}
+
+second_path_for_oid() {
+  local oid="$1"
+  set +o pipefail
+  git -C "$ROOT" lfs ls-files -l | awk -v o="$oid" '
+    tolower($1) == o { n++; if (n == 2) { print $3; exit } }
+  '
   set -o pipefail
 }
 
@@ -259,9 +280,42 @@ else
   bad "validate-evidence-binding passed on unresolved pointers"
 fi
 
-# --- proof 5: fresh clone empty cache + hydrate-style resolve ----------------
+# --- proof 5: forged pointer-size alias --------------------------------------
 
-log "=== 5. Fresh clone with empty LFS cache succeeds after hydrate ==="
+log "=== 5. Forged pointer-size alias fails ==="
+make_disposable_clone "$CLONE"
+seed_all_lfs_objects "$CLONE"
+OID="$(pick_shared_oid)"
+REL="$(second_path_for_oid "$OID")"
+if [[ -z "$OID" || -z "$REL" ]]; then
+  bad "could not pick a shared-OID alias"
+else
+  ORIGINAL_POINTER="$(git -C "$CLONE" cat-file blob ":$REL")"
+  ORIGINAL_SIZE="$(printf '%s\n' "$ORIGINAL_POINTER" | awk '/^size / { print $2; exit }')"
+  if [[ -z "$ORIGINAL_SIZE" || ! "$ORIGINAL_SIZE" =~ ^[0-9]+$ ]]; then
+    bad "could not read pointer size for shared alias $REL"
+  else
+    FORGED_SIZE=$((ORIGINAL_SIZE + 1))
+    FORGED_POINTER="$(printf 'version https://git-lfs.github.com/spec/v1\noid sha256:%s\nsize %s\n' "$OID" "$FORGED_SIZE")"
+    BLOB="$(printf '%s' "$FORGED_POINTER" | git -C "$CLONE" hash-object -w --stdin)"
+    git -C "$CLONE" update-index --add --cacheinfo "100644,$BLOB,$REL"
+    set +e
+    OUT="$(python3 "$CLONE/scripts/verify-lfs-corpus.py" --root "$CLONE" 2>&1)"
+    RC=$?
+    set -e
+    log "$OUT"
+    if [[ $RC -ne 0 ]] && printf '%s' "$OUT" | grep -q "corrupt object oid=$OID" &&
+       printf '%s' "$OUT" | grep -Fq "$REL"; then
+      ok "forged pointer-size alias refused for path=$REL oid=$OID"
+    else
+      bad "expected forged alias-size refusal for $REL oid=$OID (rc=$RC)"
+    fi
+  fi
+fi
+
+# --- proof 6: fresh clone empty cache + hydrate-style resolve ----------------
+
+log "=== 6. Fresh clone with empty LFS cache succeeds after hydrate ==="
 EMPTY="$WORKDIR/empty-clone"
 make_disposable_clone "$EMPTY"
 # Ensure truly empty cache
@@ -330,9 +384,9 @@ else
   bad "corpus verifier failed on fresh-seeded clone"
 fi
 
-# --- proof 6: release image contents -----------------------------------------
+# --- proof 7: release image contents -----------------------------------------
 
-log "=== 6. Release image boots / contents with citable evidence ==="
+log "=== 7. Release image boots / contents with citable evidence ==="
 set +e
 OUT="$(bash "$ROOT/scripts/test-release-image-contents.sh" 2>&1)"
 RC=$?
@@ -368,6 +422,11 @@ if [[ $RC -eq 0 ]]; then
 else
   if printf '%s' "$OUT" | grep -q "can't stat '.tools/rp-key/id_ed25519'"; then
     skipped "release image boots blocked by .tools/rp-key/id_ed25519"
+  elif printf '%s' "$OUT" | grep -q 'exact artifact requires a clean HEAD'; then
+    # This adversarial LFS suite is also useful while building a dirty
+    # candidate.  The release-image gate correctly refuses that tree; clean
+    # exact-candidate CI remains the place where boot is required to pass.
+    skipped "release image boots requires a clean committed candidate; CI must run this gate"
   elif printf '%s' "$OUT" | grep -qi 'permission denied\|operation not permitted\|Cannot connect to the Docker'; then
     skipped "release image boots blocked by environment"
   else

@@ -19,13 +19,13 @@
 # `experiment` is the governed form and the one a paid lane should use. `up` bounds
 # nothing but its own runtime; `experiment` converts a dollar cap into a lifetime
 # through scripts/runpod-spend-guard.py, refuses to start while any other pod is
-# billing, sweeps every pod on exit however it exits, verifies the teardown, and
+# billing, stops only its positively identified pod on exit, verifies teardown,
 # emits a spend receipt that is INADMISSIBLE if the teardown was unverified, the
 # lifetime bound did not hold, the image was a floating tag, or a pod was left
 # behind.
 #
 #   bash scripts/runpod-vllm.sh experiment    # GOVERNED: cost cap, enforced lifetime,
-#                                             # orphan sweep, verified teardown, receipt
+#                                             # own-pod teardown, verified receipt
 #   bash scripts/runpod-vllm.sh up            # provision, print endpoint, tear down on exit
 #   bash scripts/runpod-vllm.sh up --keep     # leave it running (prints the stop command)
 #   bash scripts/runpod-vllm.sh list          # what is running right now
@@ -36,6 +36,10 @@
 #   bash scripts/runpod-vllm.sh down-all      # stop everything (the panic button)
 
 set -euo pipefail
+# This script writes short-lived endpoint credentials and local lease tokens.
+# New files must be private from the instant the shell opens them, not only
+# after a later chmod succeeds.
+umask 077
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 
 say() { printf '%s\n' "$*"; }
@@ -79,10 +83,36 @@ export MERC_VLLM_MAX_MODEL_LEN="$VLLM_MAX_MODEL_LEN"
 export MERC_VLLM_GPU_MEMORY_UTILIZATION="$VLLM_GPU_MEMORY_UTILIZATION"
 export MERC_VLLM_MAX_NUM_SEQS="$VLLM_MAX_NUM_SEQS"
 POD_NAME="merc-canary-vllm"
-INTENT_DIR="${MERC_RUNPOD_INTENT_DIR:-$ROOT/.merc-runpod/intent}"
+# State that decides paid-pod ownership belongs under Git's common directory,
+# not a worktree: sibling worktrees of this clone must contend for one local
+# provisioning lease. This does not claim cross-host/account serialization;
+# that requires provider-side idempotency or an authorized durable coordinator.
+GIT_COMMON_DIR="$(git -C "$ROOT" rev-parse --git-common-dir)"
+if [[ "$GIT_COMMON_DIR" != /* ]]; then GIT_COMMON_DIR="$ROOT/$GIT_COMMON_DIR"; fi
+RUNPOD_STATE_ROOT="${MERC_RUNPOD_STATE_ROOT:-$GIT_COMMON_DIR/merc-runpod}"
+INTENT_DIR="${MERC_RUNPOD_INTENT_DIR:-$RUNPOD_STATE_ROOT/intent}"
 SPEND_GUARD="$ROOT/scripts/runpod-spend-guard.py"
-# Carries across the provision path so experiment can complete the same intent.
-REQUEST_ID=""
+# Carries across a provision path so experiment can complete the same intent.
+# It is never read from a global "current request" file: two concurrent callers
+# could overwrite such a file and complete each other's intent.
+REQUEST_ID="${MERC_RUNPOD_REQUEST_ID:-}"
+# An owner token is a short-lived local lease capability.  It must not arrive
+# through a caller environment, where every subprocess would inherit it.  The
+# only cross-process provision handoff is the private descriptor below; local
+# ready/pending records are sourced only by the narrow helper that needs them.
+if [ -n "${MERC_RUNPOD_OWNER_TOKEN:-}" ]; then
+  die "MERC_RUNPOD_OWNER_TOKEN must not be supplied through the environment; use the private owner-token FD handoff"
+fi
+OWNER_TOKEN=""
+OWNER_PID="${MERC_RUNPOD_OWNER_PID:-}"
+OWNER_PROCESS_START="${MERC_RUNPOD_OWNER_PROCESS_START:-}"
+OWNER_BOOT_ID="${MERC_RUNPOD_OWNER_BOOT_ID:-}"
+if [ -n "${MERC_RUNPOD_OWNER_TOKEN_FD:-}" ]; then
+  [[ "$MERC_RUNPOD_OWNER_TOKEN_FD" =~ ^[3-9][0-9]*$ ]] \
+    || die "MERC_RUNPOD_OWNER_TOKEN_FD must name a private inherited descriptor"
+  IFS= read -r -u "$MERC_RUNPOD_OWNER_TOKEN_FD" OWNER_TOKEN \
+    || die "could not read parent owner token from private descriptor"
+fi
 
 gql() {
   printf 'header = "Authorization: Bearer %s"\n' "$RUNPOD_API_KEY" \
@@ -154,9 +184,13 @@ else:
 rest() {
   local method="$1" path="$2" body="${3:-}"
   if [ -n "$body" ]; then
-    printf 'header = "Authorization: Bearer %s"\n' "$RUNPOD_API_KEY" \
-      | curl -sS --config - -H 'content-type: application/json' --max-time 60 \
-          -X "$method" "https://rest.runpod.io/v1$path" -d "$body"
+    # Keep both bearer token and JSON body off argv.  curl consumes auth from a
+    # private process-substitution FD and the payload from stdin; neither value
+    # appears in ps output as it did with `-d "$body"`.
+    printf '%s' "$body" | curl -sS \
+      --config <(printf 'header = "Authorization: Bearer %s"\n' "$RUNPOD_API_KEY") \
+      -H 'content-type: application/json' --max-time 60 -X "$method" \
+      "https://rest.runpod.io/v1$path" --data-binary @-
   else
     printf 'header = "Authorization: Bearer %s"\n' "$RUNPOD_API_KEY" \
       | curl -sS --config - --max-time 60 -X "$method" "https://rest.runpod.io/v1$path"
@@ -217,42 +251,23 @@ print(json.dumps(m.get('pods') or []))
 "
 }
 
-active_pod_id_from_env() {
-  # Only the ready env is a living owner claim (operator --keep or a ready run).
-  # Do NOT treat .merc-runpod-pending.env as ownership: a SIGKILLed startup
-  # leaves that file behind, and counting it as owner would hide the orphan.
-  # Bound intent without completion is the hard "killed run" signal.
-  local envf="$ROOT/.merc-runpod.env"
-  [ -f "$envf" ] || return 0
-  # shellcheck disable=SC1090
-  (
-    set -a
-    # shellcheck disable=SC1091
-    . "$envf"
-    set +a
-    printf '%s' "${MERC_RUNPOD_POD_ID:-}"
-  )
-}
-
 # Fetch live pods, classify against local trails. Prints the human report on
 # stderr-via-stdout of the guard; returns the guard's exit code (1 = orphans).
 # Does NOT terminate anything.
 run_reconcile() {
-  local live active extra=()
+  local live extra=()
   live=$(live_pods_json) || die "could not list live pods for reconcile"
-  active=$(active_pod_id_from_env || true)
   [ -n "${1:-}" ] && extra+=(--json)
   python3 "$SPEND_GUARD" reconcile \
     --live-pods-json "$live" \
     --intent-dir "$INTENT_DIR" \
     --receipts-dir "$ROOT/evidence/runpod" \
-    --active-pod-id "${active:-}" \
     "${extra[@]+"${extra[@]}"}"
 }
 
 # Entry gate: before any create. Loud refuse on orphans or any pre-existing
 # billing unless the operator explicitly opts into terminating orphans only.
-# Never silent. Trap-based exit sweep remains armed separately.
+# Never silent. The trap for the currently identified pod remains armed.
 entry_reconcile_or_refuse() {
   local live report_json orphan_ids preexisting
   live=$(live_pods_json) || die "could not list live pods for entry reconcile"
@@ -260,7 +275,6 @@ entry_reconcile_or_refuse() {
     --live-pods-json "$live" \
     --intent-dir "$INTENT_DIR" \
     --receipts-dir "$ROOT/evidence/runpod" \
-    --active-pod-id "$(active_pod_id_from_env || true)" \
     --json) || true
   printf '%s' "$report_json" | python3 -c "
 import json,sys
@@ -328,40 +342,129 @@ print(' '.join(p.get('id','') for p in json.load(sys.stdin) if p.get('id')))
   fi
 }
 
+ensure_lease_owner() {
+  local identity
+  if [ -z "$OWNER_PID" ]; then
+    OWNER_PID="$$"
+    identity=$(python3 "$SPEND_GUARD" process-identity --pid "$OWNER_PID") \
+      || die "cannot establish a PID/start/boot lease identity"
+    IFS='|' read -r OWNER_PID OWNER_PROCESS_START OWNER_BOOT_ID <<< "$identity"
+  fi
+  [ -n "$OWNER_PROCESS_START" ] && [ -n "$OWNER_BOOT_ID" ] \
+    || die "lease owner needs PID, process-start, and boot identity together"
+  if [ -z "$OWNER_TOKEN" ]; then
+    OWNER_TOKEN=$(openssl rand -hex 24)
+  fi
+}
+
+ensure_request_id() {
+  [ -n "$REQUEST_ID" ] || REQUEST_ID="req-$(date +%s)-$(openssl rand -hex 12)"
+}
+
+renew_create_lease() {
+  python3 "$SPEND_GUARD" intent-renew-create \
+    --request-id "$REQUEST_ID" \
+    --owner-token-fd 3 \
+    --owner-pid "$OWNER_PID" \
+    --owner-process-start "$OWNER_PROCESS_START" \
+    --owner-boot-id "$OWNER_BOOT_ID" \
+    --intent-dir "$INTENT_DIR" 3<<<"$OWNER_TOKEN" >/dev/null
+}
+
+renew_bound_lease() {
+  python3 "$SPEND_GUARD" intent-renew \
+    --request-id "$REQUEST_ID" \
+    --owner-token-fd 3 \
+    --owner-pid "$OWNER_PID" \
+    --owner-process-start "$OWNER_PROCESS_START" \
+    --owner-boot-id "$OWNER_BOOT_ID" \
+    --intent-dir "$INTENT_DIR" 3<<<"$OWNER_TOKEN" >/dev/null
+}
+
 write_create_intent() {
   local purpose="$1"
-  REQUEST_ID="req-$(date +%s)-$(openssl rand -hex 6)"
+  ensure_lease_owner
+  ensure_request_id
   python3 "$SPEND_GUARD" intent-write \
     --request-id "$REQUEST_ID" \
     --purpose "$purpose" \
     --gpu "$GPU_TYPE" \
     --name "$POD_NAME" \
-    --intent-dir "$INTENT_DIR" >/dev/null
-  # Persist request id for experiment's post-up receipt path.
-  mkdir -p "$ROOT/.merc-runpod"
-  printf '%s\n' "$REQUEST_ID" > "$ROOT/.merc-runpod/current-request-id"
-  chmod 600 "$ROOT/.merc-runpod/current-request-id"
-  say "  intent  $REQUEST_ID (recorded before create)"
+    --owner-token-fd 3 \
+    --owner-pid "$OWNER_PID" \
+    --owner-process-start "$OWNER_PROCESS_START" \
+    --owner-boot-id "$OWNER_BOOT_ID" \
+    --intent-dir "$INTENT_DIR" 3<<<"$OWNER_TOKEN" >/dev/null
+  say "  intent  $REQUEST_ID (account lease recorded before create)"
 }
 
 bind_create_intent() {
   local pod_id="$1"
-  [ -n "$REQUEST_ID" ] || REQUEST_ID=$(cat "$ROOT/.merc-runpod/current-request-id" 2>/dev/null || true)
   [ -n "$REQUEST_ID" ] || die "no request id to bind for pod $pod_id"
   python3 "$SPEND_GUARD" intent-bind \
     --request-id "$REQUEST_ID" \
     --pod-id "$pod_id" \
-    --intent-dir "$INTENT_DIR" >/dev/null
-  say "  intent  bound $REQUEST_ID -> $pod_id"
+    --owner-token-fd 3 \
+    --owner-pid "$OWNER_PID" \
+    --owner-process-start "$OWNER_PROCESS_START" \
+    --owner-boot-id "$OWNER_BOOT_ID" \
+    --intent-dir "$INTENT_DIR" 3<<<"$OWNER_TOKEN" >/dev/null
+  say "  intent  bound $REQUEST_ID -> $pod_id (active provisioning lease)"
+}
+
+promote_operator_keep() {
+  python3 "$SPEND_GUARD" intent-promote-operator-keep \
+    --request-id "$REQUEST_ID" \
+    --owner-token-fd 3 \
+    --keep-seconds "${MERC_RUNPOD_KEEP_SECS:-90}" \
+    --intent-dir "$INTENT_DIR" 3<<<"$OWNER_TOKEN" >/dev/null
 }
 
 complete_create_intent() {
-  local rid="${1:-}"
-  [ -n "$rid" ] || rid=$(cat "$ROOT/.merc-runpod/current-request-id" 2>/dev/null || true)
+  local rid="${1:-$REQUEST_ID}"
   [ -n "$rid" ] || return 0
+  [ -n "$OWNER_TOKEN" ] || return 0
   python3 "$SPEND_GUARD" intent-complete \
     --request-id "$rid" \
-    --intent-dir "$INTENT_DIR" >/dev/null 2>&1 || true
+    --owner-token-fd 3 \
+    --intent-dir "$INTENT_DIR" 3<<<"$OWNER_TOKEN" >/dev/null 2>&1 || true
+}
+
+complete_ready_intent_if_matching() {
+  local pod_id="$1" ready_env="$ROOT/.merc-runpod.env"
+  [ -f "$ready_env" ] || return 0
+  (
+    # shellcheck disable=SC1090
+    . "$ready_env"
+    [ "${MERC_RUNPOD_POD_ID:-}" = "$pod_id" ] || exit 0
+    [ -n "${MERC_RUNPOD_REQUEST_ID:-}" ] || exit 0
+    [ -n "${MERC_RUNPOD_OWNER_TOKEN:-}" ] || exit 0
+    export -n MERC_RUNPOD_OWNER_TOKEN
+    python3 "$SPEND_GUARD" intent-complete \
+      --request-id "$MERC_RUNPOD_REQUEST_ID" \
+      --owner-token-fd 3 \
+      --intent-dir "$INTENT_DIR" 3<<<"$MERC_RUNPOD_OWNER_TOKEN" >/dev/null 2>&1 || true
+  )
+}
+
+complete_pending_intent_if_matching() {
+  # Pending state is never ownership proof. It is consulted here only *after*
+  # terminate() has verified provider absence, to leave an honest terminal
+  # tombstone for an operator who manually stopped a pre-ready pod.
+  local pod_id="$1" pending_env="$ROOT/.merc-runpod-pending.env"
+  [ -f "$pending_env" ] || return 0
+  (
+    # shellcheck disable=SC1090
+    . "$pending_env"
+    [ "${MERC_RUNPOD_POD_ID:-}" = "$pod_id" ] || exit 0
+    [ -n "${MERC_RUNPOD_REQUEST_ID:-}" ] || exit 0
+    [ -n "${MERC_RUNPOD_OWNER_TOKEN:-}" ] || exit 0
+    export -n MERC_RUNPOD_OWNER_TOKEN
+    python3 "$SPEND_GUARD" intent-complete \
+      --request-id "$MERC_RUNPOD_REQUEST_ID" \
+      --owner-token-fd 3 \
+      --intent-dir "$INTENT_DIR" 3<<<"$MERC_RUNPOD_OWNER_TOKEN" >/dev/null 2>&1 || true
+  )
 }
 
 case "${1:-up}" in
@@ -370,20 +473,17 @@ reconcile)
   TERMINATE_FLAG=0
   [ "${2:-}" = "--terminate-orphans" ] && TERMINATE_FLAG=1
   [ "${MERC_RUNPOD_TERMINATE_ORPHANS:-0}" = "1" ] && TERMINATE_FLAG=1
-  say "reconciling live pods against local intents, receipts, and active env"
+  say "reconciling live pods against local leases, intents, and receipts"
   live=$(live_pods_json) || die "could not list live pods"
-  active=$(active_pod_id_from_env || true)
   # Human report first (exit ignored); then JSON for decisions.
   python3 "$SPEND_GUARD" reconcile \
     --live-pods-json "$live" \
     --intent-dir "$INTENT_DIR" \
-    --receipts-dir "$ROOT/evidence/runpod" \
-    --active-pod-id "${active:-}" || true
+    --receipts-dir "$ROOT/evidence/runpod" || true
   report_json=$(python3 "$SPEND_GUARD" reconcile \
     --live-pods-json "$live" \
     --intent-dir "$INTENT_DIR" \
     --receipts-dir "$ROOT/evidence/runpod" \
-    --active-pod-id "${active:-}" \
     --json) || true
   orphan_ids=$(printf '%s' "$report_json" | python3 -c "
 import json,sys
@@ -402,8 +502,7 @@ print(' '.join(json.load(sys.stdin).get('orphan_pod_ids') or []))
     python3 "$SPEND_GUARD" reconcile \
       --live-pods-json "$live" \
       --intent-dir "$INTENT_DIR" \
-      --receipts-dir "$ROOT/evidence/runpod" \
-      --active-pod-id "$(active_pod_id_from_env || true)"
+      --receipts-dir "$ROOT/evidence/runpod"
     exit $?
   fi
   if [ -n "$orphan_ids" ]; then
@@ -413,16 +512,43 @@ print(' '.join(json.load(sys.stdin).get('orphan_pod_ids') or []))
   fi
   exit 0
   ;;
+renew-keep)
+  READY_ENV="$ROOT/.merc-runpod.env"
+  [ -f "$READY_ENV" ] || die "no ready RunPod record to renew"
+  # This file is private (0600) and already contains the local API credential;
+  # it supplies only the token for an existing short operator_keep lease.
+  # shellcheck disable=SC1090
+  . "$READY_ENV"
+  : "${MERC_RUNPOD_REQUEST_ID:?ready record lacks request id}"
+  : "${MERC_RUNPOD_OWNER_TOKEN:?ready record lacks keep token}"
+  export -n MERC_RUNPOD_OWNER_TOKEN
+  python3 "$SPEND_GUARD" intent-renew-operator-keep \
+    --request-id "$MERC_RUNPOD_REQUEST_ID" \
+    --owner-token-fd 3 \
+    --keep-seconds "${MERC_RUNPOD_KEEP_SECS:-90}" \
+    --intent-dir "$INTENT_DIR" 3<<<"$MERC_RUNPOD_OWNER_TOKEN" >/dev/null
+  say "operator keep renewed for at most ${MERC_RUNPOD_KEEP_SECS:-90}s; renew again or stop the pod"
+  exit 0
+  ;;
 down)
   [ -n "${2:-}" ] || die "usage: runpod-vllm.sh down <pod-id>"
-  terminate "$2"; list_pods; exit 0 ;;
+  if terminate "$2"; then
+    complete_ready_intent_if_matching "$2"
+    complete_pending_intent_if_matching "$2"
+  fi
+  list_pods; exit 0 ;;
 down-all)
   ids=$(gql '{"query":"query { myself { pods { id } } }"}' \
         | python3 -c "import json,sys;print(' '.join(p['id'] for p in ((json.load(sys.stdin).get('data') or {}).get('myself') or {}).get('pods') or []))")
-  for id in $ids; do terminate "$id"; done
+  for id in $ids; do
+    if terminate "$id"; then
+      complete_ready_intent_if_matching "$id"
+      complete_pending_intent_if_matching "$id"
+    fi
+  done
   list_pods; exit 0 ;;
 experiment)
-  # A governed paid experiment: cost cap, enforced lifetime, orphan sweep before
+  # A governed paid experiment: cost cap, enforced lifetime, orphan refusal before
   # AND after, verified teardown, spend receipt.
   #
   # `up` already refuses to leave a pod running and verifies its own teardown.
@@ -450,21 +576,24 @@ experiment)
   # a prior SIGKILL are reported loudly; never create while anything bills.
   say "entry reconcile (before any create)"
   entry_reconcile_or_refuse
+  # The child that provisions must bind the pod to this *parent* identity before
+  # it returns. That gives the experiment foreground ownership continuously;
+  # a child PID that exits after readiness is never treated as a living owner.
+  ensure_lease_owner
+  ensure_request_id
 
-  # Armed before anything is created. `up --keep` deliberately leaves its pod
-  # behind, so this is the only thing between a crash in the middle of the
-  # experiment and a pod that bills until someone notices. SIGKILL still
-  # bypasses this trap — that is why entry reconcile and intent markers exist.
-  sweep_all() {
-    local ids
-    ids=$(gql '{"query":"query { myself { pods { id } } }"}' \
-      | python3 -c "
-import json,sys
-d=json.load(sys.stdin); m=(d.get('data') or {}).get('myself') or {}
-print(' '.join(p['id'] for p in (m.get('pods') or [])))" 2>/dev/null)
-    for id in $ids; do terminate "$id"; done
+  # Armed before anything is created.  A governed experiment may only stop the
+  # pod it positively identified in its own pending/ready record.  Sweeping an
+  # entire account here could kill another host's valid pod; an unknown pod is
+  # instead left visible to reconcile until provider idempotency or a durable
+  # account coordinator is available.
+  terminate_experiment_pod() {
+    local id="${1:-${MERC_RUNPOD_POD_ID:-}}"
+    [ -n "$id" ] || return 0
+    say "stopping governed experiment pod $id"
+    terminate "$id"
   }
-  trap 'say ""; say "sweeping every pod (experiment exit)"; sweep_all' EXIT INT TERM
+  trap 'say ""; terminate_experiment_pod' EXIT INT TERM
 
   # `up --keep` records the identity before readiness so a failed startup gets
   # a receipt with its own clock, cost bound, and teardown verification rather
@@ -493,15 +622,21 @@ print(' '.join(p['id'] for p in (m.get('pods') or [])))" 2>/dev/null)
   # Parent already ran entry_reconcile_or_refuse; child must not re-list or refuse
   # the pod it is about to create under a second gate.
   MERC_RUNPOD_SKIP_ENTRY_RECONCILE=1 MERC_RUNPOD_HOLD_SECS=0 \
-    MERC_RUNPOD_PURPOSE=experiment bash "$0" up --keep || UP_STATUS=$?
+    MERC_RUNPOD_PURPOSE=experiment MERC_RUNPOD_PARENT_OWNER=1 \
+    MERC_RUNPOD_REQUEST_ID="$REQUEST_ID" \
+    MERC_RUNPOD_OWNER_TOKEN_FD=9 \
+    MERC_RUNPOD_OWNER_PID="$OWNER_PID" \
+    MERC_RUNPOD_OWNER_PROCESS_START="$OWNER_PROCESS_START" \
+    MERC_RUNPOD_OWNER_BOOT_ID="$OWNER_BOOT_ID" \
+    bash "$0" up --keep 9<<<"$OWNER_TOKEN" || UP_STATUS=$?
   if [ "$UP_STATUS" -ne 0 ]; then
     if [ ! -f "$PENDING_ENV" ]; then
-      die "provisioning failed before a pod identity was recorded; the exit sweep will run"
+      die "provisioning failed before a pod identity was recorded; reconcile will expose any unknown pod"
     fi
     # shellcheck disable=SC1090
     . "$PENDING_ENV"
-    say "provisioning failed; verifying sweep before an inadmissible receipt"
-    sweep_all
+    say "provisioning failed; verifying this experiment pod teardown before an inadmissible receipt"
+    terminate_experiment_pod "$MERC_RUNPOD_POD_ID"
     TEARDOWN_VERIFIED=false
     [ "$(pod_exists "$MERC_RUNPOD_POD_ID")" = "no" ] && TEARDOWN_VERIFIED=true
     STOPPED_AT=$(date +%s)
@@ -540,14 +675,18 @@ print(','.join(p['id'] for p in (m.get('pods') or [])))" 2>/dev/null)
       kill -TERM "$CMD_PID" 2>/dev/null || true
       break
     fi
+    renew_bound_lease || die "lost experiment ownership lease; exit cleanup will terminate this pod"
     sleep 2
     ELAPSED=$((ELAPSED + 2))
   done
   wait "$CMD_PID" 2>/dev/null || say "  experiment command exited non-zero"
+  renew_bound_lease || die "lost experiment ownership lease before teardown"
 
   say ""
   say "tearing down"
+  renew_bound_lease || die "lost experiment ownership lease during teardown"
   terminate "$MERC_RUNPOD_POD_ID"
+  renew_bound_lease || true
   TEARDOWN_VERIFIED=true
   [ "$(pod_exists "$MERC_RUNPOD_POD_ID")" = "no" ] || TEARDOWN_VERIFIED=false
   STOPPED_AT=$(date +%s)
@@ -578,10 +717,13 @@ cleanup() {
   if [ -n "$POD_ID" ] && { [ "$KEEP" -eq 0 ] || [ "$UP_READY" -eq 0 ]; }; then
     say ""
     say "tearing down (exit $code)"
-    terminate "$POD_ID"
+    renew_bound_lease >/dev/null 2>&1 || true
+    if terminate "$POD_ID"; then
+      complete_create_intent
+    fi
   elif [ -n "$POD_ID" ]; then
     say ""
-    say "pod LEFT RUNNING at your request. It bills until stopped:"
+    say "pod LEFT RUNNING at your request under a bounded operator lease:"
     say "  bash scripts/runpod-vllm.sh down $POD_ID"
   fi
 }
@@ -606,9 +748,13 @@ say "  model  $MODEL"
 # an unknown live pod; if we die after bind, it sees abandoned_intent.
 write_create_intent "${MERC_RUNPOD_PURPOSE:-up}"
 
-CREATE=$(python3 "$ROOT/scripts/runpod-create-payload.py" \
-           "$GPU_TYPE" "$IMAGE" "$MODEL" "$VLLM_KEY" "$POD_NAME" "$CLOUD")
+CREATE=$(printf '%s\n' "$VLLM_KEY" | python3 "$ROOT/scripts/runpod-create-payload.py" \
+           --api-key-stdin "$GPU_TYPE" "$IMAGE" "$MODEL" "$POD_NAME" "$CLOUD")
 
+# The account lease is refreshed around the provider's 60s-bounded POST. If
+# the request somehow crosses its hard TTL, the trap terminates the returned
+# pod rather than allowing an ambiguous second creator to proceed.
+renew_create_lease
 RESP=$(rest POST /pods "$CREATE")
 POD_ID=$(printf '%s' "$RESP" | python3 -c "
 import json,sys
@@ -620,6 +766,7 @@ print(d.get('id') or '')
 [ -n "$POD_ID" ] || die "pod was not created. RunPod reported no capacity for $GPU_TYPE on $CLOUD.
        Nothing is billing. Try another GPU (MERC_RUNPOD_GPU=) or cloud (MERC_RUNPOD_CLOUD=)."
 say "  pod    $POD_ID"
+renew_create_lease || die "create lease expired after provider response; exit trap will terminate $POD_ID"
 
 # Bind the intent immediately — the next most important line after create.
 bind_create_intent "$POD_ID"
@@ -627,7 +774,9 @@ bind_create_intent "$POD_ID"
 # REST creation can select a differently priced machine than the pre-flight
 # lowest-price query.  Fail closed and let the armed trap terminate it rather
 # than continue a run whose cap conversion is false.
+renew_bound_lease
 ACTUAL_COST_PER_HR=$(pod_hourly_rate "$POD_ID") || { KEEP=0; die "RunPod did not report the created pod's hourly rate"; }
+renew_bound_lease || { KEEP=0; die "lost provisioning lease while reading provider rate"; }
 if ! require_exact_rate "${MERC_RUNPOD_COST_PER_HR:-$ACTUAL_COST_PER_HR}" "$ACTUAL_COST_PER_HR"; then
   KEEP=0
   die "created pod rate differs from the governed experiment rate"
@@ -644,6 +793,9 @@ PENDING_ENV="$ROOT/.merc-runpod-pending.env"
   printf 'export MERC_RUNPOD_POD_ID=%q\n' "$POD_ID"
   printf 'export MERC_RUNPOD_COST_PER_HR=%q\n' "$ACTUAL_COST_PER_HR"
   printf 'export MERC_RUNPOD_REQUEST_ID=%q\n' "$REQUEST_ID"
+  # Deliberately not exported: the helper that sources this private record
+  # forwards the token only through a one-shot file descriptor to the guard.
+  printf 'MERC_RUNPOD_OWNER_TOKEN=%q\n' "$OWNER_TOKEN"
 } > "$PENDING_ENV"
 chmod 600 "$PENDING_ENV"
 
@@ -656,9 +808,11 @@ say "waiting for vLLM to serve (image pull + model download, 5-10 minutes)"
 # were torn down as "never started" for exactly that reason.
 READY=0
 for i in $(seq 1 90); do
+  renew_bound_lease || die "lost provisioning lease while waiting for readiness"
   code=$(printf 'header = "Authorization: Bearer %s"\n' "$VLLM_KEY" \
          | curl -sS --config - -o /dev/null -w '%{http_code}' --max-time 10 \
              "$ENDPOINT/models" 2>/dev/null || printf '000')
+  renew_bound_lease || die "lost provisioning lease after readiness probe"
   if [ "$code" = "200" ]; then READY=1; break; fi
   [ $((i % 10)) -eq 0 ] && say "  still starting ($((i * 6))s, last HTTP $code)"
   sleep 6
@@ -682,9 +836,31 @@ say "  wrote .merc-runpod.env (chmod 600)"
 
 if [ "$KEEP" -eq 1 ]; then
   say ""
-  say "left running. Stop it when done:  bash scripts/runpod-vllm.sh down $POD_ID"
+  if [ "${MERC_RUNPOD_PARENT_OWNER:-0}" = "1" ]; then
+    if ! renew_bound_lease; then
+      KEEP=0
+      die "parent ownership lease was lost after readiness"
+    fi
+    say "ready under the experiment parent lease; the parent will renew and tear it down"
+  else
+    if ! promote_operator_keep; then
+      KEEP=0
+      die "could not record bounded operator keep; exit trap will tear down"
+    fi
+    say "left running for at most ${MERC_RUNPOD_KEEP_SECS:-90}s. Renew explicitly or stop it:"
+    say "  bash scripts/runpod-vllm.sh renew-keep"
+    say "  bash scripts/runpod-vllm.sh down $POD_ID"
+  fi
 else
   say ""
   say "press Ctrl-C or wait; this pod tears down when this script exits."
-  sleep "${MERC_RUNPOD_HOLD_SECS:-60}"
+  HOLD_SECONDS="${MERC_RUNPOD_HOLD_SECS:-60}"
+  HOLD_ELAPSED=0
+  while [ "$HOLD_ELAPSED" -lt "$HOLD_SECONDS" ]; do
+    renew_bound_lease || die "lost provisioning lease while holding the pod"
+    HOLD_STEP=20
+    [ $((HOLD_SECONDS - HOLD_ELAPSED)) -lt "$HOLD_STEP" ] && HOLD_STEP=$((HOLD_SECONDS - HOLD_ELAPSED))
+    sleep "$HOLD_STEP"
+    HOLD_ELAPSED=$((HOLD_ELAPSED + HOLD_STEP))
+  done
 fi

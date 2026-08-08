@@ -85,9 +85,12 @@ if missing or stale:
 # ever accumulate the measured samples its promotion gate requires. Both are
 # authAdmin at control/api.go:218,220. Neither can promote a cell by itself --
 # activation still needs the promotion gate's verdict.
+# 124 for the worker-owned per-credit payout trail GET /v1/worker/ledger. It is
+# registered through authWorker at control/api.go:203 and was added to the
+# reviewed worker_owned surface by 03f07d36; it exposes no money-moving action.
 # The count is pinned so a NEW route cannot be added without a reviewer deciding
 # what every role may do with it.
-if len(reviewed) != 123:
-    fail(f"expected reviewed 123-route surface, found {len(reviewed)}")
+if len(reviewed) != 124:
+    fail(f"expected reviewed 124-route surface, found {len(reviewed)}")
 
 print(f"authorization matrix: PASS ({len(reviewed)} routes, {len(ROLES)} roles, default deny)")

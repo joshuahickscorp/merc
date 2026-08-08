@@ -28,7 +28,10 @@ start are easy to get wrong and were both wrong for the first three attempts:
 - volumeMountPath is the HuggingFace cache. Without a volume the model is
   re-downloaded on every restart, which is slow and billed.
 
-Usage: runpod-create-payload.py <gpu> <image> <model> <api-key> <name> <cloud>
+Usage: runpod-create-payload.py --api-key-stdin <gpu> <image> <model> <name> <cloud>
+
+The vLLM API key is read from standard input, never process arguments.  The
+caller must provide exactly one non-empty line through a private pipe/FD.
 
 MERC_VLLM_GGUF_REPO + MERC_VLLM_GGUF_FILE switch to GGUF mode, where <model>
 becomes the tokenizer repo.
@@ -139,10 +142,14 @@ def gguf_start_command(repo: str, filename: str, tokenizer: str, key: str, setti
 
 
 def main() -> int:
-    if len(sys.argv) != 7:
+    if len(sys.argv) != 7 or sys.argv[1] != "--api-key-stdin":
         sys.stderr.write(__doc__.strip().splitlines()[-1] + "\n")
         return 2
-    gpu, image, model, key, name, cloud = sys.argv[1:7]
+    key = sys.stdin.read().rstrip("\n")
+    if not key or "\n" in key or "\r" in key:
+        sys.stderr.write("RunPod vLLM API key stdin must contain one non-empty line\n")
+        return 2
+    gpu, image, model, name, cloud = sys.argv[2:7]
     print(json.dumps({
         "name": name,
         "imageName": image,
