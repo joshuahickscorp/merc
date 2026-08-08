@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "kind": "lfs_origin_authority",
+  "canonical_repository": "github.com/joshuahickscorp/merc",
+  "canonical_lfs_endpoint": "https://github.com/joshuahickscorp/merc.git/info/lfs",
+  "allowed_transports": [
+    "https",
+    "ssh"
+  ]
+}

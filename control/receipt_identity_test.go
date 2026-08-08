@@ -66,8 +66,20 @@ func TestValidateReceiptIdentityRejectsFreeStringCommit(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected free-string commit to be refused")
 	}
-	if !strings.Contains(err.Error(), "not a git object") {
+	if !strings.Contains(err.Error(), "full lowercase commit SHA") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestValidateReceiptIdentityRejectsExistingBlobAsSourceCommit(t *testing.T) {
+	root := testRepoRoot(t)
+	id, bin := completeIdentity(t, root)
+	blob, err := gitBytes(root, "rev-parse", "HEAD:control/receipt_identity.go")
+	must(t, err)
+	id.SourceCommit = IdentitySlotValue(strings.TrimSpace(string(blob)))
+	err = ValidateReceiptIdentity(root, id, bin)
+	if err == nil || !strings.Contains(err.Error(), "not a commit") {
+		t.Fatalf("existing blob was accepted as source commit: %v", err)
 	}
 }
 

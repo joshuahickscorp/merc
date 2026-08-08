@@ -905,7 +905,7 @@ Done since:
   repointing which GGUF backs `gguf` can no longer change every executed byte
   while the revision and digest stand still.
 - A receipt-bound benchmark authority exists for the embed cell:
-  `evidence/perf/runtime-benchmarks/embed-cell-candle-vs-llama-cpp-r1.json`,
+  `evidence/perf/runtime-benchmarks/embed-cell-candle-vs-llama-cpp-r2.json`,
   produced by `merc-agent bench-embed` — one harness, one corpus, both drivers,
   the quality gate evaluated before any timing. An unbound in-process harness
   once reported roughly 6.7× at batch 8 (and 1.5×/2.7×/1.2× at batch 1/32/128);
@@ -1918,7 +1918,7 @@ The engine half is proven and measured:
 - llama.cpp executes the embed cell through `RuntimeDriver` and agrees with
   candle at **0.999998 minimum cosine** against the 0.999 gate the control plane
   applies to a `cosine`-verified cell — reproduced here, not cited;
-- `evidence/perf/runtime-benchmarks/embed-cell-candle-vs-llama-cpp-r1.json` binds
+- `evidence/perf/runtime-benchmarks/embed-cell-candle-vs-llama-cpp-r2.json` binds
   source commit, both profiles' id and revision, the exact artifacts per wire
   kind, hardware, engine configuration, and the quality result;
 - `EmbedRunner` dispatches by driver, so a llama.cpp worker can serve the cell it
@@ -2212,5 +2212,4 @@ These figures are intentionally left side-by-side. Merging is not resolution.
 |---|---|---|
 | MLX peak **6,828 t/s** | `docs/RUNTIME_AND_PERF.md § "Speed lane, measured 2026-07-27"` | Speed-lane harness |
 | MLX **310.7 t/s** | `docs/RUNTIME_AND_PERF.md § "Four runtimes, one harness, two platforms — final"` | Cross-test harness; different setup |
-
 

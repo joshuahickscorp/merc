@@ -15,10 +15,13 @@ admission and dispatch call.
 
     python3 scripts/branch-state-receipt.py \
         --database-url postgres://cx:cx@localhost:5432/merc_state \
-        --out evidence/state/branch-state.json
+        --expected-commit "$(git rev-parse HEAD)" \
+        --out evidence/state/branch-state-candidate-<commit>.json
 
 The database is optional. Without it the receipt still reports everything the
-tree knows and marks the projection fields `not_probed`.
+tree knows and marks the projection fields `not_probed`. A write requires a
+clean, exact committed HEAD and a new output path; historic state receipts are
+never overwritten.
 """
 
 import argparse
@@ -287,11 +290,59 @@ def schema_has(schema, *fragments):
     return {fragment: (fragment in schema) for fragment in fragments}
 
 
+def require_sealed_output(args, parser):
+    """Refuse to mint a BOUND state receipt from a mutable tree.
+
+    State receipts are historical fingerprints, not living documents.  A
+    correction must use a new output path and name the prior artifact through
+    --supersedes-*.  This guard intentionally runs before any probe so a dirty
+    developer tree cannot produce a plausible-looking exact-HEAD receipt.
+    """
+    if not args.out:
+        return None
+    expected = args.expected_commit
+    actual = git("rev-parse", "HEAD")
+    if not re.fullmatch(r"[0-9a-f]{40}", expected or ""):
+        parser.error("--out requires a full 40-character --expected-commit")
+    if actual != expected:
+        parser.error("--expected-commit is not the checked-out HEAD")
+    commit_check = subprocess.run(
+        ["git", "-C", ROOT, "cat-file", "-e", f"{expected}^{{commit}}"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if commit_check.returncode != 0:
+        parser.error("--expected-commit is not a commit object")
+    if git("status", "--porcelain"):
+        parser.error("refusing to mint a state receipt from a dirty working tree")
+    supersedes = (args.supersedes_path, args.supersedes_sha256, args.supersedes_reason)
+    if any(supersedes) and not all(supersedes):
+        parser.error("--supersedes-path, --supersedes-sha256, and --supersedes-reason are all required together")
+    if args.supersedes_path:
+        if not sha256_re.fullmatch(args.supersedes_sha256):
+            parser.error("--supersedes-sha256 must be lowercase SHA-256")
+        if not args.supersedes_path.startswith("evidence/"):
+            parser.error("--supersedes-path must name an evidence artifact")
+    path = os.path.abspath(os.path.join(ROOT, args.out))
+    if os.path.exists(path):
+        parser.error("refusing to overwrite an existing state receipt; choose a new successor path")
+    return path
+
+
+sha256_re = re.compile(r"[0-9a-f]{64}")
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--database-url", default=os.environ.get("MERC_STATE_DATABASE_URL", ""))
     parser.add_argument("--out", default="")
+    parser.add_argument("--expected-commit", default="")
+    parser.add_argument("--supersedes-path", default="")
+    parser.add_argument("--supersedes-sha256", default="")
+    parser.add_argument("--supersedes-reason", default="")
     args = parser.parse_args()
+    output_path = require_sealed_output(args, parser)
 
     matrix_version, profiles = authority_state()
     schema = read("control/schema.sql")
@@ -536,7 +587,7 @@ def main():
         # a previous report chose.
         "second_runtime_evidence": {
             "benchmark_receipt":
-                "evidence/perf/runtime-benchmarks/embed-cell-candle-vs-llama-cpp-r1.json",
+                "evidence/perf/runtime-benchmarks/embed-cell-candle-vs-llama-cpp-r2.json",
             "autonomous_agent_chain_tests": [
                 name for name in (
                     "control/two_agent_enrollment_test.go",
@@ -572,8 +623,15 @@ def main():
     else:
         receipt["database_projection"] = "not_probed"
 
+    if args.supersedes_path:
+        receipt["supersedes"] = {
+            "path": args.supersedes_path,
+            "canonical_sha256": args.supersedes_sha256,
+            "reason": args.supersedes_reason,
+        }
+
     if args.out:
-        path = os.path.join(ROOT, args.out)
+        path = output_path
         _scripts = os.path.join(ROOT, "scripts")
         if _scripts not in sys.path:
             sys.path.insert(0, _scripts)

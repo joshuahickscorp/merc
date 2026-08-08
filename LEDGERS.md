@@ -17,6 +17,38 @@ payload.**
 
 ---
 
+## Current inventory supersession — 2026-08-08 working candidate
+
+The historical snapshot below is retained as evidence of its own measurement;
+it is **not** the current-candidate inventory. The independent corpus validator
+now reports **88 tracked LFS pointer paths / 73 unique OIDs / 15 aliases**, with
+zero missing, corrupt, or hydrated-body mismatches. Use
+`scripts/verify-lfs-corpus.py` and `evidence/state/lfs-corpus-ledger.json` for
+the live expected counts. The exact candidate remains uncommitted and unpushed,
+so this is a working-tree ledger rather than an off-machine durability claim.
+
+---
+
+### Working-tree four-ledger snapshot — 2026-08-08 (not an exact-commit receipt)
+
+This additive snapshot uses `git ls-files -co --exclude-standard`: it includes
+the intended candidate files, excludes ignored caches/build outputs, and must be
+recomputed after commit. It records **999 candidate inputs**: 984 indexed paths
+and 15 untracked candidate artifacts.
+
+| ledger | current working-tree result |
+|---|---:|
+| production source | **123,105 LOC** (`control` non-test Go 93,531; agent Rust 20,936; schema 6,580; web 1,321; clients 737) |
+| test and proof | **78,687 LOC** (268 `control/*_test.go` files) |
+| tooling and operations | **49,973 LOC** (scripts 45,851; ops 4,122) |
+| evidence | **194 files**; **88 LFS pointers / 73 OIDs / 15 aliases** |
+
+This is a measurement, not a claimed authored-code reduction. The current work
+removes guard exemptions and stale declarations, adds proof, and formats five
+Rust lines; it does not claim a true production-code consolidation.
+
+---
+
 ## Measured at `7784413a` (direct measurement; the census is stale — it reports
 ## 776 tracked files against an actual 962)
 

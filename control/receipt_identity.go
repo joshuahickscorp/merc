@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -127,7 +128,7 @@ func (id ReceiptIdentity) IncompleteFields() []string {
 }
 
 // ValidateReceiptIdentity refuses incomplete identity and free-string commits.
-// repoRoot is used to check source_commit against real git objects.
+// repoRoot is used to check source_commit against exact git commits.
 // buildDigestPath, when non-empty, is the binary whose sha256 must equal
 // BuildDigest.Value (derived, not typed).
 func ValidateReceiptIdentity(repoRoot string, id ReceiptIdentity, buildDigestPath string) error {
@@ -162,24 +163,19 @@ func ValidateReceiptIdentity(repoRoot string, id ReceiptIdentity, buildDigestPat
 	return nil
 }
 
-// validateGitObject requires rev to resolve to an object in this repo.
-// Free strings such as "working-tree-before-media-authority" fail.
+// validateGitObject requires a full lowercase SHA to resolve to a commit in
+// this repo. A blob, tag, or short ref is never source-commit provenance.
 func validateGitObject(repoRoot, rev string) error {
 	rev = strings.TrimSpace(rev)
-	if rev == "" {
-		return fmt.Errorf("empty")
-	}
-	// Reject obvious non-hashes early (still allow annotated tags / short shas
-	// that git can resolve — but refuse whitespace and path-like junk).
-	if strings.ContainsAny(rev, " \t\n\r") {
-		return fmt.Errorf("%q is not a git object", rev)
+	if !regexp.MustCompile(`^[0-9a-f]{40}$`).MatchString(rev) {
+		return fmt.Errorf("%q is not a full lowercase commit SHA", rev)
 	}
 	if repoRoot == "" {
 		repoRoot = "."
 	}
-	// cat-file -e exits 0 iff the object exists.
-	if _, err := gitBytes(repoRoot, "cat-file", "-e", rev+"^{object}"); err != nil {
-		return fmt.Errorf("%q is not a git object in this repo", rev)
+	// cat-file -e exits 0 iff the exact commit object exists.
+	if _, err := gitBytes(repoRoot, "cat-file", "-e", rev+"^{commit}"); err != nil {
+		return fmt.Errorf("%q is not a commit in this repo", rev)
 	}
 	return nil
 }

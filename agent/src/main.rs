@@ -3410,18 +3410,13 @@ async fn run_enroll(action: EnrollCommand) -> Result<()> {
                 bundle.trim().to_string()
             };
             let input = enrollment::build_exchange_input(&state_dir, &bundle)?;
-            let result =
-                enrollment::exchange_enrollment(&input.control_origin, &input).await?;
+            let result = enrollment::exchange_enrollment(&input.control_origin, &input).await?;
             let config_path = if config.is_empty() {
                 config::agent_home_dir().join("agent.toml")
             } else {
                 PathBuf::from(config)
             };
-            enrollment::write_enrolled_config(
-                &config_path,
-                &input.control_origin,
-                &result,
-            )?;
+            enrollment::write_enrolled_config(&config_path, &input.control_origin, &result)?;
             println!("credential_id={}", result.credential_id);
             println!("worker_id={}", result.worker_id);
             println!("supplier_id={}", result.supplier_id);
@@ -3441,7 +3436,10 @@ async fn run_earnings_cli(config: PathBuf, limit: u32) -> Result<()> {
     let cfg = AgentConfig::load(&config)?;
     let client = ControlPlaneClient::new(&cfg.control_url, &cfg.worker_token)
         .context("build control-plane client")?;
-    let earnings = client.earnings().await.context("fetch /v1/worker/earnings")?;
+    let earnings = client
+        .earnings()
+        .await
+        .context("fetch /v1/worker/earnings")?;
     let ledger = client
         .payout_ledger(limit)
         .await

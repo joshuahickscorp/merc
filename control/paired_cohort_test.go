@@ -30,7 +30,7 @@ import (
 // promotion gate's decision, and this test asserts the gate reaches a decision
 // with reasons — not that the decision is yes.
 // cohortRecordsPerTask is the batch size each cohort task embeds. Batch 32 is on
-// the measured curve in evidence/perf/runtime-benchmarks/embed-cell-candle-vs-llama-cpp-r1.json,
+// the measured curve in evidence/perf/runtime-benchmarks/embed-cell-candle-vs-llama-cpp-r2.json,
 // where the two engines are 2.7x apart — far enough that a real difference cannot
 // be mistaken for timer noise.
 const cohortRecordsPerTask = 32

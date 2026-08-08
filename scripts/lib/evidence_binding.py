@@ -5,7 +5,7 @@ call write_bound_evidence() rather than open()/json.dump directly.
 
 Rules:
   - every identity field is a value or an explicit na reason (never empty)
-  - source_commit must be a real git object in this repo
+  - source_commit must be an exact commit object in this repo
   - build_digest value must equal sha256 of the supplied binary path
   - withdrawn paths cannot be overwritten with non-withdrawn content without
     a new authority_id (sticky withdrawal)
@@ -17,6 +17,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import subprocess
 import tempfile
 from pathlib import Path
@@ -239,24 +240,35 @@ def lfs_local_object_path(repo_root: str | Path, oid: str) -> Path | None:
     return None
 
 
-def _git_indexed_lfs_oid(repo_root: str | Path, path: Path) -> str | None:
-    """The LFS oid git's index actually records for `path`, or None.
+def indexed_lfs_pointer_identity(
+    repo_root: str | Path, path: str | Path
+) -> tuple[str, int] | None:
+    """Return the exact ``(oid, size)`` pointer Git's index records for a path.
 
-    None covers both "not an LFS path" and "not in a git repo" -- callers
-    already treat a non-pointer working tree as authoritative in those cases,
-    so this only tightens the pointer-vs-pointer comparison, never widens it.
+    This intentionally reads the index rather than the working tree.  A normal
+    hydrated LFS checkout contains payload bytes, not the three-line pointer,
+    while the index remains the authority for which payload the candidate tree
+    actually names.  ``None`` means the indexed path is not an LFS pointer (or
+    the repository cannot be inspected); callers must never treat it as a
+    successful pointer match.
     """
     try:
-        rel = os.path.relpath(str(path), str(repo_root))
+        root = Path(repo_root).resolve()
+        rel = Path(path).resolve().relative_to(root).as_posix()
         out = subprocess.run(
             ["git", "-C", str(repo_root), "cat-file", "blob", f":{rel}"],
             capture_output=True, text=True, timeout=10,
         )
-    except (OSError, subprocess.SubprocessError):
+    except (OSError, ValueError, subprocess.SubprocessError):
         return None
     if out.returncode != 0:
         return None
-    parsed = parse_lfs_pointer(out.stdout)
+    return parse_lfs_pointer(out.stdout)
+
+
+def _git_indexed_lfs_oid(repo_root: str | Path, path: Path) -> str | None:
+    """Compatibility helper for callers that only need an indexed LFS oid."""
+    parsed = indexed_lfs_pointer_identity(repo_root, path)
     return parsed[0] if parsed is not None else None
 
 
@@ -292,12 +304,13 @@ def read_evidence_bytes(path: str | Path, repo_root: str | Path | None = None) -
     # repointing a FAIL receipt at a PASS receipt's object left source_sha256
     # unchanged and flipped every downstream verdict. Refuse the mismatch
     # here, at the other reader named in that finding.
-    indexed_oid = _git_indexed_lfs_oid(root, p)
-    if indexed_oid is not None and indexed_oid.lower() != oid.lower():
+    indexed_identity = indexed_lfs_pointer_identity(root, p)
+    if indexed_identity is not None and indexed_identity != (oid, size):
+        indexed_oid, indexed_size = indexed_identity
         raise EvidenceBindingError(
-            f"working-tree pointer for {p} names LFS oid {oid} but git's index "
-            f"names {indexed_oid}; refusing rather than resolving a payload "
-            f"the tree does not actually track at this path"
+            f"working-tree pointer for {p} names LFS oid/size {oid}/{size} but "
+            f"git's index names {indexed_oid}/{indexed_size}; refusing rather "
+            f"than resolving a payload the tree does not actually track at this path"
         )
 
     obj = lfs_local_object_path(root, oid)
@@ -355,19 +368,20 @@ def lfs_pointer_oid(path: str | Path) -> str | None:
 
 
 def validate_git_object(repo_root: str | Path, rev: str) -> None:
-    rev = (rev or "").strip()
-    if not rev or any(c in rev for c in " \t\n\r"):
-        raise EvidenceBindingError(f"source_commit: {rev!r} is not a git object")
-    try:
-        subprocess.run(
-            ["git", "-C", str(repo_root), "cat-file", "-e", f"{rev}^{{object}}"],
+	"""Validate an exact commit identity, never an arbitrary Git object."""
+	rev = (rev or "").strip()
+	if not re.fullmatch(r"[0-9a-f]{40}", rev):
+		raise EvidenceBindingError(f"source_commit: {rev!r} is not a full lowercase commit SHA")
+	try:
+		subprocess.run(
+			["git", "-C", str(repo_root), "cat-file", "-e", f"{rev}^{{commit}}"],
             check=True,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
-    except (subprocess.CalledProcessError, FileNotFoundError, OSError) as exc:
-        raise EvidenceBindingError(
-            f"source_commit: {rev!r} is not a git object in this repo"
+	except (subprocess.CalledProcessError, FileNotFoundError, OSError) as exc:
+		raise EvidenceBindingError(
+			f"source_commit: {rev!r} is not a commit in this repo"
         ) from exc
 
 

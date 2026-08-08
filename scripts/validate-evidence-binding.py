@@ -19,8 +19,10 @@ loudly while UNBOUND artifacts remain cited.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -35,9 +37,12 @@ from lib.evidence_binding import (  # noqa: E402
     BINDING_META_KEYS,
     binding_sidecar_path,
     incomplete_fields,
+    indexed_lfs_pointer_identity,
     is_job_contract_payload,
     lfs_pointer_oid,
     missing_fields_for_object,
+    parse_lfs_pointer,
+    read_evidence_bytes,
     read_evidence_text,
     validate_git_object,
     EvidenceBindingError,
@@ -73,6 +78,34 @@ CITE_ROOTS = (
 # Census / summary artifacts are allowed to mention UNBOUND peers.
 CITE_ALLOWLIST_PREFIXES = (
     "evidence/state/evidence-binding-census.json",
+)
+
+# A small number of historical receipts are immutable Git-LFS payloads that
+# predate binding_status.  They cannot be repaired by editing the body: doing
+# so would rewrite the historical measurement.  Their sibling envelopes are
+# deliberately narrower than ordinary payload sidecars:
+#
+#   * they may apply only to a JSON receipt with no in-body binding_status;
+#   * they are UNBOUND, never an upgrade to BOUND/SUPERSEDED/WITHDRAWN;
+#   * they pin the logical path, indexed pointer oid+size, and hydrated bytes.
+#
+# Thus an envelope preserves an honest historical classification without being
+# a loose sidecar that can bless a repointed or edited payload.
+HISTORICAL_LFS_ENVELOPE_KIND = "historical_lfs_binding_envelope"
+HISTORICAL_LFS_ENVELOPE_KEYS = frozenset(
+    {
+        "schema_version",
+        "kind",
+        "append_only",
+        "historical_source_commit",
+        "target_path",
+        "indexed_lfs_oid_sha256",
+        "indexed_lfs_size_bytes",
+        "hydrated_body_sha256",
+        "binding_status",
+        "missing_identity_fields",
+        "reason",
+    }
 )
 
 FAILURES: list[str] = []
@@ -128,6 +161,156 @@ def _load_sidecar(path: Path, rel: str) -> dict[str, Any] | None:
     return binding
 
 
+def _historical_source_pointer(
+    source_commit: Any, target_path: str
+) -> tuple[str, int] | None:
+    """Read the immutable historical pointer from a full ancestor commit.
+
+    `append_only` is not a Git primitive.  Anchoring an envelope to a committed
+    predecessor makes a coordinated working-tree pointer+sidecar rewrite fail:
+    both the current index and the named historical tree must still name the
+    identical OID and byte size.
+    """
+    if not isinstance(source_commit, str) or not re.fullmatch(r"[0-9a-f]{40}", source_commit):
+        fail("historical_source_commit must be a full lowercase 40-hex commit")
+        return None
+    resolved = subprocess.run(
+        ["git", "-C", str(ROOT), "rev-parse", "--verify", f"{source_commit}^{{commit}}"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if resolved.returncode != 0 or resolved.stdout.strip() != source_commit:
+        fail("historical_source_commit is not an exact local commit")
+        return None
+    ancestry = subprocess.run(
+        ["git", "-C", str(ROOT), "merge-base", "--is-ancestor", source_commit, "HEAD"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if ancestry.returncode != 0:
+        fail("historical_source_commit is not an ancestor of current HEAD")
+        return None
+    shown = subprocess.run(
+        ["git", "-C", str(ROOT), "show", f"{source_commit}:{target_path}"],
+        capture_output=True,
+        check=False,
+    )
+    if shown.returncode != 0:
+        fail("historical_source_commit does not contain the target pointer")
+        return None
+    try:
+        text = shown.stdout.decode("utf-8")
+    except UnicodeDecodeError:
+        fail("historical_source_commit target is not an LFS pointer")
+        return None
+    pointer = parse_lfs_pointer(text)
+    if pointer is None:
+        fail("historical_source_commit target is not an LFS pointer")
+    return pointer
+
+
+def _historical_lfs_envelope_binding(
+    path: Path, rel: str, body: dict[str, Any]
+) -> dict[str, Any] | None:
+    """Load one immutable-payload UNBOUND envelope, or refuse it precisely.
+
+    This is intentionally not a generic fallback.  The caller invokes it only
+    after establishing that the receipt body has *no* binding_status.  An
+    in-body status, including an invalid one, stays authoritative and will be
+    handled by the ordinary status checks below.
+    """
+    side = binding_sidecar_path(path)
+    if not side.is_file():
+        return None
+    binding = _load_sidecar(path, rel)
+    if binding is None:
+        return None
+
+    errors: list[str] = []
+    if set(binding) != HISTORICAL_LFS_ENVELOPE_KEYS:
+        unknown = sorted(set(binding) - HISTORICAL_LFS_ENVELOPE_KEYS)
+        missing = sorted(HISTORICAL_LFS_ENVELOPE_KEYS - set(binding))
+        detail: list[str] = []
+        if unknown:
+            detail.append("unknown keys=" + ",".join(unknown))
+        if missing:
+            detail.append("missing keys=" + ",".join(missing))
+        errors.append("strict envelope schema required (" + "; ".join(detail) + ")")
+
+    if binding.get("schema_version") != 1:
+        errors.append("schema_version must be 1")
+    if binding.get("kind") != HISTORICAL_LFS_ENVELOPE_KIND:
+        errors.append(f"kind must be {HISTORICAL_LFS_ENVELOPE_KIND!r}")
+    if binding.get("append_only") is not True:
+        errors.append("append_only must be true")
+    if binding.get("target_path") != rel:
+        errors.append(f"target_path must equal {rel!r}")
+    if str(binding.get("binding_status") or "").upper() != BINDING_UNBOUND:
+        errors.append("historical LFS envelope may only declare binding_status=UNBOUND")
+    if not isinstance(binding.get("reason"), str) or not binding["reason"].strip():
+        errors.append("reason must be a non-empty string")
+
+    historical_pointer = _historical_source_pointer(
+        binding.get("historical_source_commit"), rel
+    )
+    if historical_pointer is not None:
+        source_oid, source_size = historical_pointer
+        if binding.get("indexed_lfs_oid_sha256") != source_oid:
+            errors.append(
+                "indexed_lfs_oid_sha256 does not match the historical source pointer"
+            )
+        if binding.get("indexed_lfs_size_bytes") != source_size:
+            errors.append(
+                "indexed_lfs_size_bytes does not match the historical source pointer"
+            )
+
+    indexed = indexed_lfs_pointer_identity(ROOT, path)
+    if indexed is None:
+        errors.append("target is not an indexed Git-LFS pointer")
+    else:
+        indexed_oid, indexed_size = indexed
+        if binding.get("indexed_lfs_oid_sha256") != indexed_oid:
+            errors.append("indexed_lfs_oid_sha256 does not match the indexed pointer")
+        if (
+            isinstance(binding.get("indexed_lfs_size_bytes"), bool)
+            or binding.get("indexed_lfs_size_bytes") != indexed_size
+        ):
+            errors.append("indexed_lfs_size_bytes does not match the indexed pointer")
+
+        try:
+            hydrated = read_evidence_bytes(path, ROOT)
+        except (OSError, EvidenceBindingError) as exc:
+            errors.append(f"cannot verify hydrated body: {exc}")
+        else:
+            hydrated_sha = hashlib.sha256(hydrated).hexdigest()
+            if len(hydrated) != indexed_size:
+                errors.append(
+                    "hydrated body size does not match the indexed LFS pointer"
+                )
+            if hydrated_sha != indexed_oid:
+                errors.append(
+                    "hydrated body sha256 does not match the indexed LFS pointer"
+                )
+            if binding.get("hydrated_body_sha256") != hydrated_sha:
+                errors.append("hydrated_body_sha256 does not match the body")
+
+    expected_missing = missing_fields_for_object(body, ROOT)
+    if binding.get("missing_identity_fields") != expected_missing:
+        errors.append(
+            "missing_identity_fields must exactly name the fields absent from "
+            "the immutable body"
+        )
+
+    if errors:
+        fail(
+            f"{rel}: historical LFS envelope refused: " + "; ".join(errors)
+        )
+        return None
+    return binding
+
+
 def load_binding_for(path: Path) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
     """Return (object_or_none, binding_doc).
 
@@ -171,7 +354,22 @@ def load_binding_for(path: Path) -> tuple[dict[str, Any] | None, dict[str, Any] 
                     )
                     return data, None
                 return data, binding
-            # Receipt: binding lives in the object.
+            # An in-body status always wins.  In particular, an envelope cannot
+            # downgrade or upgrade a body that now says BOUND, SUPERSEDED,
+            # WITHDRAWN, or even an invalid status; status handling below will
+            # fail an invalid claim rather than silently accepting the sidecar.
+            if "binding_status" in data:
+                return data, data
+
+            # A historical LFS receipt with no in-body status may carry the
+            # narrow immutable-payload envelope above.  Non-LFS receipts retain
+            # the normal in-body-only rule, so this is never a broad sidecar
+            # escape hatch for arbitrary JSON.
+            envelope = _historical_lfs_envelope_binding(path, rel, data)
+            if envelope is not None:
+                return data, envelope
+
+            # Receipt: binding normally lives in the object.
             return data, data
         # JSON non-object (array etc.)
         binding = _load_sidecar(path, rel)

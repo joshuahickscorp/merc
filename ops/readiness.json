@@ -43,7 +43,7 @@
   },
   "severity": {
     "target_scope_open_p0": 0,
-    "target_scope_open_p1": 8,
+    "target_scope_open_p1": 9,
     "open_p2": 4,
     "out_of_scope_p0": ["independently controlled supplier devices remain prohibited without contractual, location, egress, and attestation controls"]
   },

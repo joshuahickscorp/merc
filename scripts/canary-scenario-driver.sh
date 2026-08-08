@@ -156,10 +156,12 @@ resolve_database_url() {
 # Sets: PGHOST PGPORT PGUSER PGDATABASE PGPASSWORD PGSSLMODE (and clears DATABASE_URL_OBS usage for argv).
 configure_psql_env() {
   local url="$1"
-  # python3 urlparse keeps the password out of shell word-splitting and argv.
-  eval "$(python3 - "$url" <<'PY'
-import sys, urllib.parse, shlex
-u = urllib.parse.urlparse(sys.argv[1])
+  # The URI is passed through FD 3.  A here-document owns stdin for Python
+  # source, so an ordinary pipe would not work; FD 3 avoids both shell argv and
+  # Python sys.argv exposure of the database password.
+  eval "$(python3 - 3<<<"$url" <<'PY'
+import os, urllib.parse, shlex
+u = urllib.parse.urlparse(os.read(3, 65536).decode("utf-8").rstrip("\n"))
 if u.scheme not in ("postgres", "postgresql"):
     sys.exit("database URL scheme must be postgres/postgresql")
 host = u.hostname or "localhost"

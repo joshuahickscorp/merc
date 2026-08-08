@@ -14,6 +14,34 @@ env:
   PRIOR_SHA: 0387766c5d0e8f9e5b64e8cbef215edcd07784bd
 
 jobs:
+  # A checkout with lfs:true proves only that this runner can read its own
+  # checkout.  This job starts a second, private repository with an empty LFS
+  # cache and fetches CANDIDATE_SHA from origin itself.  A PR SHA must therefore
+  # be remotely durable before it can merge; local object-store seeding cannot
+  # pass this gate.
+  lfs-origin-durability:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          lfs: false
+          ref: ${{ env.CANDIDATE_SHA }}
+          fetch-depth: 0
+      - name: Candidate source identity
+        run: test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+      - name: Fresh remote clone, empty LFS cache, independent verification
+        run: bash scripts/verify-lfs-origin-durability.sh --json > "$RUNNER_TEMP/lfs-origin-durability.json"
+      - name: Upload origin-durability receipt
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: candidate-lfs-origin-durability-${{ env.CANDIDATE_SHA }}
+          path: ${{ runner.temp }}/lfs-origin-durability.json
+          if-no-files-found: warn
+          retention-days: 30
+
   control:
     runs-on: ubuntu-latest
     services:
@@ -111,6 +139,8 @@ jobs:
           cargo test
           cd ..
           bash scripts/test-agent-cross-platform-installers.sh
+      - name: RunPod lease Darwin identity refusal tests
+        run: python3 scripts/test-runpod-orphan-reconcile.py
       - name: release build and sandbox
         run: |
           cd agent
@@ -168,6 +198,14 @@ jobs:
       # pointers and the suite either false-passes or fails opaquely.
       - name: Hydrate release-critical LFS evidence
         run: bash scripts/hydrate-release-lfs.sh
+      # The adversarial corpus proof deliberately exercises every tracked
+      # pointer/alias, including paths outside evidence/perf.  Clear both LFS
+      # filters and hydrate the complete candidate corpus before it runs; a
+      # release-critical subset is not a tamper/missing/corrupt refusal proof.
+      - name: Hydrate complete LFS corpus for adversarial integrity proofs
+        run: |
+          git lfs fetch --include="*" --exclude="" origin "$CANDIDATE_SHA"
+          git lfs checkout
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: "1.26.5"
@@ -180,6 +218,10 @@ jobs:
           node-version: "22"
       - name: Candidate source identity
         run: test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+      - name: Adversarial LFS and immutable-envelope refusal proofs
+        run: |
+          bash scripts/test-lfs-corpus-adversarial.sh
+          python3 scripts/test-evidence-binding-historical-lfs.py
       - name: Install backup envelope tool
         run: |
           sudo apt-get update
@@ -192,12 +234,17 @@ jobs:
           python3 scripts/validate-authorization-matrix.py
           python3 scripts/validate-independent-reviews.py
           python3 scripts/validate-governance.py
-          python3 scripts/validate-readiness.py
+          MERC_READINESS_EXPECTED_COMMIT="$CANDIDATE_SHA" \
+            MERC_READINESS_EXPECTED_CONTROL_IMAGE="${MERC_CANDIDATE_CONTROL_IMAGE:-}" \
+            python3 scripts/validate-readiness.py
+          python3 scripts/test-readiness-candidate-binding.py
           python3 scripts/assert-soak-claims.py
           python3 scripts/validate-claim-surfaces.py
           python3 scripts/test-gateway-parity-receipt.py
           python3 scripts/validate-evidence-binding.py
           python3 scripts/runpod-spend-guard.py --self-test
+          python3 scripts/test-runpod-orphan-reconcile.py
+          python3 scripts/test-runpod-create-payload.py
           python3 scripts/runpod-spend-guard.py revalidate
           python3 scripts/test-go-closure-evidence-chain.py
           node scripts/site-build.mjs
@@ -248,6 +295,11 @@ jobs:
           go-version: "1.26.5"
       - name: Candidate source identity
         run: test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+      # This is the final-image boot proof, not merely a Docker build.  It runs
+      # before this job writes archive artifacts into the checkout because the
+      # boot harness correctly insists on an exact clean source tree.
+      - name: Boot exact final control image
+        run: bash scripts/test-release-image-boots.sh
       - name: Build immutable candidate and prior images
         run: |
           CANDIDATE_EPOCH="$(git show -s --format=%ct "$CANDIDATE_SHA")"

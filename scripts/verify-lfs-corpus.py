@@ -178,9 +178,13 @@ def verify_corpus(root: Path) -> dict[str, Any]:
     common = git_common_dir(root)
     entries = load_index(root)
 
-    by_oid: dict[str, list[str]] = defaultdict(list)
-    for rel, oid, _size in entries:
-        by_oid[oid].append(rel)
+    # Keep every pointer size with its logical path.  Multiple paths may share
+    # an LFS OID, but they do not get to share an unchecked size declaration:
+    # validating only the first alias lets a forged-size pointer ride behind a
+    # healthy same-OID object.
+    by_oid: dict[str, list[tuple[str, int]]] = defaultdict(list)
+    for rel, oid, size in entries:
+        by_oid[oid].append((rel, size))
 
     missing: list[dict[str, str]] = []
     corrupt: list[dict[str, str]] = []
@@ -188,7 +192,8 @@ def verify_corpus(root: Path) -> dict[str, Any]:
     verified_oids: list[str] = []
 
     # Unique-oid object-store integrity.
-    for oid, paths in sorted(by_oid.items()):
+    for oid, aliases_for_oid in sorted(by_oid.items()):
+        paths = [rel for rel, _size in aliases_for_oid]
         obj = lfs_object_path(common, oid)
         if not obj.is_file():
             missing.append({"oid": oid, "paths": ", ".join(paths), "object": str(obj)})
@@ -204,17 +209,25 @@ def verify_corpus(root: Path) -> dict[str, Any]:
                 }
             )
             continue
-        # Size check against any one pointer (all aliases share size).
-        size = next(s for r, o, s in entries if o == oid)
         actual_size = obj.stat().st_size
-        if actual_size != size:
+        bad_sizes = [
+            (rel, pointer_size)
+            for rel, pointer_size in aliases_for_oid
+            if actual_size != pointer_size
+        ]
+        if bad_sizes:
+            aliases = ", ".join(
+                f"{rel}={pointer_size}" for rel, pointer_size in bad_sizes
+            )
             corrupt.append(
                 {
                     "oid": oid,
                     "got_sha256": got,
                     "paths": ", ".join(paths),
                     "object": str(obj),
-                    "size_error": f"size {actual_size} != pointer size {size}",
+                    "size_error": (
+                        f"size {actual_size} != pointer size at alias(es) {aliases}"
+                    ),
                 }
             )
             continue
@@ -252,9 +265,9 @@ def verify_corpus(root: Path) -> dict[str, Any]:
             )
 
     aliases = {
-        oid: paths
-        for oid, paths in sorted(by_oid.items())
-        if len(paths) > 1
+        oid: [rel for rel, _size in aliases_for_oid]
+        for oid, aliases_for_oid in sorted(by_oid.items())
+        if len(aliases_for_oid) > 1
     }
     duplicate_pointer_count = sum(len(p) - 1 for p in aliases.values())
 
