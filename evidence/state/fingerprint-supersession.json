@@ -1,0 +1,114 @@
+{
+  "schema_version": 1,
+  "kind": "source_fingerprint_supersession",
+  "binding_status": "BOUND",
+  "producer_identity": {
+    "source_commit": {
+      "value": "04a94f33c21a4867aba3cbfc98a378bcce8fe77f"
+    },
+    "build_digest": {
+      "na": "ledger enumerates historical digests; no binary produced"
+    },
+    "model_artifact_digest": {
+      "na": "not a model measurement"
+    },
+    "image_digest": {
+      "na": "not a container measurement"
+    },
+    "harness_revision": {
+      "value": "sourceFingerprint schema_version 2 / computexchange-source-fingerprint-v2"
+    },
+    "corpus_digest": {
+      "na": "enumerates existing receipts; does not re-hash a corpus"
+    },
+    "exact_config": {
+      "value": "P0 fingerprint binding: path + LFS oid + size + producer head; payload verified against oid; fail closed when absent"
+    },
+    "raw_samples": {
+      "na": "supersession ledger, not a sample-bearing measurement"
+    }
+  },
+  "scheme_change": {
+    "from": {
+      "schema_version": 1,
+      "domain": "computexchange-source-fingerprint-v1",
+      "lfs_binding": "hashed on-disk bytes (three-line pointer when unsmudged; full payload when smudged)"
+    },
+    "to": {
+      "schema_version": 2,
+      "domain": "computexchange-source-fingerprint-v2",
+      "lfs_binding": "logical path + LFS oid + payload size + producer head; payload resolved and sha256 verified against oid; absent object fails closed"
+    },
+    "why": "v1 digests were not a function of payload identity under LFS: the same logical tree produced different source_sha256 values depending on smudge state, and an unsmudged tree bound only the pointer text. v2 binds the content-addressed OID and refuses when the payload cannot be verified."
+  },
+  "policy": {
+    "historical_receipts": "never edited in place — editing a stored source_sha256 is forgery",
+    "citation": "a v1 source_sha256 must not be cited as current-tree identity under v2; re-run the producing proof under schema 2 to mint a successor",
+    "worktreeContentDigest": "NOT changed. control/dev_checkpoint.go hashes on-disk bytes for same-session before/after mutation restore. It has the same on-disk LFS ambiguity (pointer vs payload) but is session-local, never published as source_sha256, and is not a citable identity. No supersession applies."
+  },
+  "affected_receipts": [
+    {
+      "path": "evidence/canary/cad-local-proof-d0f1e802.json",
+      "fields": [
+        "proof_source_sha256",
+        "receipts.source_sha256"
+      ],
+      "old_value": "d0f1e802445805dcfc5cfce31db744734131a2b8a97e58192104aaa582463345",
+      "old_scheme": "computexchange-source-fingerprint-v1",
+      "why_changed": "v1 domain and on-disk content hash; not reproducible under v2 LFS OID+size binder",
+      "superseding_record": "none yet — re-run scripts/prove-local.sh (or equivalent) under schema 2 and seal a new canary receipt; do not rewrite this file"
+    },
+    {
+      "path": "evidence/canary/cad-local-proof-a6212e84.json",
+      "fields": [
+        "proof_source_sha256"
+      ],
+      "old_value": "a6212e8412dbac302caf6a2e026ff8bb86a4bb6074c5161979320ffdf9d58564",
+      "old_scheme": "computexchange-source-fingerprint-v1",
+      "why_changed": "v1 domain and on-disk content hash; not reproducible under v2 LFS OID+size binder",
+      "superseding_record": "none yet — re-run the producing proof under schema 2; do not rewrite this file"
+    },
+    {
+      "path": "evidence/canary/cad-local-proof-aefa51df.json",
+      "fields": [
+        "proof_source_sha256"
+      ],
+      "old_value": "aefa51df36ca9a1da0f735702f8bfbfe7a7dfaa5ba0a811b505106493ecd0ba1",
+      "old_scheme": "computexchange-source-fingerprint-v1",
+      "why_changed": "v1 domain and on-disk content hash; not reproducible under v2 LFS OID+size binder",
+      "superseding_record": "none yet — re-run the producing proof under schema 2; do not rewrite this file"
+    },
+    {
+      "path": "evidence/canary/media-transcode-full-loop-r1.json",
+      "fields": [
+        "proof_source_sha256"
+      ],
+      "old_value": "3ffa9a2f242b2e7fdd68d86a4242ed04fe40d79a1b73783e37ac244286715b1a",
+      "old_scheme": "computexchange-source-fingerprint-v1",
+      "why_changed": "v1 domain and on-disk content hash; not reproducible under v2 LFS OID+size binder",
+      "superseding_record": "none yet — re-run the producing proof under schema 2; do not rewrite this file"
+    },
+    {
+      "path": "ops/readiness.json",
+      "fields": [
+        "source.latest_full_local_precommit_proof_source_sha256"
+      ],
+      "old_value": "05627d75e28fe07815f7026c5e81093e329be168cc99b701fe96971c7cac5eab",
+      "old_scheme": "computexchange-source-fingerprint-v1",
+      "why_changed": "v1 domain and on-disk content hash; readiness ledger is historical and not a live fingerprint recomputation target under v2",
+      "superseding_record": "none yet — next readiness regeneration under schema 2 writes a new field value; do not rewrite the historical entry in place"
+    },
+    {
+      "path": "ops/readiness.json",
+      "fields": [
+        "remote_evidence.ci_source_sha256"
+      ],
+      "old_value": "4777056bf4fc8b4b7198e21607f15ab31993da04ee5f7f3918f1bb1a77449536",
+      "old_scheme": "computexchange-source-fingerprint-v1",
+      "why_changed": "CI-reported v1 source fingerprint from predecessor candidate; not recomputed under v2",
+      "superseding_record": "none yet — next exact-head CI candidate under schema 2 records a new ci_source_sha256; do not rewrite this historical value"
+    }
+  ],
+  "enumeration_method": "rg -ln source_sha256 / proof_source_sha256 over evidence/ and ops/; every stored value listed. Zero historical receipt bodies, paths, or SHAs were modified by this change.",
+  "current_scheme_note": "Recompute live identity with: (cd control && go run . source-id --root ..). schema_version will be 2. That live value is not written back into any historical receipt."
+}

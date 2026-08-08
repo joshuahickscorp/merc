@@ -14,6 +14,34 @@ env:
   PRIOR_SHA: 0387766c5d0e8f9e5b64e8cbef215edcd07784bd
 
 jobs:
+  # A checkout with lfs:true proves only that this runner can read its own
+  # checkout.  This job starts a second, private repository with an empty LFS
+  # cache and fetches CANDIDATE_SHA from origin itself.  A PR SHA must therefore
+  # be remotely durable before it can merge; local object-store seeding cannot
+  # pass this gate.
+  lfs-origin-durability:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          lfs: false
+          ref: ${{ env.CANDIDATE_SHA }}
+          fetch-depth: 0
+      - name: Candidate source identity
+        run: test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+      - name: Fresh remote clone, empty LFS cache, independent verification
+        run: bash scripts/verify-lfs-origin-durability.sh --json > "$RUNNER_TEMP/lfs-origin-durability.json"
+      - name: Upload origin-durability receipt
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: candidate-lfs-origin-durability-${{ env.CANDIDATE_SHA }}
+          path: ${{ runner.temp }}/lfs-origin-durability.json
+          if-no-files-found: warn
+          retention-days: 30
+
   control:
     runs-on: ubuntu-latest
     services:
@@ -36,7 +64,12 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
+          lfs: true
           ref: ${{ env.CANDIDATE_SHA }}
+      # .lfsconfig fetchexclude skips evidence/perf/**; checkout's plain
+      # git lfs pull honours it. Tests read release-critical perf receipts.
+      - name: Hydrate release-critical LFS evidence
+        run: bash scripts/hydrate-release-lfs.sh
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: "1.26.5"
@@ -46,7 +79,10 @@ jobs:
       - name: schema is idempotent
         run: |
           sudo apt-get update
-          sudo apt-get install -y postgresql-client
+          # The segmented-media reassembly test is a production ffmpeg concat
+          # contract, so install the tool and run it rather than allowlisting a
+          # skipped assertion on the control lane.
+          sudo apt-get install -y postgresql-client ffmpeg
           psql -h localhost -U cx -d cx -v ON_ERROR_STOP=1 --single-transaction -f control/schema.sql
           psql -h localhost -U cx -d cx -v ON_ERROR_STOP=1 --single-transaction -f control/schema.sql
       - name: format, vet, test, race
@@ -56,8 +92,13 @@ jobs:
           go vet ./...
           bash ../scripts/with-isolated-test-storage.sh \
             bash ../scripts/with-isolated-test-db.sh go test ./...
+          # The full race-instrumented integration package has individual
+          # bounded contexts for its blocking paths, but it legitimately takes
+          # longer than Go's default package-wide ten-minute alarm on GitHub's
+          # shared Postgres runner. Keep the race suite complete rather than
+          # letting that aggregate default truncate it mid-progress.
           bash ../scripts/with-isolated-test-storage.sh \
-            bash ../scripts/with-isolated-test-db.sh go test -race ./...
+            bash ../scripts/with-isolated-test-db.sh go test -race -timeout 20m ./...
       # A skipped test is an assertion nobody made.  MERC_TEST_DATABASE_URL is set
       # for this job, so the money and scheduling suite must actually run; this
       # step fails if any test skips without being allowlisted.
@@ -67,12 +108,12 @@ jobs:
         run: |
           cd control
           time go build -trimpath -o "$RUNNER_TEMP/merc" .
-          go run . audit codebase --out census
+          go run . audit codebase --out evidence/census
       - name: Package control evidence
         run: |
           mkdir -p "$RUNNER_TEMP/control-evidence"
           cp "$RUNNER_TEMP/merc" control/schema.sql control/runtime-authority.json \
-            proto/manifest.schema.json "$RUNNER_TEMP/control-evidence/"
+            clients/proto/manifest.schema.json "$RUNNER_TEMP/control-evidence/"
           cd "$RUNNER_TEMP/control-evidence"
           sha256sum merc schema.sql runtime-authority.json manifest.schema.json > SHA256SUMS
       - name: Upload control evidence
@@ -88,6 +129,7 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
+          lfs: true
           ref: ${{ env.CANDIDATE_SHA }}
       - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable 2026-07-19
         with:
@@ -105,12 +147,14 @@ jobs:
           cargo test
           cd ..
           bash scripts/test-agent-cross-platform-installers.sh
+      - name: RunPod lease Darwin identity refusal tests
+        run: python3 scripts/test-runpod-orphan-reconcile.py
       - name: release build and sandbox
         run: |
           cd agent
           time cargo build --release
           cd ..
-          bash macapp/ComputeExchangeAgent/sandbox-profile-test.sh
+          bash clients/macapp/ComputeExchangeAgent/sandbox-profile-test.sh
       - name: Package agent evidence
         run: |
           mkdir -p "$RUNNER_TEMP/agent-evidence"
@@ -130,6 +174,7 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
+          lfs: true
           ref: ${{ env.CANDIDATE_SHA }}
       - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable 2026-07-19
         with:
@@ -154,7 +199,24 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
+          lfs: true
           ref: ${{ env.CANDIDATE_SHA }}
+          # Evidence bindings intentionally verify historical source commits.
+          # A shallow checkout cannot establish those immutable references.
+          fetch-depth: 0
+      # Gates (validate-evidence-binding, claim surfaces, readiness) resolve
+      # evidence/perf/** bodies. Without this, .lfsconfig fetchexclude leaves
+      # pointers and the suite either false-passes or fails opaquely.
+      - name: Hydrate release-critical LFS evidence
+        run: bash scripts/hydrate-release-lfs.sh
+      # The adversarial corpus proof deliberately exercises every tracked
+      # pointer/alias, including paths outside evidence/perf.  Clear both LFS
+      # filters and hydrate the complete candidate corpus before it runs; a
+      # release-critical subset is not a tamper/missing/corrupt refusal proof.
+      - name: Hydrate complete LFS corpus for adversarial integrity proofs
+        run: |
+          git lfs fetch --include="*" --exclude="" origin "$CANDIDATE_SHA"
+          git lfs checkout
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: "1.26.5"
@@ -167,24 +229,35 @@ jobs:
           node-version: "22"
       - name: Candidate source identity
         run: test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+      - name: Adversarial LFS and immutable-envelope refusal proofs
+        run: |
+          bash scripts/test-lfs-corpus-adversarial.sh
+          python3 scripts/test-evidence-binding-historical-lfs.py
       - name: Install backup envelope tool
         run: |
           sudo apt-get update
           sudo apt-get install -y age
       - name: schema and generated artifacts
         run: |
-          python3 -m json.tool proto/manifest.schema.json >/dev/null
+          python3 -m json.tool clients/proto/manifest.schema.json >/dev/null
           python3 -m json.tool control/runtime-authority.json >/dev/null
           python3 -m json.tool ops/governance-approval-bundle.schema.json >/dev/null
           python3 scripts/validate-authorization-matrix.py
           python3 scripts/validate-independent-reviews.py
           python3 scripts/validate-governance.py
-          python3 scripts/validate-readiness.py
+          MERC_READINESS_EXPECTED_COMMIT="$CANDIDATE_SHA" \
+            MERC_READINESS_EXPECTED_CONTROL_IMAGE="${MERC_CANDIDATE_CONTROL_IMAGE:-}" \
+            python3 scripts/validate-readiness.py
+          python3 scripts/test-readiness-candidate-binding.py
           python3 scripts/assert-soak-claims.py
           python3 scripts/validate-claim-surfaces.py
           python3 scripts/test-gateway-parity-receipt.py
           python3 scripts/validate-evidence-binding.py
           python3 scripts/runpod-spend-guard.py --self-test
+          python3 scripts/test-runpod-orphan-reconcile.py
+          python3 scripts/test-runpod-create-payload.py
+          bash scripts/test-runpod-command-safety.sh
+          python3 scripts/test-runpod-receipt-withdrawals.py
           python3 scripts/runpod-spend-guard.py revalidate
           python3 scripts/test-go-closure-evidence-chain.py
           node scripts/site-build.mjs
@@ -202,7 +275,7 @@ jobs:
           bash scripts/build-cli-release.sh v0.1.0-rc.1 "$BUNDLE/cli"
           cp web/index.html web/admin.html web/favicon.ico "$BUNDLE/website/"
           cp control/schema.sql control/runtime-authority.json \
-            proto/manifest.schema.json .env.example "$BUNDLE/contracts/"
+            clients/proto/manifest.schema.json .env.example "$BUNDLE/contracts/"
           cp RELEASE_READINESS.md docs/RUNBOOKS.md docs/SECURITY.md \
             "$BUNDLE/docs/"
           printf '%s\n' "$CANDIDATE_SHA" > "$BUNDLE/SOURCE_COMMIT"
@@ -227,6 +300,7 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
+          lfs: true
           ref: ${{ env.CANDIDATE_SHA }}
           fetch-depth: 0
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
@@ -234,6 +308,11 @@ jobs:
           go-version: "1.26.5"
       - name: Candidate source identity
         run: test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+      # This is the final-image boot proof, not merely a Docker build.  It runs
+      # before this job writes archive artifacts into the checkout because the
+      # boot harness correctly insists on an exact clean source tree.
+      - name: Boot exact final control image
+        run: bash scripts/test-release-image-boots.sh
       - name: Build immutable candidate and prior images
         run: |
           CANDIDATE_EPOCH="$(git show -s --format=%ct "$CANDIDATE_SHA")"
@@ -296,6 +375,7 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
+          lfs: true
           ref: ${{ env.CANDIDATE_SHA }}
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:

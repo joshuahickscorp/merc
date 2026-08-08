@@ -197,15 +197,11 @@ func TestBuyerRefundNeverExceedsChargeUnderInterleavedRetries(t *testing.T) {
 	f := seedBuyerRefundFixture(t, ctx, pool, buyerRefundOpts{withCardCollection: true})
 
 	disputeID, err := store.RecordDispute(ctx, f.jobID, f.buyerID, "output does not match submitted input")
-	if err != nil {
-		t.Fatalf("RecordDispute: %v", err)
-	}
+	mustf(t, err, "RecordDispute: %v")
 	// Interleave: resolve, then re-resolve, then attempt a raw extra refund insert
 	// that would over-refund if the writer did not fail closed / unique-key.
 	for i := 0; i < 5; i++ {
-		if err := store.resolveDispute(ctx, disputeID, "upheld"); err != nil {
-			t.Fatalf("resolve attempt %d: %v", i, err)
-		}
+		mustf(t, store.resolveDispute(ctx, disputeID, "upheld"), "resolve attempt %d: %v", i)
 	}
 	var refunds, charges int
 	var refundMicros, chargeMicros int64
@@ -254,15 +250,9 @@ func TestBuyerRefundDoubleResolutionOnce(t *testing.T) {
 	f := seedBuyerRefundFixture(t, ctx, pool, buyerRefundOpts{withCardCollection: true})
 
 	disputeID, err := store.RecordDispute(ctx, f.jobID, f.buyerID, "independent review shows a bad result")
-	if err != nil {
-		t.Fatalf("RecordDispute: %v", err)
-	}
-	if err := store.SetDisputeStatus(ctx, disputeID, "upheld"); err != nil {
-		t.Fatalf("uphold: %v", err)
-	}
-	if err := store.resolveDispute(ctx, disputeID, "upheld"); err != nil {
-		t.Fatalf("second resolve: %v", err)
-	}
+	mustf(t, err, "RecordDispute: %v")
+	mustf(t, store.SetDisputeStatus(ctx, disputeID, "upheld"), "uphold: %v")
+	mustf(t, store.resolveDispute(ctx, disputeID, "upheld"), "second resolve: %v")
 	var refundRows, receiptRows int
 	if err := pool.QueryRow(ctx, `
 		SELECT
@@ -283,9 +273,7 @@ func TestBuyerRefundConcurrentResolutionOnce(t *testing.T) {
 	f := seedBuyerRefundFixture(t, ctx, pool, buyerRefundOpts{withCardCollection: true})
 
 	disputeID, err := store.RecordDispute(ctx, f.jobID, f.buyerID, "concurrent resolution must refund once")
-	if err != nil {
-		t.Fatalf("RecordDispute: %v", err)
-	}
+	mustf(t, err, "RecordDispute: %v")
 
 	const workers = 8
 	var wg sync.WaitGroup
@@ -300,9 +288,7 @@ func TestBuyerRefundConcurrentResolutionOnce(t *testing.T) {
 	wg.Wait()
 	close(errs)
 	for err := range errs {
-		if err != nil {
-			t.Fatalf("concurrent resolve: %v", err)
-		}
+		mustf(t, err, "concurrent resolve: %v")
 	}
 	var refundRows int
 	var refundMicros int64
@@ -345,12 +331,8 @@ func TestBuyerRefundConservesMoneyChargeClawbackRefund(t *testing.T) {
 	}
 
 	disputeID, err := store.RecordDispute(ctx, f.jobID, f.buyerID, "bad result, full money path")
-	if err != nil {
-		t.Fatalf("RecordDispute: %v", err)
-	}
-	if err := store.SetDisputeStatus(ctx, disputeID, "upheld"); err != nil {
-		t.Fatalf("uphold: %v", err)
-	}
+	mustf(t, err, "RecordDispute: %v")
+	mustf(t, store.SetDisputeStatus(ctx, disputeID, "upheld"), "uphold: %v")
 
 	// After charge → clawback → buyer_refund → platform_refund, sum is 0.
 	var sumAfter float64
@@ -366,17 +348,13 @@ func TestBuyerRefundConservesMoneyChargeClawbackRefund(t *testing.T) {
 	var kinds map[string]float64
 	rows, err := pool.Query(ctx, `
 		SELECT kind, amount_usd::float8 FROM ledger_entries WHERE task_id=$1 ORDER BY kind`, f.taskID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	defer rows.Close()
 	kinds = map[string]float64{}
 	for rows.Next() {
 		var k string
 		var a float64
-		if err := rows.Scan(&k, &a); err != nil {
-			t.Fatal(err)
-		}
+		must(t, rows.Scan(&k, &a))
 		kinds[k] = a
 	}
 	if kinds[KindBuyerCharge] != -1.25 || kinds[KindBuyerRefund] != 1.25 ||
@@ -393,17 +371,11 @@ func TestBuyerRefundVisibleOnReceipt(t *testing.T) {
 	f := seedBuyerRefundFixture(t, ctx, pool, buyerRefundOpts{withCardCollection: true})
 
 	disputeID, err := store.RecordDispute(ctx, f.jobID, f.buyerID, "receipt must show the refund")
-	if err != nil {
-		t.Fatalf("RecordDispute: %v", err)
-	}
-	if err := store.SetDisputeStatus(ctx, disputeID, "upheld"); err != nil {
-		t.Fatalf("uphold: %v", err)
-	}
+	mustf(t, err, "RecordDispute: %v")
+	mustf(t, store.SetDisputeStatus(ctx, disputeID, "upheld"), "uphold: %v")
 
 	inv, err := store.JobInvoice(ctx, f.jobID, f.buyerID)
-	if err != nil {
-		t.Fatalf("JobInvoice: %v", err)
-	}
+	mustf(t, err, "JobInvoice: %v")
 	if inv.BuyerRefundUSD != 1.25 {
 		t.Fatalf("BuyerRefundUSD=%v, want 1.25", inv.BuyerRefundUSD)
 	}
@@ -458,12 +430,8 @@ func TestBuyerRefundCurrencyCannotMix(t *testing.T) {
 	}
 
 	disputeID, err := store.RecordDispute(ctx, f.jobID, f.buyerID, "currency authority must hold on refund")
-	if err != nil {
-		t.Fatalf("RecordDispute: %v", err)
-	}
-	if err := store.SetDisputeStatus(ctx, disputeID, "upheld"); err != nil {
-		t.Fatalf("uphold: %v", err)
-	}
+	mustf(t, err, "RecordDispute: %v")
+	mustf(t, store.SetDisputeStatus(ctx, disputeID, "upheld"), "uphold: %v")
 	var refundCurrency string
 	if err := pool.QueryRow(ctx, `
 		SELECT currency FROM ledger_entries
@@ -495,12 +463,8 @@ func TestBuyerRefundRestoresPrepaidBalance(t *testing.T) {
 	}
 
 	disputeID, err := store.RecordDispute(ctx, f.jobID, f.buyerID, "prepaid path must restore liability")
-	if err != nil {
-		t.Fatalf("RecordDispute: %v", err)
-	}
-	if err := store.SetDisputeStatus(ctx, disputeID, "upheld"); err != nil {
-		t.Fatalf("uphold: %v", err)
-	}
+	mustf(t, err, "RecordDispute: %v")
+	mustf(t, store.SetDisputeStatus(ctx, disputeID, "upheld"), "uphold: %v")
 
 	var balAfter int64
 	if err := pool.QueryRow(ctx,
@@ -512,16 +476,12 @@ func TestBuyerRefundRestoresPrepaidBalance(t *testing.T) {
 		t.Fatalf("prepaid after refund=%d, want %d", balAfter, f.chargeMicros)
 	}
 	inv, err := store.JobInvoice(ctx, f.jobID, f.buyerID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if inv.RefundFundingDestination != refundFundingPrepaidBalance {
 		t.Fatalf("funding=%q, want prepaid_balance", inv.RefundFundingDestination)
 	}
 	// No second restore on re-resolve.
-	if err := store.resolveDispute(ctx, disputeID, "upheld"); err != nil {
-		t.Fatalf("second resolve: %v", err)
-	}
+	mustf(t, store.resolveDispute(ctx, disputeID, "upheld"), "second resolve: %v")
 	if err := pool.QueryRow(ctx,
 		`SELECT balance_micros FROM buyer_prepaid_balances WHERE buyer_id=$1`, f.buyerID).
 		Scan(&balAfter); err != nil {
@@ -545,25 +505,17 @@ func TestBuyerRefundAppearsInFreeCreditBalanceMath(t *testing.T) {
 		t.Fatal(err)
 	}
 	before, err := store.BuyerFreeCreditRemaining(ctx, f.buyerID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	// 5.00 - 1.25 charge = 3.75
 	if before != 3.75 {
 		t.Fatalf("free credit before refund=%v, want 3.75", before)
 	}
 
 	disputeID, err := store.RecordDispute(ctx, f.jobID, f.buyerID, "free credit must see the refund")
-	if err != nil {
-		t.Fatalf("RecordDispute: %v", err)
-	}
-	if err := store.SetDisputeStatus(ctx, disputeID, "upheld"); err != nil {
-		t.Fatalf("uphold: %v", err)
-	}
+	mustf(t, err, "RecordDispute: %v")
+	mustf(t, store.SetDisputeStatus(ctx, disputeID, "upheld"), "uphold: %v")
 	after, err := store.BuyerFreeCreditRemaining(ctx, f.buyerID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if after != 5.00 {
 		t.Fatalf("free credit after refund=%v, want 5.00", after)
 	}

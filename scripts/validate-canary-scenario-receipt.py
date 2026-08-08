@@ -21,6 +21,16 @@ import math
 import re
 import sys
 from pathlib import Path
+_SCRIPTS = Path(__file__).resolve().parent
+if str(_SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS))
+
+from lib.receipt_json import (
+    fail,
+    object_without_duplicate_keys,
+    parse_utc,
+    strings,
+)
 
 
 EXPECTED_SOURCES = {
@@ -79,42 +89,6 @@ SECRET = re.compile(
     re.IGNORECASE,
 )
 
-
-def fail(message):
-    raise ValueError(message)
-
-
-def object_without_duplicate_keys(pairs):
-    result = {}
-    for key, value in pairs:
-        if key in result:
-            fail(f"duplicate JSON key {key!r}")
-        result[key] = value
-    return result
-
-
-def parse_utc(value, field):
-    if not isinstance(value, str) or not value.endswith("Z"):
-        fail(f"{field} must be an RFC3339 UTC timestamp ending in Z")
-    try:
-        parsed = dt.datetime.fromisoformat(value[:-1] + "+00:00")
-    except ValueError as exc:
-        fail(f"{field} is not a valid RFC3339 timestamp: {exc}")
-    if parsed.utcoffset() != dt.timedelta(0):
-        fail(f"{field} must be UTC")
-    return parsed
-
-
-def strings(value):
-    if isinstance(value, str):
-        yield value
-    elif isinstance(value, dict):
-        for key, item in value.items():
-            yield str(key)
-            yield from strings(item)
-    elif isinstance(value, list):
-        for item in value:
-            yield from strings(item)
 
 
 def require_exact_bool(mapping, name, expected):

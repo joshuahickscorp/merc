@@ -47,7 +47,25 @@ cleanup() {
   fi
   rmdir "$MUTATION_LOCK" 2>/dev/null || true
 }
-trap cleanup EXIT INT TERM
+
+# A signal must restore AND STOP. Sharing one handler across EXIT and the
+# signals looked equivalent and was not: bash runs a TERM handler and then
+# RESUMES the loop, so cleanup deleted $BACKUP and every mutation after it was
+# written to a file whose backup no longer existed. Interrupting a run left the
+# working tree holding injected defects, with `cp: .../pricing_decision.go.bak:
+# No such file or directory` scrolling past as the only warning — observed on
+# 2026-08-04, eight files deep, recoverable only because they were committed.
+#
+# The trap that exists to protect the tree was corrupting it on the one path
+# people actually take, which is Ctrl-C.
+on_signal() {
+  echo "" >&2
+  echo "mutation-test: signal received; restoring the tree and stopping" >&2
+  cleanup
+  exit 130
+}
+trap cleanup EXIT
+trap on_signal INT TERM
 
 run_mutation_tests() {
   if [ "$MERC_MUTATION_UNIT_ONLY" = "1" ]; then
@@ -93,7 +111,7 @@ MUTATIONS=(
 "realtime_reuse_pricing_decision.go|realtime reuse accepts a divergent embedded profile|s#!reflect.DeepEqual(governed, in.Profile)#reflect.DeepEqual(governed, in.Profile)#"
 "realtime_reuse_pricing_decision.go|realtime reuse accepts a currency mismatch|s#if err := RequireSettlementCurrency(in.Currency.Code()); err != nil {#if err := RequireSettlementCurrency(in.Currency.Code()); err != nil \&\& false {#"
 "realtime_reuse_pricing_decision.go|realtime reuse ignores the buyer ceiling|s#charge.Nanos > a.BuyerDeclaredCeilingNanos#false#"
-"realtime_store.go|physical contract persistence drops PricingDecision authority|s#pricing.Realtime.BuyerDeclaredCeilingNanos, pricingJSON, pricingSHA256)#pricing.Realtime.BuyerDeclaredCeilingNanos, pricingJSON[:0], pricingSHA256)#"
+"realtime_store.go|physical contract persistence drops PricingDecision authority|s#pricing.Realtime.BuyerDeclaredCeilingNanos, pricingJSON, pricingSHA256, marketJSON)#pricing.Realtime.BuyerDeclaredCeilingNanos, pricingJSON[:0], pricingSHA256, marketJSON)#"
 "realtime_store.go|reuse contract persistence drops PricingDecision authority|s#money.DeliveredTokens, pricingJSON, pricingSHA256)#money.DeliveredTokens, pricingJSON[:0], pricingSHA256)#"
 "realtime_store.go|persisted realtime PricingDecision digest mismatch is ignored|s#digest != contract.PricingDecisionSHA256#digest != digest#"
 "realtime_store.go|legacy supplier projection may diverge from PricingDecision|s#SupplierInputRate:[[:space:]]*contract.SupplierInputUSDPerMillionTokens,#SupplierInputRate: float64(pricing.Realtime.SupplierInputNanosPerMillion) / float64(NanosPerMajorUnit),#"
@@ -103,8 +121,8 @@ MUTATIONS=(
 "realtime_store.go|reuse idempotency replay is bypassed|/func (s \*Store) SettleRealtimeExactReuse/,/Same fund gate/ s#if auth.IdempotencyKey != \"\" {#if false {#"
 "realtime_store.go|verified usage may exceed frozen PricingDecision bounds|s#if evidence.PromptTokens > contract.MaximumPromptTokens ||#if false \&\&#"
 "realtime_store.go|settlement substitutes buyer authority for supplier floor|s#authority.SupplierInputNanosPerMillion),#authority.BuyerInputNanosPerMillion),#"
-"supplier_accrual.go|accrual adds instead of carrying the remainder|s|carryOut = effective % microUSDPerCent|carryOut = 0|"
-"supplier_accrual.go|accrual rounds up instead of flooring cents|s|cashCents = effective / microUSDPerCent|cashCents = (effective + microUSDPerCent - 1) / microUSDPerCent|"
+"supplier_accrual.go|accrual adds instead of carrying the remainder|s|carryOut = effective % factor|carryOut = 0|"
+"supplier_accrual.go|accrual rounds up instead of flooring cents|s|cashCents = effective / factor|cashCents = (effective + factor - 1) / factor|"
 "supplier_accrual.go|supplier accrual lock removed|s| FOR UPDATE||"
 "billing_classes.go|reused input counted as physical work|s|ClassPrefixReusedInput: false|ClassPrefixReusedInput: true|"
 "billing_classes.go|reused tokens billed at the full rate|s|retained := 1.0 - reuseDiscountShare|retained := 1.0|"
@@ -136,11 +154,49 @@ MUTATIONS=(
 "stripe_api_contract.go|signed Stripe webhook ignores livemode|s#if \\*livemode != expectedLive {#if false {#"
 "billing.go|Stripe billing bypasses the pinned transport|s#resp, err := doStripeRequest(stripeHTTPClient, req)#resp, err := stripeHTTPClient.Do(req)#"
 "payment.go|Stripe payout bypasses the pinned transport|s#resp, err := doStripeRequest(p.http, req)#resp, err := p.http.Do(req)#"
+
+# --- Selector economics and evidence provenance (2026-08-04) ---
+# The invariants the overnight selector work created. Without these the mutation
+# suite proves only that the older money paths are still guarded, and says
+# nothing about the code that now decides which runtime cell wins.
+"runtime_cell_economics.go|supplier entitlement stops cancelling unitsPerSec|s#return units / 1000.0 \* pricePer1K \* share#return units / 1000.0 * pricePer1K * share * 1.0001#"
+"runtime_cell_economics.go|throughput re-enters the expanded entitlement form|s#seconds := units / unitsPerSec#seconds := units / unitsPerSec * 1.05#"
+"runtime_shadow_selection.go|a cost tie is reported as a cost win|s#if !costsTieUSD(bestCost, secondCost) {#if costsTieUSD(bestCost, secondCost) || true {#"
+"runtime_shadow_selection.go|a true tie manufactures a winner|s#if math.Abs(a-b) < latencyNoiseAbsMs {#if false {#"
+"runtime_shadow_selection.go|latency noise floor stops guarding the ratio band|s#return math.Abs(a-b)/mid < latencyNoiseFraction#return math.Abs(a-b)/mid < 0.0#"
+"runtime_governed_comparison.go|an unbound actual is allowed to rule on a prior claim|s#if !strings.EqualFold(binding, BindingBound) {#if false {#"
+"runtime_governed_comparison.go|provenance takes the strongest input instead of the weakest|s#if !strings.EqualFold(c.SourceBinding, BindingBound) {#if strings.EqualFold(c.SourceBinding, BindingBound) {#"
+
+# --- Frozen runtime-cell economics at admission (2026-08-04) ---
+# The block that binds a cell's accepted economics beside the money. Its whole
+# value is that it reproduces exactly and never reports an unknown as zero.
+"runtime_cell_admission_binding.go|frozen per-unit cost is taken from the raw accumulator|s#f.ExpectedVOCostUSDPerUnit = f.ExpectedVOCostUSD / f.BillableUnits#f.ExpectedVOCostUSDPerUnit = total / f.BillableUnits#"
+"runtime_cell_admission_binding.go|half a combined cost is reported as the whole cost|s#return unknownCost(name + \" is unknown because a component is unknown: \" + c.Basis)#continue#"
+"runtime_cell_admission_binding.go|true net is published while a category is unknown|s#if len(out.UnknownCategories) == 0 {#if true {#"
+"runtime_cell_admission_binding.go|a partial cost sum calls itself complete|s#f.ExpectedVOCostStatus = frozenVOCostPartial#f.ExpectedVOCostStatus = frozenVOCostComplete#"
+"runtime_cell_admission_binding.go|the block stops naming its own unknown terms|s#out.UnknownCategories = append(out.UnknownCategories, out.unknownNamedTerms()...)##"
+"pricing_decision.go|a legacy decision is retro-fitted with a frozen cell block|s#if decision.RuntimeCell == nil {#if false {#"
+
+# --- Cost tie authority (2026-08-04) ---
+# The block that explains WHY two cells cost the same. Its value is entirely in
+# refusing to let a blocked term rule and in not calling a real difference a tie.
+"runtime_cost_tie_authority.go|an ASSUMED term is allowed to rule on money|s#MayRule: k == CategoryKnown,#MayRule: true,#"
+"runtime_cost_tie_authority.go|a comparison takes the stronger knowledge instead of the weaker|s#if rank(a) <= rank(b) {#if rank(a) >= rank(b) {#"
+"runtime_cost_tie_authority.go|a real cost difference is still reported as a forced tie|s#case !out.Tied:#case false:#"
+"runtime_cost_tie_authority.go|a governed term that differs is swallowed by the tie verdict|s#case out.LargestGovernedShare > 0:#case false:#"
 )
 
 caught=0
 survived=0
 declare -a SURVIVORS=()
+# A pattern that no longer matches its source tests nothing, and used to say so
+# in a lower-case "skip" nobody read. Three had rotted that way — two through a
+# currency-generalising rename (microUSDPerCent -> factor) and one through an
+# added INSERT column — while the run still reported "0 survived". Silent
+# coverage loss and a survivor are the same defect; only one of them announced
+# itself. Stale patterns now fail the run.
+stale=0
+declare -a STALE=()
 
 printf '%-58s %s\n' "mutation" "result"
 printf '%-58s %s\n' "--------" "------"
@@ -155,7 +211,11 @@ for entry in "${MUTATIONS[@]}"; do
   fi
 
   src="$CONTROL/$file"
-  [ -f "$src" ] || { printf '%-58s %s\n' "$desc" "SKIP (missing $file)"; continue; }
+  [ -f "$src" ] || {
+    printf '%-58s %s\n' "$desc" "STALE (missing $file)"
+    stale=$((stale+1)); STALE+=("$desc — control/$file no longer exists")
+    continue
+  }
 
   cp "$src" "$BACKUP/${file//\//__}.bak"
   sed -i '' "$expr" "$src" 2>/dev/null || sed -i "$expr" "$src" 2>/dev/null
@@ -173,17 +233,24 @@ for entry in "${MUTATIONS[@]}"; do
       caught=$((caught+1))
     fi
   else
-    printf '%-58s %s\n' "$desc" "skip (pattern did not apply)"
+    printf '%-58s %s\n' "$desc" "STALE (pattern did not apply)"
+    stale=$((stale+1)); STALE+=("$desc — sed pattern no longer matches control/$file")
   fi
 
   cp "$BACKUP/${file//\//__}.bak" "$src"
 done
 
 echo
-echo "mutation-test: $caught caught, $survived survived"
+echo "mutation-test: $caught caught, $survived survived, $stale stale"
+status=0
 if [ "$survived" -gt 0 ]; then
   echo "surviving mutations are gaps in the suite:"
   for s in "${SURVIVORS[@]}"; do echo "  - $s"; done
-  exit 1
+  status=1
 fi
-exit 0
+if [ "$stale" -gt 0 ]; then
+  echo "stale mutations tested nothing and must be repointed at the current source:"
+  for s in "${STALE[@]}"; do echo "  - $s"; done
+  status=1
+fi
+exit "$status"

@@ -273,17 +273,13 @@ func TestQuoteIDToUUIDRoundTrip(t *testing.T) {
 	id := uuid.New()
 
 	got, err := quoteIDToUUID("q_" + id.String())
-	if err != nil {
-		t.Fatalf("q_ handle should parse, got %v", err)
-	}
+	mustf(t, err, "q_ handle should parse, got %v")
 	if got != id {
 		t.Fatalf("q_ handle resolved to %v, want %v", got, id)
 	}
 
 	got2, err := quoteIDToUUID(id.String())
-	if err != nil {
-		t.Fatalf("bare uuid should parse, got %v", err)
-	}
+	mustf(t, err, "bare uuid should parse, got %v")
 	if got2 != id {
 		t.Fatalf("bare uuid resolved to %v, want %v", got2, id)
 	}

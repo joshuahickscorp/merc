@@ -46,13 +46,21 @@ terminate unless the operator asks.
 from __future__ import annotations
 
 import argparse
+import ctypes
+import hashlib
 import json
 import math
 import os
+import re
+import secrets
+import subprocess
 import sys
 import time
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from typing import Any, Iterable, Optional
+
+import fcntl
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -69,8 +77,28 @@ MIN_CAP_USD = 0.25
 LIFETIME_SHARE_OF_CAP = 0.80
 
 # Intent markers live outside evidence/ so a crash mid-run does not leave a
-# committed artifact claiming money was spent. Default relative to repo root.
-DEFAULT_INTENT_DIR = os.path.join(ROOT, ".merc-runpod", "intent")
+# committed artifact claiming money was spent. Use the Git common directory so
+# sibling worktrees of one clone contend for the same local account lease.
+def _default_intent_dir() -> str:
+    configured = os.environ.get("MERC_RUNPOD_INTENT_DIR")
+    if configured:
+        return configured
+    try:
+        common = subprocess.check_output(
+            ["git", "-C", ROOT, "rev-parse", "--git-common-dir"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+        if common:
+            if not os.path.isabs(common):
+                common = os.path.abspath(os.path.join(ROOT, common))
+            return os.path.join(common, "merc-runpod", "intent")
+    except (OSError, subprocess.CalledProcessError):
+        pass
+    return os.path.join(ROOT, ".merc-runpod", "intent")
+
+
+DEFAULT_INTENT_DIR = _default_intent_dir()
 DEFAULT_RECEIPTS_DIR = os.path.join(ROOT, "evidence", "runpod")
 
 # Precise meaning of receipt field orphan_pods. Written into every fresh receipt
@@ -79,10 +107,12 @@ DEFAULT_RECEIPTS_DIR = os.path.join(ROOT, "evidence", "runpod")
 ORPHAN_PODS_SCOPE = "account_after_this_run_teardown"
 ORPHAN_PODS_MEANING = (
     "Pod IDs still listed on the RunPod account after this run tore down its own "
-    "pod (and, for governed experiment, after the exit sweep of every pod the "
-    "process could see). Empty means none remained at receipt-write time. It does "
-    "NOT mean the account is permanently clean, that a later SIGKILLed process "
-    "left nothing behind, or that no operator-kept pod exists outside this run."
+    "pod. Empty means none remained at receipt-write time. It does NOT mean the "
+    "account is permanently clean, that a later SIGKILLed process left nothing "
+    "behind, or that no operator-kept pod exists outside this run. A governed "
+    "experiment never sweeps unrelated account pods; those remain visible to "
+    "reconcile until provider-level idempotency or a durable account coordinator "
+    "exists."
 )
 
 
@@ -206,10 +236,148 @@ def build_receipt(args) -> dict:
     }
 
 
+def receipt_withdrawal(receipt: dict):
+    """Return the withdrawal reason for a retained receipt, or None.
+
+    A receipt written before a rule existed is not grandfathered -- it fails.
+    The only honest exits are to re-take it under today's rules, or to WITHDRAW
+    it with a stated reason, which is what the parity receipt does with
+    validity: INVALIDATED_PENDING_RERUN.
+
+    Withdrawal is not a softer pass. A withdrawn receipt may never back a claim
+    again, which is strictly stronger than one that quietly satisfies a rule it
+    predates. The reason is mandatory: a reasonless withdrawal is indistinguishable
+    from deleting an inconvenient result, so it still fails.
+    """
+    validity = str(receipt.get("validity", "")).upper()
+    if validity not in {"WITHDRAWN", "INVALIDATED", "INVALIDATED_PENDING_RERUN"}:
+        return None
+    reason = receipt.get("withdrawn_reason") or receipt.get("superseded_reason")
+    if isinstance(reason, list):
+        reason = "; ".join(str(r) for r in reason if str(r).strip())
+    reason = str(reason or "").strip()
+    return reason or None
+
+
+def _sha256_file(path: str) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _git_file_sha256(commit: str, path: str) -> tuple[Optional[str], Optional[str]]:
+    """Return the exact blob digest for a path in a named commit.
+
+    Historical receipt withdrawals are allowed only when their target is still
+    byte-for-byte the object retained in an ancestor commit.  That prevents a
+    sidecar from laundering a rewritten receipt into a harmless-looking
+    withdrawal.  A missing or non-commit source is a refusal, not a best-effort
+    lookup: the proof needs durable history, not the current working tree.
+    """
+    if not re.fullmatch(r"[0-9a-f]{40}", commit):
+        return None, "historical_source_commit must be a full 40-hex commit"
+    try:
+        object_type = subprocess.run(
+            ["git", "-C", ROOT, "cat-file", "-t", commit],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        if object_type != "commit":
+            return None, "historical_source_commit does not name a commit"
+        ancestor = subprocess.run(
+            ["git", "-C", ROOT, "merge-base", "--is-ancestor", commit, "HEAD"],
+            capture_output=True,
+            text=True,
+        )
+        if ancestor.returncode != 0:
+            return None, "historical_source_commit is not an ancestor of HEAD"
+        blob = subprocess.run(
+            ["git", "-C", ROOT, "show", f"{commit}:{path}"],
+            check=True,
+            capture_output=True,
+        ).stdout
+    except (OSError, subprocess.CalledProcessError) as exc:
+        return None, f"cannot read historical target from Git: {exc}"
+    return hashlib.sha256(blob).hexdigest(), None
+
+
+def external_receipt_withdrawal(path: str, receipt: dict) -> tuple[Optional[str], Optional[str]]:
+    """Return a verified append-only withdrawal reason for an old failed receipt.
+
+    Raw receipts are historical accounting facts and must not be edited to make
+    later policy explicit.  A sibling ``.withdrawal.json`` may retire exactly a
+    failed-startup receipt, but it has to pin the current bytes *and* bytes at a
+    historical ancestor commit.  It can only reduce what may be claimed; it can
+    never make an inadmissible receipt pass.
+    """
+    sidecar = f"{path[:-5]}.withdrawal.json" if path.endswith(".json") else f"{path}.withdrawal.json"
+    if not os.path.exists(sidecar):
+        return None, None
+    rel = os.path.relpath(path, ROOT)
+    try:
+        with open(sidecar, encoding="utf-8") as handle:
+            envelope = json.load(handle)
+    except (OSError, json.JSONDecodeError) as exc:
+        return None, f"cannot read withdrawal envelope: {exc}"
+    if not isinstance(envelope, dict):
+        return None, "withdrawal envelope must be a JSON object"
+    if envelope.get("schema_version") != 1:
+        return None, "withdrawal envelope schema_version must be 1"
+    if envelope.get("kind") != "runpod_spend_receipt_withdrawal":
+        return None, "withdrawal envelope kind is not runpod_spend_receipt_withdrawal"
+    if envelope.get("status") != "WITHDRAWN" or envelope.get("append_only") is not True:
+        return None, "withdrawal envelope must be append_only WITHDRAWN"
+    if envelope.get("target_path") != rel:
+        return None, "withdrawal envelope target_path does not match its sibling receipt"
+    if envelope.get("target_kind") != "runpod_spend_receipt":
+        return None, "withdrawal envelope target_kind must be runpod_spend_receipt"
+    if envelope.get("target_binding_status") != receipt.get("binding_status"):
+        return None, "withdrawal envelope target_binding_status does not match receipt"
+    if envelope.get("target_admissible") is not False or receipt.get("admissible") is not False:
+        return None, "external withdrawal may retire only an inadmissible receipt"
+    if envelope.get("target_ready") is not False or receipt.get("ready") is not False:
+        return None, "external withdrawal may retire only a failed-startup receipt"
+    expected = envelope.get("target_sha256")
+    if not isinstance(expected, str) or not re.fullmatch(r"[0-9a-f]{64}", expected):
+        return None, "withdrawal envelope target_sha256 must be a 64-hex digest"
+    actual = _sha256_file(path)
+    if actual != expected:
+        return None, "withdrawal envelope target_sha256 does not match current receipt"
+    historical, error = _git_file_sha256(str(envelope.get("historical_source_commit", "")), rel)
+    if error:
+        return None, error
+    if historical != expected:
+        return None, "withdrawal envelope target_sha256 does not match historical receipt"
+    required_refusal = envelope.get("required_refusal")
+    if not isinstance(required_refusal, str) or not required_refusal.strip():
+        return None, "withdrawal envelope required_refusal is required"
+    refusals = receipt.get("refusals")
+    if not isinstance(refusals, list) or required_refusal not in refusals:
+        return None, "withdrawal envelope required_refusal is not present in receipt"
+    reason = envelope.get("withdrawn_reason")
+    if isinstance(reason, list):
+        reason = "; ".join(str(item).strip() for item in reason if str(item).strip())
+    reason = str(reason or "").strip()
+    if not reason:
+        return None, "withdrawal envelope withdrawn_reason is required"
+    return reason, None
+
+
 def revalidate_stored_receipt(path: str, receipt: dict) -> list:
     """Re-apply today's rules to a retained receipt. Does not rewrite the file."""
     if receipt.get("kind") != "runpod_spend_receipt":
         return [f"not a runpod_spend_receipt (kind={receipt.get('kind')!r})"]
+    validity = str(receipt.get("validity", "")).upper()
+    if validity in {"WITHDRAWN", "INVALIDATED", "INVALIDATED_PENDING_RERUN"}:
+        if not receipt_withdrawal(receipt):
+            return [
+                "withdrawn without a stated reason: set withdrawn_reason, or "
+                "re-take the receipt under today's rules"
+            ]
+        return []
     try:
         cost = float(receipt["cost_per_hr_usd"])
         cap = float(receipt["cap_usd"])
@@ -238,12 +406,15 @@ def revalidate_retained_receipts() -> int:
     paths = sorted(
         os.path.join(root, name)
         for name in os.listdir(root)
-        if name.endswith(".json") and name.startswith("spend-")
+        if name.endswith(".json")
+        and name.startswith("spend-")
+        and not name.endswith(".withdrawal.json")
     )
     if not paths:
         print("runpod-spend-guard revalidate: no spend-*.json receipts retained")
         return 0
     failed = 0
+    withdrawn_count = 0
     for path in paths:
         rel = os.path.relpath(path, ROOT)
         try:
@@ -253,12 +424,27 @@ def revalidate_retained_receipts() -> int:
             print(f"FAIL {rel}: cannot read receipt: {exc}", file=sys.stderr)
             failed += 1
             continue
+        withdrawal, withdrawal_error = external_receipt_withdrawal(path, receipt)
+        if withdrawal_error:
+            failed += 1
+            print(f"FAIL {rel}: invalid withdrawal envelope: {withdrawal_error}", file=sys.stderr)
+            continue
+        if withdrawal is not None:
+            withdrawn_count += 1
+            print(f"WITHDRAWN {rel}: {withdrawal}")
+            continue
         refusals = revalidate_stored_receipt(path, receipt)
         if refusals:
             failed += 1
             for reason in refusals:
                 # Name the rule and the receipt; leave the artifact untouched.
                 print(f"FAIL {rel}: {reason}", file=sys.stderr)
+        elif (withdrawn := receipt_withdrawal(receipt)) is not None:
+            # Never print PASS for a withdrawn receipt. It did not satisfy the
+            # rules; it was retired from evidence, and a reader skimming for
+            # green must not mistake one for the other.
+            withdrawn_count += 1
+            print(f"WITHDRAWN {rel}: {withdrawn}")
         else:
             print(f"PASS {rel}")
     if failed:
@@ -267,7 +453,14 @@ def revalidate_retained_receipts() -> int:
             file=sys.stderr,
         )
         return 1
-    print(f"runpod-spend-guard revalidate: {len(paths)} receipt(s) PASS")
+    passing = len(paths) - withdrawn_count
+    if withdrawn_count:
+        print(
+            f"runpod-spend-guard revalidate: {passing} receipt(s) PASS, "
+            f"{withdrawn_count} WITHDRAWN and citable by nothing"
+        )
+    else:
+        print(f"runpod-spend-guard revalidate: {len(paths)} receipt(s) PASS")
     return 0
 
 
@@ -277,6 +470,452 @@ def revalidate_retained_receipts() -> int:
 
 INTENT_KIND = "runpod_pod_intent"
 INTENT_STATUSES = frozenset({"requested", "bound", "completed"})
+INTENT_SCHEMA_VERSION = 2
+LOCK_KIND = "runpod_provisioning_lock"
+DEFAULT_LEASE_TTL_SECONDS = 90
+MAX_LEASE_TTL_SECONDS = 90
+DEFAULT_OPERATOR_KEEP_TTL_SECONDS = 90
+MAX_OPERATOR_KEEP_TTL_SECONDS = 300
+# A lease from the future is not an ownership claim.  We intentionally have no
+# clock-skew grace here: on a disagreement, reconcile reports an orphan rather
+# than letting a future-dated record conceal a billable pod.
+MAX_LEASE_CLOCK_SKEW_SECONDS = 0
+
+
+def _atomic_write_json(path: str, value: dict) -> None:
+    """Write a private JSON record atomically within its existing directory."""
+    directory = os.path.dirname(path)
+    os.makedirs(directory, mode=0o700, exist_ok=True)
+    try:
+        os.chmod(directory, 0o700)
+    except OSError as exc:
+        raise ValueError(f"cannot secure intent directory {directory}: {exc}") from exc
+    tmp = f"{path}.tmp-{os.getpid()}-{secrets.token_hex(6)}"
+    try:
+        with open(tmp, "w", encoding="utf-8") as handle:
+            json.dump(value, handle, indent=2, sort_keys=True)
+            handle.write("\n")
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, path)
+    finally:
+        try:
+            os.unlink(tmp)
+        except FileNotFoundError:
+            pass
+
+
+def _identity_digest(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _token_digest(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def add_owner_token_argument(parser: argparse.ArgumentParser) -> None:
+    """Accept a local lease token without requiring it in process argv.
+
+    --owner-token remains available for explicitly invoked operator commands,
+    while provisioner calls use a private inherited FD.  The two shapes are
+    mutually exclusive so a caller cannot accidentally trust a different token
+    from the one it intended to pass.
+    """
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument("--owner-token")
+    group.add_argument("--owner-token-fd", type=int)
+
+
+def owner_token_from_args(args: argparse.Namespace) -> str:
+    token = getattr(args, "owner_token", None)
+    fd = getattr(args, "owner_token_fd", None)
+    if fd is not None:
+        if not isinstance(fd, int) or fd < 3:
+            raise ValueError("owner-token-fd must be an inherited private file descriptor")
+        try:
+            raw = os.read(fd, 4097)
+        except OSError as exc:
+            raise ValueError(f"cannot read owner token from fd {fd}: {exc}") from exc
+        if len(raw) > 4096:
+            raise ValueError("owner token fd is too large")
+        try:
+            token = raw.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise ValueError("owner token fd is not UTF-8") from exc
+        token = token.rstrip("\n")
+    if not isinstance(token, str) or not token or "\n" in token or "\r" in token:
+        raise ValueError("owner token must be one non-empty line")
+    return token
+
+
+def _darwin_boot_identity() -> str:
+    """Return a stable Darwin boot identity or refuse ownership.
+
+    A hostname is not a boot identity: it survives a reboot and would let a
+    stale lease masquerade as the process that created it.  Keep this helper
+    separate so its failure mode is testable without pretending Linux is macOS.
+    """
+    result = subprocess.run(
+        ["sysctl", "-n", "kern.boottime"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    match = re.search(r"\bsec\s*=\s*(\d+)\s*,\s*usec\s*=\s*(\d+)\b", result.stdout or "")
+    if result.returncode != 0 or match is None:
+        raise ValueError("cannot obtain Darwin kernel boot identity")
+    return f"{match.group(1)}:{match.group(2)}"
+
+
+def process_identity(pid: int) -> dict[str, Any]:
+    """Return a PID-reuse-safe, non-secret process identity.
+
+    Linux exposes boot + start ticks in procfs. macOS lacks that equivalent, so
+    use hashes of `ps lstart` and `kern.boottime`; both are compared again before
+    a lease is accepted. A PID alone is never ownership proof.
+    """
+    if not isinstance(pid, int) or pid <= 0:
+        raise ValueError("owner pid must be a positive integer")
+    proc_stat = f"/proc/{pid}/stat"
+    if os.path.exists(proc_stat):
+        try:
+            with open(proc_stat, encoding="utf-8") as handle:
+                raw = handle.read().strip()
+            # comm may contain spaces/parentheses; field 22 follows the final ')'.
+            tail = raw.rsplit(")", 1)[1].split()
+            start = tail[19]
+            with open("/proc/sys/kernel/random/boot_id", encoding="utf-8") as handle:
+                boot = handle.read().strip()
+        except (OSError, IndexError) as exc:
+            raise ValueError(f"cannot read process identity for pid {pid}: {exc}") from exc
+    elif os.uname().sysname == "Darwin":
+        # proc_bsdinfo is the documented libproc record. Its start timeval has
+        # microsecond precision; ps lstart is only second-granularity and would
+        # leave a PID-reuse hole on a busy host.
+        class ProcBSDInfo(ctypes.Structure):
+            _fields_ = [
+                ("pbi_flags", ctypes.c_uint32),
+                ("pbi_status", ctypes.c_uint32),
+                ("pbi_xstatus", ctypes.c_uint32),
+                ("pbi_pid", ctypes.c_uint32),
+                ("pbi_ppid", ctypes.c_uint32),
+                ("pbi_uid", ctypes.c_uint32),
+                ("pbi_gid", ctypes.c_uint32),
+                ("pbi_ruid", ctypes.c_uint32),
+                ("pbi_rgid", ctypes.c_uint32),
+                ("pbi_svuid", ctypes.c_uint32),
+                ("pbi_svgid", ctypes.c_uint32),
+                ("rfu_1", ctypes.c_uint32),
+                ("pbi_comm", ctypes.c_char * 16),
+                ("pbi_name", ctypes.c_char * 32),
+                ("pbi_nfiles", ctypes.c_uint32),
+                ("pbi_pgid", ctypes.c_uint32),
+                ("pbi_pjobc", ctypes.c_uint32),
+                ("e_tdev", ctypes.c_uint32),
+                ("e_tpgid", ctypes.c_uint32),
+                ("pbi_nice", ctypes.c_int32),
+                ("pbi_start_tvsec", ctypes.c_uint64),
+                ("pbi_start_tvusec", ctypes.c_uint64),
+            ]
+
+        info = ProcBSDInfo()
+        libproc = ctypes.CDLL("/usr/lib/libproc.dylib", use_errno=True)
+        proc_pidinfo = libproc.proc_pidinfo
+        proc_pidinfo.argtypes = [
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_uint64,
+            ctypes.c_void_p,
+            ctypes.c_int,
+        ]
+        proc_pidinfo.restype = ctypes.c_int
+        # PROC_PIDTBSDINFO is 3. Refuse ownership if the API is unavailable or
+        # returns a partial record rather than falling back to coarse ps output.
+        received = proc_pidinfo(
+            pid,
+            3,
+            0,
+            ctypes.byref(info),
+            ctypes.sizeof(info),
+        )
+        if received != ctypes.sizeof(info) or info.pbi_pid != pid:
+            raise ValueError(f"cannot obtain precise Darwin process identity for pid {pid}")
+        start = f"{info.pbi_start_tvsec}:{info.pbi_start_tvusec}"
+        boot = _darwin_boot_identity()
+    else:
+        # There is no supported high-resolution process birth identity here.
+        # Do not turn a best-effort PID into a billing ownership claim.
+        raise ValueError(f"unsupported platform for lease ownership: {os.uname().sysname}")
+    return {
+        "pid": pid,
+        "process_start": _identity_digest(start),
+        "boot_id": _identity_digest(boot),
+    }
+
+
+def process_identity_matches(
+    *, pid: Any, process_start: Any, boot_id: Any
+) -> bool:
+    try:
+        expected = process_identity(int(pid))
+    except (TypeError, ValueError):
+        return False
+    return (
+        isinstance(process_start, str)
+        and isinstance(boot_id, str)
+        and secrets.compare_digest(expected["process_start"], process_start)
+        and secrets.compare_digest(expected["boot_id"], boot_id)
+    )
+
+
+def _positive_int(value: Any, *, field_name: str) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{field_name} must be an integer") from exc
+    if parsed <= 0:
+        raise ValueError(f"{field_name} must be positive")
+    return parsed
+
+
+def _bounded_ttl(value: Any, *, field_name: str, maximum: int) -> int:
+    ttl = _positive_int(value, field_name=field_name)
+    if ttl > maximum:
+        raise ValueError(f"{field_name} must be at most {maximum}s")
+    return ttl
+
+
+def _require_owner(
+    *,
+    token: str,
+    owner_pid: Any,
+    owner_process_start: str,
+    owner_boot_id: str,
+) -> dict[str, Any]:
+    if not isinstance(token, str) or len(token) < 24:
+        raise ValueError("owner token must be at least 24 characters")
+    pid = _positive_int(owner_pid, field_name="owner pid")
+    if not all(
+        isinstance(value, str) and len(value) == 64
+        and all(char in "0123456789abcdef" for char in value)
+        for value in (owner_process_start, owner_boot_id)
+    ):
+        raise ValueError("owner process start and boot identity must be SHA-256 digests")
+    if not process_identity_matches(
+        pid=pid, process_start=owner_process_start, boot_id=owner_boot_id
+    ):
+        raise ValueError("owner PID/start/boot identity is not live")
+    return {
+        "token": token,
+        "owner_pid": pid,
+        "owner_process_start": owner_process_start,
+        "owner_boot_id": owner_boot_id,
+    }
+
+
+def _lease(
+    *,
+    owner: dict[str, Any],
+    request_id: str,
+    pod_id: Optional[str],
+    purpose: str,
+    state: str,
+    now: int,
+    ttl_seconds: int,
+) -> dict[str, Any]:
+    return {
+        "token": owner["token"],
+        "request_id": request_id,
+        "pod_id": pod_id,
+        "purpose": purpose,
+        "state": state,
+        "owner_pid": owner["owner_pid"],
+        "owner_process_start": owner["owner_process_start"],
+        "owner_boot_id": owner["owner_boot_id"],
+        "heartbeat_at_unix": now,
+        "expires_at_unix": now + ttl_seconds,
+    }
+
+
+def _lease_valid(
+    lease: Any,
+    *,
+    request_id: str,
+    pod_id: Optional[str],
+    allowed_states: set[str],
+    now: int,
+    require_living_owner: bool,
+    maximum_ttl: int,
+    expected_token_sha256: Optional[str] = None,
+) -> tuple[bool, str]:
+    if not isinstance(lease, dict):
+        return False, "missing lease"
+    if lease.get("request_id") != request_id:
+        return False, "lease request id does not match intent"
+    if lease.get("pod_id") != pod_id:
+        return False, "lease pod id does not match intent"
+    if lease.get("state") not in allowed_states:
+        return False, "lease state is not accepted here"
+    if not isinstance(lease.get("token"), str) or len(lease["token"]) < 24:
+        return False, "lease token is missing or malformed"
+    if expected_token_sha256 is not None:
+        if (
+            not isinstance(expected_token_sha256, str)
+            or len(expected_token_sha256) != 64
+            or not secrets.compare_digest(_token_digest(lease["token"]), expected_token_sha256)
+        ):
+            return False, "lease token does not match intent binding"
+    try:
+        heartbeat = int(lease["heartbeat_at_unix"])
+        expires = int(lease["expires_at_unix"])
+    except (KeyError, TypeError, ValueError):
+        return False, "lease heartbeat or expiry is malformed"
+    if expires <= heartbeat or expires - heartbeat > maximum_ttl:
+        return False, "lease TTL exceeds the hard bound"
+    if heartbeat > now + MAX_LEASE_CLOCK_SKEW_SECONDS:
+        return False, "lease heartbeat is in the future"
+    if expires > now + maximum_ttl + MAX_LEASE_CLOCK_SKEW_SECONDS:
+        return False, "lease expiry is in the future"
+    if now >= expires:
+        return False, "lease heartbeat expired"
+    if require_living_owner and not process_identity_matches(
+        pid=lease.get("owner_pid"),
+        process_start=lease.get("owner_process_start"),
+        boot_id=lease.get("owner_boot_id"),
+    ):
+        return False, "lease owner PID/start/boot identity is not live"
+    return True, ""
+
+
+def _owner_matches(lease: Any, owner: dict[str, Any]) -> bool:
+    if not isinstance(lease, dict):
+        return False
+    return (
+        secrets.compare_digest(str(lease.get("token", "")), owner["token"])
+        and lease.get("owner_pid") == owner["owner_pid"]
+        and secrets.compare_digest(
+            str(lease.get("owner_process_start", "")), owner["owner_process_start"]
+        )
+        and secrets.compare_digest(
+            str(lease.get("owner_boot_id", "")), owner["owner_boot_id"]
+        )
+    )
+
+
+def _intent_token_binding(intent: dict, *, request_id: str, pod_id: Optional[str]) -> Optional[str]:
+    binding = intent.get("lease_binding")
+    if not isinstance(binding, dict):
+        return None
+    digest = binding.get("token_sha256")
+    if (
+        binding.get("request_id") != request_id
+        or binding.get("pod_id") != pod_id
+        or not isinstance(digest, str)
+        or len(digest) != 64
+        or any(char not in "0123456789abcdef" for char in digest)
+    ):
+        return None
+    return digest
+
+
+def _lock_path(intent_dir: str) -> str:
+    return os.path.join(os.path.dirname(os.path.abspath(intent_dir)), "provisioning.lock.json")
+
+
+def _lock_guard_path(intent_dir: str) -> str:
+    return os.path.join(os.path.dirname(os.path.abspath(intent_dir)), "provisioning.lock.guard")
+
+
+@contextmanager
+def _locked_intents(intent_dir: str):
+    """Serialize local lock reclamation so two creators cannot both win."""
+    os.makedirs(os.path.dirname(os.path.abspath(intent_dir)), mode=0o700, exist_ok=True)
+    os.chmod(os.path.dirname(os.path.abspath(intent_dir)), 0o700)
+    path = _lock_guard_path(intent_dir)
+    with open(path, "a+", encoding="utf-8") as handle:
+        os.chmod(path, 0o600)
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+def _read_json(path: str) -> Optional[dict]:
+    try:
+        with open(path, encoding="utf-8") as handle:
+            value = json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def _load_lock(intent_dir: str) -> Optional[dict]:
+    record = _read_json(_lock_path(intent_dir))
+    return record if record and record.get("kind") == LOCK_KIND else None
+
+
+def _remove_own_lock(*, intent_dir: str, request_id: str, token: str) -> None:
+    path = _lock_path(intent_dir)
+    lock = _load_lock(intent_dir)
+    if lock and lock.get("request_id") == request_id and secrets.compare_digest(
+        str(lock.get("token", "")), token
+    ):
+        try:
+            os.unlink(path)
+        except FileNotFoundError:
+            pass
+
+
+def _live_bound_intent_reason(intent: dict, now: int) -> Optional[str]:
+    """Return a reason when an intent still owns a local provisioning lane.
+
+    The persistent create lock is a fast path, not the sole ownership record.
+    If a process dies after atomically binding a pod but before rewriting the
+    lock, the bound schema-v2 lease must still prevent another local creator
+    from racing ahead after the old create lock expires.
+    """
+    if (
+        intent.get("schema_version") != INTENT_SCHEMA_VERSION
+        or intent.get("kind") != INTENT_KIND
+        or intent.get("status") != "bound"
+        or not isinstance(intent.get("pod_id"), str)
+        or not intent.get("pod_id")
+    ):
+        return None
+    request_id = str(intent.get("request_id") or "")
+    pod_id = str(intent["pod_id"])
+    binding = _intent_token_binding(intent, request_id=request_id, pod_id=pod_id)
+    if binding is None:
+        return None
+    lease = intent.get("active_lease")
+    state = str(lease.get("state") or "") if isinstance(lease, dict) else ""
+    if state == "provisioning":
+        valid, _ = _lease_valid(
+            lease,
+            request_id=request_id,
+            pod_id=pod_id,
+            allowed_states={"provisioning"},
+            now=now,
+            require_living_owner=True,
+            maximum_ttl=MAX_LEASE_TTL_SECONDS,
+            expected_token_sha256=binding,
+        )
+    elif state == "operator_keep":
+        valid, _ = _lease_valid(
+            lease,
+            request_id=request_id,
+            pod_id=pod_id,
+            allowed_states={"operator_keep"},
+            now=now,
+            require_living_owner=False,
+            maximum_ttl=MAX_OPERATOR_KEEP_TTL_SECONDS,
+            expected_token_sha256=binding,
+        )
+    else:
+        return None
+    if valid:
+        return f"bound intent {request_id} owns pod {pod_id}"
+    return None
 
 
 @dataclass
@@ -327,15 +966,47 @@ def write_intent(
     intent_dir: str,
     request_id: str,
     purpose: str,
+    owner_token: str,
+    owner_pid: int,
+    owner_process_start: str,
+    owner_boot_id: str,
     gpu: str = "",
     name: str = "",
+    lease_ttl_seconds: int = DEFAULT_LEASE_TTL_SECONDS,
     now: Optional[int] = None,
 ) -> dict:
-    """Record create *intent* before any billable pod exists."""
+    """Acquire the account create lease and record intent before any pod exists."""
     os.makedirs(intent_dir, mode=0o700, exist_ok=True)
+    try:
+        os.chmod(intent_dir, 0o700)
+    except OSError as exc:
+        raise ValueError(f"cannot secure intent directory {intent_dir}: {exc}") from exc
     ts = int(time.time() if now is None else now)
+    owner = _require_owner(
+        token=owner_token,
+        owner_pid=owner_pid,
+        owner_process_start=owner_process_start,
+        owner_boot_id=owner_boot_id,
+    )
+    ttl = _bounded_ttl(
+        lease_ttl_seconds,
+        field_name="provisioning lease TTL",
+        maximum=MAX_LEASE_TTL_SECONDS,
+    )
+    if not request_id:
+        raise ValueError("request_id is required")
+    path = _intent_path(intent_dir, request_id)
+    create_lease = _lease(
+        owner=owner,
+        request_id=request_id,
+        pod_id=None,
+        purpose=purpose,
+        state="creating",
+        now=ts,
+        ttl_seconds=ttl,
+    )
     record = {
-        "schema_version": 1,
+        "schema_version": INTENT_SCHEMA_VERSION,
         "kind": INTENT_KIND,
         "request_id": request_id,
         "pod_id": None,
@@ -346,14 +1017,43 @@ def write_intent(
         "created_at_unix": ts,
         "pod_bound_at_unix": None,
         "completed_at_unix": None,
+        "active_lease": None,
+        "lease_binding": None,
+        "terminal": None,
     }
-    path = _intent_path(intent_dir, request_id)
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as handle:
-        json.dump(record, handle, indent=2, sort_keys=True)
-        handle.write("\n")
-    os.chmod(tmp, 0o600)
-    os.replace(tmp, path)
+    with _locked_intents(intent_dir):
+        if os.path.exists(path):
+            raise ValueError(f"intent already exists: {request_id}")
+        for existing in load_intents(intent_dir):
+            if reason := _live_bound_intent_reason(existing, ts):
+                raise ValueError(f"another live process holds the account provisioning lease: {reason}")
+        old_lock = _load_lock(intent_dir)
+        if old_lock is not None:
+            valid, _ = _lease_valid(
+                old_lock,
+                request_id=str(old_lock.get("request_id") or ""),
+                pod_id=old_lock.get("pod_id"),
+                allowed_states={"creating", "provisioning"},
+                now=ts,
+                require_living_owner=True,
+                maximum_ttl=MAX_LEASE_TTL_SECONDS,
+            )
+            if valid:
+                raise ValueError(
+                    "another live process holds the account provisioning lease "
+                    f"for request {old_lock.get('request_id')}"
+                )
+            try:
+                os.unlink(_lock_path(intent_dir))
+            except FileNotFoundError:
+                pass
+        lock = {"schema_version": 1, "kind": LOCK_KIND, **create_lease}
+        _atomic_write_json(_lock_path(intent_dir), lock)
+        try:
+            _atomic_write_json(path, record)
+        except Exception:
+            _remove_own_lock(intent_dir=intent_dir, request_id=request_id, token=owner_token)
+            raise
     return record
 
 
@@ -362,27 +1062,122 @@ def bind_intent(
     intent_dir: str,
     request_id: str,
     pod_id: str,
+    owner_token: str,
+    owner_pid: int,
+    owner_process_start: str,
+    owner_boot_id: str,
+    lease_ttl_seconds: int = DEFAULT_LEASE_TTL_SECONDS,
     now: Optional[int] = None,
 ) -> dict:
-    """Attach the provider pod id as soon as create returns it."""
+    """Atomically attach pod id and active provisioning lease to an intent."""
     if not pod_id:
         raise ValueError("pod_id is required to bind an intent")
+    owner = _require_owner(
+        token=owner_token,
+        owner_pid=owner_pid,
+        owner_process_start=owner_process_start,
+        owner_boot_id=owner_boot_id,
+    )
+    ttl = _bounded_ttl(
+        lease_ttl_seconds,
+        field_name="provisioning lease TTL",
+        maximum=MAX_LEASE_TTL_SECONDS,
+    )
+    ts = int(time.time() if now is None else now)
     path = _intent_path(intent_dir, request_id)
-    with open(path, encoding="utf-8") as handle:
-        record = json.load(handle)
-    if record.get("kind") != INTENT_KIND:
-        raise ValueError(f"not an intent marker: {path}")
-    if record.get("status") == "completed":
-        raise ValueError(f"refusing to bind a completed intent: {request_id}")
-    record["pod_id"] = pod_id
-    record["status"] = "bound"
-    record["pod_bound_at_unix"] = int(time.time() if now is None else now)
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as handle:
-        json.dump(record, handle, indent=2, sort_keys=True)
-        handle.write("\n")
-    os.chmod(tmp, 0o600)
-    os.replace(tmp, path)
+    with _locked_intents(intent_dir):
+        record = _read_json(path)
+        if not record or record.get("kind") != INTENT_KIND:
+            raise ValueError(f"not an intent marker: {path}")
+        if record.get("schema_version") != INTENT_SCHEMA_VERSION:
+            raise ValueError("only a schema-v2 intent can bind a provider pod")
+        if record.get("status") != "requested" or record.get("pod_id") is not None:
+            raise ValueError(f"refusing to bind non-requested intent: {request_id}")
+        lock = _load_lock(intent_dir)
+        valid, reason = _lease_valid(
+            lock,
+            request_id=request_id,
+            pod_id=None,
+            allowed_states={"creating"},
+            now=ts,
+            require_living_owner=True,
+            maximum_ttl=MAX_LEASE_TTL_SECONDS,
+        )
+        if not valid or not _owner_matches(lock, owner):
+            raise ValueError(f"cannot bind without the live matching create lease: {reason}")
+        lease = _lease(
+            owner=owner,
+            request_id=request_id,
+            pod_id=pod_id,
+            purpose=str(record.get("purpose") or "up"),
+            state="provisioning",
+            now=ts,
+            ttl_seconds=ttl,
+        )
+        # This replacement is the ownership commit point: a reconciler sees pod
+        # id and the matching lease together, or neither, never an unowned gap.
+        record["pod_id"] = pod_id
+        record["status"] = "bound"
+        record["pod_bound_at_unix"] = ts
+        record["active_lease"] = lease
+        record["lease_binding"] = {
+            "request_id": request_id,
+            "pod_id": pod_id,
+            "token_sha256": _token_digest(owner_token),
+        }
+        _atomic_write_json(path, record)
+        _atomic_write_json(_lock_path(intent_dir), {"schema_version": 1, "kind": LOCK_KIND, **lease})
+    return record
+
+
+def renew_create_lease(
+    *,
+    intent_dir: str,
+    request_id: str,
+    owner_token: str,
+    owner_pid: int,
+    owner_process_start: str,
+    owner_boot_id: str,
+    lease_ttl_seconds: int = DEFAULT_LEASE_TTL_SECONDS,
+    now: Optional[int] = None,
+) -> dict:
+    """Renew the pre-create account lease around a bounded provider POST."""
+    owner = _require_owner(
+        token=owner_token,
+        owner_pid=owner_pid,
+        owner_process_start=owner_process_start,
+        owner_boot_id=owner_boot_id,
+    )
+    ttl = _bounded_ttl(
+        lease_ttl_seconds,
+        field_name="provisioning lease TTL",
+        maximum=MAX_LEASE_TTL_SECONDS,
+    )
+    ts = int(time.time() if now is None else now)
+    path = _intent_path(intent_dir, request_id)
+    with _locked_intents(intent_dir):
+        record = _read_json(path)
+        if not record or record.get("kind") != INTENT_KIND:
+            raise ValueError(f"not an intent marker: {path}")
+        if record.get("schema_version") != INTENT_SCHEMA_VERSION:
+            raise ValueError("only a schema-v2 intent can renew a create lease")
+        if record.get("status") != "requested" or record.get("pod_id") is not None:
+            raise ValueError("only an unbound requested intent can renew the create lease")
+        lock = _load_lock(intent_dir)
+        valid, reason = _lease_valid(
+            lock,
+            request_id=request_id,
+            pod_id=None,
+            allowed_states={"creating"},
+            now=ts,
+            require_living_owner=True,
+            maximum_ttl=MAX_LEASE_TTL_SECONDS,
+        )
+        if not valid or not _owner_matches(lock, owner):
+            raise ValueError(f"refusing create lease renewal: {reason}")
+        lock["heartbeat_at_unix"] = ts
+        lock["expires_at_unix"] = ts + ttl
+        _atomic_write_json(_lock_path(intent_dir), lock)
     return record
 
 
@@ -390,22 +1185,203 @@ def complete_intent(
     *,
     intent_dir: str,
     request_id: str,
+    owner_token: str,
     now: Optional[int] = None,
 ) -> dict:
-    """Mark intent completed after verified teardown + receipt."""
+    """Write a terminal tombstone after verified teardown; never revive it."""
+    if not isinstance(owner_token, str) or len(owner_token) < 24:
+        raise ValueError("owner token must be at least 24 characters")
+    ts = int(time.time() if now is None else now)
     path = _intent_path(intent_dir, request_id)
-    with open(path, encoding="utf-8") as handle:
-        record = json.load(handle)
-    if record.get("kind") != INTENT_KIND:
-        raise ValueError(f"not an intent marker: {path}")
-    record["status"] = "completed"
-    record["completed_at_unix"] = int(time.time() if now is None else now)
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as handle:
-        json.dump(record, handle, indent=2, sort_keys=True)
-        handle.write("\n")
-    os.chmod(tmp, 0o600)
-    os.replace(tmp, path)
+    with _locked_intents(intent_dir):
+        record = _read_json(path)
+        if not record or record.get("kind") != INTENT_KIND:
+            raise ValueError(f"not an intent marker: {path}")
+        if record.get("status") == "completed":
+            raise ValueError(f"intent is already terminal: {request_id}")
+        lease = record.get("active_lease")
+        if not isinstance(lease, dict) or not secrets.compare_digest(
+            str(lease.get("token", "")), owner_token
+        ):
+            raise ValueError("refusing terminal transition without matching lease token")
+        binding = _intent_token_binding(
+            record, request_id=request_id, pod_id=record.get("pod_id")
+        )
+        if binding is None or not secrets.compare_digest(_token_digest(owner_token), binding):
+            raise ValueError("refusing terminal transition without matching intent binding")
+        record["status"] = "completed"
+        record["completed_at_unix"] = ts
+        record["terminal"] = {
+            "state": "teardown_verified",
+            "request_id": request_id,
+            "pod_id": record.get("pod_id"),
+            "token": owner_token,
+            "completed_at_unix": ts,
+        }
+        record["active_lease"] = None
+        _atomic_write_json(path, record)
+        _remove_own_lock(intent_dir=intent_dir, request_id=request_id, token=owner_token)
+    return record
+
+
+def renew_intent_lease(
+    *,
+    intent_dir: str,
+    request_id: str,
+    owner_token: str,
+    owner_pid: int,
+    owner_process_start: str,
+    owner_boot_id: str,
+    lease_ttl_seconds: int = DEFAULT_LEASE_TTL_SECONDS,
+    now: Optional[int] = None,
+) -> dict:
+    """Renew a live foreground provisioning lease; expired leases never revive."""
+    owner = _require_owner(
+        token=owner_token,
+        owner_pid=owner_pid,
+        owner_process_start=owner_process_start,
+        owner_boot_id=owner_boot_id,
+    )
+    ttl = _bounded_ttl(
+        lease_ttl_seconds,
+        field_name="provisioning lease TTL",
+        maximum=MAX_LEASE_TTL_SECONDS,
+    )
+    ts = int(time.time() if now is None else now)
+    path = _intent_path(intent_dir, request_id)
+    with _locked_intents(intent_dir):
+        record = _read_json(path)
+        if not record or record.get("kind") != INTENT_KIND:
+            raise ValueError(f"not an intent marker: {path}")
+        if record.get("schema_version") != INTENT_SCHEMA_VERSION:
+            raise ValueError("only a schema-v2 intent can renew a provisioning lease")
+        if record.get("status") != "bound":
+            raise ValueError("only a bound intent can renew a provisioning lease")
+        lease = record.get("active_lease")
+        binding = _intent_token_binding(
+            record, request_id=request_id, pod_id=record.get("pod_id")
+        )
+        if binding is None:
+            raise ValueError("refusing lease renewal without a schema-v2 token binding")
+        valid, reason = _lease_valid(
+            lease,
+            request_id=request_id,
+            pod_id=record.get("pod_id"),
+            allowed_states={"provisioning"},
+            now=ts,
+            require_living_owner=True,
+            maximum_ttl=MAX_LEASE_TTL_SECONDS,
+            expected_token_sha256=binding,
+        )
+        if not valid or not _owner_matches(lease, owner):
+            raise ValueError(f"refusing lease renewal: {reason}")
+        lease["heartbeat_at_unix"] = ts
+        lease["expires_at_unix"] = ts + ttl
+        record["active_lease"] = lease
+        _atomic_write_json(path, record)
+        _atomic_write_json(_lock_path(intent_dir), {"schema_version": 1, "kind": LOCK_KIND, **lease})
+    return record
+
+
+def promote_operator_keep(
+    *,
+    intent_dir: str,
+    request_id: str,
+    owner_token: str,
+    keep_seconds: int = DEFAULT_OPERATOR_KEEP_TTL_SECONDS,
+    now: Optional[int] = None,
+) -> dict:
+    """Turn a ready standalone --keep into a short, explicit operator claim."""
+    if not isinstance(owner_token, str) or len(owner_token) < 24:
+        raise ValueError("owner token must be at least 24 characters")
+    ttl = _bounded_ttl(
+        keep_seconds,
+        field_name="operator keep TTL",
+        maximum=MAX_OPERATOR_KEEP_TTL_SECONDS,
+    )
+    ts = int(time.time() if now is None else now)
+    path = _intent_path(intent_dir, request_id)
+    with _locked_intents(intent_dir):
+        record = _read_json(path)
+        if not record or record.get("kind") != INTENT_KIND:
+            raise ValueError(f"not an intent marker: {path}")
+        if record.get("schema_version") != INTENT_SCHEMA_VERSION:
+            raise ValueError("only a schema-v2 intent can promote an operator keep")
+        lease = record.get("active_lease")
+        binding = _intent_token_binding(
+            record, request_id=request_id, pod_id=record.get("pod_id")
+        )
+        if binding is None:
+            raise ValueError("refusing operator keep promotion without a schema-v2 token binding")
+        valid, reason = _lease_valid(
+            lease,
+            request_id=request_id,
+            pod_id=record.get("pod_id"),
+            allowed_states={"provisioning"},
+            now=ts,
+            require_living_owner=True,
+            maximum_ttl=MAX_LEASE_TTL_SECONDS,
+            expected_token_sha256=binding,
+        )
+        if not valid or not secrets.compare_digest(str(lease.get("token", "")), owner_token):
+            raise ValueError(f"refusing operator keep promotion: {reason}")
+        lease["state"] = "operator_keep"
+        lease["heartbeat_at_unix"] = ts
+        lease["expires_at_unix"] = ts + ttl
+        record["active_lease"] = lease
+        _atomic_write_json(path, record)
+        _remove_own_lock(intent_dir=intent_dir, request_id=request_id, token=owner_token)
+    return record
+
+
+def renew_operator_keep(
+    *,
+    intent_dir: str,
+    request_id: str,
+    owner_token: str,
+    keep_seconds: int = DEFAULT_OPERATOR_KEEP_TTL_SECONDS,
+    now: Optional[int] = None,
+) -> dict:
+    """Explicitly extend an unexpired operator keep; it cannot be revived later."""
+    if not isinstance(owner_token, str) or len(owner_token) < 24:
+        raise ValueError("owner token must be at least 24 characters")
+    ttl = _bounded_ttl(
+        keep_seconds,
+        field_name="operator keep TTL",
+        maximum=MAX_OPERATOR_KEEP_TTL_SECONDS,
+    )
+    ts = int(time.time() if now is None else now)
+    path = _intent_path(intent_dir, request_id)
+    with _locked_intents(intent_dir):
+        record = _read_json(path)
+        if not record or record.get("kind") != INTENT_KIND:
+            raise ValueError(f"not an intent marker: {path}")
+        if record.get("schema_version") != INTENT_SCHEMA_VERSION:
+            raise ValueError("only a schema-v2 intent can renew an operator keep")
+        if record.get("status") != "bound":
+            raise ValueError("only a bound intent can renew an operator keep")
+        lease = record.get("active_lease")
+        binding = _intent_token_binding(
+            record, request_id=request_id, pod_id=record.get("pod_id")
+        )
+        if binding is None:
+            raise ValueError("refusing operator keep renewal without a schema-v2 token binding")
+        valid, reason = _lease_valid(
+            lease,
+            request_id=request_id,
+            pod_id=record.get("pod_id"),
+            allowed_states={"operator_keep"},
+            now=ts,
+            require_living_owner=False,
+            maximum_ttl=MAX_OPERATOR_KEEP_TTL_SECONDS,
+            expected_token_sha256=binding,
+        )
+        if not valid or not secrets.compare_digest(str(lease.get("token", "")), owner_token):
+            raise ValueError(f"refusing operator keep renewal: {reason}")
+        lease["heartbeat_at_unix"] = ts
+        lease["expires_at_unix"] = ts + ttl
+        record["active_lease"] = lease
+        _atomic_write_json(path, record)
     return record
 
 
@@ -457,30 +1433,38 @@ def classify_live_pods(
     intents: Iterable[dict],
     active_pod_id: Optional[str] = None,
     completed_by_id: Optional[dict[str, dict]] = None,
+    now: Optional[int] = None,
 ) -> ReconcileReport:
     """Reconcile live provider pods against local ownership trails.
 
     A live pod is an orphan unless a *living* owner claims it:
-      - active_pod_id from .merc-runpod.env (operator --keep or in-progress ready run)
+      - a fresh, PID/start/boot-validated provisioning lease in the matching intent;
+      - a short explicit operator_keep lease made after standalone --keep readiness.
 
-    Bound intents without completion are *evidence of death*, not living owners:
-    a SIGKILLed run leaves exactly that trail. Completed receipts that claim
-    teardown_verified while the pod is still live are also orphans.
+    `.merc-runpod.env`, pending files, and the deprecated active_pod_id argument
+    are deliberately ignored: they can survive SIGKILL. Bound intents without an
+    accepted lease are evidence of death, not owners. Completed/teardown-claimed
+    records are never owners.
     """
+    del active_pod_id
+    ts = int(time.time() if now is None else now)
     completed_by_id = completed_by_id or {}
     intents = list(intents)
-    bound_by_pod: dict[str, dict] = {}
+    bound_by_pod: dict[str, list[dict]] = {}
+    terminal_by_pod: dict[str, list[dict]] = {}
     unbound: list[dict] = []
     for intent in intents:
         status = intent.get("status")
         pod_id = intent.get("pod_id")
         if status == "completed":
+            if pod_id:
+                terminal_by_pod.setdefault(str(pod_id), []).append(intent)
             continue
         if status == "requested" and not pod_id:
             unbound.append(intent)
             continue
         if pod_id:
-            bound_by_pod[str(pod_id)] = intent
+            bound_by_pod.setdefault(str(pod_id), []).append(intent)
 
     report = ReconcileReport()
     live_ids: set[str] = set()
@@ -493,46 +1477,12 @@ def classify_live_pods(
         desired = str(raw.get("desiredStatus") or raw.get("desired_status") or "")
         cost = raw.get("costPerHr", raw.get("cost_per_hr"))
 
-        if active_pod_id and pod_id == str(active_pod_id):
-            row = PodClassification(
-                pod_id=pod_id,
-                name=name,
-                desired_status=desired,
-                cost_per_hr=cost,
-                classification="active_owner",
-                owner=f"active env pod {active_pod_id}",
-                orphan=False,
-                detail=(
-                    "claimed by .merc-runpod.env / active process; not an orphan "
-                    "(operator may have left it with --keep)"
-                ),
-            )
-            report.live.append(row)
-            report.owned.append(row)
-            continue
-
-        intent = bound_by_pod.get(pod_id)
         receipt = completed_by_id.get(pod_id)
+        candidates = bound_by_pod.get(pod_id, [])
+        terminals = terminal_by_pod.get(pod_id, [])
 
-        if intent is not None and (receipt is None or not receipt.get("teardown_verified")):
-            # Bound intent, no verified completion: classic SIGKILL / host-death leak.
-            row = PodClassification(
-                pod_id=pod_id,
-                name=name,
-                desired_status=desired,
-                cost_per_hr=cost,
-                classification="abandoned_intent",
-                owner=f"intent {intent.get('request_id')} status={intent.get('status')}",
-                orphan=True,
-                detail=(
-                    "pod is bound to a local intent with no verified completion — "
-                    "likely a killed run; billing with nobody watching"
-                ),
-            )
-            report.live.append(row)
-            report.orphans.append(row)
-            continue
-
+        # A receipt or terminal marker that claims teardown always wins over an
+        # ownership claim: a still-live provider pod is billing.
         if receipt is not None and receipt.get("teardown_verified"):
             row = PodClassification(
                 pod_id=pod_id,
@@ -545,6 +1495,26 @@ def classify_live_pods(
                 detail=(
                     "a spend receipt claims this pod was torn down, but it is still "
                     "listed live — teardown verification failed or the pod returned"
+                ),
+            )
+            report.live.append(row)
+            report.orphans.append(row)
+            continue
+
+        if terminals:
+            row = PodClassification(
+                pod_id=pod_id,
+                name=name,
+                desired_status=desired,
+                cost_per_hr=cost,
+                classification="terminal_intent_alive",
+                owner=(
+                    f"terminal intent(s): {', '.join(str(i.get('request_id')) for i in terminals)}"
+                ),
+                orphan=True,
+                detail=(
+                    "a local intent reached a terminal teardown state, but the provider "
+                    "still lists the pod live; an old heartbeat cannot revive it"
                 ),
             )
             report.live.append(row)
@@ -569,6 +1539,112 @@ def classify_live_pods(
             report.orphans.append(row)
             continue
 
+        if len(candidates) > 1:
+            row = PodClassification(
+                pod_id=pod_id,
+                name=name,
+                desired_status=desired,
+                cost_per_hr=cost,
+                classification="conflicting_open_intents",
+                owner=(
+                    f"open intents: {', '.join(str(i.get('request_id')) for i in candidates)}"
+                ),
+                orphan=True,
+                detail="multiple open intents claim one pod; no single lease is trusted",
+            )
+            report.live.append(row)
+            report.orphans.append(row)
+            continue
+
+        if candidates:
+            intent = candidates[0]
+            lease = intent.get("active_lease")
+            state = lease.get("state") if isinstance(lease, dict) else None
+            request_id = str(intent.get("request_id") or "")
+            binding = _intent_token_binding(intent, request_id=request_id, pod_id=pod_id)
+            if intent.get("schema_version") != INTENT_SCHEMA_VERSION:
+                reason = "intent is not schema v2"
+            elif binding is None:
+                reason = "intent lease binding is missing or mismatched"
+            elif state == "provisioning":
+                valid, reason = _lease_valid(
+                    lease,
+                    request_id=request_id,
+                    pod_id=pod_id,
+                    allowed_states={"provisioning"},
+                    now=ts,
+                    require_living_owner=True,
+                    maximum_ttl=MAX_LEASE_TTL_SECONDS,
+                    expected_token_sha256=binding,
+                )
+                if valid:
+                    row = PodClassification(
+                        pod_id=pod_id,
+                        name=name,
+                        desired_status=desired,
+                        cost_per_hr=cost,
+                        classification="active_provisioning_lease",
+                        owner=(
+                            f"intent {intent.get('request_id')} foreground pid "
+                            f"{lease.get('owner_pid')}"
+                        ),
+                        orphan=False,
+                        detail=(
+                            "fresh matching provisioning lease; owned but not yet "
+                            "declared routable"
+                        ),
+                    )
+                    report.live.append(row)
+                    report.owned.append(row)
+                    continue
+            elif state == "operator_keep":
+                valid, reason = _lease_valid(
+                    lease,
+                    request_id=request_id,
+                    pod_id=pod_id,
+                    allowed_states={"operator_keep"},
+                    now=ts,
+                    require_living_owner=False,
+                    maximum_ttl=MAX_OPERATOR_KEEP_TTL_SECONDS,
+                    expected_token_sha256=binding,
+                )
+                if valid:
+                    row = PodClassification(
+                        pod_id=pod_id,
+                        name=name,
+                        desired_status=desired,
+                        cost_per_hr=cost,
+                        classification="operator_keep",
+                        owner=f"explicit keep intent {intent.get('request_id')}",
+                        orphan=False,
+                        detail=(
+                            "short operator_keep lease is current; renew it explicitly "
+                            "before expiry or it becomes an orphan"
+                        ),
+                    )
+                    report.live.append(row)
+                    report.owned.append(row)
+                    continue
+            else:
+                reason = "missing active lease"
+
+            row = PodClassification(
+                pod_id=pod_id,
+                name=name,
+                desired_status=desired,
+                cost_per_hr=cost,
+                classification="abandoned_intent",
+                owner=f"intent {intent.get('request_id')} status={intent.get('status')}",
+                orphan=True,
+                detail=(
+                    "pod is bound to an open intent without a valid living lease "
+                    f"({reason}); likely a killed or stalled run"
+                ),
+            )
+            report.live.append(row)
+            report.orphans.append(row)
+            continue
+
         row = PodClassification(
             pod_id=pod_id,
             name=name,
@@ -578,24 +1654,25 @@ def classify_live_pods(
             owner="none",
             orphan=True,
             detail=(
-                "live pod with no active env, no bound open intent, and no spend "
-                "receipt — unrecognised billing"
+                "live pod with no accepted lease, bound open intent, or spend receipt "
+                "— unrecognised billing"
             ),
         )
         report.live.append(row)
         report.orphans.append(row)
 
     # Bound intents whose pod is gone: stale trail, not currently billing.
-    for pod_id, intent in bound_by_pod.items():
+    for pod_id, candidates in bound_by_pod.items():
         if pod_id not in live_ids:
-            report.stale_intents.append(
-                {
-                    "request_id": intent.get("request_id"),
-                    "pod_id": pod_id,
-                    "status": intent.get("status"),
-                    "detail": "intent still open but pod is not live",
-                }
-            )
+            for intent in candidates:
+                report.stale_intents.append(
+                    {
+                        "request_id": intent.get("request_id"),
+                        "pod_id": pod_id,
+                        "status": intent.get("status"),
+                        "detail": "intent still open but pod is not live",
+                    }
+                )
     report.unbound_intents = [
         {
             "request_id": i.get("request_id"),
@@ -667,7 +1744,6 @@ def run_reconcile_from_args(args) -> int:
     report = classify_live_pods(
         live,
         intents=intents,
-        active_pod_id=args.active_pod_id or None,
         completed_by_id=completed,
     )
     if args.json:
@@ -759,114 +1835,56 @@ def self_test() -> int:
     else:
         raise AssertionError("a receipt accepted a stop before its start")
 
-    # --- Orphan reconcile: killed-run simulation (must detect) ---
-    # A board-power sampler was SIGKILLed during startup. Pending intent is bound
-    # to the pod; no completion receipt exists. Reconcile must fail (exit 1).
-    killed_pod = "lnk2yta98ciwqv"
-    live = [
-        {
-            "id": killed_pod,
-            "name": "merc-canary-vllm",
-            "desiredStatus": "RUNNING",
-            "costPerHr": 0.44,
-        }
-    ]
-    intents = [
-        {
-            "schema_version": 1,
-            "kind": INTENT_KIND,
-            "request_id": "req-killed-sampler",
-            "pod_id": killed_pod,
-            "purpose": "board_power_remeasure",
-            "status": "bound",
-            "created_at_unix": 1,
-            "pod_bound_at_unix": 2,
-            "completed_at_unix": None,
-        }
-    ]
-    killed = classify_live_pods(live, intents=intents, active_pod_id=None, completed_by_id={})
-    assert killed.has_orphans, "killed run with pending intent must be an orphan"
-    assert killed.orphans[0].pod_id == killed_pod
-    assert killed.orphans[0].classification == "abandoned_intent"
-    assert len(killed.owned) == 0
-
-    # Same live pod with no trail at all (death before bind): still an orphan.
-    unknown = classify_live_pods(
-        live, intents=[], active_pod_id=None, completed_by_id={}
-    )
-    assert unknown.has_orphans
-    assert unknown.orphans[0].classification == "unknown"
-
-    # Operator deliberately kept a pod: active env owns it — not an orphan.
-    kept = classify_live_pods(
-        live, intents=[], active_pod_id=killed_pod, completed_by_id={}
-    )
-    assert not kept.has_orphans, "deliberate --keep must not be classified as orphan"
-    assert kept.owned[0].classification == "active_owner"
-
-    # Clean account.
-    clean = classify_live_pods([], intents=intents, active_pod_id=None, completed_by_id={})
-    assert not clean.has_orphans
-    assert clean.stale_intents and clean.stale_intents[0]["pod_id"] == killed_pod
-
-    # Receipt claimed teardown but pod still live.
-    receipted = classify_live_pods(
-        live,
-        intents=[],
-        active_pod_id=None,
-        completed_by_id={
-            killed_pod: {
-                "kind": "runpod_spend_receipt",
-                "pod_id": killed_pod,
-                "teardown_verified": True,
-            }
-        },
-    )
-    assert receipted.has_orphans
-    assert receipted.orphans[0].classification == "receipted_but_alive"
-
-    # Intent write/bind/complete round-trip on a temp dir (no network).
+    # --- Lease-backed orphan reconcile (all offline) ---
     import tempfile
 
+    pod = "lnk2yta98ciwqv"
+    live = [{"id": pod, "name": "merc-canary-vllm", "desiredStatus": "RUNNING"}]
+    identity = process_identity(os.getpid())
+    owner = {
+        "owner_token": "a" * 48,
+        "owner_pid": identity["pid"],
+        "owner_process_start": identity["process_start"],
+        "owner_boot_id": identity["boot_id"],
+    }
+    now = int(time.time())
     with tempfile.TemporaryDirectory() as tmp:
+        intent_dir = os.path.join(tmp, "intent")
         write_intent(
-            intent_dir=tmp,
+            intent_dir=intent_dir,
             request_id="r-roundtrip",
             purpose="self-test",
             gpu="NVIDIA A40",
             name="merc-canary-vllm",
-            now=100,
+            now=now,
+            **owner,
         )
-        loaded = load_intents(tmp)
-        assert len(loaded) == 1 and loaded[0]["status"] == "requested"
-        bind_intent(intent_dir=tmp, request_id="r-roundtrip", pod_id="podxyz", now=101)
-        loaded = load_intents(tmp)
-        assert loaded[0]["status"] == "bound" and loaded[0]["pod_id"] == "podxyz"
-        # Killed-run fixture on disk: reconcile via CLI must exit 1.
-        live_json = json.dumps(
-            [{"id": "podxyz", "name": "merc-canary-vllm", "desiredStatus": "RUNNING"}]
+        bind_intent(
+            intent_dir=intent_dir,
+            request_id="r-roundtrip",
+            pod_id=pod,
+            now=now + 1,
+            **owner,
         )
-        # Inline call equivalent to CLI.
-        report = classify_live_pods(
-            json.loads(live_json),
-            intents=load_intents(tmp),
-            active_pod_id=None,
-            completed_by_id={},
+        report = classify_live_pods(live, intents=load_intents(intent_dir), completed_by_id={}, now=now + 2)
+        assert not report.has_orphans
+        assert report.owned[0].classification == "active_provisioning_lease"
+        promote_operator_keep(
+            intent_dir=intent_dir,
+            request_id="r-roundtrip",
+            owner_token=owner["owner_token"],
+            now=now + 3,
         )
-        assert report.has_orphans
-        complete_intent(intent_dir=tmp, request_id="r-roundtrip", now=102)
-        loaded = load_intents(tmp)
-        assert loaded[0]["status"] == "completed"
-        # Completed intent is not a living owner; without active env the still-live
-        # pod is unknown (or receipted if we had one). Here: unknown.
-        after = classify_live_pods(
-            json.loads(live_json),
-            intents=load_intents(tmp),
-            active_pod_id=None,
-            completed_by_id={},
+        kept = classify_live_pods(live, intents=load_intents(intent_dir), completed_by_id={}, now=now + 4)
+        assert not kept.has_orphans and kept.owned[0].classification == "operator_keep"
+        complete_intent(
+            intent_dir=intent_dir,
+            request_id="r-roundtrip",
+            owner_token=owner["owner_token"],
+            now=now + 5,
         )
-        assert after.has_orphans
-        assert after.orphans[0].classification == "unknown"
+        terminal = classify_live_pods(live, intents=load_intents(intent_dir), completed_by_id={}, now=now + 6)
+        assert terminal.has_orphans and terminal.orphans[0].classification == "terminal_intent_alive"
 
     print("runpod-spend-guard self-test: PASS")
     return 0
@@ -903,7 +1921,7 @@ def main() -> int:
     rec = sub.add_parser(
         "reconcile",
         help=(
-            "classify live pods against local intents/receipts/active env; "
+            "classify live pods against local leases, intents, and receipts; "
             "exit 1 if any orphan (fixture-driven; no RunPod API calls)"
         ),
     )
@@ -914,7 +1932,7 @@ def main() -> int:
     rec.add_argument(
         "--active-pod-id",
         default="",
-        help="pod id claimed by .merc-runpod.env (deliberate keep / current run)",
+        help="deprecated and ignored; .merc-runpod.env is not ownership proof",
     )
     rec.add_argument("--json", action="store_true")
 
@@ -923,20 +1941,83 @@ def main() -> int:
     iw.add_argument("--purpose", required=True)
     iw.add_argument("--gpu", default="")
     iw.add_argument("--name", default="")
+    add_owner_token_argument(iw)
+    iw.add_argument("--owner-pid", type=int, required=True)
+    iw.add_argument("--owner-process-start", required=True)
+    iw.add_argument("--owner-boot-id", required=True)
     iw.add_argument("--intent-dir", default=DEFAULT_INTENT_DIR)
 
-    ib = sub.add_parser("intent-bind", help="attach pod id immediately after create returns")
+    ib = sub.add_parser(
+        "intent-bind", help="atomically attach pod id and provisioning lease"
+    )
     ib.add_argument("--request-id", required=True)
     ib.add_argument("--pod-id", required=True)
+    add_owner_token_argument(ib)
+    ib.add_argument("--owner-pid", type=int, required=True)
+    ib.add_argument("--owner-process-start", required=True)
+    ib.add_argument("--owner-boot-id", required=True)
     ib.add_argument("--intent-dir", default=DEFAULT_INTENT_DIR)
 
-    ic = sub.add_parser("intent-complete", help="mark intent completed after verified teardown")
+    icr = sub.add_parser(
+        "intent-renew-create", help="renew an unbound pre-create account lease"
+    )
+    icr.add_argument("--request-id", required=True)
+    add_owner_token_argument(icr)
+    icr.add_argument("--owner-pid", type=int, required=True)
+    icr.add_argument("--owner-process-start", required=True)
+    icr.add_argument("--owner-boot-id", required=True)
+    icr.add_argument("--intent-dir", default=DEFAULT_INTENT_DIR)
+
+    ir = sub.add_parser("intent-renew", help="renew an unexpired foreground provisioning lease")
+    ir.add_argument("--request-id", required=True)
+    add_owner_token_argument(ir)
+    ir.add_argument("--owner-pid", type=int, required=True)
+    ir.add_argument("--owner-process-start", required=True)
+    ir.add_argument("--owner-boot-id", required=True)
+    ir.add_argument("--intent-dir", default=DEFAULT_INTENT_DIR)
+
+    ik = sub.add_parser(
+        "intent-promote-operator-keep",
+        help="make a ready standalone --keep a short explicit operator lease",
+    )
+    ik.add_argument("--request-id", required=True)
+    add_owner_token_argument(ik)
+    ik.add_argument("--keep-seconds", type=int, default=DEFAULT_OPERATOR_KEEP_TTL_SECONDS)
+    ik.add_argument("--intent-dir", default=DEFAULT_INTENT_DIR)
+
+    ikr = sub.add_parser(
+        "intent-renew-operator-keep",
+        help="extend an unexpired explicit operator keep",
+    )
+    ikr.add_argument("--request-id", required=True)
+    add_owner_token_argument(ikr)
+    ikr.add_argument("--keep-seconds", type=int, default=DEFAULT_OPERATOR_KEEP_TTL_SECONDS)
+    ikr.add_argument("--intent-dir", default=DEFAULT_INTENT_DIR)
+
+    ic = sub.add_parser("intent-complete", help="write terminal teardown tombstone")
     ic.add_argument("--request-id", required=True)
+    add_owner_token_argument(ic)
     ic.add_argument("--intent-dir", default=DEFAULT_INTENT_DIR)
+
+    pi = sub.add_parser("process-identity", help="print PID/start/boot identity for a lease owner")
+    pi.add_argument("--pid", type=int, required=True)
 
     args = parser.parse_args()
     if args.self_test:
         return self_test()
+    if args.command in {
+        "intent-write",
+        "intent-bind",
+        "intent-renew-create",
+        "intent-renew",
+        "intent-promote-operator-keep",
+        "intent-renew-operator-keep",
+        "intent-complete",
+    }:
+        try:
+            args.owner_token = owner_token_from_args(args)
+        except ValueError as exc:
+            parser.error(str(exc))
     if args.command == "budget":
         print(budget_seconds(args.cost_per_hr, args.cap_usd))
         return 0
@@ -951,6 +2032,24 @@ def main() -> int:
             if _scripts not in sys.path:
                 sys.path.insert(0, _scripts)
             from lib.evidence_binding import EvidenceBindingError, emit_bound_json
+            # Bind producer identity through the single write path. Image digests
+            # are lifted from the receipt's immutable image field so a BOUND
+            # placement spend receipt can name what ran, not only that something
+            # ran. Mutable tags never reach here admissible.
+            image_digest = ""
+            image_na = "no container image in this measurement"
+            image = str(args.image or "")
+            if "@sha256:" in image:
+                digest_hex = image.rsplit("@sha256:", 1)[-1].strip().lower()
+                if len(digest_hex) == 64 and all(c in "0123456789abcdef" for c in digest_hex):
+                    image_digest = f"sha256:{digest_hex}"
+                    image_na = ""
+            model_na = (
+                f"model field is a name/ref ({args.model}), not a weight digest; "
+                "weight pins live on the placement contract / runtime authority"
+                if args.model
+                else "no model weights declared on this spend receipt"
+            )
             try:
                 emit_bound_json(
                     path,
@@ -958,8 +2057,15 @@ def main() -> int:
                     harness="scripts/runpod-spend-guard.py",
                     repo_root=ROOT,
                     build_binary_path=os.path.join(ROOT, "scripts", "runpod-spend-guard.py"),
-                    exact_config="spend guard args embedded in receipt",
+                    exact_config=(
+                        f"spend guard receipt: pod_id={args.pod_id} gpu={args.gpu} "
+                        f"image={args.image} model={args.model} "
+                        f"cap_usd={args.cap_usd} cost_per_hr={args.cost_per_hr}"
+                    ),
                     raw_samples="spend fields embedded; no sample array",
+                    image_digest=image_digest,
+                    image_na=image_na or "no container image in this measurement",
+                    model_na=model_na,
                 )
             except EvidenceBindingError as exc:
                 print(f"REFUSED evidence write: {exc}", file=sys.stderr)
@@ -981,6 +2087,10 @@ def main() -> int:
             purpose=args.purpose,
             gpu=args.gpu,
             name=args.name,
+            owner_token=args.owner_token,
+            owner_pid=args.owner_pid,
+            owner_process_start=args.owner_process_start,
+            owner_boot_id=args.owner_boot_id,
         )
         print(json.dumps(record, indent=2, sort_keys=True))
         return 0
@@ -989,12 +2099,64 @@ def main() -> int:
             intent_dir=args.intent_dir,
             request_id=args.request_id,
             pod_id=args.pod_id,
+            owner_token=args.owner_token,
+            owner_pid=args.owner_pid,
+            owner_process_start=args.owner_process_start,
+            owner_boot_id=args.owner_boot_id,
+        )
+        print(json.dumps(record, indent=2, sort_keys=True))
+        return 0
+    if args.command == "intent-renew-create":
+        record = renew_create_lease(
+            intent_dir=args.intent_dir,
+            request_id=args.request_id,
+            owner_token=args.owner_token,
+            owner_pid=args.owner_pid,
+            owner_process_start=args.owner_process_start,
+            owner_boot_id=args.owner_boot_id,
         )
         print(json.dumps(record, indent=2, sort_keys=True))
         return 0
     if args.command == "intent-complete":
-        record = complete_intent(intent_dir=args.intent_dir, request_id=args.request_id)
+        record = complete_intent(
+            intent_dir=args.intent_dir,
+            request_id=args.request_id,
+            owner_token=args.owner_token,
+        )
         print(json.dumps(record, indent=2, sort_keys=True))
+        return 0
+    if args.command == "intent-renew":
+        record = renew_intent_lease(
+            intent_dir=args.intent_dir,
+            request_id=args.request_id,
+            owner_token=args.owner_token,
+            owner_pid=args.owner_pid,
+            owner_process_start=args.owner_process_start,
+            owner_boot_id=args.owner_boot_id,
+        )
+        print(json.dumps(record, indent=2, sort_keys=True))
+        return 0
+    if args.command == "intent-promote-operator-keep":
+        record = promote_operator_keep(
+            intent_dir=args.intent_dir,
+            request_id=args.request_id,
+            owner_token=args.owner_token,
+            keep_seconds=args.keep_seconds,
+        )
+        print(json.dumps(record, indent=2, sort_keys=True))
+        return 0
+    if args.command == "intent-renew-operator-keep":
+        record = renew_operator_keep(
+            intent_dir=args.intent_dir,
+            request_id=args.request_id,
+            owner_token=args.owner_token,
+            keep_seconds=args.keep_seconds,
+        )
+        print(json.dumps(record, indent=2, sort_keys=True))
+        return 0
+    if args.command == "process-identity":
+        identity = process_identity(args.pid)
+        print(f"{identity['pid']}|{identity['process_start']}|{identity['boot_id']}")
         return 0
     parser.print_help()
     return 2

@@ -6,7 +6,7 @@
 /control/billing.go @joshuahickscorp
 /control/collect.go @joshuahickscorp
 /control/connect.go @joshuahickscorp
-/control/ledger.go @joshuahickscorp
+/control/ledger_write.go @joshuahickscorp
 /control/payout*.go @joshuahickscorp
 /control/stripe*.go @joshuahickscorp
 
@@ -22,8 +22,8 @@
 /control/scheduler.go @joshuahickscorp
 /control/store.go @joshuahickscorp
 /agent/ @joshuahickscorp
-/macapp/ComputeExchangeAgent/MercAgent.entitlements @joshuahickscorp
-/macapp/ComputeExchangeAgent/merc-agent.sb @joshuahickscorp
+/clients/macapp/ComputeExchangeAgent/MercAgent.entitlements @joshuahickscorp
+/clients/macapp/ComputeExchangeAgent/merc-agent.sb @joshuahickscorp
 
 # Release and deployment
 /.github/ @joshuahickscorp

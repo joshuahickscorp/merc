@@ -23,14 +23,10 @@ func TestVerificationDecisionDigestBindsEffectsAndSettlementCanonically(t *testi
 	}
 
 	want, err := verificationDecisionDigest(decision, entries)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	reordered := []LedgerEntry{entries[1], entries[0]}
 	got, err := verificationDecisionDigest(decision, reordered)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if got != want {
 		t.Fatalf("ledger input order changed canonical digest: %s != %s", got, want)
 	}
@@ -38,17 +34,13 @@ func TestVerificationDecisionDigestBindsEffectsAndSettlementCanonically(t *testi
 	changed := append([]LedgerEntry(nil), entries...)
 	changed[0].AmountUSD = 0.8
 	got, err = verificationDecisionDigest(decision, changed)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if got == want {
 		t.Fatal("changed settlement amount must change decision digest")
 	}
 	decision.Effects[0].ReputationEvent = EventMismatch
 	got, err = verificationDecisionDigest(decision, entries)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if got == want {
 		t.Fatal("changed verification effect must change decision digest")
 	}

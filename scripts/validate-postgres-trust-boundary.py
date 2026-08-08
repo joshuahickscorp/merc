@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """CI check for the production Postgres TLS / trust-boundary decision.
 
-Fails unless docs/POSTGRES_TRUST_BOUNDARY.md and docker-compose.prod.yml still
+Fails unless docs/ARCHITECTURE.md and docker-compose.prod.yml still
 agree that sslmode=disable is only used because Postgres is unpublished on a
 single-host Compose network.
 """
@@ -67,7 +67,7 @@ def main() -> None:
     if "sslmode=disable" not in dsn:
         fail(
             "DATABASE_URL no longer uses sslmode=disable; update "
-            "docs/POSTGRES_TRUST_BOUNDARY.md and this validator together"
+            "docs/ARCHITECTURE.md and this validator together"
         )
     if "@postgres:" not in dsn and "@postgres/" not in dsn:
         fail(

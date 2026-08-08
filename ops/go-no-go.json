@@ -57,6 +57,12 @@
       "owner": "legal_privacy_tax_payments_security_trust_license_support",
       "blocker": "Qualified approvals for the bounded test canary and named human incident coverage are absent.",
       "exit_criterion": "Supply an exact-candidate governance bundle conforming to ops/governance-approval-bundle.schema.json with all eight named approvals."
+    },
+    {
+      "id": "P1-EXACT-SETTLEMENT-LIFECYCLE",
+      "owner": "money_authority",
+      "blocker": "job_cost_settlements and Store.PersistCostSettlementActuals are deliberately guarded as dormant_non_live: the writer is unreachable from a production entrypoint, so exact settlement actuals are not an exercised lifecycle.",
+      "exit_criterion": "Either wire the exact settlement writer into a separately reviewed, entrypoint-reachable settlement lifecycle and preserve candidate-bound reconciliation evidence, or remove the dormant schema/code only after an approved product-semantics decision."
     }
   ],
   "out_of_scope_p0": [

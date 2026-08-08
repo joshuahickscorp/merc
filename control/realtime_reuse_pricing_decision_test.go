@@ -19,21 +19,13 @@ func realtimeReusePricingFixture(t *testing.T) RealtimeReusePricingInputs {
 func TestAttachRealtimeReusePricingRefusesPersistedAuthorityDrift(t *testing.T) {
 	in := realtimeReusePricingFixture(t)
 	p, err := newRealtimeReusePricingDecision(in)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	raw, err := json.Marshal(p)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	digest, err := pricingDecisionDigest(p)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	expected, maximum, err := realtimePricingLegacyProjection(p)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	contract := RealtimeContract{RuntimeProfileID: in.Profile.RuntimeProfileID,
 		RuntimeProfileSHA256: in.Profile.ProfileSHA256, InputCommitment: in.InputCommitment,
 		RequestSHA256: in.RequestSHA256, MaximumPriceUSD: maximum, EstimatedPriceUSD: expected,
@@ -53,18 +45,14 @@ func TestAttachRealtimeReusePricingRefusesPersistedAuthorityDrift(t *testing.T) 
 func TestRealtimeReusePricingDecisionBindsZeroPhysicalExactAuthority(t *testing.T) {
 	in := realtimeReusePricingFixture(t)
 	p, err := newRealtimeReusePricingDecision(in)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if p.ExecutionMode != pricingExecutionRealtimeReuse || p.Realtime != nil || p.RealtimeReuse == nil ||
 		p.FixedPoint == nil || p.FixedPoint.SupplierEntitlementsNanos != 0 ||
 		p.FixedPoint.BuyerChargeNanos != 1_260 || p.FixedPoint.TrueNetContributionNanos != nil ||
 		p.FixedPoint.KnownCostContributionNanos != p.FixedPoint.BuyerChargeNanos {
 		t.Fatalf("reuse PricingDecision misstates physical work, exact money, or true net: %+v", p)
 	}
-	if err := ValidateRealtimeReusePricingDecisionSnapshot(p, in); err != nil {
-		t.Fatal(err)
-	}
+	must(t, ValidateRealtimeReusePricingDecisionSnapshot(p, in))
 	if digest, err := pricingDecisionDigest(p); err != nil || !validSHA256(digest) {
 		t.Fatalf("reuse pricing digest=(%q,%v)", digest, err)
 	}
@@ -73,9 +61,7 @@ func TestRealtimeReusePricingDecisionBindsZeroPhysicalExactAuthority(t *testing.
 func TestRealtimeReusePricingDecisionRefusesTamperCurrencyCeilingAndClass(t *testing.T) {
 	in := realtimeReusePricingFixture(t)
 	p, err := newRealtimeReusePricingDecision(in)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	p.RealtimeReuse.DeliveredTokens++
 	if err := ValidateRealtimeReusePricingDecisionSnapshot(p, in); err == nil {
 		t.Fatal("tampered delivered-token authority passed")

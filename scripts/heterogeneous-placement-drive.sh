@@ -54,7 +54,7 @@ from pathlib import Path
 
 root = Path(".").resolve()
 auth = json.loads((root / "control/runtime-authority.json").read_text())
-matrix_md = (root / "docs/RUNTIME_MATRIX.md").read_text()
+matrix_md = (root / "docs/RUNTIME_AND_PERF.md").read_text()
 shape = (root / "control/shape_routing.go").read_text()
 shadow = (root / "control/runtime_shadow_selection.go").read_text()
 workload = (root / "control/workload_classification.go").read_text()
@@ -107,7 +107,7 @@ else:
         "refs": [
             "control/workload_classification.go:runtimeCapabilityForBindingDirected",
             "control/runtime_shadow_selection.go",
-            "docs/RUNTIME_MATRIX.md",
+            "docs/RUNTIME_AND_PERF.md",
         ],
     })
 
@@ -116,10 +116,12 @@ if not any(c.get("lifecycle") in ("ACTIVE", "CANARY") and c.get("cloud_backed") 
     blockers.append({
         "id": "no_routable_cuda_batch_or_embed_cell",
         "detail": (
-            "vllm_cuda profile is DRAFT with cell lifecycle unset; sglang/tensorrt/lmdeploy "
-            "batch_infer cells are DRAFT. No CUDA embed cell exists at all. Arm A cannot "
-            "serve the catalogue embed or batch_infer contracts through ordinary Merc "
-            "admission, and Arm C cannot place those contracts on CUDA."
+            "vllm_cuda profile is DRAFT; sglang/tensorrt/lmdeploy batch_infer cells are "
+            "DRAFT. A matched CUDA embed identity (vllm-cuda-minilm-embed) is declared "
+            "as DRAFT non-routable identity only — see ops/placement-readiness-contract.json "
+            "and scripts/validate-placement-readiness.py. Arm A still cannot serve the "
+            "catalogue embed or batch_infer contracts through ordinary Merc admission, "
+            "and Arm C cannot place those contracts on CUDA."
         ),
         "vllm_cuda_cells": vllm,
         "cuda_batch_infer_cells": cuda_batch,
@@ -223,9 +225,11 @@ payload = {
         "blunt": (
             "The heterogeneous placement thesis cannot be measured on this tree. "
             "Ordinary admission freezes a Metal-only singleton; CUDA generation is DRAFT; "
-            "no CUDA embed exists; media is not routable; realtime clearing is not shape-aware; "
+            "CUDA embed identity (vllm-cuda-minilm-embed) exists but is DRAFT/non-routable; "
+            "media is not routable; realtime clearing is not shape-aware; "
             "and Metal Q4 vs CUDA bf16 is not the same quality contract. This is a structural "
-            "negative for shippability of the thesis, not a measured win or loss on the mix."
+            "negative for shippability of the thesis, not a measured win or loss on the mix. "
+            "Offline readiness is scripts/validate-placement-readiness.py."
         ),
     },
     "money": {

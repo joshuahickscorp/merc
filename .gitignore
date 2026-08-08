@@ -8,16 +8,16 @@ control/control
 control/**/*.test
 *.out
 coverage.out
-# Swift (macapp/) build products
-macapp/.build/
-# Assembled .app bundle from macapp/assemble-app.sh (build output; rebuilt on demand)
+# Swift (clients/macapp/) build products
+clients/macapp/.build/
+# Assembled .app bundle from clients/macapp/assemble-app.sh (build output; rebuilt on demand)
 build/
-# Python (sdk/) caches
+# Python (clients/sdk/) caches
 **/__pycache__/
 *.pyc
-sdk/python/build/
-sdk/python/dist/
-sdk/python/*.egg-info/
+clients/sdk/python/build/
+clients/sdk/python/dist/
+clients/sdk/python/*.egg-info/
 
 # ── Local run artifacts ──────────────────────────────────────────────────────
 # scripts/prove-local.sh writes its throwaway Postgres/MinIO data, logs, and the
@@ -46,14 +46,14 @@ agent/agent.toml
 *~
 
 # ── Design sources ───────────────────────────────────────────────────────────
-# The layered logo master (logo/cx_logo.psd, ~8 MB) is the editable brand source,
+# The layered logo master (web/logo/cx_logo.psd, ~8 MB) is the editable brand source,
 # kept local to keep clones lean. The flat source PNG + the flat masters
 # (cx-mark-white, cx-app-icon) ARE committed; scripts/cx_trace.py + cx_logo.py
 # regenerate the metal render from the PNG. The full-res 1080px render master stays
-# local (logo/cx-metal*); the right-sized served copies live in web/assets and ARE
+# local (web/logo/cx-metal*); the right-sized served copies live in web/assets and ARE
 # committed.
 *.psd
-logo/cx-metal*
+web/logo/cx-metal*
 
 # ── PROTECTED ASSETS (SACRED — see BLACKHOLE.md) ─────────────────────────────
 # Models, weights, datasets, and caches are expensive or impossible to
@@ -126,8 +126,8 @@ tmp/
 *.rej
 
 # TypeScript SDK build output and local deps
-sdk/typescript/dist/
-sdk/typescript/node_modules/
+clients/sdk/typescript/dist/
+clients/sdk/typescript/node_modules/
 
 # Local canary credentials. Never commit.
 .merc-credentials.env
@@ -136,6 +136,10 @@ sdk/typescript/node_modules/
 # RunPod intent markers (create-before-bind trail) and other local pod state.
 # Not evidence: a crash mid-run must not leave a committed spend claim.
 .merc-runpod/
+
+# Operator credential material under .tools — untracked; remains on disk for
+# local use. Still present in git history and requires rotation by the operator.
+.tools/rp-key/
 # Wildcard so a newly introduced .merc-*.env cannot be committed by accident.
 .merc-*.env
 .merc-release/

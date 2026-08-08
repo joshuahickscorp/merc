@@ -20,9 +20,7 @@ func placementTestRegistration() RealtimeOfferRegistration {
 func TestRealtimeSingleGPUPlacementFreezesDeclaredTopology(t *testing.T) {
 	profile := placementTestProfile()
 	plan, err := newRealtimePlacementPlan(profile, placementTestRegistration())
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if plan.AdmissionBasis != realtimePlacementTopologyOnly ||
 		plan.AdmittedTensorParallel != 1 || plan.HWClass != "nvidia_24gb" ||
 		plan.GPUCount != 1 || plan.MemoryGBPerGPU != 24 ||
@@ -31,13 +29,9 @@ func TestRealtimeSingleGPUPlacementFreezesDeclaredTopology(t *testing.T) {
 		t.Fatalf("unexpected single-GPU plan: %+v", plan)
 	}
 	blob, digest, err := encodeRealtimePlacementPlan(plan)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	decoded, err := decodeRealtimePlacementPlan(blob, digest)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if decoded != plan {
 		t.Fatalf("placement round trip changed authority: got=%+v want=%+v", decoded, plan)
 	}
@@ -56,9 +50,7 @@ func TestRealtimeMultiGPUPlacementActivatesAdmissionPlanner(t *testing.T) {
 	reg.Interconnect = "nvlink"
 
 	plan, err := newRealtimePlacementPlan(profile, reg)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if plan.AdmissionBasis != realtimePlacementMemoryFit ||
 		plan.AdmittedTensorParallel != 2 || plan.PerRankMemoryGB != 38 {
 		t.Fatalf("multi-GPU planner was not authoritative: %+v", plan)
@@ -119,9 +111,7 @@ func TestFrozenRealtimePlacementValidatorRefusesDegreeMutation(t *testing.T) {
 	reg.MemoryGBPerGPU = 48
 	reg.Interconnect = "nvlink"
 	plan, err := newRealtimePlacementPlan(profile, reg)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 
 	plan.GPUCount = 4
 	plan.ConfiguredTensorParallel = 4
@@ -133,9 +123,7 @@ func TestFrozenRealtimePlacementValidatorRefusesDegreeMutation(t *testing.T) {
 
 func TestFrozenRealtimePlacementValidatorRefusesExecutionModeMutation(t *testing.T) {
 	plan, err := newRealtimePlacementPlan(placementTestProfile(), placementTestRegistration())
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	plan.ExecutionMode = string(ModePool)
 	if err := ValidateFrozenRealtimePlacementPlan(plan); err == nil ||
 		!strings.Contains(err.Error(), "execution mode") {
@@ -146,13 +134,9 @@ func TestFrozenRealtimePlacementValidatorRefusesExecutionModeMutation(t *testing
 func TestRealtimePlacementDigestDetectsTampering(t *testing.T) {
 	profile := placementTestProfile()
 	plan, err := newRealtimePlacementPlan(profile, placementTestRegistration())
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	blob, digest, err := encodeRealtimePlacementPlan(plan)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	blob = []byte(strings.Replace(string(blob),
 		`"rationale":"single-GPU profile bound to declared CUDA topology; model memory fit remains unproven"`,
 		`"rationale":"tampered but structurally valid rationale"`, 1))
@@ -170,7 +154,5 @@ func TestVLLMProfileValidationRequiresPlacementAuthorityForTPGreaterThanOne(t *t
 	profile.ModelWeightsGB = 60
 	profile.PerRankOverheadGB = 8
 	profile.AttentionHeads = 32
-	if err := validateVLLMRuntimeProfile(profile); err != nil {
-		t.Fatalf("complete multi-GPU placement profile was rejected: %v", err)
-	}
+	mustf(t, validateVLLMRuntimeProfile(profile), "complete multi-GPU placement profile was rejected: %v")
 }

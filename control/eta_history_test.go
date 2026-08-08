@@ -65,9 +65,7 @@ func TestHistoricalP90DurationMsIsExactModelScoped(t *testing.T) {
 		{model: "unseen-model", wantP90MS: 0, wantSamples: 0},
 	} {
 		p90ms, samples, err := store.HistoricalP90DurationMs(ctx, jobType, tc.model, "")
-		if err != nil {
-			t.Fatalf("HistoricalP90DurationMs(%q): %v", tc.model, err)
-		}
+		mustf(t, err, "HistoricalP90DurationMs(%q): %v", tc.model)
 		if p90ms != tc.wantP90MS || samples != tc.wantSamples {
 			t.Fatalf("HistoricalP90DurationMs(%q) = %dms/%d samples, want %dms/%d",
 				tc.model, p90ms, samples, tc.wantP90MS, tc.wantSamples)
@@ -75,9 +73,7 @@ func TestHistoricalP90DurationMsIsExactModelScoped(t *testing.T) {
 	}
 
 	rollup, err := store.DriftRollup(ctx)
-	if err != nil {
-		t.Fatalf("DriftRollup: %v", err)
-	}
+	mustf(t, err, "DriftRollup: %v")
 	byModel := make(map[string]DriftRow)
 	rowsForJobType := 0
 	for _, row := range rollup {
@@ -131,9 +127,7 @@ func TestHistoricalP90DurationMsIsInputDepthBandScoped(t *testing.T) {
 		{band: inputDepthBandMedium, wantP90MS: 0, wantSamples: 0},
 	} {
 		p90ms, samples, err := store.HistoricalP90DurationMs(ctx, jobType, model, tc.band)
-		if err != nil {
-			t.Fatalf("HistoricalP90DurationMs(band=%q): %v", tc.band, err)
-		}
+		mustf(t, err, "HistoricalP90DurationMs(band=%q): %v", tc.band)
 		if p90ms != tc.wantP90MS || samples != tc.wantSamples {
 			t.Fatalf("HistoricalP90DurationMs(band=%q) = %dms/%d samples, want %dms/%d",
 				tc.band, p90ms, samples, tc.wantP90MS, tc.wantSamples)

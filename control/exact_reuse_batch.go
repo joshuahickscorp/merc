@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 )
 
 // batchExactReuseEnabled must remain false until cache-hit billing is bound to
@@ -219,10 +218,6 @@ func (s *Store) SubmitExactReuseBatchJob(
 	}
 
 	return tx.Commit(ctx)
-}
-
-func errorsIsNotFound(err error) bool {
-	return err != nil && (err == errNotFound || err == pgx.ErrNoRows)
 }
 
 // CopyExactReuseResultToJobOutput materialises a cas/ cache hit into the buyer's

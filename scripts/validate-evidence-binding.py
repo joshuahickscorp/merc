@@ -19,8 +19,10 @@ loudly while UNBOUND artifacts remain cited.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -35,8 +37,13 @@ from lib.evidence_binding import (  # noqa: E402
     BINDING_META_KEYS,
     binding_sidecar_path,
     incomplete_fields,
+    indexed_lfs_pointer_identity,
     is_job_contract_payload,
+    lfs_pointer_oid,
     missing_fields_for_object,
+    parse_lfs_pointer,
+    read_evidence_bytes,
+    read_evidence_text,
     validate_git_object,
     EvidenceBindingError,
 )
@@ -57,15 +64,12 @@ CITE_ROOTS = (
     ROOT / "scripts",
     ROOT / "agent",
     ROOT / "ops",
-    ROOT / "proof",
+    ROOT / "evidence" / "proof",
     ROOT / "README.md",
     ROOT / "RELEASE_READINESS.md",
-    ROOT / "RELEASE_GATES.md",
-    ROOT / "REQUIREMENT_PROOF_MATRIX.md",
-    ROOT / "ROADMAP.md",
-    ROOT / "RUNBOOK_ARTIFACTS.md",
-    ROOT / "RUNBOOK_WORKER_FAILURE.md",
-    ROOT / "EXECUTION_NETWORK_BIBLE.md",
+    ROOT / "docs" / "PROGRAMME.md",
+    ROOT / "docs" / "RUNTIME_AND_PERF.md",
+    ROOT / "docs" / "ARCHITECTURE.md",
     ROOT / "Makefile",
     ROOT / "pricing",
     ROOT / "web",
@@ -76,11 +80,51 @@ CITE_ALLOWLIST_PREFIXES = (
     "evidence/state/evidence-binding-census.json",
 )
 
+# A small number of historical receipts are immutable Git-LFS payloads that
+# predate binding_status.  They cannot be repaired by editing the body: doing
+# so would rewrite the historical measurement.  Their sibling envelopes are
+# deliberately narrower than ordinary payload sidecars:
+#
+#   * they may apply only to a JSON receipt with no in-body binding_status;
+#   * they are UNBOUND, never an upgrade to BOUND/SUPERSEDED/WITHDRAWN;
+#   * they pin the logical path, indexed pointer oid+size, and hydrated bytes.
+#
+# Thus an envelope preserves an honest historical classification without being
+# a loose sidecar that can bless a repointed or edited payload.
+HISTORICAL_LFS_ENVELOPE_KIND = "historical_lfs_binding_envelope"
+HISTORICAL_LFS_ENVELOPE_KEYS = frozenset(
+    {
+        "schema_version",
+        "kind",
+        "append_only",
+        "historical_source_commit",
+        "target_path",
+        "indexed_lfs_oid_sha256",
+        "indexed_lfs_size_bytes",
+        "hydrated_body_sha256",
+        "binding_status",
+        "missing_identity_fields",
+        "reason",
+    }
+)
+
 FAILURES: list[str] = []
 
 
 def fail(msg: str) -> None:
     FAILURES.append(msg)
+
+
+# Trees relocated under evidence/ that are not measurement receipts.
+# Formerly lived at repo root (proof/, census/, artifacts/) and were outside
+# this scanner; they remain policy/census/fixture trees, not binding corpus.
+EVIDENCE_SCAN_SKIP_PREFIXES = (
+    "evidence/proof/",
+    "evidence/census/",
+    "evidence/artifacts/",
+    "evidence/immutable-fixtures/",
+    "evidence/workload-catalog/",
+)
 
 
 def iter_evidence_files() -> list[Path]:
@@ -93,7 +137,10 @@ def iter_evidence_files() -> list[Path]:
         if path.name.endswith(".binding.json"):
             continue
         # Skip hidden scratch.
+        rel = path.relative_to(ROOT).as_posix()
         if any(part.startswith(".") for part in path.relative_to(ROOT).parts):
+            continue
+        if any(rel.startswith(prefix) for prefix in EVIDENCE_SCAN_SKIP_PREFIXES):
             continue
         out.append(path)
     return out
@@ -104,12 +151,162 @@ def _load_sidecar(path: Path, rel: str) -> dict[str, Any] | None:
     if not side.is_file():
         return None
     try:
-        binding = json.loads(side.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+        binding = json.loads(read_evidence_text(side, ROOT))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, EvidenceBindingError) as exc:
         fail(f"{side.relative_to(ROOT)}: unreadable: {exc}")
         return None
     if not isinstance(binding, dict):
         fail(f"{side.relative_to(ROOT)}: not a JSON object")
+        return None
+    return binding
+
+
+def _historical_source_pointer(
+    source_commit: Any, target_path: str
+) -> tuple[str, int] | None:
+    """Read the immutable historical pointer from a full ancestor commit.
+
+    `append_only` is not a Git primitive.  Anchoring an envelope to a committed
+    predecessor makes a coordinated working-tree pointer+sidecar rewrite fail:
+    both the current index and the named historical tree must still name the
+    identical OID and byte size.
+    """
+    if not isinstance(source_commit, str) or not re.fullmatch(r"[0-9a-f]{40}", source_commit):
+        fail("historical_source_commit must be a full lowercase 40-hex commit")
+        return None
+    resolved = subprocess.run(
+        ["git", "-C", str(ROOT), "rev-parse", "--verify", f"{source_commit}^{{commit}}"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if resolved.returncode != 0 or resolved.stdout.strip() != source_commit:
+        fail("historical_source_commit is not an exact local commit")
+        return None
+    ancestry = subprocess.run(
+        ["git", "-C", str(ROOT), "merge-base", "--is-ancestor", source_commit, "HEAD"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if ancestry.returncode != 0:
+        fail("historical_source_commit is not an ancestor of current HEAD")
+        return None
+    shown = subprocess.run(
+        ["git", "-C", str(ROOT), "show", f"{source_commit}:{target_path}"],
+        capture_output=True,
+        check=False,
+    )
+    if shown.returncode != 0:
+        fail("historical_source_commit does not contain the target pointer")
+        return None
+    try:
+        text = shown.stdout.decode("utf-8")
+    except UnicodeDecodeError:
+        fail("historical_source_commit target is not an LFS pointer")
+        return None
+    pointer = parse_lfs_pointer(text)
+    if pointer is None:
+        fail("historical_source_commit target is not an LFS pointer")
+    return pointer
+
+
+def _historical_lfs_envelope_binding(
+    path: Path, rel: str, body: dict[str, Any]
+) -> dict[str, Any] | None:
+    """Load one immutable-payload UNBOUND envelope, or refuse it precisely.
+
+    This is intentionally not a generic fallback.  The caller invokes it only
+    after establishing that the receipt body has *no* binding_status.  An
+    in-body status, including an invalid one, stays authoritative and will be
+    handled by the ordinary status checks below.
+    """
+    side = binding_sidecar_path(path)
+    if not side.is_file():
+        return None
+    binding = _load_sidecar(path, rel)
+    if binding is None:
+        return None
+
+    errors: list[str] = []
+    if set(binding) != HISTORICAL_LFS_ENVELOPE_KEYS:
+        unknown = sorted(set(binding) - HISTORICAL_LFS_ENVELOPE_KEYS)
+        missing = sorted(HISTORICAL_LFS_ENVELOPE_KEYS - set(binding))
+        detail: list[str] = []
+        if unknown:
+            detail.append("unknown keys=" + ",".join(unknown))
+        if missing:
+            detail.append("missing keys=" + ",".join(missing))
+        errors.append("strict envelope schema required (" + "; ".join(detail) + ")")
+
+    if binding.get("schema_version") != 1:
+        errors.append("schema_version must be 1")
+    if binding.get("kind") != HISTORICAL_LFS_ENVELOPE_KIND:
+        errors.append(f"kind must be {HISTORICAL_LFS_ENVELOPE_KIND!r}")
+    if binding.get("append_only") is not True:
+        errors.append("append_only must be true")
+    if binding.get("target_path") != rel:
+        errors.append(f"target_path must equal {rel!r}")
+    if str(binding.get("binding_status") or "").upper() != BINDING_UNBOUND:
+        errors.append("historical LFS envelope may only declare binding_status=UNBOUND")
+    if not isinstance(binding.get("reason"), str) or not binding["reason"].strip():
+        errors.append("reason must be a non-empty string")
+
+    historical_pointer = _historical_source_pointer(
+        binding.get("historical_source_commit"), rel
+    )
+    if historical_pointer is not None:
+        source_oid, source_size = historical_pointer
+        if binding.get("indexed_lfs_oid_sha256") != source_oid:
+            errors.append(
+                "indexed_lfs_oid_sha256 does not match the historical source pointer"
+            )
+        if binding.get("indexed_lfs_size_bytes") != source_size:
+            errors.append(
+                "indexed_lfs_size_bytes does not match the historical source pointer"
+            )
+
+    indexed = indexed_lfs_pointer_identity(ROOT, path)
+    if indexed is None:
+        errors.append("target is not an indexed Git-LFS pointer")
+    else:
+        indexed_oid, indexed_size = indexed
+        if binding.get("indexed_lfs_oid_sha256") != indexed_oid:
+            errors.append("indexed_lfs_oid_sha256 does not match the indexed pointer")
+        if (
+            isinstance(binding.get("indexed_lfs_size_bytes"), bool)
+            or binding.get("indexed_lfs_size_bytes") != indexed_size
+        ):
+            errors.append("indexed_lfs_size_bytes does not match the indexed pointer")
+
+        try:
+            hydrated = read_evidence_bytes(path, ROOT)
+        except (OSError, EvidenceBindingError) as exc:
+            errors.append(f"cannot verify hydrated body: {exc}")
+        else:
+            hydrated_sha = hashlib.sha256(hydrated).hexdigest()
+            if len(hydrated) != indexed_size:
+                errors.append(
+                    "hydrated body size does not match the indexed LFS pointer"
+                )
+            if hydrated_sha != indexed_oid:
+                errors.append(
+                    "hydrated body sha256 does not match the indexed LFS pointer"
+                )
+            if binding.get("hydrated_body_sha256") != hydrated_sha:
+                errors.append("hydrated_body_sha256 does not match the body")
+
+    expected_missing = missing_fields_for_object(body, ROOT)
+    if binding.get("missing_identity_fields") != expected_missing:
+        errors.append(
+            "missing_identity_fields must exactly name the fields absent from "
+            "the immutable body"
+        )
+
+    if errors:
+        fail(
+            f"{rel}: historical LFS envelope refused: " + "; ".join(errors)
+        )
         return None
     return binding
 
@@ -124,9 +321,19 @@ def load_binding_for(path: Path) -> tuple[dict[str, Any] | None, dict[str, Any] 
     rel = path.relative_to(ROOT).as_posix()
     if path.suffix == ".json":
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
-            fail(f"{rel}: unreadable JSON: {exc}")
+            # Resolve git-lfs pointers to content (or fail with oid context).
+            # When only the pointer is available and content cannot be fetched,
+            # lfs_pointer_oid still identifies the payload by sha256.
+            data = json.loads(read_evidence_text(path, ROOT))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, EvidenceBindingError) as exc:
+            oid = lfs_pointer_oid(path)
+            if oid:
+                fail(
+                    f"{rel}: unreadable JSON after LFS resolve "
+                    f"(oid sha256:{oid}): {exc}"
+                )
+            else:
+                fail(f"{rel}: unreadable JSON: {exc}")
             return None, None
         if isinstance(data, dict):
             if is_job_contract_payload(data):
@@ -147,7 +354,22 @@ def load_binding_for(path: Path) -> tuple[dict[str, Any] | None, dict[str, Any] 
                     )
                     return data, None
                 return data, binding
-            # Receipt: binding lives in the object.
+            # An in-body status always wins.  In particular, an envelope cannot
+            # downgrade or upgrade a body that now says BOUND, SUPERSEDED,
+            # WITHDRAWN, or even an invalid status; status handling below will
+            # fail an invalid claim rather than silently accepting the sidecar.
+            if "binding_status" in data:
+                return data, data
+
+            # A historical LFS receipt with no in-body status may carry the
+            # narrow immutable-payload envelope above.  Non-LFS receipts retain
+            # the normal in-body-only rule, so this is never a broad sidecar
+            # escape hatch for arbitrary JSON.
+            envelope = _historical_lfs_envelope_binding(path, rel, data)
+            if envelope is not None:
+                return data, envelope
+
+            # Receipt: binding normally lives in the object.
             return data, data
         # JSON non-object (array etc.)
         binding = _load_sidecar(path, rel)
@@ -202,19 +424,77 @@ def collect_citations() -> dict[str, list[str]]:
     # Match evidence/... tokens including optional #fragment
     pattern = re.compile(r"(evidence/[A-Za-z0-9_./@+-]+\.(?:json|jsonl|txt))")
 
+    def is_claim_surface(rel: str) -> bool:
+        """True when a reference here asserts something a reader would believe.
+
+        The gate exists so no CLAIM rests on unbound evidence. That is not the
+        same as no code touching an evidence path. A writer naming the file it
+        produces, a scorer naming the receipt it reads, and a sealing script
+        naming its output are all machinery -- upstream or downstream of claims,
+        not claims themselves. Failing them means the gate reports the writer for
+        writing, which is noise that buries the real finding.
+
+        Documentation is different: a doc citing an unbound artifact is exactly a
+        reader being told a number is backed when it is not.
+        """
+        if rel.endswith(".md"):
+            return True
+        # Go source may cite a receipt as pricing authority; that IS a claim, and
+        # pricing_citation_authority.go additionally resolves and verifies it.
+        return rel.endswith(".go") and not rel.endswith("_test.go")
+
+    def is_build_artifact(path: Path, rel: str) -> bool:
+        """Compiled output is never a citation.
+
+        control/control and agent/target/release/merc-agent embed evidence path
+        strings from the source they were built from. Treating those as citations
+        made a stale binary on someone's disk fail the build, and counted 17
+        phantom citations that no reader could ever see.
+        """
+        if "/target/" in rel or rel.endswith(("/control", "/merc-agent")):
+            return True
+        try:
+            with open(path, "rb") as fh:
+                return b"\x00" in fh.read(8192)
+        except OSError:
+            return True
+
     def scan_file(path: Path) -> None:
+        rel_probe = path.relative_to(ROOT).as_posix() if path.is_relative_to(ROOT) else str(path)
+        if is_build_artifact(path, rel_probe):
+            return
         try:
             text = path.read_text(encoding="utf-8", errors="replace")
         except OSError:
             return
         rel = path.relative_to(ROOT).as_posix() if path.is_relative_to(ROOT) else str(path)
-        for match in pattern.finditer(text):
-            target = match.group(1)
-            # Strip trailing punctuation leftovers
-            target = target.rstrip(").,;:\"'")
-            if target in cites and rel not in cites[target]:
+        if not is_claim_surface(rel):
+            return
+        lines = text.splitlines()
+        for idx, line in enumerate(lines):
+            for match in pattern.finditer(line):
+                target = match.group(1)
+                # Strip trailing punctuation leftovers
+                target = target.rstrip(").,;:\"'")
+                if target not in cites or rel in cites[target]:
+                    continue
                 # Evidence files citing peers don't count as claim citations
                 if rel.startswith("evidence/"):
+                    continue
+                # A citation that DISCLAIMS the artifact is the honest use, not a
+                # violation. "these figures are unbound and must not be quoted"
+                # is precisely what this programme wants a doc to say; failing it
+                # would pressure someone to delete the warning and leave the
+                # number, which is the trust regression the gate exists to stop.
+                window = " ".join(lines[max(0, idx - 2):idx + 3]).lower()
+                if any(
+                    marker in window
+                    for marker in (
+                        "unbound", "not bound", "must not be quoted", "do not quote",
+                        "no bound receipt", "superseded", "withdrawn", "invalidated",
+                        "does not prove", "not evidence", "historical",
+                    )
+                ):
                     continue
                 cites[target].append(rel)
 

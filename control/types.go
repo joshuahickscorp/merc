@@ -227,9 +227,18 @@ type TaskCommit struct {
 	InferenceBackend string `json:"inference_backend,omitempty"`
 	// CachedPromptTokens is the engine-reported prefix-cache hit size from
 	// OpenAI-shaped usage.prompt_tokens_details.cached_tokens when the engine
-	// exposes it (vLLM does; llama.cpp / MLX / Candle typically do not).
-	// Nil means "no signal" — never treat absence as a miss. When present,
-	// CorrectPrefixBeliefFromObservation prefers this over Merc's belief.
+	// exposes it. vLLM does; llama.cpp Metal (b9430+, --cache-prompt default
+	// on) also reports it together with timings.cache_n — see
+	// evidence/perf/prefix-kv-physical-metal-latest.json. MLX / Candle typically
+	// do not. Nil means "no signal" — never treat absence as a miss. When
+	// present, CorrectPrefixBeliefFromObservation prefers this over Merc's
+	// belief.
+	//
+	// The batch agent's openai_http path now parses it and sums it across a
+	// task's completions (agent/src/inference.rs). Until it did, this field was
+	// never populated in production and the correction path could not fire: every
+	// observation was "no signal", so a stale warm belief could only expire by
+	// TTL rather than be contradicted by the engine that had just served it.
 	CachedPromptTokens *uint64 `json:"cached_prompt_tokens,omitempty"`
 }
 
@@ -317,6 +326,29 @@ type Earnings struct {
 	// dispute-frozen and have a durable verification pass. Under a manual gate
 	// this is eligibility only; cash still needs the operator release.
 	NextPayoutAt *int64 `json:"next_payout_at,omitempty"` // unix seconds
+}
+
+// PayoutLedgerEntry is one supplier-visible credit or clawback row. This is the
+// line-item half of "earnings and a payout ledger": aggregates live on Earnings,
+// the per-job trail lives here.
+type PayoutLedgerEntry struct {
+	ID           uuid.UUID  `json:"id"`
+	Kind         string     `json:"kind"`
+	AmountUSD    float64    `json:"amount_usd"`
+	Currency     string     `json:"currency"`
+	PayoutStatus string     `json:"payout_status"`
+	TaskID       *uuid.UUID `json:"task_id,omitempty"`
+	JobID        *uuid.UUID `json:"job_id,omitempty"`
+	// ReleaseAt is unix seconds when the hold window ends, if any.
+	ReleaseAt *int64 `json:"release_at,omitempty"`
+	// CreatedAt is RFC3339 wall time of the ledger insert.
+	CreatedAt string `json:"created_at"`
+}
+
+// PayoutLedger is the supplier's recent payable trail.
+type PayoutLedger struct {
+	Currency string              `json:"currency"`
+	Entries  []PayoutLedgerEntry `json:"entries"`
 }
 
 type SupplierVerification struct {

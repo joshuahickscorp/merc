@@ -36,15 +36,11 @@ func TestAttemptSpecificPresignedResultRejectsStaleLateWrite(t *testing.T) {
 	attempt0 := &ClaimedTask{JobID: jobID, TaskID: taskID, Attempt: 0}
 	attempt0.ResultKey = taskAttemptResultKey(jobID, taskID, attempt0.Attempt)
 	staleURL, err := presignTaskAttemptResult(context.Background(), presigner, attempt0)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	attempt1 := &ClaimedTask{JobID: jobID, TaskID: taskID, Attempt: 1}
 	attempt1.ResultKey = taskAttemptResultKey(jobID, taskID, attempt1.Attempt)
 	currentURL, err := presignTaskAttemptResult(context.Background(), presigner, attempt1)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if staleURL == currentURL || attempt0.ResultKey == attempt1.ResultKey {
 		t.Fatalf("retry reused staging capability: attempt0=%q attempt1=%q", staleURL, currentURL)
 	}
@@ -76,9 +72,7 @@ func TestAttemptSpecificPresignedResultRejectsStaleLateWrite(t *testing.T) {
 	if _, _, _, err := prepareVerificationSnapshot(staleSnapshot); err == nil {
 		t.Fatal("attempt-1 snapshot accepted attempt-0 staging key")
 	}
-	if err := validateReportedResultDigest("embed", currentDigest, currentDigest); err != nil {
-		t.Fatalf("current attempt digest did not match its sealed artifact: %v", err)
-	}
+	mustf(t, validateReportedResultDigest("embed", currentDigest, currentDigest), "current attempt digest did not match its sealed artifact: %v")
 
 	staleDigest := resultDigest(objects[staleURL])
 	validationErr := validateReportedResultDigest("embed", staleDigest, currentDigest)
@@ -91,9 +85,7 @@ func TestAttemptSpecificPresignedResultRejectsStaleLateWrite(t *testing.T) {
 	}
 	info := &CommitTaskInfo{TaskID: taskID, JobID: jobID, SupplierID: supplierID, Attempt: 1, jobType: "embed"}
 	decision := invalidResultVerificationDecision(info, validationErr)
-	if err := validateVerificationDecisionShape(info, decision, nil); err != nil {
-		t.Fatalf("digest mismatch did not produce a valid no-settlement decision: %v", err)
-	}
+	mustf(t, validateVerificationDecisionShape(info, decision, nil), "digest mismatch did not produce a valid no-settlement decision: %v")
 	if decision.Outcome != OutcomeFail || decision.Failure == nil || decision.Failure.Code != resultValidationDigest {
 		t.Fatalf("digest mismatch decision = %+v", decision)
 	}

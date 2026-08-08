@@ -222,25 +222,25 @@ func buildConservativeAgentRAGCorpus() []agentRAGRequest {
 // ---------------------------------------------------------------------------
 
 type prefixKVSample struct {
-	Index            int    `json:"index"`
-	Class            string `json:"class"`
-	Family           int    `json:"family"`
-	Label            string `json:"label"`
-	WinnerWorker     int    `json:"winner_worker_slot"`
-	BeliefDepth      int    `json:"belief_depth_before_claim"`
-	BeliefHit        bool   `json:"belief_hit"`
-	AnyWorkerWarm    bool   `json:"any_worker_warm_before_claim"`
-	SharedDepthWant  int    `json:"shared_depth_want"`
-	ClaimAttempts    int    `json:"claim_attempts"`
-	ClaimLatencyNs   int64  `json:"claim_latency_ns"`
+	Index           int    `json:"index"`
+	Class           string `json:"class"`
+	Family          int    `json:"family"`
+	Label           string `json:"label"`
+	WinnerWorker    int    `json:"winner_worker_slot"`
+	BeliefDepth     int    `json:"belief_depth_before_claim"`
+	BeliefHit       bool   `json:"belief_hit"`
+	AnyWorkerWarm   bool   `json:"any_worker_warm_before_claim"`
+	SharedDepthWant int    `json:"shared_depth_want"`
+	ClaimAttempts   int    `json:"claim_attempts"`
+	ClaimLatencyNs  int64  `json:"claim_latency_ns"`
 }
 
 type prefixKVArm struct {
-	Name                 string  `json:"name"`
-	Requests             int     `json:"requests"`
-	BeliefHitRate        float64 `json:"belief_hit_rate"`
-	BeliefHitRateFamily  float64 `json:"belief_hit_rate_family_only"`
-	BeliefHitRateUnique  float64 `json:"belief_hit_rate_unique_only"`
+	Name                string  `json:"name"`
+	Requests            int     `json:"requests"`
+	BeliefHitRate       float64 `json:"belief_hit_rate"`
+	BeliefHitRateFamily float64 `json:"belief_hit_rate_family_only"`
+	BeliefHitRateUnique float64 `json:"belief_hit_rate_unique_only"`
 	// Post-warmup excludes the first window (all cold by construction).
 	BeliefHitRateFamilyPostWarmup float64 `json:"belief_hit_rate_family_post_warmup"`
 	MeanBeliefDepthHit            float64 `json:"mean_belief_depth_on_hit"`
@@ -267,7 +267,7 @@ type toolSchemaMeasure struct {
 }
 
 type engineSignalSurvey struct {
-	HostHardware              string            `json:"host_hardware"`
+	HostHardware                string            `json:"host_hardware"`
 	LlamaServerPath             string            `json:"llama_server_path"`
 	LlamaCachePromptDefault     bool              `json:"llama_cache_prompt_default"`
 	OpenAICachedTokensField     string            `json:"openai_cached_tokens_field"`
@@ -292,17 +292,17 @@ type prefixKVArtifact struct {
 		Source           string  `json:"source"`
 	} `json:"target"`
 	Corpus struct {
-		ID              string  `json:"id"`
-		Representativeness string `json:"representativeness"`
-		Workers         int     `json:"workers"`
-		Families        int     `json:"families"`
-		TailsPerFamily  int     `json:"tails_per_family"`
-		Waves           int     `json:"waves"`
-		WindowSize      int     `json:"window_size"`
-		UniquesPerWave  int     `json:"uniques_per_wave"`
-		SharedDepthWant int     `json:"shared_depth_tokens_want"`
-		SharedFraction  float64 `json:"shared_fraction"`
-		ConservativeBy  []string `json:"conservative_by_design"`
+		ID                 string   `json:"id"`
+		Representativeness string   `json:"representativeness"`
+		Workers            int      `json:"workers"`
+		Families           int      `json:"families"`
+		TailsPerFamily     int      `json:"tails_per_family"`
+		Waves              int      `json:"waves"`
+		WindowSize         int      `json:"window_size"`
+		UniquesPerWave     int      `json:"uniques_per_wave"`
+		SharedDepthWant    int      `json:"shared_depth_tokens_want"`
+		SharedFraction     float64  `json:"shared_fraction"`
+		ConservativeBy     []string `json:"conservative_by_design"`
 	} `json:"corpus"`
 	Host struct {
 		Hardware string  `json:"hardware"`
@@ -314,12 +314,12 @@ type prefixKVArtifact struct {
 		LoadNote string  `json:"load_note"`
 	} `json:"host"`
 	Setup struct {
-		Workers         int    `json:"workers"`
-		HWClass         string `json:"hw_class"`
+		Workers         int     `json:"workers"`
+		HWClass         string  `json:"hw_class"`
 		AskUSDHr        float64 `json:"ask_usd_hr"`
-		CostClasses     int    `json:"cost_classes"`
-		ClaimPath       string `json:"claim_path"`
-		WarmBookkeeping string `json:"warm_bookkeeping"`
+		CostClasses     int     `json:"cost_classes"`
+		ClaimPath       string  `json:"claim_path"`
+		WarmBookkeeping string  `json:"warm_bookkeeping"`
 	} `json:"setup"`
 	CanProve    []string `json:"can_prove"`
 	CannotProve []string `json:"cannot_prove"`
@@ -362,9 +362,9 @@ type prefixKVArtifact struct {
 // ---------------------------------------------------------------------------
 
 type kvFleetWorker struct {
-	slot                 int
-	w                    prefixClaimWorker
-	believedFamilies     map[int]int // family -> deepest depth we marked
+	slot             int
+	w                prefixClaimWorker
+	believedFamilies map[int]int // family -> deepest depth we marked
 }
 
 func seedKVHitRateEnv(t *testing.T) (context.Context, *Store, *pgxpool.Pool, uuid.UUID) {
@@ -422,14 +422,15 @@ func claimWindow(
 
 	// Pre-compute belief depth for every (worker, job) before any claim so the
 	// hit signal is not polluted by mid-window marks.
-	type key struct{ wi int; job uuid.UUID }
+	type key struct {
+		wi  int
+		job uuid.UUID
+	}
 	belief := make(map[key]int, len(fleet)*len(pend))
 	for wi := range fleet {
 		for _, p := range pend {
 			d, err := store.DeepestWarmPrefix(ctx, fleet[wi].w.workerID, p.jobID)
-			if err != nil {
-				t.Fatalf("DeepestWarmPrefix: %v", err)
-			}
+			mustf(t, err, "DeepestWarmPrefix: %v")
 			belief[key{wi, p.jobID}] = d
 		}
 	}
@@ -449,9 +450,7 @@ func claimWindow(
 			SupplierID: fleet[wi].w.supplierID,
 		})
 		elapsed := time.Since(t0).Nanoseconds()
-		if err != nil {
-			t.Fatalf("ClaimTasksTx worker %d: %v", wi, err)
-		}
+		mustf(t, err, "ClaimTasksTx worker %d: %v", wi)
 		if got == nil {
 			continue
 		}
@@ -484,9 +483,7 @@ func claimWindow(
 			ClaimLatencyNs: elapsed,
 		}
 		// Production bookkeeping after durable commit.
-		if err := store.markWorkerWarmForJob(ctx, fleet[wi].w.workerID, p.jobID); err != nil {
-			t.Fatalf("markWorkerWarmForJob: %v", err)
-		}
+		mustf(t, store.markWorkerWarmForJob(ctx, fleet[wi].w.workerID, p.jobID), "markWorkerWarmForJob: %v")
 		if p.req.Class == "family" {
 			fleet[wi].believedFamilies[p.req.Family] = d
 			if d == 0 {
@@ -511,9 +508,7 @@ func claimWindow(
 			got, err := store.ClaimTasksTx(ctx, WorkerAuth{
 				WorkerID: fleet[wi].w.workerID, SupplierID: fleet[wi].w.supplierID,
 			})
-			if err != nil {
-				t.Fatal(err)
-			}
+			must(t, err)
 			if got == nil || got.TaskID != p.taskID {
 				continue
 			}
@@ -564,9 +559,7 @@ func sequentialClaims(
 		anyWarm := false
 		for wi := range fleet {
 			d, err := store.DeepestWarmPrefix(ctx, fleet[wi].w.workerID, jobID)
-			if err != nil {
-				t.Fatal(err)
-			}
+			must(t, err)
 			depths[wi] = d
 			if d > 0 {
 				anyWarm = true
@@ -584,9 +577,7 @@ func sequentialClaims(
 				WorkerID: fleet[wi].w.workerID, SupplierID: fleet[wi].w.supplierID,
 			})
 			elapsed := time.Since(t0).Nanoseconds()
-			if err != nil {
-				t.Fatal(err)
-			}
+			must(t, err)
 			if got == nil {
 				continue
 			}
@@ -600,9 +591,7 @@ func sequentialClaims(
 				ClaimAttempts: 1, ClaimLatencyNs: elapsed,
 			}
 			won = &s
-			if err := store.markWorkerWarmForJob(ctx, fleet[wi].w.workerID, jobID); err != nil {
-				t.Fatal(err)
-			}
+			must(t, store.markWorkerWarmForJob(ctx, fleet[wi].w.workerID, jobID))
 			break
 		}
 		if won == nil {
@@ -837,12 +826,10 @@ func measureToolSchemaAvoidance(t *testing.T) toolSchemaMeasure {
 		payload := map[string]any{
 			"model": "cx-chat-1b", "temperature": 0.0, "top_p": 1.0,
 			"messages": []any{map[string]any{"role": "user", "content": msg}},
-			"tools": tools, "response_format": schema,
+			"tools":    tools, "response_format": schema,
 		}
 		b, err := canonicalJSON(payload)
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		return b
 	}
 
@@ -943,35 +930,40 @@ func surveyEngineSignals(t *testing.T) engineSignalSurvey {
 			cachePromptDefault = true
 		}
 	}
-	// OpenAI-shaped completions from typical llama.cpp do not populate
-	// usage.prompt_tokens_details.cached_tokens. Merc's observation path requires
-	// hasSignal=true only when the field is actually present; without it the
-	// action is PrefixObsNoSignal and belief is untouched.
+	// llama.cpp Metal b9430+ DOES populate usage.prompt_tokens_details.cached_tokens
+	// and timings.cache_n on /v1/chat/completions (bound in
+	// evidence/perf/prefix-kv-physical-metal-latest.json). Merc's observation
+	// path still requires hasSignal=true only when TaskCommit carries the field;
+	// the batch agent openai_http path currently drops it. Without agent
+	// forwarding the action remains PrefixObsNoSignal and belief is untouched.
 	return engineSignalSurvey{
-		HostHardware:          runtime.GOARCH + " / " + hostHardwareName(),
+		HostHardware:            runtime.GOARCH + " / " + hostHardwareName(),
 		LlamaServerPath:         llamaPath,
 		LlamaCachePromptDefault: cachePromptDefault,
-		OpenAICachedTokensField: "ABSENT on typical llama.cpp OpenAI-compat completions; " +
-			"present on vLLM as usage.prompt_tokens_details.cached_tokens",
-		SlotsEndpointExposesKVHit: "slots endpoint can expose per-slot prompt state for operators; " +
+		OpenAICachedTokensField: "PRESENT on llama.cpp Metal b9430+ OpenAI-compat completions " +
+			"(usage.prompt_tokens_details.cached_tokens + timings.cache_n); " +
+			"also present on vLLM; batch agent does not yet forward into TaskCommit",
+		SlotsEndpointExposesKVHit: "slots endpoint exposes n_prompt_tokens_processed (drops on reuse); " +
 			"not wired into Merc's CorrectPrefixBeliefFromObservation (which requires cached_tokens)",
-		MetricsEndpointExposesKVHit: "prometheus --metrics may expose cache gauges; not the " +
-			"OpenAI-shaped field Merc's observation path consumes",
+		MetricsEndpointExposesKVHit: "prometheus --metrics exposes prompt_tokens/seconds counters; " +
+			"not a per-request cache_hit field for CorrectPrefixBeliefFromObservation",
 		MercObservationPath: "control/prefix_routing.go CorrectPrefixBeliefFromObservation; " +
-			"hasSignal must be true only when engine exposed the field",
+			"hasSignal must be true only when engine field reached TaskCommit.CachedPromptTokens",
 		Engines: map[string]string{
-			"llama.cpp/Metal": "no OpenAI-shaped cached_tokens in typical completions; " +
-				"--cache-prompt defaults enabled server-side but Merc cannot observe a hit; " +
-				"belief + TTL + eviction only",
-			"MLX/Metal":  "no standard cached_tokens field; belief + TTL + eviction only",
+			"llama.cpp/Metal": "PRESENT on wire (cached_tokens + timings.cache_n, --cache-prompt default on); " +
+				"physical prefill/TTFT/energy deltas bound in evidence/perf/prefix-kv-physical-metal-latest.json; " +
+				"agent openai_http does not forward yet so claim-path observation stays belief+TTL",
+			"MLX/Metal":    "no standard cached_tokens field; belief + TTL + eviction only",
 			"Candle/Metal": "no standard cached_tokens field; belief + TTL + eviction only",
-			"vLLM/CUDA": "usage.prompt_tokens_details.cached_tokens present (preferred signal when agent reports it)",
+			"vLLM/CUDA":    "usage.prompt_tokens_details.cached_tokens present (preferred signal when agent reports it)",
 		},
-		HonestCeiling: "On this Metal host the honest ceiling for the prefix/KV claim is " +
-			"ROUTING BEHAVIOUR (belief hit rate through ClaimTasksTx). Engine-side KV " +
-			"saving is UNPROVEN until an engine exposes a consumable hit signal or a " +
-			"controlled cold-vs-warm TTFT pair is bound separately.",
-		EngineSideSaving: "UNPROVEN on llama.cpp/Metal (no consumable cached_tokens signal in the observation path)",
+		HonestCeiling: "Routing belief is measured by this harness (ClaimTasksTx). " +
+			"Engine-side KV saving on llama.cpp/Metal is separately BOUND in " +
+			"evidence/perf/prefix-kv-physical-metal-latest.json. Production observation " +
+			"still needs agent forwarding of cached_tokens into TaskCommit.",
+		EngineSideSaving: "BOUND on llama.cpp/Metal engine-direct " +
+			"(evidence/perf/prefix-kv-physical-metal-latest.json); " +
+			"UNWIRED through batch agent observation path",
 	}
 }
 
@@ -1181,11 +1173,12 @@ func TestPrefixKVHitRateAgentRAGProductionClaim(t *testing.T) {
 		"cost rank still outranks warmth (unchanged; reasserted by existing tests)",
 	}
 	art.CannotProve = []string{
-		"engine-side TTFT or prefill joule saving on llama.cpp/Metal (no cached_tokens signal)",
-		"that Merc belief matches live engine KV without observation",
+		"that Merc belief matches live engine KV without observation (agent does not yet forward cached_tokens)",
 		"cross-supplier production traffic (lab fleet on one Postgres)",
 		"cloud multi-tenant cache behaviour",
-		"vLLM cached_tokens end-to-end on this Metal host",
+		"vLLM cached_tokens end-to-end on this Metal host (no paid CUDA in this arm)",
+		// Engine-side TTFT/energy is now bound separately in
+		// evidence/perf/prefix-kv-physical-metal-latest.json — not in this routing receipt.
 	}
 
 	art.ProductionClaimArm = prodArm
@@ -1259,13 +1252,9 @@ func TestPrefixKVHitRateAgentRAGProductionClaim(t *testing.T) {
 	// Opt-in evidence write.
 	if os.Getenv(prefixKVHitRateEnv) == "1" {
 		raw, err := json.Marshal(art)
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		var payload map[string]any
-		if err := json.Unmarshal(raw, &payload); err != nil {
-			t.Fatal(err)
-		}
+		must(t, json.Unmarshal(raw, &payload))
 		// Embed a compact sample digest (not every row — receipt size).
 		sum := sha256.Sum256(raw)
 		payload["corpus_and_sample_digest"] = hex.EncodeToString(sum[:])
@@ -1276,9 +1265,7 @@ func TestPrefixKVHitRateAgentRAGProductionClaim(t *testing.T) {
 				fmt.Sprintf("; workers=%d waves=%d window=%d", prefixKVWorkers, prefixKVWaves, prefixKVWindowSize),
 			"production claim samples + sequential baseline + ranker microbench + identity-cache arms",
 		)
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		// Corpus digest is applicable here.
 		id.CorpusDigest = IdentitySlotValue(hex.EncodeToString(sum[:]))
 

@@ -22,9 +22,7 @@ func TestBuyerFreeCreditRemainingIsValidSQL(t *testing.T) {
 	}
 
 	remaining, err := store.BuyerFreeCreditRemaining(ctx, buyer)
-	if err != nil {
-		t.Fatalf("BuyerFreeCreditRemaining returned an error -- the query does not execute: %v", err)
-	}
+	mustf(t, err, "BuyerFreeCreditRemaining returned an error -- the query does not execute: %v")
 	if remaining != 5.00 {
 		t.Fatalf("a buyer with $5.00 credit and no spend has %.2f remaining", remaining)
 	}
@@ -43,9 +41,7 @@ func TestBuyerFreeCreditRemainingIsValidSQL(t *testing.T) {
 		t.Fatalf("seed oversized job: %v", err)
 	}
 	r, err := store.BuyerFreeCreditRemaining(ctx, buyer)
-	if err != nil {
-		t.Fatalf("query failed with a large reservation: %v", err)
-	}
+	mustf(t, err, "query failed with a large reservation: %v")
 	if r < 0 {
 		t.Fatalf("free credit went negative: %v", r)
 	}

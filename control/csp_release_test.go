@@ -21,9 +21,7 @@ var (
 // executable bytes. Keep the policy an exact manifest of shipped inline bytes.
 func TestCaddyCSPHashesExactlyBindShippedInlineAssets(t *testing.T) {
 	caddy, err := os.ReadFile("../Caddyfile")
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	match := cspHeaderPattern.FindSubmatch(caddy)
 	if len(match) != 2 {
 		t.Fatal("Caddyfile has no parseable Content-Security-Policy header")
@@ -48,9 +46,7 @@ func TestCaddyCSPHashesExactlyBindShippedInlineAssets(t *testing.T) {
 		"../web/prices.html", "../web/supplier.html",
 	} {
 		html, err := os.ReadFile(page)
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		for _, body := range inlineStylePattern.FindAllSubmatch(html, -1) {
 			wantStyle[cspSHA256(body[1])] = true
 		}

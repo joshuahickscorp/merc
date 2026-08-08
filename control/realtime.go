@@ -681,7 +681,8 @@ func realtimeUpstreamURL(baseURL string) string {
 // streaming connections to one worker origin. With the default, finished
 // streams leave only two idle connections; the next wave redials. Free at
 // c=1 (one connection reused); expensive at c=32 (≈30 cold dials per wave).
-// Measured in evidence/perf/gateway-concurrency-sweep.json.
+// Measured in unbound evidence/perf/gateway-concurrency-sweep.json (stand-in
+// harness; not a bound engine receipt).
 const realtimeMaxIdleConnsPerHost = 128
 
 func newRealtimeHTTPClient() *http.Client {
@@ -1446,17 +1447,20 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 // must never turn an otherwise valid buyer request into a failed contract, nor
 // can it alter capacity selection, pricing, or settlement.
 //
-// When admissionTelemetry is configured (production Server via NewServer), the
-// write is enqueued and returns immediately so the first-token path does not
-// wait on two DB round-trips. Loss is impossible under load (sync fallback on
-// full queue) and bounded on crash (queueCap + workers). See admission_telemetry.go.
-// A nil recorder (hand-built Server in tests) keeps the historical synchronous
-// write so existing assertions remain exact.
+// NewServer creates the recorder lazily on the first event, then enqueues and
+// returns immediately so the first-token path does not wait on two DB
+// round-trips. Loss is impossible under load (sync fallback on full queue) and
+// bounded on crash (queueCap + workers). See admission_telemetry.go. A nil
+// recorder (hand-built Server in tests, or post-close before the first event)
+// keeps the historical synchronous write so existing assertions remain exact.
 func (s *Server) recordRealtimeAdmissionEvent(
 	ctx context.Context, buyerID uuid.UUID, runtimeProfileID, hwClass, decision string, contractID uuid.UUID,
 ) {
-	if s.admissionTelemetry != nil {
-		s.admissionTelemetry.record(buyerID, runtimeProfileID, hwClass, decision, contractID)
+	if tel := s.admissionTelemetryRecorder(); tel != nil {
+		tel.record(buyerID, runtimeProfileID, hwClass, decision, contractID)
+		return
+	}
+	if s == nil || s.store == nil {
 		return
 	}
 	if err := s.store.RecordRealtimeAdmissionEvent(ctx, buyerID, runtimeProfileID, hwClass, decision, contractID); err != nil {

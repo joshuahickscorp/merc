@@ -155,7 +155,7 @@ def test_frozen_benchmark(path: Path) -> None:
 def main() -> int:
     test_definitions()
     test_recorded_runs(Path("evidence/bench/runs.jsonl"))
-    test_frozen_benchmark(Path("bench/immutable/shared-prefix-v1.json"))
+    test_frozen_benchmark(Path("evidence/immutable-fixtures/shared-prefix-v1.json"))
 
     if FAILURES:
         print(f"bench-accounting: FAIL ({len(FAILURES)})")

@@ -177,9 +177,7 @@ func TestGeneratedRuntimeModelRefOwnsInternalWireKind(t *testing.T) {
 func TestNormalizeAdvertisedRuntimeModelRefOwnsBuyerIngressKind(t *testing.T) {
 	t.Run("omitted kind is canonicalized", func(t *testing.T) {
 		got, err := normalizeAdvertisedRuntimeModelRef("embed", ModelRef{Ref: "all-minilm-l6-v2"})
-		if err != nil {
-			t.Fatalf("omitted kind rejected: %v", err)
-		}
+		mustf(t, err, "omitted kind rejected: %v")
 		if got != (ModelRef{Kind: "hf", Ref: "all-minilm-l6-v2"}) {
 			t.Fatalf("normalized ref=%+v, want generated hf kind", got)
 		}
@@ -190,9 +188,7 @@ func TestNormalizeAdvertisedRuntimeModelRefOwnsBuyerIngressKind(t *testing.T) {
 			Kind: "gguf",
 			Ref:  "llama-3.2-1b-instruct-q4",
 		})
-		if err != nil {
-			t.Fatalf("BOUND batch_infer refused: %v", err)
-		}
+		mustf(t, err, "BOUND batch_infer refused: %v")
 		if got != (ModelRef{Kind: "gguf", Ref: "llama-3.2-1b-instruct-q4"}) {
 			t.Fatalf("normalized ref=%+v, want generated gguf kind", got)
 		}
@@ -211,13 +207,9 @@ func TestNormalizeAdvertisedRuntimeModelRefOwnsBuyerIngressKind(t *testing.T) {
 
 func TestWorkerRegistrationConsumesProductionRuntimeProjection(t *testing.T) {
 	valid := productionMetalCapability()
-	if err := validateWorkerRuntimeProjection(valid); err != nil {
-		t.Fatalf("valid production Metal worker rejected: %v", err)
-	}
+	mustf(t, validateWorkerRuntimeProjection(valid), "valid production Metal worker rejected: %v")
 	projected, err := projectWorkerRuntimeCapabilities(valid)
-	if err != nil {
-		t.Fatalf("project valid production Metal worker: %v", err)
-	}
+	mustf(t, err, "project valid production Metal worker: %v")
 	if len(projected) != 2 {
 		t.Fatalf("focused worker must project to 2 exact production cells, got %d", len(projected))
 	}
@@ -300,9 +292,7 @@ func TestWorkerRegistrationProjectsBuiltinMediaCell(t *testing.T) {
 	cap.Benchmarks = nil // media has its own physical throughput receipt, not model TPS
 
 	projected, err := projectWorkerRuntimeCapabilities(cap)
-	if err != nil {
-		t.Fatalf("builtin media worker rejected: %v", err)
-	}
+	mustf(t, err, "builtin media worker rejected: %v")
 	if len(projected) != 1 {
 		t.Fatalf("projected %d cells, want one media cell: %+v", len(projected), projected)
 	}
@@ -371,9 +361,7 @@ func productionCatalogRows() []ModelRow {
 }
 
 func TestAdvertisedRuntimeCatalogFailsClosedOnDrift(t *testing.T) {
-	if err := validateAdvertisedRuntimeCatalogRows(productionCatalogRows()); err != nil {
-		t.Fatalf("valid production catalog rejected: %v", err)
-	}
+	mustf(t, validateAdvertisedRuntimeCatalogRows(productionCatalogRows()), "valid production catalog rejected: %v")
 
 	t.Run("missing row", func(t *testing.T) {
 		// Only advertised models are required; an empty catalogue misses embed.

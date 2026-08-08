@@ -35,28 +35,30 @@ func TestAdmissionTelemetryAsyncStillRecorded(t *testing.T) {
 
 	buyerID, err := store.CreateBuyerAccount(ctx,
 		"adm-tel-"+uuid.NewString()+"@example.test", "integration-password", 50)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	profile := sortedVLLMProfiles()[0]
 	worker := newRealtimeClearingOffer(t, ctx, store, pool, profile, "HOT", 0.08, 0.30, 64)
 	_ = worker
 
-	tel := newAdmissionTelemetry(store)
-	if tel == nil {
-		t.Fatal("expected telemetry recorder")
+	srv := NewServer(store, nil, nil, nil)
+	if srv.admissionTelemetry.Load() != nil {
+		t.Fatal("telemetry workers must not start before the first realtime admission")
 	}
+	t.Cleanup(func() { srv.CloseAdmissionTelemetry(5 * time.Second) })
 	// Crash-loss bound is documented and finite.
+	const n = 64
+	for i := 0; i < n; i++ {
+		srv.recordRealtimeAdmissionEvent(ctx, buyerID, profile.RuntimeProfileID, "", realtimeAdmissionNoCapacity, uuid.Nil)
+	}
+	tel := srv.admissionTelemetry.Load()
+	if tel == nil {
+		t.Fatal("first realtime admission did not start telemetry")
+	}
 	if cap := tel.queueCap(); cap != admissionTelemetryQueueCap || cap < 1 {
 		t.Fatalf("queue cap = %d, want %d", cap, admissionTelemetryQueueCap)
 	}
-
-	const n = 64
-	for i := 0; i < n; i++ {
-		tel.record(buyerID, profile.RuntimeProfileID, "", realtimeAdmissionNoCapacity, uuid.Nil)
-	}
 	// Drain: every event must land.
-	tel.Close(5 * time.Second)
+	srv.CloseAdmissionTelemetry(5 * time.Second)
 
 	var count int
 	if err := pool.QueryRow(ctx,
@@ -77,6 +79,37 @@ func TestAdmissionTelemetryAsyncStillRecorded(t *testing.T) {
 	_ = syncFB
 }
 
+// TestAdmissionTelemetryCloseBeforeFirstEvent avoids creating background
+// workers during shutdown while retaining the no-drop synchronous fallback.
+func TestAdmissionTelemetryCloseBeforeFirstEvent(t *testing.T) {
+	installSettlementCurrencyForTest(t, "usd")
+	ctx, store, pool := openIsolatedTestStore(t)
+	buyerID, err := store.CreateBuyerAccount(ctx,
+		"adm-close-"+uuid.NewString()+"@example.test", "integration-password", 5)
+	must(t, err)
+	profile := sortedVLLMProfiles()[0]
+
+	srv := NewServer(store, nil, nil, nil)
+	srv.CloseAdmissionTelemetry(5 * time.Second)
+	if srv.admissionTelemetry.Load() != nil {
+		t.Fatal("close before the first event started telemetry workers")
+	}
+	srv.recordRealtimeAdmissionEvent(ctx, buyerID, profile.RuntimeProfileID, "", realtimeAdmissionNoCapacity, uuid.Nil)
+	if srv.admissionTelemetry.Load() != nil {
+		t.Fatal("post-close fallback restarted telemetry workers")
+	}
+
+	var count int
+	if err := pool.QueryRow(ctx,
+		`SELECT count(*) FROM realtime_admission_events WHERE buyer_id=$1 AND decision=$2`,
+		buyerID, realtimeAdmissionNoCapacity).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("post-close synchronous fallback recorded=%d, want 1", count)
+	}
+}
+
 // TestAdmissionTelemetryFullQueueFallsBackSync proves overload cannot drop:
 // when the queue is full, record() writes synchronously instead of discarding.
 func TestAdmissionTelemetryFullQueueFallsBackSync(t *testing.T) {
@@ -85,9 +118,7 @@ func TestAdmissionTelemetryFullQueueFallsBackSync(t *testing.T) {
 
 	buyerID, err := store.CreateBuyerAccount(ctx,
 		"adm-fb-"+uuid.NewString()+"@example.test", "integration-password", 5)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	profile := sortedVLLMProfiles()[0]
 
 	// No workers draining — queue of 1 fills after the first enqueue; the
@@ -128,13 +159,9 @@ func TestLookupAPIKeyCacheRevokeIsImmediate(t *testing.T) {
 	ctx, store, _ := openIsolatedTestStore(t)
 	buyerID, err := store.CreateBuyerAccount(ctx,
 		"key-cache-"+uuid.NewString()+"@example.test", "integration-password", 1)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	id, raw, _, err := store.CreateAPIKey(ctx, buyerID, "cache-test", true)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	// Populate cache.
 	auth, err := store.LookupAPIKey(ctx, raw)
 	if err != nil || auth.APIKeyID != id {
@@ -163,13 +190,9 @@ func TestLookupAPIKeyCacheTTLBoundsStaleness(t *testing.T) {
 	ctx, store, pool := openIsolatedTestStore(t)
 	buyerID, err := store.CreateBuyerAccount(ctx,
 		"key-ttl-"+uuid.NewString()+"@example.test", "integration-password", 1)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	id, raw, _, err := store.CreateAPIKey(ctx, buyerID, "ttl-test", true)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if _, err := store.LookupAPIKey(ctx, raw); err != nil {
 		t.Fatal(err)
 	}
@@ -258,13 +281,9 @@ func TestSettlementIntentOverlapsDialButBlocksFirstByte(t *testing.T) {
 
 	buyerID, err := store.CreateBuyerAccount(ctx,
 		"intent-overlap-"+uuid.NewString()+"@example.test", "integration-password", 100)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	_, rawKey, _, err := store.CreateAPIKey(ctx, buyerID, "overlap", true)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	profile := sortedVLLMProfiles()[0]
 	for _, p := range sortedVLLMProfiles() {
 		if p.ModelAlias == "cx-chat-1b" {
@@ -313,15 +332,11 @@ func TestSettlementIntentOverlapsDialButBlocksFirstByte(t *testing.T) {
 		`{"model":%q,"messages":[{"role":"user","content":"overlap intent"}],"max_tokens":8,"temperature":0,"stream":true}`,
 		profile.ModelAlias))
 	req, err := http.NewRequest(http.MethodPost, ts.URL+"/v1/chat/completions", strings.NewReader(string(body)))
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	req.Header.Set("Authorization", "Bearer "+rawKey)
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
 		b, _ := io.ReadAll(resp.Body)
@@ -335,9 +350,7 @@ func TestSettlementIntentOverlapsDialButBlocksFirstByte(t *testing.T) {
 	// At the moment the client has the first byte, the intent must already be
 	// durable. Contract id is in the response header.
 	contractID, err := uuid.Parse(resp.Header.Get("X-Merc-Contract-ID"))
-	if err != nil {
-		t.Fatalf("contract header: %v", err)
-	}
+	mustf(t, err, "contract header: %v")
 	var intentCount int
 	if err := pool.QueryRow(ctx, `
 		SELECT count(*) FROM realtime_settlement_intents

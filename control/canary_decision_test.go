@@ -43,13 +43,9 @@ func validTestDecision() canaryDisableDecisionEnvelope {
 func writeTestDecision(t *testing.T, envelope canaryDisableDecisionEnvelope) string {
 	t.Helper()
 	raw, err := json.Marshal(envelope)
-	if err != nil {
-		t.Fatalf("encode decision: %v", err)
-	}
+	mustf(t, err, "encode decision: %v")
 	path := filepath.Join(t.TempDir(), "canary-disable-decision.json")
-	if err := os.WriteFile(path, raw, 0o600); err != nil {
-		t.Fatalf("write decision: %v", err)
-	}
+	mustf(t, os.WriteFile(path, raw, 0o600), "write decision: %v")
 	sum := sha256.Sum256(raw)
 	t.Setenv(canaryDisableDecisionDigestEnv, hex.EncodeToString(sum[:]))
 	return path
@@ -63,18 +59,14 @@ func TestCanaryDisableDecisionRefusalsAreDistinct(t *testing.T) {
 
 	t.Run("valid", func(t *testing.T) {
 		path := writeTestDecision(t, validTestDecision())
-		if err := resolveCanaryDisableDecision(path, true, now, testCleanBuild); err != nil {
-			t.Fatalf("governed decision was refused: %v", err)
-		}
+		mustf(t, resolveCanaryDisableDecision(path, true, now, testCleanBuild), "governed decision was refused: %v")
 	})
 
 	t.Run("open_ended_valid", func(t *testing.T) {
 		envelope := validTestDecision()
 		envelope.Decision.ExpiresAt = ""
 		path := writeTestDecision(t, envelope)
-		if err := resolveCanaryDisableDecision(path, true, now, testCleanBuild); err != nil {
-			t.Fatalf("decision without an expiry was refused: %v", err)
-		}
+		mustf(t, resolveCanaryDisableDecision(path, true, now, testCleanBuild), "decision without an expiry was refused: %v")
 	})
 
 	t.Run("missing", func(t *testing.T) {
@@ -103,13 +95,9 @@ func TestCanaryDisableDecisionRefusalsAreDistinct(t *testing.T) {
 		tampered := validTestDecision()
 		tampered.Decision.DecisionID = "INC-canary-exit-forged"
 		raw, err := json.Marshal(tampered)
-		if err != nil {
-			t.Fatalf("encode tampered decision: %v", err)
-		}
+		mustf(t, err, "encode tampered decision: %v")
 		// The declared digest still describes the bytes that were approved.
-		if err := os.WriteFile(path, raw, 0o600); err != nil {
-			t.Fatalf("rewrite decision: %v", err)
-		}
+		mustf(t, os.WriteFile(path, raw, 0o600), "rewrite decision: %v")
 		if err := resolveCanaryDisableDecision(path, true, now, testCleanBuild); !errors.Is(err, errCanaryDecisionTampered) {
 			t.Fatalf("rewritten decision file: %v", err)
 		}
@@ -185,9 +173,7 @@ func TestCanaryDisableDecisionIsAnArtifactOnlyInProduction(t *testing.T) {
 		t.Error("build identity was resolved outside production")
 		return ControlBuildInfo{}
 	}
-	if err := resolveCanaryDisableDecision("TEST-money-path", false, now, neverBuilt); err != nil {
-		t.Fatalf("development reference was refused: %v", err)
-	}
+	mustf(t, resolveCanaryDisableDecision("TEST-money-path", false, now, neverBuilt), "development reference was refused: %v")
 	if err := resolveCanaryDisableDecision("", false, now, neverBuilt); !errors.Is(err, errCanaryDecisionMissing) {
 		t.Fatalf("absent reference must still fail closed outside production: %v", err)
 	}
@@ -216,9 +202,7 @@ func TestCanaryPolicyKeepsBuyersOutWithoutAResolvableDecision(t *testing.T) {
 // and a placeholder value would be a decision nobody took.
 func TestProductionComposeCarriesTheCanaryDisableDecision(t *testing.T) {
 	compose, err := os.ReadFile("../docker-compose.prod.yml")
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	for _, name := range []string{canaryDisableDecisionEnv, canaryDisableDecisionDigestEnv} {
 		line := ""
 		for _, candidate := range strings.Split(string(compose), "\n") {
@@ -258,9 +242,7 @@ func TestCanaryDecisionRefusesLooselyPermissionedArtifact(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			path := writeTestDecision(t, validTestDecision())
-			if err := os.Chmod(path, mode); err != nil {
-				t.Fatalf("chmod decision: %v", err)
-			}
+			mustf(t, os.Chmod(path, mode), "chmod decision: %v")
 			if err := resolveCanaryDisableDecision(path, true, now, testCleanBuild); !errors.Is(err, errCanaryDecisionUnreadable) {
 				t.Fatalf("decision at mode %o was accepted: %v", mode, err)
 			}
@@ -268,12 +250,8 @@ func TestCanaryDecisionRefusesLooselyPermissionedArtifact(t *testing.T) {
 	}
 	t.Run("owner_and_group_read", func(t *testing.T) {
 		path := writeTestDecision(t, validTestDecision())
-		if err := os.Chmod(path, 0o640); err != nil {
-			t.Fatalf("chmod decision: %v", err)
-		}
-		if err := resolveCanaryDisableDecision(path, true, now, testCleanBuild); err != nil {
-			t.Fatalf("decision at mode 0640 was refused: %v", err)
-		}
+		mustf(t, os.Chmod(path, 0o640), "chmod decision: %v")
+		mustf(t, resolveCanaryDisableDecision(path, true, now, testCleanBuild), "decision at mode 0640 was refused: %v")
 	})
 	t.Run("directory", func(t *testing.T) {
 		dir := t.TempDir()
@@ -343,9 +321,7 @@ func TestReadyzGoesRedWhenTheDisableDecisionStopsResolving(t *testing.T) {
 			t.Fatalf("/readyz = %d, want 503", rec.Code)
 		}
 		var body map[string]any
-		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
-			t.Fatalf("decode /readyz: %v", err)
-		}
+		mustf(t, json.Unmarshal(rec.Body.Bytes(), &body), "decode /readyz: %v")
 		return body
 	}
 	if code := probe()["reason_code"]; code != readyzReasonPaymentInvalid {
@@ -363,9 +339,7 @@ func TestReadyzGoesRedWhenTheDisableDecisionStopsResolving(t *testing.T) {
 func TestReadyzNamesCanaryMisconfigurationAndProbesStayReachable(t *testing.T) {
 	t.Setenv("MERC_CANARY_MODE", "true") // enabled with no allowlists: configError
 	securityTxt := filepath.Join(t.TempDir(), "security.txt")
-	if err := os.WriteFile(securityTxt, []byte("Contact: mailto:security@example.test\n"), 0o600); err != nil {
-		t.Fatalf("write security.txt: %v", err)
-	}
+	mustf(t, os.WriteFile(securityTxt, []byte("Contact: mailto:security@example.test\n"), 0o600), "write security.txt: %v")
 	t.Setenv("SECURITY_TXT_PATH", securityTxt)
 
 	routes := NewServer(nil, nil, nil, nil).Routes()
@@ -380,9 +354,7 @@ func TestReadyzNamesCanaryMisconfigurationAndProbesStayReachable(t *testing.T) {
 		t.Fatalf("/readyz = %d, want 503 while canary policy is incomplete", rec.Code)
 	}
 	var body map[string]any
-	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
-		t.Fatalf("decode /readyz: %v", err)
-	}
+	mustf(t, json.Unmarshal(rec.Body.Bytes(), &body), "decode /readyz: %v")
 	if body["reason_code"] != readyzReasonCanaryUnconfigured {
 		t.Fatalf("/readyz reason_code = %v, want %q", body["reason_code"], readyzReasonCanaryUnconfigured)
 	}

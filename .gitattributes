@@ -1,0 +1,8 @@
+# git-lfs tracking (PLAN_300K). L1 installed patterns; L4 converts bodies at tip.
+# Nested perf receipts need **; single-level evidence/perf/*.json would miss them.
+evidence/perf/** filter=lfs diff=lfs merge=lfs -text
+# Historical LFS binding envelopes are small append-only metadata records, not
+# payload receipts. Keep them in Git so adding an envelope never changes the
+# independently pinned LFS corpus count.
+evidence/perf/selector/*.binding.json -filter -diff -merge text
+.tools/runpodctl filter=lfs diff=lfs merge=lfs -text

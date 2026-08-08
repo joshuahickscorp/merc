@@ -340,13 +340,9 @@ func TestGatewayParityMatrixSelfTestAcrossDimensions(t *testing.T) {
 		})
 	}
 	mercLn, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	directLn, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	mercSrv := &http.Server{Handler: makeHandler(&mercHits, 5*time.Millisecond)}
 	directSrv := &http.Server{Handler: makeHandler(&directHits, 0)}
 	go mercSrv.Serve(mercLn)
@@ -372,7 +368,7 @@ func TestGatewayParityMatrixSelfTestAcrossDimensions(t *testing.T) {
 			{Concurrency: 1, PromptTokens: 32, OutputTokens: 128, State: "warm"},
 			{Concurrency: 8, PromptTokens: 32, OutputTokens: 16, State: "warm"},
 		},
-		Rationale: "unit self-test across dimensions (thinner ladder than live CLI)",
+		Rationale:      "unit self-test across dimensions (thinner ladder than live CLI)",
 		DroppedSummary: []string{"unit test subset"},
 		DroppedAxes: []GatewayParityDroppedAxis{
 			{Axis: "traffic_class", Values: gatewayParityFullTrafficClasses, Reason: TrafficClassNonActingNote},
@@ -467,7 +463,7 @@ func TestGatewayParityMatrixSelfTestAcrossDimensions(t *testing.T) {
 			contract,
 			GatewayParityNetworkTopology{
 				ClientHost: "local-test-process", ControlPlane: "none (self-test)",
-				Engine: "dual stand-in (merc=+5ms fixed; engine cost scales with body)",
+				Engine:         "dual stand-in (merc=+5ms fixed; engine cost scales with body)",
 				ClientToEngine: "loopback", Notes: "HARNESS_SELF_TEST matrix dimensions",
 			},
 			sealSel, sealCells, DefaultGatewayParityBudget(), hostStart, CaptureGatewayParityHostLoad(),
@@ -484,18 +480,12 @@ func TestGatewayParityMatrixSelfTestAcrossDimensions(t *testing.T) {
 		}
 		outPath := filepath.Join("..", "evidence", "perf", "gateway-parity-v2-matrix-selftest.json")
 		raw, err := json.Marshal(sealRec)
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		var payload map[string]any
-		if err := json.Unmarshal(raw, &payload); err != nil {
-			t.Fatal(err)
-		}
+		must(t, json.Unmarshal(raw, &payload))
 		id, bin, err := DefaultBoundIdentity("..", "control/gateway_parity_matrix.go#HARNESS_SELF_TEST",
 			"embedded sampling_contract + cells", "embedded cells.*.merc/direct.raw_samples")
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		id.ModelArtifactDigest = IdentitySlotNA("self-test stand-in; no model weights")
 		id.ImageDigest = IdentitySlotNA("self-test; no container image")
 		id.CorpusDigest = IdentitySlotNA("self-test; no external corpus")
@@ -542,14 +532,14 @@ func TestGatewayParityShapeInsightPrefersShortRequests(t *testing.T) {
 	shortAbs, longAbs := 5.0, 5.0
 	cells := []GatewayParityCellResult{
 		{
-			Spec: GatewayParityCellSpec{Concurrency: 1, PromptTokens: 32, OutputTokens: 16, State: "warm"},
+			Spec:   GatewayParityCellSpec{Concurrency: 1, PromptTokens: 32, OutputTokens: 16, State: "warm"},
 			Status: "MEASURED", Gate: GatewayParityGateLevel{Verdict: "PASS"},
 			RelativeOverhead: &shortRel, AbsoluteOverheadMs: &shortAbs,
 			Merc:   GatewayParityLevelResult{TTFTp95: &GatewayParityPointEstimate{Point: 10}},
 			Direct: GatewayParityLevelResult{TTFTp95: &GatewayParityPointEstimate{Point: 5}},
 		},
 		{
-			Spec: GatewayParityCellSpec{Concurrency: 1, PromptTokens: 8192, OutputTokens: 16, State: "warm"},
+			Spec:   GatewayParityCellSpec{Concurrency: 1, PromptTokens: 8192, OutputTokens: 16, State: "warm"},
 			Status: "MEASURED", Gate: GatewayParityGateLevel{Verdict: "PASS"},
 			RelativeOverhead: &longRel, AbsoluteOverheadMs: &longAbs,
 			Merc:   GatewayParityLevelResult{TTFTp95: &GatewayParityPointEstimate{Point: 55}},

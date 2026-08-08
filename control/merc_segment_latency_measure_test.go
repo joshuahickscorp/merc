@@ -112,13 +112,9 @@ func TestMercSegmentLatencyMeasure(t *testing.T) {
 	// and for serial decomp/settlement probes.
 	buyerID, err := store.CreateBuyerAccount(ctx,
 		"seg-lat-"+uuid.NewString()+"@example.test", "integration-password", 100_000)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	_, buyerKey, _, err := store.CreateAPIKey(ctx, buyerID, "segment latency", true)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	// E2E concurrent buyers: one per max concurrency slot. Concurrent full-path
 	// streams with a single buyer deadlocked (offer row lock vs buyer funding
 	// lock vs settlement) in pilot runs; multi-buyer keeps the measurement of
@@ -217,9 +213,7 @@ func TestMercSegmentLatencyMeasure(t *testing.T) {
 
 			// Warmup (serial) so cold caches do not dominate the first sample.
 			for i := 0; i < warmupPerCell; i++ {
-				if err := doSegmentStreamRequest(httpClient, server.URL, buyerKey, requestBody); err != nil {
-					t.Fatalf("warmup c=%d: %v", c, err)
-				}
+				mustf(t, doSegmentStreamRequest(httpClient, server.URL, buyerKey, requestBody), "warmup c=%d: %v", c)
 			}
 			logWriter.Reset() // discard warmup path-timing lines
 
@@ -381,8 +375,8 @@ func TestMercSegmentLatencyMeasure(t *testing.T) {
 
 	// Compare to the unciteable wave numbers (not authority — just delta table).
 	prior := map[string]any{
-		"note": "unciteable wave numbers from the programme gap statement; no producer identity",
-		"merc_added_ttft_p50_ms": map[string]float64{"c1": 1.84, "c8": 15.66, "c32": 65.50},
+		"note":                      "unciteable wave numbers from the programme gap statement; no producer identity",
+		"merc_added_ttft_p50_ms":    map[string]float64{"c1": 1.84, "c8": 15.66, "c32": 65.50},
 		"merc_added_ttft_p95_ms_c1": 2.49,
 		"authorize_p50_ms": map[string]float64{
 			"c1": 1.35, "c8": 16.18, "c32": 114.33, "c64": 88.92, "c128": 62.31,
@@ -420,11 +414,11 @@ func TestMercSegmentLatencyMeasure(t *testing.T) {
 				"token_shape": "static test token (not a live engine credential)",
 			},
 			"control_plane": map[string]any{
-				"server":             "httptest wrapping NewServer(store).Routes()",
-				"database":           "isolated Postgres created by openIsolatedTestStore (not the shared suite DB)",
-				"path_timing":        "MERC_REALTIME_PATH_TIMING=1 structured log lines parsed per sample",
-				"offer_capacity":     offerCapacity,
-				"offer_count":        1,
+				"server":                      "httptest wrapping NewServer(store).Routes()",
+				"database":                    "isolated Postgres created by openIsolatedTestStore (not the shared suite DB)",
+				"path_timing":                 "MERC_REALTIME_PATH_TIMING=1 structured log lines parsed per sample",
+				"offer_capacity":              offerCapacity,
+				"offer_count":                 1,
 				"buyer_funding_authorize_arm": "single prepaid free-credit buyer (same-buyer serialization is the subject)",
 				"buyer_funding_e2e_arm":       "one prepaid buyer per in-flight slot (avoids ABBA deadlock with offer row during concurrent settlement)",
 				"observed_defect": "single-buyer concurrent e2e streams (c>=8) produced PostgreSQL deadlocks " +
@@ -467,12 +461,12 @@ func TestMercSegmentLatencyMeasure(t *testing.T) {
 				"settlement_finalize_ms": "AuthorizeRealtimeContract then FinalizeRealtimeSuccess with " +
 					"synthetic reconcilable evidence; times only FinalizeRealtimeSuccess",
 			},
-			"samples_per_cell":     samplesPerCell,
-			"warmup_per_cell":      warmupPerCell,
-			"independent_runs":     independentRuns,
-			"concurrency_levels":   concurrencies,
-			"percentile_method":    "nearest-rank: ceil(p*n)-1 on sorted samples (same as realtime_auth_latency_probe)",
-			"run_to_run_variance":  "each independent run recomputes p50; aggregated.p50_across_runs is the median of those p50s; p50_run_min/max and p50_run_stdev report spread",
+			"samples_per_cell":    samplesPerCell,
+			"warmup_per_cell":     warmupPerCell,
+			"independent_runs":    independentRuns,
+			"concurrency_levels":  concurrencies,
+			"percentile_method":   "nearest-rank: ceil(p*n)-1 on sorted samples (same as realtime_auth_latency_probe)",
+			"run_to_run_variance": "each independent run recomputes p50; aggregated.p50_across_runs is the median of those p50s; p50_run_min/max and p50_run_stdev report spread",
 			"machine": map[string]any{
 				"hostname":     host,
 				"goos":         runtime.GOOS,
@@ -512,9 +506,7 @@ func TestMercSegmentLatencyMeasure(t *testing.T) {
 	path := filepath.Join(dir, fmt.Sprintf("merc-segment-latency-%s.json", stamp))
 	id, bin, err := DefaultBoundIdentity("..", "control/merc_segment_latency_measure_test.go",
 		"embedded method + cells + aggregated", "embedded cells[] samples summarised; raw durations not retained")
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if err := WriteBoundEvidenceJSON(EvidenceWriteRequest{
 		RepoRoot: "..", Path: path, Payload: out,
 		Identity: id, BuildBinaryPath: bin,
@@ -1144,9 +1136,9 @@ func judgeFloorClaim(aggregated map[string]any) map[string]any {
 		authP50, authAcross.MinP50, authAcross.MaxP50, measuredFloor, inRange)
 
 	return map[string]any{
-		"summary": summary,
-		"holds_approx_1ms_durable": math.Abs(measuredFloor-floorCenter) <= 0.35 || inRange,
-		"holds_0_7_to_1_2_range":   inRange,
+		"summary":                   summary,
+		"holds_approx_1ms_durable":  math.Abs(measuredFloor-floorCenter) <= 0.35 || inRange,
+		"holds_0_7_to_1_2_range":    inRange,
 		"measured_durable_total_ms": measuredFloor,
 		"measured_parts_sum_ms":     sumParts,
 		"measured_parts_ms": map[string]float64{
@@ -1157,7 +1149,7 @@ func judgeFloorClaim(aggregated map[string]any) map[string]any {
 			"funding": 0.20, "offer_claim": 0.20, "pricing": 0.05,
 			"contract_insert": 0.35, "event_insert": 0.10, "commit": 0.15, "sum": 1.0,
 		},
-		"full_authorize_p50_ms": authP50,
+		"full_authorize_p50_ms":           authP50,
 		"full_authorize_p50_run_range_ms": []float64{authAcross.MinP50, authAcross.MaxP50},
 		"notes": []string{
 			"Decomposition uses sequential inserts; production batches contract+event (one fewer RTT).",

@@ -7,9 +7,7 @@ import (
 )
 
 func TestShippedCatalogueSatisfiesOnboardingPolicy(t *testing.T) {
-	if err := validateModelOnboarding(runtimeAuthority); err != nil {
-		t.Fatalf("shipped catalogue violates its own onboarding policy: %v", err)
-	}
+	mustf(t, validateModelOnboarding(runtimeAuthority), "shipped catalogue violates its own onboarding policy: %v")
 	// A policy that passes because there is nothing to check is not a policy.
 	if len(runtimeAuthority.Models) == 0 {
 		t.Fatal("no models in the authority document")
@@ -62,9 +60,7 @@ func TestOnboardingPolicyRefusesUnsellableModels(t *testing.T) {
 // root so the runtime cannot embed it; this is where that half is enforced.
 func TestCatalogueAttributionAppearsInNotice(t *testing.T) {
 	notice, err := os.ReadFile("../NOTICE")
-	if err != nil {
-		t.Fatalf("reading NOTICE: %v", err)
-	}
+	mustf(t, err, "reading NOTICE: %v")
 	checked := 0
 	for _, m := range runtimeAuthority.Models {
 		if !m.AttributionRequired {

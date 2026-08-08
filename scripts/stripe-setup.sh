@@ -165,7 +165,7 @@ Create it, then 'Signing secret' → Reveal → copy." \
 ask STRIPE_BILLING_WEBHOOK_ENDPOINT_ID "we_… (skip if using \`stripe listen\`)" \
 "Dashboard endpoints only: on that endpoint's page, the id in the URL.
 If you are using \`stripe listen\` there is no we_ id — press Enter to skip.
-See docs/STRIPE_CONNECT.md for which path you are on." \
+See docs/ARCHITECTURE.md for which path you are on." \
 "Identifies the billing endpoint in reconciliation receipts, so a later audit can tell which endpoint delivered what."
 
 # ------------------------------------------------------------- connect webhook

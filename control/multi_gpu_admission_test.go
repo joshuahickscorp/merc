@@ -52,9 +52,7 @@ func TestPlanPicksTheSmallestAdmissibleDegree(t *testing.T) {
 	}
 	// 40 + 8 = 48 fits an 80 GB GPU on its own.
 	plan, err := planTensorParallel(nvlinkHost(8, 80), model)
-	if err != nil {
-		t.Fatalf("plan: %v", err)
-	}
+	mustf(t, err, "plan: %v")
 	if plan.Degree != 1 {
 		t.Fatalf("degree %d on a host where the model fits one GPU; splitting it "+
 			"occupies %d GPUs for nothing", plan.Degree, plan.Degree)
@@ -62,9 +60,7 @@ func TestPlanPicksTheSmallestAdmissibleDegree(t *testing.T) {
 
 	// Halve the GPUs' memory and it must split, but only as far as it must.
 	plan, err = planTensorParallel(nvlinkHost(8, 32), model)
-	if err != nil {
-		t.Fatalf("plan: %v", err)
-	}
+	mustf(t, err, "plan: %v")
 	// 40/2+8 = 28 <= 32, so TP=2 suffices.
 	if plan.Degree != 2 {
 		t.Fatalf("degree %d, want the smallest that fits (2)", plan.Degree)
@@ -118,9 +114,7 @@ func TestPCIeCapsTensorParallelism(t *testing.T) {
 	nvlink := pcie
 	nvlink.Interconnect = interconnectNVLink
 	plan, err := planTensorParallel(nvlink, model)
-	if err != nil {
-		t.Fatalf("NVLink host refused the same placement: %v", err)
-	}
+	mustf(t, err, "NVLink host refused the same placement: %v")
 	if plan.Degree <= maxPCIeTensorParallel {
 		t.Fatalf("degree %d does not exercise the NVLink allowance", plan.Degree)
 	}
@@ -220,9 +214,7 @@ func TestHostTopologyFromRegistrationDoesNotTrustTheWorker(t *testing.T) {
 		// existing worker as multi-GPU on the day the field shipped.
 		reg := WorkerCapability{HWClass: "nvidia_80gb", MemoryGB: 80}
 		topology, err := hostTopologyFromRegistration(reg)
-		if err != nil {
-			t.Fatalf("a pre-topology registration was refused: %v", err)
-		}
+		mustf(t, err, "a pre-topology registration was refused: %v")
 		if topology.GPUCount != 1 {
 			t.Fatalf("GPUCount %d for a registration that declared none", topology.GPUCount)
 		}
@@ -239,9 +231,7 @@ func TestHostTopologyFromRegistrationDoesNotTrustTheWorker(t *testing.T) {
 			MemoryGBPerGPU: 900, Interconnect: "nvlink",
 		}
 		topology, err := hostTopologyFromRegistration(reg)
-		if err != nil {
-			t.Fatalf("registration refused: %v", err)
-		}
+		mustf(t, err, "registration refused: %v")
 		if topology.MemoryGBPerGPU != 80 {
 			t.Fatalf("worker claimed 900 GB on an 80 GB class and merc recorded %v",
 				topology.MemoryGBPerGPU)
@@ -278,17 +268,13 @@ func TestHostTopologyFromRegistrationDoesNotTrustTheWorker(t *testing.T) {
 			MemoryGBPerGPU: 80, Interconnect: "nvlink",
 		}
 		topology, err := hostTopologyFromRegistration(reg)
-		if err != nil {
-			t.Fatalf("a valid 4x80GB NVLink host was refused: %v", err)
-		}
+		mustf(t, err, "a valid 4x80GB NVLink host was refused: %v")
 		// 140 GB weights + 18 GB per-rank overhead: 140/4 + 18 = 53 <= 80.
 		plan, err := planTensorParallel(topology, modelPlacement{
 			ModelID: "llama-70b-ish", WeightsGB: 140,
 			PerRankOverheadGB: 18, AttentionHeads: 64,
 		})
-		if err != nil {
-			t.Fatalf("plan: %v", err)
-		}
+		mustf(t, err, "plan: %v")
 		if plan.Degree != 4 {
 			t.Fatalf("degree %d, want 4", plan.Degree)
 		}

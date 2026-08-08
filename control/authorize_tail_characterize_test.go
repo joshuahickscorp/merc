@@ -43,7 +43,7 @@ import (
 // offer capacity) is not altered by this probe.
 //
 // Reading the 1-offer multi-buyer cell: it isolates "one capacity row is one
-// capacity row" (docs/OFFER_MULTIPLICITY.md). That tail is a thin-book /
+// capacity row" (docs/RUNTIME_AND_PERF.md). That tail is a thin-book /
 // fixture number, not a standing production defect — seed leaves 0 realtime
 // offers, one local agent registers one, canary is two workers, and N-offer
 // cells already show SKIP LOCKED recovering multi-supplier books. Do not
@@ -72,21 +72,21 @@ func TestAuthorizeTailCharacterize(t *testing.T) {
 	maxConnsLevels := []int32{20, 64} // 20 = production defaultDBMaxConns
 
 	type cell struct {
-		MaxConns            int32                  `json:"max_conns"`
-		Concurrency         int                    `json:"concurrency"`
-		Samples             int                    `json:"samples"`
-		PoolAcquireMs       segmentLatencySummary  `json:"pool_acquire_ms"`
-		PoolStatDelta       map[string]any         `json:"pool_stat_delta"`
-		LookupColdMs        segmentLatencySummary  `json:"lookup_api_key_cold_ms"`
-		LookupWarmMs        segmentLatencySummary  `json:"lookup_api_key_warm_ms"`
-		AuthSameBuyer1Off   segmentLatencySummary  `json:"authorize_same_buyer_1offer_ms"`
-		AuthMultiBuyer1Off  segmentLatencySummary  `json:"authorize_multi_buyer_1offer_ms"`
-		AuthMultiBuyerNOff  segmentLatencySummary  `json:"authorize_multi_buyer_Noffer_ms"`
-		AuthOK              map[string]int         `json:"authorize_ok"`
-		AuthFail            map[string]int         `json:"authorize_fail"`
-		SlowSampleNotes     []string               `json:"slow_sample_notes,omitempty"`
-		CauseHint           string                 `json:"cause_hint"`
-		PgWaitEventsDuring  map[string]int         `json:"pg_wait_events_during_auth,omitempty"`
+		MaxConns           int32                 `json:"max_conns"`
+		Concurrency        int                   `json:"concurrency"`
+		Samples            int                   `json:"samples"`
+		PoolAcquireMs      segmentLatencySummary `json:"pool_acquire_ms"`
+		PoolStatDelta      map[string]any        `json:"pool_stat_delta"`
+		LookupColdMs       segmentLatencySummary `json:"lookup_api_key_cold_ms"`
+		LookupWarmMs       segmentLatencySummary `json:"lookup_api_key_warm_ms"`
+		AuthSameBuyer1Off  segmentLatencySummary `json:"authorize_same_buyer_1offer_ms"`
+		AuthMultiBuyer1Off segmentLatencySummary `json:"authorize_multi_buyer_1offer_ms"`
+		AuthMultiBuyerNOff segmentLatencySummary `json:"authorize_multi_buyer_Noffer_ms"`
+		AuthOK             map[string]int        `json:"authorize_ok"`
+		AuthFail           map[string]int        `json:"authorize_fail"`
+		SlowSampleNotes    []string              `json:"slow_sample_notes,omitempty"`
+		CauseHint          string                `json:"cause_hint"`
+		PgWaitEventsDuring map[string]int        `json:"pg_wait_events_during_auth,omitempty"`
 	}
 	var cells []cell
 
@@ -95,13 +95,9 @@ func TestAuthorizeTailCharacterize(t *testing.T) {
 		// Buyers: one primary + 32 multi-buyer slots.
 		primaryBuyer, err := store.CreateBuyerAccount(ctx,
 			"tail-pri-"+uuid.NewString()+"@example.test", "integration-password", 500_000)
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		_, primaryKey, _, err := store.CreateAPIKey(ctx, primaryBuyer, "tail primary", true)
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		multiBuyers := make([]uuid.UUID, 32)
 		multiKeys := make([]string, 32)
 		multiBuyers[0], multiKeys[0] = primaryBuyer, primaryKey
@@ -186,13 +182,13 @@ func TestAuthorizeTailCharacterize(t *testing.T) {
 			})
 			statAfter := pool.Stat()
 			poolDelta := map[string]any{
-				"empty_acquire_count_delta":     statAfter.EmptyAcquireCount() - statBefore.EmptyAcquireCount(),
-				"empty_acquire_wait_ms_delta":   (statAfter.EmptyAcquireWaitTime() - statBefore.EmptyAcquireWaitTime()).Seconds() * 1000,
-				"canceled_acquire_count_delta":  statAfter.CanceledAcquireCount() - statBefore.CanceledAcquireCount(),
-				"max_conns":                     statAfter.MaxConns(),
-				"acquired_conns_end":            statAfter.AcquiredConns(),
-				"idle_conns_end":                statAfter.IdleConns(),
-				"total_conns_end":               statAfter.TotalConns(),
+				"empty_acquire_count_delta":    statAfter.EmptyAcquireCount() - statBefore.EmptyAcquireCount(),
+				"empty_acquire_wait_ms_delta":  (statAfter.EmptyAcquireWaitTime() - statBefore.EmptyAcquireWaitTime()).Seconds() * 1000,
+				"canceled_acquire_count_delta": statAfter.CanceledAcquireCount() - statBefore.CanceledAcquireCount(),
+				"max_conns":                    statAfter.MaxConns(),
+				"acquired_conns_end":           statAfter.AcquiredConns(),
+				"idle_conns_end":               statAfter.IdleConns(),
+				"total_conns_end":              statAfter.TotalConns(),
 			}
 
 			// --- LookupAPIKey cold (cache cleared every sample; serial clear then concurrent) ---
@@ -515,11 +511,11 @@ func TestAuthorizeTailCharacterize(t *testing.T) {
 
 	// Cross-cell cause synthesis from the factorial.
 	var (
-		poolStarvationCells  int
-		offerRowLockCells    int
-		rank1PileOnCells     int
-		buyerFundingCells    int
-		lookupColdTailCells  int
+		poolStarvationCells int
+		offerRowLockCells   int
+		rank1PileOnCells    int
+		buyerFundingCells   int
+		lookupColdTailCells int
 	)
 	for _, cl := range cells {
 		h := cl.CauseHint
@@ -540,11 +536,11 @@ func TestAuthorizeTailCharacterize(t *testing.T) {
 		}
 	}
 	synthesis := map[string]any{
-		"pool_starvation_cells":   poolStarvationCells,
-		"offer_row_lock_cells":    offerRowLockCells,
-		"rank1_pile_on_cells":     rank1PileOnCells,
+		"pool_starvation_cells":    poolStarvationCells,
+		"offer_row_lock_cells":     offerRowLockCells,
+		"rank1_pile_on_cells":      rank1PileOnCells,
 		"buyer_funding_lock_cells": buyerFundingCells,
-		"lookup_cold_tail_cells":  lookupColdTailCells,
+		"lookup_cold_tail_cells":   lookupColdTailCells,
 		"how_to_read": "" +
 			"If pool_acquire_ms.p95 rises when max_conns=20 and c=32 but not at max_conns=64, " +
 			"the tail is connection-pool starvation. " +
@@ -605,9 +601,7 @@ func TestAuthorizeTailCharacterize(t *testing.T) {
 	path := filepath.Join(dir, name)
 	id, bin, err := DefaultBoundIdentity("..", "control/authorize_tail_characterize_test.go",
 		"embedded method + cells", "embedded cells[].samples")
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if err := WriteBoundEvidenceJSON(EvidenceWriteRequest{
 		RepoRoot: "..", Path: path, Payload: out,
 		Identity: id, BuildBinaryPath: bin,
@@ -628,9 +622,7 @@ func openIsolatedTestStoreWithMaxConns(t *testing.T, maxConns int32) (*Store, *p
 	t.Helper()
 	base := requireTestDatabase(t)
 	parsed, err := url.Parse(base)
-	if err != nil {
-		t.Fatalf("parse MERC_TEST_DATABASE_URL: %v", err)
-	}
+	mustf(t, err, "parse MERC_TEST_DATABASE_URL: %v")
 	name := "cx_iso_" + strings.ReplaceAll(uuid.NewString(), "-", "")[:24]
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	t.Cleanup(cancel)
@@ -638,9 +630,7 @@ func openIsolatedTestStoreWithMaxConns(t *testing.T, maxConns int32) (*Store, *p
 	admin := *parsed
 	admin.Path = "/postgres"
 	adminPool, err := pgxpool.New(ctx, admin.String())
-	if err != nil {
-		t.Fatalf("connect to postgres for database creation: %v", err)
-	}
+	mustf(t, err, "connect to postgres for database creation: %v")
 	if _, err := adminPool.Exec(ctx, `CREATE DATABASE `+name); err != nil {
 		adminPool.Close()
 		t.Fatalf("create isolated database: %v", err)
@@ -660,19 +650,13 @@ func openIsolatedTestStoreWithMaxConns(t *testing.T, maxConns int32) (*Store, *p
 	own := *parsed
 	own.Path = "/" + name
 	cfg, err := pgxpool.ParseConfig(own.String())
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	cfg.MaxConns = maxConns
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
-	if err != nil {
-		t.Fatalf("connect isolated database: %v", err)
-	}
+	mustf(t, err, "connect isolated database: %v")
 	t.Cleanup(pool.Close)
 	store := NewStore(pool)
-	if err := store.Migrate(ctx); err != nil {
-		t.Fatalf("apply canonical schema: %v", err)
-	}
+	mustf(t, store.Migrate(ctx), "apply canonical schema: %v")
 	return store, pool
 }
 
@@ -792,4 +776,3 @@ func classifyTailCause(
 	}
 	return strings.Join(parts, " | ")
 }
-

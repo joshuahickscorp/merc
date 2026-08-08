@@ -84,9 +84,7 @@ func TestPrefixAffinityCostRankGateIsLoadBearing(t *testing.T) {
 	// WarmPrefixDepth. A rewrite that drops the CostRank arm fails here even
 	// if the pure behavioural test above is edited in the same change.
 	src, err := os.ReadFile("prefix_placement.go")
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	body := string(src)
 	fnStart := strings.Index(body, "func RankByCostThenPrefixAffinity")
 	if fnStart < 0 {
@@ -164,6 +162,41 @@ func TestPrefixAffinityBreaksTiesWithinSameCostClass(t *testing.T) {
 	_, movedAcross := PreferPrefixWithinCostClass([]PrefixAffinityCandidate{cold, expensiveDeep})
 	if movedAcross {
 		t.Fatal("affinity must not move placement across a cost-class boundary")
+	}
+}
+
+// Within a cost class, a colder cheaper ask must beat a warmer dearer ask.
+// Affinity is only a tie-break at equal CostRank AND equal AskUSDHr — any
+// positive ask gap (here $0.01/hr) is the measured gap at which cost still
+// dominates infinite WarmPrefixDepth.
+func TestPrefixAffinityNeverPromotesHigherAskWithinClass(t *testing.T) {
+	rank := hwClassCostRank("apple_silicon_max")
+	cheapCold := PrefixAffinityCandidate{
+		WorkerID: uuid.MustParse("00000000-0000-0000-0000-000000000041"),
+		HWClass:  "apple_silicon_max",
+		CostRank: rank,
+		AskUSDHr: 1.00,
+	}
+	dearWarm := PrefixAffinityCandidate{
+		WorkerID:        uuid.MustParse("00000000-0000-0000-0000-000000000042"),
+		HWClass:         "apple_silicon_max",
+		CostRank:        rank,
+		AskUSDHr:        1.01, // $0.01/hr dearer
+		WarmPrefixDepth: 1 << 20,
+		WarmModel:       true,
+	}
+	ranked := RankByCostThenPrefixAffinity([]PrefixAffinityCandidate{dearWarm, cheapCold})
+	if ranked[0].WorkerID != cheapCold.WorkerID {
+		t.Fatalf("warm dearer ask won over cold cheaper ask within class: got ask=%.2f depth=%d, want ask=%.2f",
+			ranked[0].AskUSDHr, ranked[0].WarmPrefixDepth, cheapCold.AskUSDHr)
+	}
+	// Claim SQL must keep cheaper_ask_online before warm_prefix_depth.
+	sql := ClaimTaskSQL("t.claimed_by IS NULL")
+	order := sql[strings.Index(sql, "ORDER BY"):]
+	askPos := strings.Index(order, "cheaper_ask_online")
+	warmPos := strings.Index(order, "warm_prefix_depth")
+	if askPos < 0 || warmPos < 0 || warmPos < askPos {
+		t.Fatalf("claim ORDER BY lost ask-before-prefix: ask=%d warm=%d", askPos, warmPos)
 	}
 }
 

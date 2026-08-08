@@ -65,9 +65,7 @@ func loadChainArtifact(t *testing.T, runtimeProfileID, cellID, modelKind string)
 		Count   int         `json:"count"`
 		Vectors [][]float64 `json:"vectors"`
 	}
-	if err := json.Unmarshal(body, &decoded); err != nil {
-		t.Fatalf("%s is not an embed artifact: %v", path, err)
-	}
+	mustf(t, json.Unmarshal(body, &decoded), "%s is not an embed artifact: %v", path)
 	if decoded.JobType != "embed" || decoded.Dim != EMBED_DIM_FOR_CHAIN {
 		t.Fatalf("%s declares job_type=%q dim=%d", path, decoded.JobType, decoded.Dim)
 	}
@@ -84,9 +82,7 @@ func loadChainArtifact(t *testing.T, runtimeProfileID, cellID, modelKind string)
 		Count:   decoded.Count,
 		Vectors: decoded.Vectors,
 	})
-	if err != nil {
-		t.Fatalf("rebuild result body from %s: %v", path, err)
-	}
+	mustf(t, err, "rebuild result body from %s: %v", path)
 	sum := sha256.Sum256(resultBody)
 	return chainArtifact{
 		runtimeProfileID: runtimeProfileID,
@@ -143,10 +139,8 @@ func TestBothRuntimeCellsProduceAcceptableGovernedArtifacts(t *testing.T) {
 			jobType:  "embed",
 			ModelRef: "all-minilm-l6-v2",
 		}
-		if err := validateTaskResultArtifact(info, artifact.body); err != nil {
-			t.Fatalf("%s produced an artifact the control plane refuses: %v",
-				artifact.runtimeProfileID, err)
-		}
+		mustf(t, validateTaskResultArtifact(info, artifact.body), "%s produced an artifact the control plane refuses: %v",
+			artifact.runtimeProfileID)
 	}
 
 	minCosine := math.MaxFloat64
@@ -188,9 +182,7 @@ func TestEachCellExecutesTheSameGovernedWorkload(t *testing.T) {
 	for _, artifact := range []chainArtifact{candle, llama} {
 		decision, err := buildWorkloadDecisionDirected(
 			embedSubmit(), strings.Repeat("7", 64), artifact.directedCellID)
-		if err != nil {
-			t.Fatalf("directed decision for %s: %v", artifact.cellID, err)
-		}
+		mustf(t, err, "directed decision for %s: %v", artifact.cellID)
 		if decision.RuntimeCandidates[0].CellID != artifact.cellID {
 			t.Fatalf("decision for %s froze %s", artifact.cellID,
 				decision.RuntimeCandidates[0].CellID)
@@ -228,9 +220,7 @@ func TestChainArtifactsSurviveContentAddressedStorage(t *testing.T) {
 				artifact.runtimeProfileID, digest, artifact.sha256)
 		}
 		read, err := h.get(key)
-		if err != nil {
-			t.Fatalf("%s: read back: %v", artifact.runtimeProfileID, err)
-		}
+		mustf(t, err, "%s: read back: %v", artifact.runtimeProfileID)
 		if string(read) != string(artifact.body) {
 			t.Fatalf("%s: bytes changed in storage", artifact.runtimeProfileID)
 		}
@@ -278,9 +268,7 @@ func TestSecondRuntimeChainSettlesOncePerExecution(t *testing.T) {
 
 			before := countBuyerLedger(t, ctx, pool, f.BuyerID)
 			info, err := store.CompleteTaskTx(ctx, taskID, f.WorkerID, commit)
-			if err != nil {
-				t.Fatalf("commit on %s: %v", artifact.runtimeProfileID, err)
-			}
+			mustf(t, err, "commit on %s: %v", artifact.runtimeProfileID)
 			if info == nil || info.TaskID != taskID {
 				t.Fatalf("commit info: %+v", info)
 			}

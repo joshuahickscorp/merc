@@ -35,9 +35,7 @@ func loraEvaluationProjectTarArchive(t *testing.T) ([]byte, string) {
 		}
 	}
 	declarationRaw, err := json.Marshal(declaration)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	assets[projectDeclarationName] = string(declarationRaw)
 	return projectTarArchive(t, assets), declaration.Steps[0].LoRA.HeldOutSet.SHA256
 }
@@ -68,13 +66,9 @@ func TestProjectLoRAEvaluationRoutePersistsIndependentOutcomeEvidence(t *testing
 		t.Fatal(err)
 	}
 	evaluatorToken, err := store.CreateWorkerToken(ctx, evaluatorWorkerID, evaluatorSupplierID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	_, buyerKey, _, err := store.CreateAPIKey(ctx, buyerID, "lora-evaluation", true)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	handler := NewServer(store, nil, nil, nil).Routes()
 	archive, heldOutSHA := loraEvaluationProjectTarArchive(t)
 	postCompile := func(probe bool, approved string) *httptest.ResponseRecorder {
@@ -94,21 +88,15 @@ func TestProjectLoRAEvaluationRoutePersistsIndependentOutcomeEvidence(t *testing
 		t.Fatalf("LoRA proposal status=%d body=%s", proposal.Code, proposal.Body.String())
 	}
 	var proposalIR ProjectWorkloadIR
-	if err := json.Unmarshal(proposal.Body.Bytes(), &proposalIR); err != nil {
-		t.Fatal(err)
-	}
+	must(t, json.Unmarshal(proposal.Body.Bytes(), &proposalIR))
 	probe := postCompile(true, proposalIR.IRSHA256)
 	if probe.Code != http.StatusOK {
 		t.Fatalf("LoRA probe status=%d body=%s", probe.Code, probe.Body.String())
 	}
 	var probedIR ProjectWorkloadIR
-	if err := json.Unmarshal(probe.Body.Bytes(), &probedIR); err != nil {
-		t.Fatal(err)
-	}
+	must(t, json.Unmarshal(probe.Body.Bytes(), &probedIR))
 	compileReceiptID, err := uuid.Parse(probe.Header().Get("X-Merc-Project-Compile-Receipt"))
-	if err != nil {
-		t.Fatalf("LoRA probe omitted compile receipt id: %v", err)
-	}
+	mustf(t, err, "LoRA probe omitted compile receipt id: %v")
 	if got := probedIR.Steps[0].LoRA.HeldOutSet.SHA256; got != heldOutSHA {
 		t.Fatalf("probe held-out identity=%s, want %s", got, heldOutSHA)
 	}
@@ -134,9 +122,7 @@ func TestProjectLoRAEvaluationRoutePersistsIndependentOutcomeEvidence(t *testing
 		t.Fatalf("LoRA evaluation status=%d body=%s", posted.Code, posted.Body.String())
 	}
 	var receipt ProjectLoRAEvaluationReceipt
-	if err := json.Unmarshal(posted.Body.Bytes(), &receipt); err != nil {
-		t.Fatal(err)
-	}
+	must(t, json.Unmarshal(posted.Body.Bytes(), &receipt))
 	if receipt.ID == uuid.Nil || receipt.Status != projectLoRAEvaluationReceiptStatus ||
 		!receipt.Succeeded || math.Abs(receipt.ImprovementFraction-0.04) > 1e-12 ||
 		receipt.EvaluatorWorkerID != evaluatorWorkerID || receipt.TrainerWorkerID != trainerWorkerID ||

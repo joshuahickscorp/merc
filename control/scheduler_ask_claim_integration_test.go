@@ -23,9 +23,7 @@ func TestClaimTasksTxDefersToACheaperAskingWorker(t *testing.T) {
 
 	suffix := uuid.NewString()
 	buyerID, err := store.CreateBuyerAccount(ctx, "ask-"+suffix+"@example.test", "integration-password", 100)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 
 	// Two suppliers, identical in every respect the scheduler filters on, except
 	// what they ask to be paid.
@@ -96,9 +94,7 @@ func TestClaimTasksTxDefersToACheaperAskingWorker(t *testing.T) {
 	// Shared DBs may hand the dear worker unrelated jobs; only the fixture job
 	// is under test.
 	got, err := claim(dear)
-	if err != nil {
-		t.Fatalf("expensive worker claim: %v", err)
-	}
+	mustf(t, err, "expensive worker claim: %v")
 	if got != nil && got.TaskID == taskID {
 		t.Fatalf("task went to the worker asking $%.2f/hr while one asking $%.2f/hr was online and eligible",
 			dear.askUSDHr, cheap.askUSDHr)
@@ -106,9 +102,7 @@ func TestClaimTasksTxDefersToACheaperAskingWorker(t *testing.T) {
 
 	// The cheaper worker takes it.
 	got, err = claim(cheap)
-	if err != nil {
-		t.Fatalf("cheap worker claim: %v", err)
-	}
+	mustf(t, err, "cheap worker claim: %v")
 	if got == nil {
 		t.Fatal("cheapest eligible worker was not given the task")
 	}
@@ -130,9 +124,7 @@ func TestClaimTasksTxDefersToACheaperAskingWorker(t *testing.T) {
 		t.Fatal(err)
 	}
 	aged, err := claim(dear)
-	if err != nil {
-		t.Fatalf("expensive worker claim after the window: %v", err)
-	}
+	mustf(t, err, "expensive worker claim after the window: %v")
 	if aged == nil {
 		t.Fatal("task stayed deferred past askDeferralWindow: a cheap worker that never polls would starve the queue")
 	}

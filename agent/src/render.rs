@@ -206,6 +206,8 @@ impl JobRunner for MediaRenderingRunner {
             duration_ms: started.elapsed().as_millis() as u64,
             tokens_used: 0,
             inference_backend: RENDER_BACKEND.to_string(),
+            // Rendering has no prompt cache to observe.
+            cached_prompt_tokens: None,
         })
     }
 

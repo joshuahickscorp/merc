@@ -80,9 +80,7 @@ func TestSubmitExactReuseBatchJobFreezesWorkloadDecision(t *testing.T) {
 		t.Fatalf("normalize exact-reuse workload: %s", herr.msg)
 	}
 	decision, err := buildWorkloadDecision(sub, strings.Repeat("f", 64))
-	if err != nil {
-		t.Fatalf("build exact-reuse workload decision: %v", err)
-	}
+	mustf(t, err, "build exact-reuse workload decision: %v")
 	money := SettleReuseHitMoney(1000, 0.002)
 	originPlan, err := newDistributedComputePlan(
 		decision,
@@ -100,20 +98,14 @@ func TestSubmitExactReuseBatchJobFreezesWorkloadDecision(t *testing.T) {
 		QuoteConfidence{Score: 0.9, Reasons: []string{"exact-reuse origin fixture"}},
 		nil,
 	)
-	if err != nil {
-		t.Fatalf("build exact-reuse origin plan: %v", err)
-	}
+	mustf(t, err, "build exact-reuse origin plan: %v")
 	computePlan, err := newExactReuseComputePlan(
 		decision, 1, 128, testInputDepthProfile(1), microsToUSD(money.BuyerDebitMicros), &originPlan,
 	)
-	if err != nil {
-		t.Fatalf("build exact-reuse compute plan: %v", err)
-	}
+	mustf(t, err, "build exact-reuse compute plan: %v")
 	quoteID := uuid.New()
 	originSHA256, err := computePlanDigest(originPlan)
-	if err != nil {
-		t.Fatalf("hash exact-reuse origin plan: %v", err)
-	}
+	mustf(t, err, "hash exact-reuse origin plan: %v")
 	originEconomic := BuildEconomicPlan(EconomicPlanInput{
 		BaseComputeUSD: originPlan.BaseComputeUSD, InitialTaskCount: 1,
 		ExtraTaskReserve: 1, SupplierShare: supplierShareForTest(t, decision.RuntimeJobType, decision.Binding.Model.Ref),
@@ -125,36 +117,22 @@ func TestSubmitExactReuseBatchJobFreezesWorkloadDecision(t *testing.T) {
 	originPricing, err := newDistributedPricingDecision(
 		decision, originPlan, originPlacement, originEconomic, authority, sub.Tier, "",
 	)
-	if err != nil {
-		t.Fatalf("build exact-reuse origin pricing: %v", err)
-	}
+	mustf(t, err, "build exact-reuse origin pricing: %v")
 	originPricingJSON, err := json.Marshal(originPricing)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	originPricingSHA256, err := pricingDecisionDigest(originPricing)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	originPlacementJSON, err := json.Marshal(originPlacement)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	originPlacementSHA256, err := placementRequirementDigest(originPlacement)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	workloadSHA256, err := workloadDecisionDigest(decision)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	quoteJSON, err := json.Marshal(map[string]any{
 		"placement_requirement": originPlacement,
 		"pricing_decision":      originPricing,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO quotes
 		  (id,buyer_id,job_type,compute_plan_sha256,
@@ -174,16 +152,12 @@ func TestSubmitExactReuseBatchJobFreezesWorkloadDecision(t *testing.T) {
 		decision, badComputePlan, authority, sub.Tier,
 		microsToUSD(money.BuyerDebitMicros), originPricingSHA256,
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	reusePricing, err := newExactReusePricingDecision(
 		decision, computePlan, authority, sub.Tier,
 		microsToUSD(money.BuyerDebitMicros), originPricingSHA256,
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	badJobID := uuid.New()
 	if err := store.SubmitExactReuseBatchJob(
 		ctx,
@@ -275,16 +249,12 @@ func TestSubmitExactReuseBatchJobFreezesWorkloadDecision(t *testing.T) {
 	}
 
 	stored, err := store.JobWorkloadDecision(ctx, f.JobID)
-	if err != nil {
-		t.Fatalf("load exact-reuse workload decision: %v", err)
-	}
+	mustf(t, err, "load exact-reuse workload decision: %v")
 	if stored == nil || stored.BindingSHA256 != decision.BindingSHA256 {
 		t.Fatalf("exact-reuse path did not freeze workload authority: got %+v", stored)
 	}
 	storedCompute, err := store.JobComputePlan(ctx, f.JobID)
-	if err != nil {
-		t.Fatalf("load exact-reuse compute plan: %v", err)
-	}
+	mustf(t, err, "load exact-reuse compute plan: %v")
 	if storedCompute == nil || storedCompute.ExecutionMode != computeExecutionExactReuse {
 		t.Fatalf("exact-reuse path did not freeze compute authority: got %+v", storedCompute)
 	}
@@ -302,9 +272,7 @@ func TestSubmitExactReuseBatchJobFreezesWorkloadDecision(t *testing.T) {
 			storedQuoteID, firmQuote, firmQuoteMaxUSD)
 	}
 	storedPricing, err := store.JobPricingDecision(ctx, f.JobID)
-	if err != nil {
-		t.Fatalf("load exact-reuse pricing decision: %v", err)
-	}
+	mustf(t, err, "load exact-reuse pricing decision: %v")
 	receipt := assembleClearingReceipt(
 		f.JobID, "complete", stored, storedCompute, nil, storedPricing,
 		nil, Verification{}, nil, nil,
@@ -337,9 +305,7 @@ func buildTestEconomicPlan(t *testing.T, tasks int, slaPremium float64) Economic
 	if !plan.Executable {
 		t.Fatalf("test economic plan blocked: %s", plan.BlockReason)
 	}
-	if err := ValidateEconomicPlanSnapshot(plan); err != nil {
-		t.Fatalf("test economic plan invalid: %v", err)
-	}
+	mustf(t, ValidateEconomicPlanSnapshot(plan), "test economic plan invalid: %v")
 	return plan
 }
 
@@ -354,9 +320,7 @@ func seedMoneyPathFixture(t *testing.T, ctx context.Context, store *Store, pool 
 
 	suffix := uuid.NewString()
 	buyerID, err := store.CreateBuyerAccount(ctx, "money-"+suffix+"@example.test", "integration-password", 100)
-	if err != nil {
-		t.Fatalf("create buyer: %v", err)
-	}
+	mustf(t, err, "create buyer: %v")
 
 	f := moneyPathFixture{
 		BuyerID:         buyerID,
@@ -476,9 +440,7 @@ func seedMoneyPathJob(t *testing.T, ctx context.Context, pool *pgxpool.Pool, f m
 
 	if opts.SeedPlanRows {
 		planJSON, err := json.Marshal(f.Plan)
-		if err != nil {
-			t.Fatalf("marshal plan: %v", err)
-		}
+		mustf(t, err, "marshal plan: %v")
 		exactNanos := f.Plan.EconomicRoundingPolicy == economicRoundingPolicy &&
 			f.Plan.BuyerChargePerTaskNanos > 0 && f.Plan.SupplierPayoutPerTaskNanos > 0
 		if _, err := pool.Exec(ctx, `
@@ -571,9 +533,7 @@ func validJobRowClasses(
 			MaxDurationSecs: 3600,
 		},
 	}, strings.Repeat("a", 64), directedCellID)
-	if err != nil {
-		t.Fatalf("build test workload decision: %v", err)
-	}
+	mustf(t, err, "build test workload decision: %v")
 	economicPlan := f.Plan
 	if economicPlan.Input.InitialTaskCount != len(tasks) {
 		economicPlan = buildTestEconomicPlan(t, len(tasks), economicPlan.Input.SLAPremiumUSD)
@@ -599,9 +559,7 @@ func validJobRowClasses(
 		QuoteConfidence{Score: 0.9, Reasons: []string{"integration fixture uses exact task geometry"}},
 		[]string{"integration fixture has no live fleet estimate"},
 	)
-	if err != nil {
-		t.Fatalf("build test compute plan: %v", err)
-	}
+	mustf(t, err, "build test compute plan: %v")
 	authority := catalogueAuthorityFixture(
 		t, workload, economicPlan.Schedule.Currency, economicPlan.Input.SupplierShare,
 	)
@@ -613,9 +571,7 @@ func validJobRowClasses(
 		workload, computePlan, placement, economicPlan, authority,
 		workload.Binding.Tier, "",
 	)
-	if err != nil {
-		t.Fatalf("build test pricing decision: %v", err)
-	}
+	mustf(t, err, "build test pricing decision: %v")
 	return &jobRow{
 		ID:                   f.JobID,
 		BuyerID:              f.BuyerID,
@@ -665,27 +621,21 @@ func makeTasks(f moneyPathFixture, n int) []taskRow {
 func countBuyerLedger(t *testing.T, ctx context.Context, pool *pgxpool.Pool, buyerID uuid.UUID) int {
 	t.Helper()
 	var n int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM ledger_entries WHERE buyer_id=$1`, buyerID).Scan(&n); err != nil {
-		t.Fatalf("count buyer ledger: %v", err)
-	}
+	mustf(t, pool.QueryRow(ctx, `SELECT count(*) FROM ledger_entries WHERE buyer_id=$1`, buyerID).Scan(&n), "count buyer ledger: %v")
 	return n
 }
 
 func countJobRows(t *testing.T, ctx context.Context, pool *pgxpool.Pool, jobID uuid.UUID) int {
 	t.Helper()
 	var n int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM jobs WHERE id=$1`, jobID).Scan(&n); err != nil {
-		t.Fatalf("count jobs: %v", err)
-	}
+	mustf(t, pool.QueryRow(ctx, `SELECT count(*) FROM jobs WHERE id=$1`, jobID).Scan(&n), "count jobs: %v")
 	return n
 }
 
 func taskStatus(t *testing.T, ctx context.Context, pool *pgxpool.Pool, taskID uuid.UUID) string {
 	t.Helper()
 	var status string
-	if err := pool.QueryRow(ctx, `SELECT status FROM tasks WHERE id=$1`, taskID).Scan(&status); err != nil {
-		t.Fatalf("task status: %v", err)
-	}
+	mustf(t, pool.QueryRow(ctx, `SELECT status FROM tasks WHERE id=$1`, taskID).Scan(&status), "task status: %v")
 	return status
 }
 
@@ -710,42 +660,28 @@ func TestSubmitJobTxCommitsJobTasksAndPlanWithoutLedger(t *testing.T) {
 	f.TaskIDs = []uuid.UUID{tasks[0].ID, tasks[1].ID}
 	job := validJobRow(t, f, tasks)
 
-	if err := store.SubmitJobTx(ctx, job, tasks); err != nil {
-		t.Fatalf("SubmitJobTx: %v", err)
-	}
+	mustf(t, store.SubmitJobTx(ctx, job, tasks), "SubmitJobTx: %v")
 
 	if countJobRows(t, ctx, pool, f.JobID) != 1 {
 		t.Fatal("job row missing after successful submit")
 	}
 	var taskCount, planCount, reserveCount int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM tasks WHERE job_id=$1`, f.JobID).Scan(&taskCount); err != nil {
-		t.Fatal(err)
-	}
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM job_economic_plans WHERE job_id=$1`, f.JobID).Scan(&planCount); err != nil {
-		t.Fatal(err)
-	}
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM job_economic_reserves WHERE job_id=$1`, f.JobID).Scan(&reserveCount); err != nil {
-		t.Fatal(err)
-	}
+	must(t, pool.QueryRow(ctx, `SELECT count(*) FROM tasks WHERE job_id=$1`, f.JobID).Scan(&taskCount))
+	must(t, pool.QueryRow(ctx, `SELECT count(*) FROM job_economic_plans WHERE job_id=$1`, f.JobID).Scan(&planCount))
+	must(t, pool.QueryRow(ctx, `SELECT count(*) FROM job_economic_reserves WHERE job_id=$1`, f.JobID).Scan(&reserveCount))
 	if taskCount != 2 || planCount != 1 || reserveCount != 1 {
 		t.Fatalf("submit projections = tasks:%d plan:%d reserve:%d", taskCount, planCount, reserveCount)
 	}
 	storedCompute, err := store.JobComputePlan(ctx, f.JobID)
-	if err != nil {
-		t.Fatalf("load frozen compute plan: %v", err)
-	}
+	mustf(t, err, "load frozen compute plan: %v")
 	if storedCompute == nil || storedCompute.TotalInitialTasks != 2 ||
 		storedCompute.SplitSize != job.SplitSize {
 		t.Fatalf("submit did not freeze compute authority: %+v", storedCompute)
 	}
 	storedPlacement, err := store.JobPlacementRequirement(ctx, f.JobID)
-	if err != nil {
-		t.Fatalf("load frozen placement requirement: %v", err)
-	}
+	mustf(t, err, "load frozen placement requirement: %v")
 	storedPricing, err := store.JobPricingDecision(ctx, f.JobID)
-	if err != nil {
-		t.Fatalf("load frozen pricing decision: %v", err)
-	}
+	mustf(t, err, "load frozen pricing decision: %v")
 	if storedPlacement == nil || storedPricing == nil ||
 		storedPricing.PlacementRequirementSHA256 == "" ||
 		storedPricing.Catalogue.ScheduleSHA256 == "" {
@@ -797,13 +733,9 @@ func TestLegacyJobPricingAuthorityRemainsExplicitlyUnverifiable(t *testing.T) {
 		TaskCount: 1, SeedJob: true,
 	})
 	placement, err := store.JobPlacementRequirement(ctx, f.JobID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	pricing, err := store.JobPricingDecision(ctx, f.JobID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if placement != nil || pricing != nil {
 		t.Fatalf("legacy job received invented authority: placement=%+v pricing=%+v",
 			placement, pricing)
@@ -847,22 +779,16 @@ func TestQuoteJobSchedulerReceiptPreserveExactPricingAuthority(t *testing.T) {
 		InputSHA256: strings.Repeat("a", 64),
 		ExpiresAt:   time.Now().Add(quoteTTL).UTC(),
 	}
-	if err := store.InsertQuote(ctx, f.BuyerID, quote); err != nil {
-		t.Fatalf("insert composite quote: %v", err)
-	}
+	mustf(t, store.InsertQuote(ctx, f.BuyerID, quote), "insert composite quote: %v")
 	t.Cleanup(func() {
 		c, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		_, _ = pool.Exec(c, `DELETE FROM quotes WHERE id=$1`, quoteID)
 	})
 	bound, err := store.GetBindableQuote(ctx, quoteID, f.BuyerID)
-	if err != nil {
-		t.Fatalf("load composite quote: %v", err)
-	}
+	mustf(t, err, "load composite quote: %v")
 	quotePricingSHA, err := pricingDecisionDigest(quote.Pricing)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if bound.PricingDecisionSHA256 != quotePricingSHA {
 		t.Fatalf("bound quote pricing digest=%s want %s",
 			bound.PricingDecisionSHA256, quotePricingSHA)
@@ -880,9 +806,7 @@ func TestQuoteJobSchedulerReceiptPreserveExactPricingAuthority(t *testing.T) {
 		job.EconomicPlan, job.PricingDecision.Catalogue, job.Tier,
 		quotePricingSHA, job.PricingDecision.ExpectedSupplierUnitsPerSec,
 	)
-	if err != nil {
-		t.Fatalf("construct former derived pricing shape: %v", err)
-	}
+	mustf(t, err, "construct former derived pricing shape: %v")
 	derivedSHA, err := pricingDecisionDigest(derived)
 	if err != nil || derivedSHA == quotePricingSHA {
 		t.Fatalf("derived quote authority was not distinguishable: sha=%s err=%v", derivedSHA, err)
@@ -905,9 +829,7 @@ func TestQuoteJobSchedulerReceiptPreserveExactPricingAuthority(t *testing.T) {
 	}
 
 	job.QuoteID = quoteID
-	if err := store.SubmitJobTx(ctx, job, tasks); err != nil {
-		t.Fatalf("submit quote-bound job: %v", err)
-	}
+	mustf(t, store.SubmitJobTx(ctx, job, tasks), "submit quote-bound job: %v")
 	var storedRawETA int
 	if err := pool.QueryRow(ctx,
 		`SELECT eta_secs_raw FROM jobs WHERE id=$1`, f.JobID,
@@ -939,42 +861,28 @@ func TestQuoteJobSchedulerReceiptPreserveExactPricingAuthority(t *testing.T) {
 	claimed, err := store.ClaimTasksTx(ctx, WorkerAuth{
 		WorkerID: f.WorkerID, SupplierID: f.SupplierID,
 	})
-	if err != nil {
-		t.Fatalf("claim quote-bound task: %v", err)
-	}
+	mustf(t, err, "claim quote-bound task: %v")
 	if claimed == nil || claimed.TaskID != tasks[0].ID ||
 		claimed.OfferedRateUsdHr != job.PlacementRequirement.OfferedRateUsdHr {
 		t.Fatalf("scheduler did not consume frozen placement authority: %+v", claimed)
 	}
 
 	storedWorkload, err := store.JobWorkloadDecision(ctx, f.JobID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	storedCompute, err := store.JobComputePlan(ctx, f.JobID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	storedPlacement, err := store.JobPlacementRequirement(ctx, f.JobID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	storedPricing, err := store.JobPricingDecision(ctx, f.JobID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	jobPricingSHA, err := pricingDecisionDigest(*storedPricing)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if jobPricingSHA != quotePricingSHA {
 		t.Fatalf("quote pricing digest %s changed at accepted job %s",
 			quotePricingSHA, jobPricingSHA)
 	}
 	invoice, err := store.JobInvoice(ctx, f.JobID, f.BuyerID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	receipt := assembleClearingReceipt(
 		f.JobID, invoice.Status, storedWorkload, storedCompute,
 		storedPlacement, storedPricing, invoice, Verification{}, nil, nil,
@@ -988,150 +896,135 @@ func TestQuoteJobSchedulerReceiptPreserveExactPricingAuthority(t *testing.T) {
 	}
 }
 
-func TestSubmitJobTxPlanTaskCountMismatchFailsClosed(t *testing.T) {
-	ctx, store, pool := openMoneyPathStore(t)
-	f := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{TaskCount: 2})
-	tasks := makeTasks(f, 1) // plan expects 2
-	f.TaskIDs = []uuid.UUID{tasks[0].ID}
-	job := validJobRow(t, f, tasks)
-	// validJobRow sets TaskCount=len(tasks)=1; force the plan/task mismatch path.
-	job.TaskCount = 1
-	job.EconomicPlan = f.Plan // InitialTaskCount still 2
-
-	err := store.SubmitJobTx(ctx, job, tasks)
-	if err == nil {
-		t.Fatal("plan/task-count mismatch accepted")
+// SubmitJobTx fail-closed matrix: five admission gates, one table. Each case
+// keeps its own seed so store state cannot couple cases. Every original
+// assertion is preserved (error substrings + no job row + ledger empty where
+// the plan/task-count case asserted it).
+func TestSubmitJobTxFailsClosed(t *testing.T) {
+	type tc struct {
+		name        string
+		seed        moneyPathSeedOpts
+		errAny      []string // accept if any substring matches
+		errExact    string   // accept only if this exact gate phrase is present
+		checkLedger bool
 	}
-	if !strings.Contains(err.Error(), "initial_task_count") && !strings.Contains(err.Error(), "task_count") {
-		t.Fatalf("unexpected error: %v", err)
+	cases := []tc{
+		{name: "plan_task_count_mismatch", seed: moneyPathSeedOpts{TaskCount: 2},
+			errAny: []string{"initial_task_count", "task_count"}, checkLedger: true},
+		// exact compute phrase — mutation testing caught loose "bound quote"
+		{name: "bound_quote_compute_mismatch", seed: moneyPathSeedOpts{TaskCount: 1},
+			errExact: "job compute plan does not match its bound quote"},
+		{name: "bound_quote_offered_rate_mismatch", seed: moneyPathSeedOpts{TaskCount: 1},
+			errExact: "offered rate"},
+		{name: "firm_quote_mismatch", seed: moneyPathSeedOpts{TaskCount: 1},
+			errExact: "firm quote"},
+		{name: "sla_premium_mismatch", seed: moneyPathSeedOpts{TaskCount: 1, SLAPremium: 0.08},
+			errExact: "SLA premium"},
 	}
-	if countJobRows(t, ctx, pool, f.JobID) != 0 {
-		t.Fatal("failed submit left a job row")
-	}
-	if n := countBuyerLedger(t, ctx, pool, f.BuyerID); n != 0 {
-		t.Fatalf("failed submit minted ledger rows: %d", n)
-	}
-}
-
-func TestSubmitJobTxBoundQuoteComputeMismatchFailsClosed(t *testing.T) {
-	ctx, store, pool := openMoneyPathStore(t)
-	f := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{TaskCount: 1})
-	tasks := makeTasks(f, 1)
-	f.TaskIDs = []uuid.UUID{tasks[0].ID}
-	job := validJobRow(t, f, tasks)
-	job.QuoteID = uuid.New()
-	if _, err := pool.Exec(ctx, `
-		INSERT INTO quotes (id,buyer_id,job_type,compute_plan_sha256)
-		VALUES ($1,$2,$3,$4)`,
-		job.QuoteID, f.BuyerID, job.JobType, strings.Repeat("f", 64),
-	); err != nil {
-		t.Fatalf("seed mismatched quote compute authority: %v", err)
-	}
-
-	// Assert the exact refusal, not merely "bound quote": the currency and
-	// placement checks a few lines further down produce errors containing that
-	// same phrase, so a loose assertion passes even when the compute-authority
-	// check has been removed entirely. Mutation testing caught exactly that.
-	err := store.SubmitJobTx(ctx, job, tasks)
-	if err == nil || !strings.Contains(err.Error(), "job compute plan does not match its bound quote") {
-		t.Fatalf("bound quote compute mismatch accepted: %v", err)
-	}
-	if countJobRows(t, ctx, pool, f.JobID) != 0 {
-		t.Fatal("failed bound quote submit left a job row")
-	}
-}
-
-func TestSubmitJobTxBoundQuoteOfferedRateMismatchFailsClosed(t *testing.T) {
-	ctx, store, pool := openMoneyPathStore(t)
-	f := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{TaskCount: 1})
-	tasks := makeTasks(f, 1)
-	f.TaskIDs = []uuid.UUID{tasks[0].ID}
-	job := validJobRow(t, f, tasks)
-	job.QuoteID = uuid.New()
-
-	computeSHA256, err := computePlanDigest(job.ComputePlan)
-	if err != nil {
-		t.Fatal(err)
-	}
-	binding := job.WorkloadDecision.Binding
-	placement, err := placementRequirementFor(jobSubmit{
-		JobType: binding.JobType, Model: binding.Model, Constraints: binding.Constraints,
-		Tier: binding.Tier, MinReputation: binding.MinReputation,
-	}, job.WorkloadDecision, job.OfferedRateUsdHr+1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	quoteJSON, err := json.Marshal(map[string]any{"placement_requirement": placement})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := pool.Exec(ctx, `
-		INSERT INTO quotes (
-		  id,buyer_id,job_type,model_ref,compute_plan_sha256,quote_json
-		) VALUES ($1,$2,$3,$4,$5,$6)`,
-		job.QuoteID, f.BuyerID, job.JobType, job.ModelRef, computeSHA256, quoteJSON,
-	); err != nil {
-		t.Fatalf("seed rate-mismatched quote authority: %v", err)
-	}
-
-	err = store.SubmitJobTx(ctx, job, tasks)
-	if err == nil || !strings.Contains(err.Error(), "offered rate") {
-		t.Fatalf("bound quote offered-rate mismatch accepted: %v", err)
-	}
-	if countJobRows(t, ctx, pool, f.JobID) != 0 {
-		t.Fatal("failed bound quote rate submit left a job row")
-	}
-}
-
-func TestSubmitJobTxFirmQuoteMismatchFailsClosed(t *testing.T) {
-	ctx, store, pool := openMoneyPathStore(t)
-	f := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{TaskCount: 1})
-	// Rebuild plan with a firm cap so the snapshot is valid, then desync the job.
-	plan := BuildEconomicPlan(EconomicPlanInput{
-		BaseComputeUSD: 0.20, InitialTaskCount: 1, ExtraTaskReserve: 1,
-		SupplierShare: 0.97, FirmQuoteMaxUSD: 5.0,
-	}, testEconomicSchedule())
-	if !plan.Executable {
-		t.Fatalf("firm plan blocked: %s", plan.BlockReason)
-	}
-	f.Plan = plan
-	tasks := makeTasks(f, 1)
-	f.TaskIDs = []uuid.UUID{tasks[0].ID}
-	job := validJobRow(t, f, tasks)
-	job.FirmQuote = true
-	job.FirmQuoteMaxUSD = 9.99 // desync from plan.Input.FirmQuoteMaxUSD
-	job.EconomicPlan = plan
-	job.EstimatedUSD = plan.InitialBuyerChargeUSD
-
-	err := store.SubmitJobTx(ctx, job, tasks)
-	if err == nil {
-		t.Fatal("firm-quote mismatch accepted")
-	}
-	if !strings.Contains(err.Error(), "firm quote") {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if countJobRows(t, ctx, pool, f.JobID) != 0 {
-		t.Fatal("failed firm-quote submit left a job row")
-	}
-}
-
-func TestSubmitJobTxSLAPremiumMismatchFailsClosed(t *testing.T) {
-	ctx, store, pool := openMoneyPathStore(t)
-	f := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{TaskCount: 1, SLAPremium: 0.08})
-	tasks := makeTasks(f, 1)
-	f.TaskIDs = []uuid.UUID{tasks[0].ID}
-	job := validJobRow(t, f, tasks)
-	job.SLAPremiumUSD = 0.99 // desync from plan.Input.SLAPremiumUSD
-
-	err := store.SubmitJobTx(ctx, job, tasks)
-	if err == nil {
-		t.Fatal("SLA premium mismatch accepted")
-	}
-	if !strings.Contains(err.Error(), "SLA premium") {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if countJobRows(t, ctx, pool, f.JobID) != 0 {
-		t.Fatal("failed SLA submit left a job row")
+	for _, c := range cases {
+		c := c
+		t.Run(c.name, func(t *testing.T) {
+			ctx, store, pool := openMoneyPathStore(t)
+			f := seedMoneyPathFixture(t, ctx, store, pool, c.seed)
+			var job *jobRow
+			var tasks []taskRow
+			switch c.name {
+			case "plan_task_count_mismatch":
+				tasks = makeTasks(f, 1) // plan expects 2
+				f.TaskIDs = []uuid.UUID{tasks[0].ID}
+				job = validJobRow(t, f, tasks)
+				job.TaskCount = 1
+				job.EconomicPlan = f.Plan // InitialTaskCount still 2
+			case "bound_quote_compute_mismatch":
+				tasks = makeTasks(f, 1)
+				f.TaskIDs = []uuid.UUID{tasks[0].ID}
+				job = validJobRow(t, f, tasks)
+				job.QuoteID = uuid.New()
+				if _, err := pool.Exec(ctx, `
+					INSERT INTO quotes (id,buyer_id,job_type,compute_plan_sha256)
+					VALUES ($1,$2,$3,$4)`,
+					job.QuoteID, f.BuyerID, job.JobType, strings.Repeat("f", 64),
+				); err != nil {
+					t.Fatalf("seed mismatched quote compute authority: %v", err)
+				}
+			case "bound_quote_offered_rate_mismatch":
+				tasks = makeTasks(f, 1)
+				f.TaskIDs = []uuid.UUID{tasks[0].ID}
+				job = validJobRow(t, f, tasks)
+				job.QuoteID = uuid.New()
+				computeSHA256, err := computePlanDigest(job.ComputePlan)
+				must(t, err)
+				binding := job.WorkloadDecision.Binding
+				placement, err := placementRequirementFor(jobSubmit{
+					JobType: binding.JobType, Model: binding.Model, Constraints: binding.Constraints,
+					Tier: binding.Tier, MinReputation: binding.MinReputation,
+				}, job.WorkloadDecision, job.OfferedRateUsdHr+1)
+				must(t, err)
+				quoteJSON, err := json.Marshal(map[string]any{"placement_requirement": placement})
+				must(t, err)
+				if _, err := pool.Exec(ctx, `
+					INSERT INTO quotes (
+					  id,buyer_id,job_type,model_ref,compute_plan_sha256,quote_json
+					) VALUES ($1,$2,$3,$4,$5,$6)`,
+					job.QuoteID, f.BuyerID, job.JobType, job.ModelRef, computeSHA256, quoteJSON,
+				); err != nil {
+					t.Fatalf("seed rate-mismatched quote authority: %v", err)
+				}
+			case "firm_quote_mismatch":
+				plan := BuildEconomicPlan(EconomicPlanInput{
+					BaseComputeUSD: 0.20, InitialTaskCount: 1, ExtraTaskReserve: 1,
+					SupplierShare: 0.97, FirmQuoteMaxUSD: 5.0,
+				}, testEconomicSchedule())
+				if !plan.Executable {
+					t.Fatalf("firm plan blocked: %s", plan.BlockReason)
+				}
+				f.Plan = plan
+				tasks = makeTasks(f, 1)
+				f.TaskIDs = []uuid.UUID{tasks[0].ID}
+				job = validJobRow(t, f, tasks)
+				job.FirmQuote = true
+				job.FirmQuoteMaxUSD = 9.99 // desync from plan.Input.FirmQuoteMaxUSD
+				job.EconomicPlan = plan
+				job.EstimatedUSD = plan.InitialBuyerChargeUSD
+			case "sla_premium_mismatch":
+				tasks = makeTasks(f, 1)
+				f.TaskIDs = []uuid.UUID{tasks[0].ID}
+				job = validJobRow(t, f, tasks)
+				job.SLAPremiumUSD = 0.99 // desync from plan.Input.SLAPremiumUSD
+			default:
+				t.Fatalf("unknown case %q", c.name)
+			}
+			err := store.SubmitJobTx(ctx, job, tasks)
+			if err == nil {
+				t.Fatalf("%s: mismatch accepted", c.name)
+			}
+			msg := err.Error()
+			switch {
+			case c.errExact != "":
+				if !strings.Contains(msg, c.errExact) {
+					t.Fatalf("%s: unexpected error: %v", c.name, err)
+				}
+			default:
+				ok := false
+				for _, s := range c.errAny {
+					if strings.Contains(msg, s) {
+						ok = true
+						break
+					}
+				}
+				if !ok {
+					t.Fatalf("%s: unexpected error: %v", c.name, err)
+				}
+			}
+			if countJobRows(t, ctx, pool, f.JobID) != 0 {
+				t.Fatalf("%s: failed submit left a job row", c.name)
+			}
+			if c.checkLedger {
+				if n := countBuyerLedger(t, ctx, pool, f.BuyerID); n != 0 {
+					t.Fatalf("%s: failed submit minted ledger rows: %d", c.name, n)
+				}
+			}
+		})
 	}
 }
 
@@ -1165,9 +1058,7 @@ func seedDynamicTiebreakStartFixture(t *testing.T) (
 	tiebreakID, err := store.InsertTiebreakTask(
 		ctx, f.JobID, anchorID, f.OtherWorkerID, "money/input", 0,
 	)
-	if err != nil {
-		t.Fatalf("insert production tiebreak: %v", err)
-	}
+	mustf(t, err, "insert production tiebreak: %v")
 	inserted := dynamicTiebreakSnapshot(t, ctx, pool, tiebreakID)
 	if inserted.Status != "queued" ||
 		inserted.ClaimedBy != f.OtherWorkerID.String() ||
@@ -1246,16 +1137,12 @@ func TestStartTaskClaimedToRunningAndRejectsOtherWorker(t *testing.T) {
 		t.Fatalf("foreign start mutated status to %q", got)
 	}
 
-	if err := store.StartTask(ctx, taskID, f.WorkerID, 0); err != nil {
-		t.Fatalf("StartTask happy path: %v", err)
-	}
+	mustf(t, store.StartTask(ctx, taskID, f.WorkerID, 0), "StartTask happy path: %v")
 	if got := taskStatus(t, ctx, pool, taskID); got != "running" {
 		t.Fatalf("task status after StartTask = %q, want running", got)
 	}
 	var execWorker uuid.UUID
-	if err := pool.QueryRow(ctx, `SELECT execution_worker_id FROM tasks WHERE id=$1`, taskID).Scan(&execWorker); err != nil {
-		t.Fatal(err)
-	}
+	must(t, pool.QueryRow(ctx, `SELECT execution_worker_id FROM tasks WHERE id=$1`, taskID).Scan(&execWorker))
 	if execWorker != f.WorkerID {
 		t.Fatalf("execution_worker_id = %s, want %s", execWorker, f.WorkerID)
 	}
@@ -1263,9 +1150,7 @@ func TestStartTaskClaimedToRunningAndRejectsOtherWorker(t *testing.T) {
 	// A lost/ambiguous acknowledgement must be recoverable by replaying the
 	// exact owner+attempt start. The server contract is idempotent for that
 	// identity, while a changed attempt remains fenced.
-	if err := store.StartTask(ctx, taskID, f.WorkerID, 0); err != nil {
-		t.Fatalf("exact StartTask replay: %v", err)
-	}
+	mustf(t, store.StartTask(ctx, taskID, f.WorkerID, 0), "exact StartTask replay: %v")
 	if err := store.StartTask(ctx, taskID, f.WorkerID, 1); !errors.Is(err, errNotFound) {
 		t.Fatalf("wrong-attempt StartTask replay error = %v, want errNotFound", err)
 	}
@@ -1300,9 +1185,7 @@ func TestStartTaskDynamicTiebreakHistoryAndReplayFences(t *testing.T) {
 			t.Fatalf("fenced queued starts mutated task:\nbefore=%+v\nafter=%+v", before, got)
 		}
 
-		if err := store.StartTask(ctx, taskID, workerID, 0); err != nil {
-			t.Fatalf("exact dynamic tiebreak start: %v", err)
-		}
+		mustf(t, store.StartTask(ctx, taskID, workerID, 0), "exact dynamic tiebreak start: %v")
 		started := dynamicTiebreakSnapshot(t, ctx, pool, taskID)
 		if started.Status != "running" ||
 			started.ClaimedBy != workerID.String() ||
@@ -1325,9 +1208,7 @@ func TestStartTaskDynamicTiebreakHistoryAndReplayFences(t *testing.T) {
 			t.Fatalf("started tiebreak history = exact %d/total %d, want 1/1", exact, total)
 		}
 
-		if err := store.StartTask(ctx, taskID, workerID, 0); err != nil {
-			t.Fatalf("exact dynamic tiebreak replay: %v", err)
-		}
+		mustf(t, store.StartTask(ctx, taskID, workerID, 0), "exact dynamic tiebreak replay: %v")
 		if err := store.StartTask(ctx, taskID, workerID, 1); !errors.Is(err, errNotFound) {
 			t.Fatalf("wrong-attempt running replay error = %v, want errNotFound", err)
 		}
@@ -1351,9 +1232,7 @@ func TestStartTaskDynamicTiebreakHistoryAndReplayFences(t *testing.T) {
 		claimed, err := store.ClaimTasksTx(ctx, WorkerAuth{
 			WorkerID: workerID, SupplierID: supplierID,
 		})
-		if err != nil {
-			t.Fatalf("claim pinned dynamic tiebreak: %v", err)
-		}
+		mustf(t, err, "claim pinned dynamic tiebreak: %v")
 		if claimed == nil || claimed.TaskID != taskID || claimed.Attempt != 0 {
 			t.Fatalf("claimed dynamic tiebreak = %+v, want task %s attempt 0", claimed, taskID)
 		}
@@ -1379,9 +1258,7 @@ func TestStartTaskDynamicTiebreakHistoryAndReplayFences(t *testing.T) {
 			t.Fatalf("claimed tiebreak history = exact %d/total %d, want 1/1", exact, total)
 		}
 
-		if err := store.StartTask(ctx, taskID, workerID, 0); err != nil {
-			t.Fatalf("start acknowledgement replay after claim: %v", err)
-		}
+		mustf(t, store.StartTask(ctx, taskID, workerID, 0), "start acknowledgement replay after claim: %v")
 		if got := dynamicTiebreakSnapshot(t, ctx, pool, taskID); got != claimedSnap {
 			t.Fatalf("StartTask changed claim-frozen authority:\nclaimed=%+v\nafter=%+v", claimedSnap, got)
 		}
@@ -1403,9 +1280,7 @@ func TestStartTaskDynamicTiebreakHistoryAndReplayFences(t *testing.T) {
 			       execution_engine='candle',execution_build_hash='deadbeefdeadbeef'
 			 WHERE id=$1 AND status='queued' AND claimed_by=$2`,
 			taskID, workerID, supplierID)
-		if err != nil {
-			t.Fatalf("build hostile running tiebreak: %v", err)
-		}
+		mustf(t, err, "build hostile running tiebreak: %v")
 		if ct.RowsAffected() != 1 {
 			t.Fatalf("hostile running transition changed %d rows, want 1", ct.RowsAffected())
 		}
@@ -1450,9 +1325,7 @@ func TestStartTaskDynamicTiebreakHistoryAndReplayFences(t *testing.T) {
 			taskID, workerID, supplierID); err != nil {
 			t.Fatalf("insert exact replay history: %v", err)
 		}
-		if err := store.StartTask(ctx, taskID, workerID, 0); err != nil {
-			t.Fatalf("exact-history running replay: %v", err)
-		}
+		mustf(t, store.StartTask(ctx, taskID, workerID, 0), "exact-history running replay: %v")
 		if got := dynamicTiebreakSnapshot(t, ctx, pool, taskID); got != before {
 			t.Fatalf("exact running replay mutated task:\nbefore=%+v\nafter=%+v", before, got)
 		}
@@ -1609,9 +1482,7 @@ func TestFailTaskTxTerminalReleasesLeaseAndSettlesOnce(t *testing.T) {
 		t.Fatalf("terminal task projection = %+v, want failed/released with execution identity", projection)
 	}
 	var jobStatus string
-	if err := pool.QueryRow(ctx, `SELECT status FROM jobs WHERE id=$1`, f.JobID).Scan(&jobStatus); err != nil {
-		t.Fatal(err)
-	}
+	must(t, pool.QueryRow(ctx, `SELECT status FROM jobs WHERE id=$1`, f.JobID).Scan(&jobStatus))
 	if jobStatus != "failed" {
 		t.Fatalf("job status after terminal task failure = %q, want failed", jobStatus)
 	}
@@ -1725,9 +1596,7 @@ func TestWorkerFailVerificationPendingWireIsRetryableAndAtomic(t *testing.T) {
 		Class: "bad_input", Message: "terminal input failure while sibling verifies",
 		Backend: "embed", Model: "all-minilm-l6-v2", DurationMS: 900,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	req := httptest.NewRequest(
 		http.MethodPost, "/v1/worker/task/"+taskID.String()+"/fail",
 		strings.NewReader(string(body)),
@@ -1848,9 +1717,7 @@ func TestFailTaskAndSettleJobReleasesLeaseAndHonorsPending(t *testing.T) {
 			`UPDATE tasks SET claimed_at=now(),started_at=now() WHERE id=$1`, taskID); err != nil {
 			t.Fatal(err)
 		}
-		if err := store.FailTaskAndSettleJob(ctx, taskID, f.JobID); err != nil {
-			t.Fatalf("FailTaskAndSettleJob: %v", err)
-		}
+		mustf(t, store.FailTaskAndSettleJob(ctx, taskID, f.JobID), "FailTaskAndSettleJob: %v")
 		projection := readTaskLeaseProjection(t, ctx, pool, taskID)
 		if projection.Status != "failed" || projection.ClaimedBy != nil ||
 			projection.ClaimedAt != nil || projection.WorkerID != nil ||
@@ -1869,9 +1736,7 @@ func TestFailTaskAndSettleJobReleasesLeaseAndHonorsPending(t *testing.T) {
 			t.Fatalf("reaper terminal failure changed ledger rows: before=%d after=%d",
 				beforeLedger, got)
 		}
-		if err := store.FailTaskAndSettleJob(ctx, taskID, f.JobID); err != nil {
-			t.Fatalf("replayed FailTaskAndSettleJob: %v", err)
-		}
+		mustf(t, store.FailTaskAndSettleJob(ctx, taskID, f.JobID), "replayed FailTaskAndSettleJob: %v")
 		if err := pool.QueryRow(ctx,
 			`SELECT status FROM jobs WHERE id=$1`, f.JobID).Scan(&jobStatus); err != nil {
 			t.Fatal(err)
@@ -1948,9 +1813,7 @@ func TestStaleReaperPendingVerificationDoesNotStarveLaterJobs(t *testing.T) {
 	}
 
 	workers := &Workers{store: store}
-	if err := workers.requeueStaleTasks(ctx); err != nil {
-		t.Fatalf("stale sweep treated verification pending as fatal: %v", err)
-	}
+	mustf(t, workers.requeueStaleTasks(ctx), "stale sweep treated verification pending as fatal: %v")
 	pendingProjection := readTaskLeaseProjection(t, ctx, pool, pendingTask)
 	if pendingProjection.Status != "running" ||
 		pendingProjection.ClaimedBy == nil ||
@@ -1974,9 +1837,7 @@ func TestStaleReaperPendingVerificationDoesNotStarveLaterJobs(t *testing.T) {
 		 WHERE id=$1`, verifyingSibling); err != nil {
 		t.Fatal(err)
 	}
-	if err := workers.requeueStaleTasks(ctx); err != nil {
-		t.Fatalf("stale sweep after verification drained: %v", err)
-	}
+	mustf(t, workers.requeueStaleTasks(ctx), "stale sweep after verification drained: %v")
 	pendingProjection = readTaskLeaseProjection(t, ctx, pool, pendingTask)
 	if pendingProjection.Status != "failed" ||
 		pendingProjection.ClaimedBy != nil ||
@@ -2010,25 +1871,19 @@ func TestStaleRecoveryFencesTerminalParentAtSelectionAndMutation(t *testing.T) {
 			t.Fatal(err)
 		}
 		stale, err := store.StaleRunningTasks(ctx, time.Minute, 100)
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		for _, item := range stale {
 			if item.ID == taskID {
 				t.Fatalf("terminal-parent task %s was selected as stale", taskID)
 			}
 		}
-		if err := store.RequeueStaleTask(ctx, taskID, time.Second); err != nil {
-			t.Fatal(err)
-		}
+		must(t, store.RequeueStaleTask(ctx, taskID, time.Second))
 		projection := readTaskLeaseProjection(t, ctx, pool, taskID)
 		if projection.Status != "running" || projection.RetryCount != 0 ||
 			projection.ClaimedBy == nil || *projection.ClaimedBy != f.WorkerID {
 			t.Fatalf("terminal-parent stale requeue mutated task: %+v", projection)
 		}
-		if err := store.FailTaskAndSettleJob(ctx, taskID, f.JobID); err != nil {
-			t.Fatalf("terminal-parent stale cleanup: %v", err)
-		}
+		mustf(t, store.FailTaskAndSettleJob(ctx, taskID, f.JobID), "terminal-parent stale cleanup: %v")
 		cleaned := readTaskLeaseProjection(t, ctx, pool, taskID)
 		if cleaned.Status != "failed" || cleaned.ClaimedBy != nil ||
 			cleaned.ClaimedAt != nil || cleaned.WorkerID != nil {
@@ -2048,9 +1903,7 @@ func TestStaleRecoveryFencesTerminalParentAtSelectionAndMutation(t *testing.T) {
 			t.Fatal(err)
 		}
 		stale, err := store.StaleRunningTasks(ctx, time.Minute, 100)
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		found := false
 		for _, item := range stale {
 			if item.ID == taskID {
@@ -2060,9 +1913,7 @@ func TestStaleRecoveryFencesTerminalParentAtSelectionAndMutation(t *testing.T) {
 		if !found {
 			t.Fatalf("active-parent task %s was not selected as stale", taskID)
 		}
-		if err := store.RequeueStaleTask(ctx, taskID, time.Second); err != nil {
-			t.Fatal(err)
-		}
+		must(t, store.RequeueStaleTask(ctx, taskID, time.Second))
 		projection := readTaskLeaseProjection(t, ctx, pool, taskID)
 		if projection.Status != "queued" || projection.RetryCount != 1 ||
 			projection.ClaimedBy != nil || projection.ClaimedAt != nil ||
@@ -2134,9 +1985,7 @@ func TestDetachUnfinishedTasksForTerminalJobMappingsAndIdempotency(t *testing.T)
 				t.Fatal(err)
 			}
 			selected, err := store.TerminalJobsWithUnfinishedTasks(ctx, 100)
-			if err != nil {
-				t.Fatal(err)
-			}
+			must(t, err)
 			found := false
 			for _, jobID := range selected {
 				found = found || jobID == f.JobID
@@ -2146,9 +1995,7 @@ func TestDetachUnfinishedTasksForTerminalJobMappingsAndIdempotency(t *testing.T)
 			}
 
 			detached, err := store.DetachUnfinishedTasksForTerminalJob(ctx, f.JobID)
-			if err != nil {
-				t.Fatal(err)
-			}
+			must(t, err)
 			if detached != tc.detached {
 				t.Fatalf("detached rows = %d, want %d", detached, tc.detached)
 			}
@@ -2207,9 +2054,7 @@ func TestDetachUnfinishedTasksForTerminalJobMappingsAndIdempotency(t *testing.T)
 				t.Fatalf("detach replay = (%d,%v), want 0/nil", replay, err)
 			}
 			selected, err = store.TerminalJobsWithUnfinishedTasks(ctx, 100)
-			if err != nil {
-				t.Fatal(err)
-			}
+			must(t, err)
 			for _, jobID := range selected {
 				if jobID == f.JobID {
 					t.Fatalf("job %s remained selected after detach replay", f.JobID)
@@ -2293,17 +2138,13 @@ func TestTerminalTaskDetachJanitorRepairsRetainedResidual(t *testing.T) {
 		t.Fatal(err)
 	}
 	workers := &Workers{store: store}
-	if err := workers.detachTerminalJobTasks(ctx); err != nil {
-		t.Fatal(err)
-	}
+	must(t, workers.detachTerminalJobTasks(ctx))
 	got := readTaskLeaseProjection(t, ctx, pool, taskID)
 	if got.Status != "failed" || got.ClaimedBy != nil ||
 		got.ClaimedAt != nil || got.WorkerID != nil {
 		t.Fatalf("janitor retained terminal residual: %+v", got)
 	}
-	if err := workers.detachTerminalJobTasks(ctx); err != nil {
-		t.Fatalf("janitor replay: %v", err)
-	}
+	mustf(t, workers.detachTerminalJobTasks(ctx), "janitor replay: %v")
 }
 
 func TestConcurrentTerminalDetachPassesAreIdempotent(t *testing.T) {
@@ -2431,9 +2272,7 @@ func TestConcurrentTerminalDetachCompleteAndFailConvergesWithoutDeadlock(t *test
 		}
 	}
 	var jobStatus string
-	if err := pool.QueryRow(ctx, `SELECT status FROM jobs WHERE id=$1`, f.JobID).Scan(&jobStatus); err != nil {
-		t.Fatal(err)
-	}
+	must(t, pool.QueryRow(ctx, `SELECT status FROM jobs WHERE id=$1`, f.JobID).Scan(&jobStatus))
 	if jobStatus != "failed" {
 		t.Fatalf("concurrent detach reopened parent to %q", jobStatus)
 	}
@@ -2453,9 +2292,7 @@ func TestCompleteTaskTxHappyPathMovesTaskTerminal(t *testing.T) {
 	beforeLedger := countBuyerLedger(t, ctx, pool, f.BuyerID)
 
 	info, err := store.CompleteTaskTx(ctx, taskID, f.WorkerID, commitFor(f, taskID, 0))
-	if err != nil {
-		t.Fatalf("CompleteTaskTx: %v", err)
-	}
+	mustf(t, err, "CompleteTaskTx: %v")
 	if info == nil || info.TaskID != taskID {
 		t.Fatalf("unexpected commit info: %+v", info)
 	}
@@ -2631,9 +2468,7 @@ func TestFinalizeJobTxRechecksAfterConcurrentTiebreakInsert(t *testing.T) {
 	}
 
 	blocker, err := pool.Begin(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	defer blocker.Rollback(ctx)
 	var blockedStatus string
 	if err := blocker.QueryRow(ctx,
@@ -2683,9 +2518,7 @@ func TestFinalizeJobTxRechecksAfterConcurrentTiebreakInsert(t *testing.T) {
 		finalized <- store.FinalizeJobTx(ctx, f.JobID)
 	}()
 	waitForJobLockWaiters(2)
-	if err := blocker.Commit(ctx); err != nil {
-		t.Fatal(err)
-	}
+	must(t, blocker.Commit(ctx))
 
 	var tiebreakID uuid.UUID
 	select {
@@ -2734,9 +2567,7 @@ func TestFinalizeJobTxRechecksAfterConcurrentTiebreakInsert(t *testing.T) {
 		 WHERE id=$1`, tiebreakID); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.FinalizeJobTx(ctx, f.JobID); err != nil {
-		t.Fatalf("finalize after obligation drained: %v", err)
-	}
+	mustf(t, store.FinalizeJobTx(ctx, f.JobID), "finalize after obligation drained: %v")
 	if err := pool.QueryRow(ctx, `
 		SELECT status,
 		       (SELECT count(*) FROM ledger_entries
@@ -2812,9 +2643,7 @@ func TestFinalizeJobTxActualUSDAndSLAPremiumIdempotent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := store.FinalizeJobTx(ctx, f.JobID); err != nil {
-		t.Fatalf("FinalizeJobTx: %v", err)
-	}
+	mustf(t, store.FinalizeJobTx(ctx, f.JobID), "FinalizeJobTx: %v")
 
 	var actual float64
 	var status string
@@ -2843,9 +2672,7 @@ func TestFinalizeJobTxActualUSDAndSLAPremiumIdempotent(t *testing.T) {
 	}
 
 	// Second finalize must not double-insert the SLA premium.
-	if err := store.FinalizeJobTx(ctx, f.JobID); err != nil {
-		t.Fatalf("second FinalizeJobTx: %v", err)
-	}
+	mustf(t, store.FinalizeJobTx(ctx, f.JobID), "second FinalizeJobTx: %v")
 	if err := pool.QueryRow(ctx, `
 		SELECT count(*) FROM ledger_entries
 		 WHERE kind='buyer_charge' AND buyer_id=$1 AND task_id IS NULL AND payout_ref=$2`,
@@ -3276,9 +3103,7 @@ func TestPlannedAndUnplannedTiebreakInsertionConvergeWithoutDeadlock(t *testing.
 	})
 	tasks := makeTasks(f, 1)
 	job := validJobRow(t, f, tasks)
-	if err := store.SubmitJobTx(ctx, job, tasks); err != nil {
-		t.Fatalf("submit frozen-authority fixture: %v", err)
-	}
+	mustf(t, store.SubmitJobTx(ctx, job, tasks), "submit frozen-authority fixture: %v")
 	primaryTaskID := tasks[0].ID
 	if _, err := pool.Exec(ctx,
 		`UPDATE jobs SET status='running' WHERE id=$1`, f.JobID); err != nil {
@@ -3297,13 +3122,9 @@ func TestPlannedAndUnplannedTiebreakInsertionConvergeWithoutDeadlock(t *testing.
 	info, err := store.CompleteTaskTx(
 		ctx, primaryTaskID, f.WorkerID, commitFor(f, primaryTaskID, 0),
 	)
-	if err != nil {
-		t.Fatalf("complete primary for planned apply: %v", err)
-	}
+	mustf(t, err, "complete primary for planned apply: %v")
 	settled, err := store.observedOutputSettlementForTask(ctx, info)
-	if err != nil {
-		t.Fatalf("load planned settlement: %v", err)
-	}
+	mustf(t, err, "load planned settlement: %v")
 	var currency string
 	if err := pool.QueryRow(ctx,
 		`SELECT currency FROM jobs WHERE id=$1`, f.JobID).Scan(&currency); err != nil {
@@ -3409,9 +3230,7 @@ func TestPlannedAndUnplannedTiebreakInsertionConvergeWithoutDeadlock(t *testing.
 			insert.id, durableID)
 	}
 	var tiebreakDepthBand *string
-	if err := pool.QueryRow(ctx, `SELECT input_depth_band FROM tasks WHERE id=$1`, durableID).Scan(&tiebreakDepthBand); err != nil {
-		t.Fatalf("read durable tiebreak depth authority: %v", err)
-	}
+	mustf(t, pool.QueryRow(ctx, `SELECT input_depth_band FROM tasks WHERE id=$1`, durableID).Scan(&tiebreakDepthBand), "read durable tiebreak depth authority: %v")
 	if tiebreakDepthBand == nil || *tiebreakDepthBand != inputDepthBandShort {
 		t.Fatalf("durable tiebreak depth authority=%v, want short", tiebreakDepthBand)
 	}
@@ -3520,9 +3339,7 @@ func TestConcurrentTerminalFailureAndDynamicInsertHasNoReserveLeak(t *testing.T)
 						   AND is_redundancy=$4`,
 						insertion.id, f.JobID, f.TaskIDs[0], kind == dynamicTiebreak,
 					).Scan(&buyerCharge, &supplierPayout)
-					if err != nil {
-						t.Fatalf("successful insert id %s is not durable: %v", insertion.id, err)
-					}
+					mustf(t, err, "successful insert id %s is not durable: %v", insertion.id)
 					if fmt.Sprintf("%.6f", buyerCharge) !=
 						fmt.Sprintf("%.6f", f.Plan.BuyerChargePerTaskUSD) ||
 						fmt.Sprintf("%.6f", supplierPayout) !=
@@ -3583,9 +3400,7 @@ func TestCompleteParentTasksAreNeitherClaimedNorExplainedAsEligible(t *testing.T
 			claimed, err := store.ClaimTasksTx(ctx, WorkerAuth{
 				WorkerID: f.OtherWorkerID, SupplierID: f.OtherSupplierID,
 			})
-			if err != nil {
-				t.Fatalf("claim against complete parent: %v", err)
-			}
+			mustf(t, err, "claim against complete parent: %v")
 			if claimed != nil {
 				t.Fatalf("claimed task %s from complete parent", claimed.TaskID)
 			}
@@ -3606,9 +3421,7 @@ func TestCompleteParentTasksAreNeitherClaimedNorExplainedAsEligible(t *testing.T
 				t.Fatalf("claim attempt added complete-parent pin %v", claimedBy)
 			}
 			explain, err := store.SchedulerExplain(ctx, f.OtherWorkerID)
-			if err != nil {
-				t.Fatalf("scheduler explain: %v", err)
-			}
+			mustf(t, err, "scheduler explain: %v")
 			if explain.Eligible != 0 || explain.NoQueuedTasks != 1 {
 				t.Fatalf("complete-parent explain = eligible %d/no_queue %d, want 0/1",
 					explain.Eligible, explain.NoQueuedTasks)
@@ -3625,9 +3438,7 @@ func TestClaimTaskRollsBackWhenParentTerminalizesDuringClaim(t *testing.T) {
 	})
 
 	terminalTx, err := pool.Begin(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	defer terminalTx.Rollback(ctx)
 	if _, err := terminalTx.Exec(ctx,
 		`UPDATE jobs SET status='complete' WHERE id=$1`, f.JobID); err != nil {
@@ -3666,9 +3477,7 @@ func TestClaimTaskRollsBackWhenParentTerminalizesDuringClaim(t *testing.T) {
 	if !waiting {
 		t.Fatal("claim did not reach the parent lock behind terminal transition")
 	}
-	if err := terminalTx.Commit(ctx); err != nil {
-		t.Fatal(err)
-	}
+	must(t, terminalTx.Commit(ctx))
 
 	select {
 	case got := <-result:

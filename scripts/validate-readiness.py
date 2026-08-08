@@ -10,7 +10,7 @@ and passing, the derived total is 84/100. The remaining 16 points have
 receipt rows wired to external evidence paths under evidence/external/, but
 those artifacts are absent today and their content checks refuse local or
 paper substitutes — so the score stays 84 until real external work lands.
-Operator steps for those points: docs/FACET_EXTERNAL_ACTION_PACK.md.
+Operator steps for those points: docs/PROGRAMME.md § "Facet external action pack".
 Do not loosen content checks to "make room".
 """
 
@@ -19,6 +19,7 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
@@ -51,6 +52,29 @@ _LOCAL_HOST_TOKEN = re.compile(
     r"invalid|harness|docker\.internal|nip\.io|sslip\.io|localtest)",
     re.IGNORECASE,
 )
+
+
+def expected_candidate_commit() -> str | None:
+    """Return the independently supplied candidate commit, never a receipt claim.
+
+    External evidence must be checked against the candidate that CI or the
+    controlled staging harness selected.  Falling back to a value embedded in
+    the receipt would merely compare a claim with itself.
+    """
+    value = (
+        os.environ.get("MERC_READINESS_EXPECTED_COMMIT", "")
+        or os.environ.get("MERC_CANDIDATE_COMMIT", "")
+    )
+    return value if _COMMIT.fullmatch(value) else None
+
+
+def expected_candidate_control_image() -> str | None:
+    """Return the independently supplied immutable candidate image, if any."""
+    value = (
+        os.environ.get("MERC_READINESS_EXPECTED_CONTROL_IMAGE", "")
+        or os.environ.get("MERC_CANDIDATE_CONTROL_IMAGE", "")
+    )
+    return value if _IMMUTABLE_IMAGE.fullmatch(value) else None
 
 
 def fail(message: str) -> None:
@@ -90,12 +114,10 @@ def auth_matrix_complete(doc: Any) -> bool:
     routes = 0
     for route_class in doc.get("route_classes", []):
         routes += len(route_class.get("routes", []))
-    # 121 after the two buyer-owned execution-envelope routes joined the reviewed
-    # matrix. The count is a tripwire, not a fact about the world: it exists so
-    # that adding a route forces someone to look at the matrix. It had gone stale
-    # at 118 while those two routes were already serving buyer traffic, which
-    # silently cost this domain 11 readiness points and made `make ci` red.
-    return routes == 121 and doc.get("policy", {}).get("default") == "deny"
+    # 124 after GET /v1/worker/ledger was registered through authWorker and added
+    # to the reviewed worker_owned surface by 03f07d36. The count is a tripwire,
+    # not a fact about the world: adding a route must force review of its policy.
+    return routes == 124 and doc.get("policy", {}).get("default") == "deny"
 
 
 def technical_break_glass(doc: Any) -> bool:
@@ -204,6 +226,18 @@ def _all_strings(value: Any) -> Iterable[str]:
     elif isinstance(value, list):
         for item in value:
             yield from _all_strings(item)
+
+
+def _all_value_strings(value: Any) -> Iterable[str]:
+    """Yield text values without mistaking a JSON field name for a finding."""
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for item in value.values():
+            yield from _all_value_strings(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _all_value_strings(item)
 
 
 def _has_secret_shaped(doc: Any) -> bool:
@@ -448,6 +482,12 @@ def qualifying_24h_soak_proven(doc: Any) -> bool:
     image = str(doc.get("control_image", ""))
     if not _COMMIT.fullmatch(commit) or not _IMMUTABLE_IMAGE.fullmatch(image):
         return False
+    expected_commit = expected_candidate_commit()
+    expected_image = expected_candidate_control_image()
+    if expected_commit is None or expected_image is None:
+        return False
+    if commit != expected_commit or image != expected_image:
+        return False
 
     runtime = doc.get("runtime")
     if not isinstance(runtime, dict):
@@ -533,9 +573,9 @@ def qualifying_24h_soak_proven(doc: Any) -> bool:
                 "--root",
                 str(ROOT),
                 "--commit",
-                commit,
+                expected_commit,
                 "--image",
-                image,
+                expected_image,
             ],
             capture_output=True,
             timeout=120,
@@ -835,6 +875,8 @@ def privacy_qualified_approval_proven(doc: Any) -> bool:
     commit = str(doc.get("candidate_commit", ""))
     if not _COMMIT.fullmatch(commit):
         return False
+    if commit != expected_candidate_commit():
+        return False
     if not _approval_record_qualified(doc.get("approval")):
         return False
     if not _exercise_record_pass(doc.get("dsar_export_deletion")):
@@ -896,6 +938,8 @@ def licensing_provenance_approval_proven(doc: Any) -> bool:
     commit = str(doc.get("candidate_commit", ""))
     if not _COMMIT.fullmatch(commit):
         return False
+    if commit != expected_candidate_commit():
+        return False
     if not _approval_record_qualified(doc.get("approval")):
         return False
     if not _exercise_record_pass(doc.get("asset_and_model_provenance")):
@@ -914,9 +958,7 @@ def licensing_provenance_approval_proven(doc: Any) -> bool:
     if not _nonempty_text(register.get("register_uri"), minimum=12):
         return False
     # Refuse residual BLOCKED markers inside the receipt register summary.
-    status_blob = " ".join(
-        str(value) for value in _all_strings(register) if isinstance(value, str)
-    ).upper()
+    status_blob = " ".join(_all_value_strings(register)).upper()
     if "BLOCKED" in status_blob:
         return False
     # Cross-check the live in-repo provenance register. Planting only the

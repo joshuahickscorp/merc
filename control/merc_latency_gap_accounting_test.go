@@ -24,21 +24,21 @@ import (
 
 // gapCellResult is one (concurrency) measurement cell for latency-gap accounting.
 type gapCellResult struct {
-	Concurrency      int            `json:"concurrency"`
-	Samples          int            `json:"samples"`
-	Warmup           int            `json:"warmup"`
-	MercOK           int            `json:"merc_ok"`
-	MercFail         int            `json:"merc_fail"`
-	DirectOK         int            `json:"direct_ok"`
-	DirectFail       int            `json:"direct_fail"`
-	PathLines        int            `json:"path_timing_lines"`
-	LoadAvg          []float64      `json:"load_average_at_cell"`
-	Quiet            bool           `json:"quiet"`
-	Client           map[string]any `json:"client_ttft_ms"`
-	Direct           map[string]any `json:"direct_ttft_ms"`
+	Concurrency int            `json:"concurrency"`
+	Samples     int            `json:"samples"`
+	Warmup      int            `json:"warmup"`
+	MercOK      int            `json:"merc_ok"`
+	MercFail    int            `json:"merc_fail"`
+	DirectOK    int            `json:"direct_ok"`
+	DirectFail  int            `json:"direct_fail"`
+	PathLines   int            `json:"path_timing_lines"`
+	LoadAvg     []float64      `json:"load_average_at_cell"`
+	Quiet       bool           `json:"quiet"`
+	Client      map[string]any `json:"client_ttft_ms"`
+	Direct      map[string]any `json:"direct_ttft_ms"`
 	// Shift (q_p(merc) − q_p(direct)), not a percentile of paired differences.
 	// JSON key kept stable for existing readers; values are a shift function.
-	Overhead map[string]any `json:"overhead_merc_minus_direct_ms"`
+	Overhead         map[string]any `json:"overhead_merc_minus_direct_ms"`
 	Stages           map[string]any `json:"stages_ms"`
 	MercOwned        map[string]any `json:"merc_owned_ttft_ms"`
 	EngineFacing     map[string]any `json:"engine_facing_ms"`
@@ -85,14 +85,10 @@ func TestMercLatencyGapAccounting(t *testing.T) {
 		t.Fatal("MERC_REALTIME_UPSTREAM and MERC_REALTIME_UPSTREAM_KEY are required")
 	}
 	probe, err := http.NewRequest(http.MethodGet, strings.TrimRight(upstream, "/")+"/models", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	probe.Header.Set("Authorization", "Bearer "+upstreamKey)
 	probeResp, err := http.DefaultClient.Do(probe)
-	if err != nil {
-		t.Fatalf("engine not reachable at %s: %v", upstream, err)
-	}
+	mustf(t, err, "engine not reachable at %s: %v", upstream)
 	probeResp.Body.Close()
 	if probeResp.StatusCode != http.StatusOK {
 		t.Fatalf("engine at %s answered HTTP %d", upstream, probeResp.StatusCode)
@@ -286,8 +282,8 @@ func TestMercLatencyGapAccounting(t *testing.T) {
 		// Δ(0.99) can sit below Δ(0.50) when the arms' upper tails differ. Do not
 		// publish p99 from thin high-fail arms (e.g. n_direct=39 with direct_fail=25).
 		overhead := map[string]any{
-			"p50": pctDurMs(mercTTFT, 0.50) - pctDurMs(directTTFT, 0.50),
-			"p95": pctDurMs(mercTTFT, 0.95) - pctDurMs(directTTFT, 0.95),
+			"p50":  pctDurMs(mercTTFT, 0.50) - pctDurMs(directTTFT, 0.50),
+			"p95":  pctDurMs(mercTTFT, 0.95) - pctDurMs(directTTFT, 0.95),
 			"mean": meanDurMs(mercTTFT) - meanDurMs(directTTFT),
 			"method": "ttft_shift (q_p(merc) − q_p(direct)); PercentileNearestRank with p in [0,1]; " +
 				"not a percentile of paired differences; p99 omitted (shift function, thin-tail)",
@@ -446,11 +442,11 @@ func TestMercLatencyGapAccounting(t *testing.T) {
 				"note":                  "prior reported p50 only; p95 on last run c=1≈1.8–35, c=32≈97–127",
 			},
 			"parity_metal": map[string]any{
-				"source":               "evidence/perf/gateway-parity-v2-local-metal.json",
-				"c1_overhead_p50_ms":   3.909,
-				"c1_overhead_p95_ms":   12.534,
-				"c32_overhead_p50_ms":  33.668,
-				"c32_overhead_p95_ms":  262.242,
+				"source":              "evidence/perf/gateway-parity-v2-local-metal.json",
+				"c1_overhead_p50_ms":  3.909,
+				"c1_overhead_p95_ms":  12.534,
+				"c32_overhead_p50_ms": 33.668,
+				"c32_overhead_p95_ms": 262.242,
 			},
 		},
 		"ranked_attack_list": attackList,
@@ -474,9 +470,7 @@ func TestMercLatencyGapAccounting(t *testing.T) {
 	path := filepath.Join(dir, fmt.Sprintf("merc-latency-gap-accounting-%s.json", stamp))
 	id, bin, err := DefaultBoundIdentity("..", "control/merc_latency_gap_accounting_test.go",
 		"embedded method + cells + accounting_table", "embedded cell summaries; raw durations not retained")
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	id.ModelArtifactDigest = IdentitySlotValue("3f5a22426976ab26cfe84dba63c1d08391717abb1af893e10f1b2968d862dcc1")
 	if err := WriteBoundEvidenceJSON(EvidenceWriteRequest{
 		RepoRoot: "..", Path: path, Payload: out,
@@ -779,8 +773,8 @@ func buildAttackList(c1, c32 gapCellResult) []map[string]any {
 			a50 := c1.Attribution["p50_ms"].(map[string]any)
 			a95 := c1.Attribution["p95_ms"].(map[string]any)
 			candidates = append(candidates, item{
-				name: "parity_engine_misattribution",
-				why:  "measurement_defect: engine_excess counted as Merc overhead by merc−direct TTFT",
+				name:  "parity_engine_misattribution",
+				why:   "measurement_defect: engine_excess counted as Merc overhead by merc−direct TTFT",
 				p50c1: asFloat(a50["engine_excess_vs_direct"]), p95c1: asFloat(a95["engine_excess_vs_direct"]),
 				p50c32: asFloat(c32.Attribution["p50_ms"].(map[string]any)["engine_excess_vs_direct"]),
 				p95c32: ex,

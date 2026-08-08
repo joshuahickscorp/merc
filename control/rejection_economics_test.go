@@ -25,9 +25,7 @@ func logTaskStates(
 		       claimed_by IS NOT NULL, COALESCE(result_key,''),
 		       COALESCE(visible_at, created_at) <= now()
 		  FROM tasks WHERE job_id=$1 ORDER BY chunk_index`, jobID)
-	if err != nil {
-		t.Fatalf("%s: read task states: %v", when, err)
-	}
+	mustf(t, err, "%s: read task states: %v", when)
 	defer rows.Close()
 	for rows.Next() {
 		var id uuid.UUID
@@ -35,9 +33,7 @@ func logTaskStates(
 		var honeypot, claimed, visible bool
 		var chunk int
 		var resultKey string
-		if err := rows.Scan(&id, &status, &honeypot, &chunk, &claimed, &resultKey, &visible); err != nil {
-			t.Fatal(err)
-		}
+		must(t, rows.Scan(&id, &status, &honeypot, &chunk, &claimed, &resultKey, &visible))
 		t.Logf("%s: chunk=%d honeypot=%v status=%s claimed=%v visible=%v result=%v",
 			when, chunk, honeypot, status, claimed, visible, resultKey != "")
 	}
@@ -86,9 +82,7 @@ func TestRejectedVerificationLeavesNoSupplierCredit(t *testing.T) {
 		Dim     int         `json:"dim"`
 		Vectors [][]float64 `json:"vectors"`
 	}
-	if err := json.Unmarshal(reference, &decoded); err != nil {
-		t.Fatal(err)
-	}
+	must(t, json.Unmarshal(reference, &decoded))
 	// One row, so reference and observation share cardinality and the rejection is
 	// about DIRECTION rather than shape. A row-count mismatch would be caught by a
 	// structural check and would prove nothing about the cosine floor.
@@ -107,12 +101,8 @@ func TestRejectedVerificationLeavesNoSupplierCredit(t *testing.T) {
 			t.Fatalf("upload %s: %v", key, err)
 		}
 	}
-	if err := store.InsertHoneypot(jobCtx, "embed", tasks[1].InputRef, oneRow, ""); err != nil {
-		t.Fatalf("seed mismatched governed reference: %v", err)
-	}
-	if err := store.SubmitJobTx(jobCtx, job, tasks); err != nil {
-		t.Fatalf("submit: %v", err)
-	}
+	mustf(t, store.InsertHoneypot(jobCtx, "embed", tasks[1].InputRef, oneRow, ""), "seed mismatched governed reference: %v")
+	mustf(t, store.SubmitJobTx(jobCtx, job, tasks), "submit: %v")
 	logTaskStates(t, jobCtx, pool, f.JobID, "after submit")
 
 	// Wait for the HONEYPOT to reach a terminal verification outcome. Polling both

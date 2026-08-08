@@ -174,9 +174,7 @@ func TestComparatorPolicyIsBoundIntoEveryComparison(t *testing.T) {
 // Historical replay: a pre-cutover decision stays verifiable under the rule that
 // was in force, and that rule may not decide new work.
 func TestV1ReplayIsAvailableButCannotDecideNewWork(t *testing.T) {
-	if err := liveEmbeddingComparator(embeddingComparatorRevision); err != nil {
-		t.Fatalf("v2 is not live: %v", err)
-	}
+	mustf(t, liveEmbeddingComparator(embeddingComparatorRevision), "v2 is not live: %v")
 	err := liveEmbeddingComparator(embeddingComparatorRevisionV1)
 	if err == nil {
 		t.Fatal("v1 was accepted for new work")

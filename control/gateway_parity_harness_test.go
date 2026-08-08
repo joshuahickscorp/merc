@@ -99,17 +99,13 @@ func TestGatewayParityRefusesMismatchedRequestBodies(t *testing.T) {
 		ModelDigest: strings.Repeat("ab", 32),
 	}
 	body, err := contract.BuildChatCompletionsBody()
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	other := append([]byte(nil), body...)
 	// Flip top_p by rebuilding.
 	contract2 := contract
 	contract2.TopP = 1.0
 	body2, err := contract2.BuildChatCompletionsBody()
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if bytes.Equal(body, body2) {
 		t.Fatal("test setup: bodies unexpectedly equal")
 	}
@@ -304,9 +300,7 @@ func TestGatewayParityUnprovenBodyIdentityRefuses(t *testing.T) {
 		ModelDigest: strings.Repeat("ab", 32),
 	}
 	body, err := contract.BuildChatCompletionsBody()
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	// Full ladder so incomplete-ladder does not mask the identity refusal.
 	// Prove path with no upstream headers → unproven, Equal=false.
 	levels := map[string]GatewayParityLevelResult{}
@@ -358,9 +352,7 @@ func TestGatewayParityBareSHAStandInRefuses(t *testing.T) {
 		ModelDigest: strings.Repeat("ab", 32),
 	}
 	body, err := contract.BuildChatCompletionsBody()
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	harness := sha256Hex(body)
 	levels := map[string]GatewayParityLevelResult{}
 	tps := 100.0
@@ -378,13 +370,13 @@ func TestGatewayParityBareSHAStandInRefuses(t *testing.T) {
 		levels[fmt.Sprintf("merc@c=%d", c)] = GatewayParityLevelResult{
 			Arm: "merc", Concurrency: c, RequestsAttempted: n, RequestsOK: n,
 			Status: "MEASURED", MeanInFlight: float64(c), PeakInFlight: c,
-			TTFTp95: &GatewayParityPointEstimate{Point: 11, CI95Low: 10.5, CI95High: 11.5, N: n},
+			TTFTp95:    &GatewayParityPointEstimate{Point: 11, CI95Low: 10.5, CI95High: 11.5, N: n},
 			RawSamples: samples, TotalTokens: n * 5, MeanCompletionTok: 5, AggregateTokPerSec: &tps,
 		}
 		levels[fmt.Sprintf("direct@c=%d", c)] = GatewayParityLevelResult{
 			Arm: "direct", Concurrency: c, RequestsAttempted: n, RequestsOK: n,
 			Status: "MEASURED", MeanInFlight: float64(c), PeakInFlight: c,
-			TTFTp95: &GatewayParityPointEstimate{Point: 10, CI95Low: 9.5, CI95High: 10.5, N: n},
+			TTFTp95:     &GatewayParityPointEstimate{Point: 10, CI95Low: 9.5, CI95High: 10.5, N: n},
 			TotalTokens: n * 5, MeanCompletionTok: 5, AggregateTokPerSec: &tps,
 		}
 	}
@@ -420,9 +412,7 @@ func TestGatewayParityMercContractProofAccepts(t *testing.T) {
 		ModelDigest: strings.Repeat("ab", 32),
 	}
 	body, err := contract.BuildChatCompletionsBody()
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	harness := sha256Hex(body)
 	levels := map[string]GatewayParityLevelResult{}
 	claimed := []int{1}
@@ -583,13 +573,13 @@ func TestGatewayParityIncompleteLadderRefuses(t *testing.T) {
 		"merc@c=1": {
 			Arm: "merc", Concurrency: 1, RequestsAttempted: n, RequestsOK: n,
 			Status: "MEASURED", MeanInFlight: 1, PeakInFlight: 1,
-			TTFTp95: &GatewayParityPointEstimate{Point: 11, CI95Low: 10.5, CI95High: 11.5, N: n},
+			TTFTp95:            &GatewayParityPointEstimate{Point: 11, CI95Low: 10.5, CI95High: 11.5, N: n},
 			AggregateTokPerSec: &tps, TotalTokens: n * 5, MeanCompletionTok: 5,
 		},
 		"direct@c=1": {
 			Arm: "direct", Concurrency: 1, RequestsAttempted: n, RequestsOK: n,
 			Status: "MEASURED", MeanInFlight: 1, PeakInFlight: 1,
-			TTFTp95: &GatewayParityPointEstimate{Point: 10, CI95Low: 9.5, CI95High: 10.5, N: n},
+			TTFTp95:            &GatewayParityPointEstimate{Point: 10, CI95Low: 9.5, CI95High: 10.5, N: n},
 			AggregateTokPerSec: &tps, TotalTokens: n * 5, MeanCompletionTok: 5,
 		},
 	}
@@ -714,13 +704,9 @@ func TestGatewayParitySamplingContractBindsDefaultableFields(t *testing.T) {
 		MaxTokens: 32, Stream: true, ModelDigest: strings.Repeat("cd", 32),
 	}
 	body, err := c.BuildChatCompletionsBody()
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	var payload map[string]any
-	if err := json.Unmarshal(body, &payload); err != nil {
-		t.Fatal(err)
-	}
+	must(t, json.Unmarshal(body, &payload))
 	for _, key := range []string{"temperature", "top_p", "max_tokens", "stream", "model"} {
 		if _, ok := payload[key]; !ok {
 			t.Fatalf("sampling contract body missing %q", key)
@@ -880,9 +866,7 @@ func TestGatewayParityHarnessSelfTestReceipt(t *testing.T) {
 		ModelDigest: strings.Repeat("11", 32),
 	}
 	body, err := contract.BuildChatCompletionsBody()
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	// Both arms hit the same stand-in: proves the harness, not merc overhead.
 	client := NewGatewayParityClient(4)
 	hostStart := CaptureGatewayParityHostLoad()
@@ -962,13 +946,9 @@ func TestGatewayParityHarnessSelfTestReceipt(t *testing.T) {
 	// Round-trip: a skeptic must re-derive percentiles from raw samples.
 	// Marshal once so the in-memory check does not depend on a disk write.
 	raw, err := json.Marshal(rec)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	var loaded GatewayParityReceipt
-	if err := json.Unmarshal(raw, &loaded); err != nil {
-		t.Fatal(err)
-	}
+	must(t, json.Unmarshal(raw, &loaded))
 	if loaded.RawSampleCount == 0 {
 		t.Fatal("raw_sample_count is zero")
 	}
@@ -982,14 +962,10 @@ func TestGatewayParityHarnessSelfTestReceipt(t *testing.T) {
 	if os.Getenv("MERC_GATEWAY_PARITY_SELFTEST") == "1" {
 		outPath := filepath.Join("..", "evidence", "perf", "gateway-parity-v2-selftest.json")
 		var payload map[string]any
-		if err := json.Unmarshal(raw, &payload); err != nil {
-			t.Fatal(err)
-		}
+		must(t, json.Unmarshal(raw, &payload))
 		id, bin, err := DefaultBoundIdentity("..", "control/gateway_parity_harness.go#HARNESS_SELF_TEST",
 			"embedded sampling_contract + levels", "embedded levels.*.raw_samples")
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		id.ModelArtifactDigest = IdentitySlotNA("self-test stand-in; no model weights")
 		id.ImageDigest = IdentitySlotNA("self-test; no container image")
 		id.CorpusDigest = IdentitySlotNA("self-test; no external corpus")

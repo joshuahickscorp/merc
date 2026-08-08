@@ -12,7 +12,7 @@ import (
 // than producing a wrong answer. agent/src/runtime_authority.rs pins the same
 // constant; a capability change is expected to move it, and to move it in BOTH
 // places in one commit.
-const pinnedCapabilityMatrixDigest = "0814f833d415287f45502cd6d42455958c279ff8e43514adccf00169742f0b9c"
+const pinnedCapabilityMatrixDigest = "0b569a272b2bef7f553cad0efbe7bac9fc42a18944b16ac60b590763f497d60c"
 
 func TestCapabilityMatrixDigestIsPinnedAcrossBothImplementations(t *testing.T) {
 	if generatedRuntimeMatrixSHA256 != pinnedCapabilityMatrixDigest {
@@ -66,9 +66,7 @@ func TestActivationPolicyChangesDoNotMoveTheCapabilityMatrixDigest(t *testing.T)
 			doc := deepCopyAuthority(t)
 			mutate(&doc)
 			got, err := capabilityMatrixDigest(doc)
-			if err != nil {
-				t.Fatal(err)
-			}
+			must(t, err)
 			if got != generatedRuntimeMatrixSHA256 {
 				t.Fatalf("an activation-policy change moved the capability matrix digest; "+
 					"every agent would have to be rebuilt to deploy it\n  got  %s\n  want %s",
@@ -140,9 +138,7 @@ func TestCapabilityChangesMoveTheCapabilityMatrixDigest(t *testing.T) {
 			doc := deepCopyAuthority(t)
 			mutate(&doc)
 			got, err := capabilityMatrixDigest(doc)
-			if err != nil {
-				t.Fatal(err)
-			}
+			must(t, err)
 			if got == generatedRuntimeMatrixSHA256 {
 				t.Fatalf("changing the %s did not move the capability matrix digest; "+
 					"an agent running the old capability set would execute work "+
@@ -161,9 +157,7 @@ func TestCellCapabilityDigestsAreUniquePerProfile(t *testing.T) {
 	for _, profile := range runtimeAuthority.Runtimes {
 		for _, cell := range profile.Cells {
 			digest, err := profile.CellCapabilityDigest(cell, runtimeAuthorityModels)
-			if err != nil {
-				t.Fatal(err)
-			}
+			must(t, err)
 			where := profile.RuntimeID + "/" + cell.ID
 			if owner, taken := seen[digest]; taken {
 				t.Fatalf("%s and %s share one cell capability digest", owner, where)

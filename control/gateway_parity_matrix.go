@@ -111,10 +111,10 @@ type GatewayParityDroppedAxis struct {
 
 // GatewayParityMatrixSelection is the chosen subset plus machine-readable drops.
 type GatewayParityMatrixSelection struct {
-	Selected       []GatewayParityCellSpec   `json:"selected"`
+	Selected       []GatewayParityCellSpec    `json:"selected"`
 	DroppedAxes    []GatewayParityDroppedAxis `json:"dropped_axes"`
-	DroppedSummary []string                  `json:"dropped_summary"`
-	Rationale      string                    `json:"rationale"`
+	DroppedSummary []string                   `json:"dropped_summary"`
+	Rationale      string                     `json:"rationale"`
 }
 
 // DefaultGatewayParityMatrixSelection returns a defensible ~16–20 cell subset.
@@ -281,7 +281,9 @@ func GatewayParityStateDefinitionsText() GatewayParityStateDefinitions {
 			"(3) measurement requests reuse the same leading prefix with a unique per-sample tail. " +
 			"Verification (hard): at least 80% of OK merc samples must report usage.prompt_tokens_details.cached_tokens > 0. " +
 			"Missing signal is NOT treated as a hit — the cell is REFUSED with an explicit reason. " +
-			"llama.cpp/MLX/Candle typically lack the OpenAI cached_tokens field; those engines refuse prefix-hit cells rather than invent a hit.",
+			"MLX/Candle typically lack the OpenAI cached_tokens field and refuse prefix-hit cells rather than invent a hit. " +
+			"llama.cpp Metal b9430+ does report usage.prompt_tokens_details.cached_tokens (and timings.cache_n); " +
+			"prefix-hit cells against that engine must still verify the field rather than assume a hit.",
 	}
 }
 
@@ -317,9 +319,9 @@ type GatewayParityStateProof struct {
 
 // GatewayParityCellResult is one independently gated matrix cell.
 type GatewayParityCellResult struct {
-	Spec   GatewayParityCellSpec  `json:"spec"`
-	Status string                 `json:"status"` // MEASURED | REFUSED
-	Reason string                 `json:"reason,omitempty"`
+	Spec   GatewayParityCellSpec `json:"spec"`
+	Status string                `json:"status"` // MEASURED | REFUSED
+	Reason string                `json:"reason,omitempty"`
 	// Gate is the interval verdict for THIS cell alone. A PASS here is not a
 	// PASS for any other cell.
 	Gate             GatewayParityGateLevel        `json:"gate"`
@@ -1158,9 +1160,9 @@ func ComputeGatewayParityShapeInsight(cells []GatewayParityCellResult) *GatewayP
 	haveBest, haveWorst := false, false
 	for _, cell := range cells {
 		note := GatewayParityShapeCellNote{
-			Cell:             cell.Spec.Key(),
-			Status:           cell.Status,
-			GateVerdict:      cell.Gate.Verdict,
+			Cell:               cell.Spec.Key(),
+			Status:             cell.Status,
+			GateVerdict:        cell.Gate.Verdict,
 			AbsoluteOverheadMs: cell.AbsoluteOverheadMs,
 			RelativeOverhead:   cell.RelativeOverhead,
 		}

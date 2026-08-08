@@ -24,17 +24,13 @@ func pagePricesFor(t *testing.T, board *priceBoard) map[string]*float64 {
 	cmd := exec.Command("node", "../scripts/price-board-page-prices.mjs")
 	if board != nil {
 		raw, err := json.Marshal(board)
-		if err != nil {
-			t.Fatalf("encoding the constructed board: %v", err)
-		}
+		mustf(t, err, "encoding the constructed board: %v")
 		cmd.Stdin = bytes.NewReader(raw)
 	} else {
 		cmd.Stdin = bytes.NewReader(nil)
 	}
 	out, err := cmd.Output()
-	if err != nil {
-		t.Fatalf("running the page's own pricing script: %v", err)
-	}
+	mustf(t, err, "running the page's own pricing script: %v")
 	var prices map[string]*float64
 	if err := json.Unmarshal(out, &prices); err != nil {
 		t.Fatalf("page price output was not JSON: %v\n%s", err, out)
@@ -44,18 +40,14 @@ func pagePricesFor(t *testing.T, board *priceBoard) map[string]*float64 {
 
 func TestPublicPriceBoardPageAgreesWithTheServer(t *testing.T) {
 	out, err := exec.Command("node", "../scripts/price-board-page-prices.mjs").Output()
-	if err != nil {
-		t.Fatalf("running the page's own pricing script: %v", err)
-	}
+	mustf(t, err, "running the page's own pricing script: %v")
 	var pagePrices map[string]*float64
 	if err := json.Unmarshal(out, &pagePrices); err != nil {
 		t.Fatalf("page price output was not JSON: %v\n%s", err, out)
 	}
 
 	board, err := loadPriceBoard()
-	if err != nil {
-		t.Fatalf("loading the board: %v", err)
-	}
+	mustf(t, err, "loading the board: %v")
 	if len(board.Classes) == 0 {
 		t.Fatal("board has no classes; agreement between two empty sets proves nothing")
 	}
@@ -98,9 +90,7 @@ func TestPublicPriceBoardPageAgreesWithTheServer(t *testing.T) {
 // confidence and can still move the median.
 func TestPriceBoardObservationsAreAttributed(t *testing.T) {
 	board, err := loadPriceBoard()
-	if err != nil {
-		t.Fatalf("loading the board: %v", err)
-	}
+	mustf(t, err, "loading the board: %v")
 	seen := 0
 	for name, class := range board.Classes {
 		for i, obs := range class.Observations {

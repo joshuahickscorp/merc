@@ -30,9 +30,7 @@ func TestAdminDirectedJobFreezesTheNamedCell(t *testing.T) {
 	sub := embedSubmit()
 	sub.directedCellID = llamaEmbedCell
 	decision, err := buildWorkloadDecisionForSubmit(sub, strings.Repeat("a", 64))
-	if err != nil {
-		t.Fatalf("directed submit decision: %v", err)
-	}
+	mustf(t, err, "directed submit decision: %v")
 	if decision.DirectedCellID != llamaEmbedCell {
 		t.Fatalf("DirectedCellID=%q, want %q", decision.DirectedCellID, llamaEmbedCell)
 	}
@@ -42,9 +40,7 @@ func TestAdminDirectedJobFreezesTheNamedCell(t *testing.T) {
 	}
 	// Ordinary buyer submit still does not name a cell.
 	ordinary, err := buildWorkloadDecisionForSubmit(embedSubmit(), strings.Repeat("b", 64))
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if ordinary.DirectedCellID != "" {
 		t.Fatalf("ordinary submit recorded directed cell %q", ordinary.DirectedCellID)
 	}
@@ -102,9 +98,7 @@ func TestAdminSelectorActivationAppliesPolicy(t *testing.T) {
 			Lifecycle:        runtimeLifecycleRealRuntimeProven,
 		}},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	var before int64
 	if err := pool.QueryRow(ctx, `SELECT COALESCE(MAX(policy_revision),0) FROM runtime_activation_policies`).
 		Scan(&before); err != nil {
@@ -120,9 +114,7 @@ func TestAdminSelectorActivationAppliesPolicy(t *testing.T) {
 		ActivationApplied bool  `json:"activation_applied"`
 		PolicyRevision    int64 `json:"policy_revision"`
 	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
-		t.Fatal(err)
-	}
+	must(t, json.Unmarshal(rec.Body.Bytes(), &response))
 	if !response.ActivationApplied || response.PolicyRevision <= before {
 		t.Fatalf("activation response lost forward authority: %+v (before=%d)", response, before)
 	}

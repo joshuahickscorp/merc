@@ -42,9 +42,7 @@ func TestOnlyDeterministicRequestsAreCacheable(t *testing.T) {
 func TestEveryOutputAffectingFieldChangesIdentity(t *testing.T) {
 	base := detIdentity("what is the capital of France?")
 	baseID, err := base.Compute()
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if !ValidRequestIdentity(baseID) {
 		t.Fatalf("malformed identity %q", baseID)
 	}
@@ -68,9 +66,7 @@ func TestEveryOutputAffectingFieldChangesIdentity(t *testing.T) {
 		r := base
 		mutate(&r)
 		got, err := r.Compute()
-		if err != nil {
-			t.Fatalf("%s: %v", name, err)
-		}
+		mustf(t, err, "%s: %v", name)
 		if got == baseID {
 			t.Fatalf("changing %s did not change the request identity", name)
 		}
@@ -82,13 +78,9 @@ func TestIdentityFieldsCannotBeConfused(t *testing.T) {
 	a := RequestIdentity{TenantScope: detIdentityTenant, ModelID: "m", Input: "AB", Tools: "", TopP: 1}
 	b := RequestIdentity{TenantScope: detIdentityTenant, ModelID: "m", Input: "A", Tools: "B", TopP: 1}
 	ida, err := a.Compute()
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	idb, err := b.Compute()
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if ida == idb {
 		t.Fatal("field boundaries are not encoded; values can be shifted between fields")
 	}
@@ -99,18 +91,14 @@ func TestExactResultRoundTripAndMissIsNotAGuess(t *testing.T) {
 	_ = pool
 
 	id, err := detIdentity("unique-" + uuid.NewString()).Compute()
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 
 	// A miss must be a miss, never an approximate neighbour.
 	if _, ok, err := store.LookupExactResult(ctx, id); err != nil || ok {
 		t.Fatalf("unseen identity returned a hit: ok=%v err=%v", ok, err)
 	}
 
-	if err := store.RecordExactResult(ctx, id, "cas/sha256/abc123", 64); err != nil {
-		t.Fatalf("record: %v", err)
-	}
+	mustf(t, store.RecordExactResult(ctx, id, "cas/sha256/abc123", 64), "record: %v")
 	hit, ok, err := store.LookupExactResult(ctx, id)
 	if err != nil || !ok {
 		t.Fatalf("stored result did not come back: ok=%v err=%v", ok, err)
@@ -147,9 +135,7 @@ func TestExactCacheRefusesTenantScopedReferences(t *testing.T) {
 	ctx, store, _ := openPayoutTestStore(t)
 
 	id, err := detIdentity("tenant-" + uuid.NewString()).Compute()
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 
 	// Exactly the shape control/scheduler.go writes into tasks.result_key.
 	jobPath := "jobs/" + uuid.NewString() + "/tasks/" + uuid.NewString() + "/attempt-0/result.json"
@@ -162,9 +148,7 @@ func TestExactCacheRefusesTenantScopedReferences(t *testing.T) {
 
 	// A content-addressed reference is tenant-neutral and acceptable.
 	casPath := "cas/sha256/" + uuid.NewString()
-	if err := store.RecordExactResult(ctx, id, casPath, 64); err != nil {
-		t.Fatalf("content-addressed reference should be cacheable: %v", err)
-	}
+	mustf(t, store.RecordExactResult(ctx, id, casPath, 64), "content-addressed reference should be cacheable: %v")
 	hit, ok, err := store.LookupExactResult(ctx, id)
 	if err != nil || !ok || hit.ResultRef != casPath {
 		t.Fatalf("content-addressed round trip failed: %+v ok=%v err=%v", hit, ok, err)

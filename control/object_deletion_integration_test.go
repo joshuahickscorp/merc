@@ -21,9 +21,7 @@ func openObjectStorageForTest(t *testing.T) *Storage {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	storage, err := NewStorage(ctx)
-	if err != nil {
-		t.Fatalf("connect object storage: %v", err)
-	}
+	mustf(t, err, "connect object storage: %v")
 	return storage
 }
 
@@ -51,9 +49,7 @@ func TestBuyerObjectDeletionQueueAndSweep(t *testing.T) {
 	keyRogue := "jobs/" + uuid.NewString() + "/not-authorized.jsonl"
 
 	for _, key := range []string{keyA, keyB, keyRogue} {
-		if err := storage.PutObject(ctx, key, []byte("synthetic-dsar-"+key), "application/octet-stream"); err != nil {
-			t.Fatalf("seed object %q: %v", key, err)
-		}
+		mustf(t, storage.PutObject(ctx, key, []byte("synthetic-dsar-"+key), "application/octet-stream"), "seed object %q: %v", key)
 		exists, err := storage.ObjectExists(ctx, key)
 		if err != nil || !exists {
 			t.Fatalf("seeded object missing %q: exists=%v err=%v", key, exists, err)
@@ -83,9 +79,7 @@ func TestBuyerObjectDeletionQueueAndSweep(t *testing.T) {
 
 	correlation := "PRIV-OBJDEL-" + uuid.NewString()
 	result, err := store.TombstoneBuyer(ctx, admin, buyerID, "verified object deletion request", correlation)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if result.TombstoneID == uuid.Nil {
 		t.Fatal("tombstone id missing")
 	}
@@ -134,23 +128,17 @@ func TestBuyerObjectDeletionQueueAndSweep(t *testing.T) {
 		t.Fatalf("seed unauthorized pending row: %v", err)
 	}
 
-	if err := wk.sweepPendingObjectDeletions(ctx); err != nil {
-		t.Fatalf("sweeper: %v", err)
-	}
+	mustf(t, wk.sweepPendingObjectDeletions(ctx), "sweeper: %v")
 
 	for _, key := range []string{keyA, keyB} {
 		exists, err := storage.ObjectExists(ctx, key)
-		if err != nil {
-			t.Fatalf("ObjectExists %q: %v", key, err)
-		}
+		mustf(t, err, "ObjectExists %q: %v", key)
 		if exists {
 			t.Fatalf("object %q still present after sweeper", key)
 		}
 	}
 	rogueExists, err := storage.ObjectExists(ctx, keyRogue)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if !rogueExists {
 		t.Fatal("unauthorized object was deleted; tombstone digest gate failed")
 	}
@@ -177,24 +165,18 @@ func TestBuyerObjectDeletionQueueAndSweep(t *testing.T) {
 
 	// Explicit authorization API: digest not on list is refused.
 	ok, err := store.TombstoneAuthorizesObjectKey(ctx, result.TombstoneID, keyRogue)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if ok {
 		t.Fatal("TombstoneAuthorizesObjectKey accepted a non-manifest key")
 	}
 	ok, err = store.TombstoneAuthorizesObjectKey(ctx, result.TombstoneID, keyA)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if !ok {
 		t.Fatal("TombstoneAuthorizesObjectKey rejected a manifest key")
 	}
 
 	// Missing-key delete is success (sweeper retry safety).
-	if err := storage.RemoveObjects(ctx, []string{keyA, keyB, "jobs/never-existed/object"}); err != nil {
-		t.Fatalf("RemoveObjects on missing keys must succeed: %v", err)
-	}
+	mustf(t, storage.RemoveObjects(ctx, []string{keyA, keyB, "jobs/never-existed/object"}), "RemoveObjects on missing keys must succeed: %v")
 }
 
 func TestAlphaRequestRetentionSweep(t *testing.T) {
@@ -231,23 +213,15 @@ func TestAlphaRequestRetentionSweep(t *testing.T) {
 	// Cutoff: 90 days ago — matches default retention.
 	cutoff := time.Now().UTC().Add(-90 * 24 * time.Hour)
 	n, err := store.DeleteOldAlphaRequests(ctx, cutoff)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if n < 2 {
 		t.Fatalf("expected at least 2 non-accepted stale rows pruned, got %d", n)
 	}
 
 	var stillPending, stillAccepted, stillFresh int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM alpha_requests WHERE id=$1`, stalePending).Scan(&stillPending); err != nil {
-		t.Fatal(err)
-	}
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM alpha_requests WHERE id=$1`, acceptedOld).Scan(&stillAccepted); err != nil {
-		t.Fatal(err)
-	}
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM alpha_requests WHERE id=$1`, freshPending).Scan(&stillFresh); err != nil {
-		t.Fatal(err)
-	}
+	must(t, pool.QueryRow(ctx, `SELECT count(*) FROM alpha_requests WHERE id=$1`, stalePending).Scan(&stillPending))
+	must(t, pool.QueryRow(ctx, `SELECT count(*) FROM alpha_requests WHERE id=$1`, acceptedOld).Scan(&stillAccepted))
+	must(t, pool.QueryRow(ctx, `SELECT count(*) FROM alpha_requests WHERE id=$1`, freshPending).Scan(&stillFresh))
 	if stillPending != 0 {
 		t.Fatal("stale pending alpha_request survived retention sweep")
 	}

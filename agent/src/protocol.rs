@@ -5,7 +5,7 @@ use reqwest::{Client, RequestBuilder, Response, StatusCode};
 use uuid::Uuid;
 
 use crate::types::{
-    ConnectStatus, Earnings, FailReport, Heartbeat, RealtimeOfferHeartbeat,
+    ConnectStatus, Earnings, FailReport, Heartbeat, PayoutLedger, RealtimeOfferHeartbeat,
     RealtimeOfferRegistration, ServiceLeaseAssignment, ServiceLeaseHeartbeat,
     ServiceLeaseOfferRegistration, SupplierVerification, TaskCommit, TaskDispatch,
     WorkerCapability,
@@ -582,6 +582,25 @@ impl ControlPlaneClient {
             })
     }
 
+    /// Recent supplier_credit / clawback rows for this worker's supplier.
+    pub async fn payout_ledger(&self, limit: u32) -> Result<PayoutLedger, ProtocolError> {
+        let endpoint = format!("/v1/worker/ledger?limit={limit}");
+        let resp = self
+            .http
+            .get(self.url(&endpoint))
+            .header("X-Worker-Token", &self.token)
+            .send()
+            .await
+            .map_err(|e| Self::transport(&endpoint, e))?;
+        let resp = Self::expect_status(&endpoint, resp, &[StatusCode::OK]).await?;
+        resp.json::<PayoutLedger>()
+            .await
+            .map_err(|e| ProtocolError::Decode {
+                endpoint: endpoint.to_string(),
+                source: e,
+            })
+    }
+
     pub async fn connect_status(&self) -> Result<ConnectStatus, ProtocolError> {
         let endpoint = "/v1/worker/connect/status";
         let resp = self
@@ -883,6 +902,7 @@ mod tests {
             result_sha256: "ab".repeat(32),
             hardware_temp_c: Some(54.5),
             inference_backend: "candle".to_string(),
+            cached_prompt_tokens: Some(2618),
         };
 
         client

@@ -6,7 +6,7 @@
 // submit a job at all), input sent as an array when merc requires a JSONL
 // string, and cancelJob calling a /cancel route merc does not serve.
 
-import { Client } from "../sdk/typescript/dist/index.js";
+import { Client } from "../clients/sdk/typescript/dist/index.js";
 const c = new Client({ baseUrl: "http://127.0.0.1:8093", apiKey: "dev-api-key-0001" });
 const models = await c.models();
 console.log("  models:", (models.data ?? models).slice(0, 2).map((m) => m.id));

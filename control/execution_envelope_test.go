@@ -20,9 +20,7 @@ func envelopeTestBuyer(t *testing.T, ctx context.Context, store *Store, pool *pg
 		t.Fatal(err)
 	}
 	if prepaidMicros > 0 {
-		if err := store.SeedPrepaidBalance(ctx, buyerID, prepaidMicros, "seed-env-"+buyerID.String()); err != nil {
-			t.Fatal(err)
-		}
+		must(t, store.SeedPrepaidBalance(ctx, buyerID, prepaidMicros, "seed-env-"+buyerID.String()))
 	}
 	return buyerID
 }
@@ -39,15 +37,11 @@ func TestExecutionEnvelopeCreateReservesBuyerFunds(t *testing.T) {
 		RuntimeProfileID: profile.RuntimeProfileID, CapNanos: capNanos,
 		MaxRequests: 100, PerRequestCeilingNanos: 100_000_000, TTLSeconds: 600,
 	})
-	if err != nil {
-		t.Fatalf("create envelope: %v", err)
-	}
+	mustf(t, err, "create envelope: %v")
 	if env.State != "ACTIVE" || env.CapNanos != capNanos || env.Version != 0 {
 		t.Fatalf("unexpected envelope: %+v", env)
 	}
-	if err := validateExecutionEnvelopeAuthority(env.Authority); err != nil {
-		t.Fatal(err)
-	}
+	must(t, validateExecutionEnvelopeAuthority(env.Authority))
 
 	// A second envelope that would jointly exceed remaining funds must fail.
 	// Remaining after first: ~$0.50.
@@ -64,9 +58,7 @@ func TestExecutionEnvelopeCreateReservesBuyerFunds(t *testing.T) {
 		RuntimeProfileID: profile.RuntimeProfileID, CapNanos: 400_000_000, // $0.40
 		MaxRequests: 10, PerRequestCeilingNanos: 100_000_000, TTLSeconds: 600,
 	})
-	if err != nil {
-		t.Fatalf("small second envelope: %v", err)
-	}
+	mustf(t, err, "small second envelope: %v")
 	if env2.ID == env.ID {
 		t.Fatal("second envelope must be a distinct grant")
 	}
@@ -91,9 +83,7 @@ func TestExecutionEnvelopeConcurrentSpendHoldsCapExactly(t *testing.T) {
 		RuntimeProfileID: profile.RuntimeProfileID, CapNanos: capNanos,
 		MaxRequests: 1000, PerRequestCeilingNanos: needNanos, TTLSeconds: 600,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 
 	var (
 		wg       sync.WaitGroup
@@ -131,9 +121,7 @@ func TestExecutionEnvelopeConcurrentSpendHoldsCapExactly(t *testing.T) {
 	}
 
 	got, err := store.GetExecutionEnvelope(ctx, buyerID, env.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if got.ReservedNanos+got.SpentNanos != capNanos {
 		t.Fatalf("reserved(%d)+spent(%d)=%d want cap %d",
 			got.ReservedNanos, got.SpentNanos, got.ReservedNanos+got.SpentNanos, capNanos)
@@ -167,27 +155,19 @@ func TestExecutionEnvelopeIdempotentSpend(t *testing.T) {
 		RuntimeProfileID: profile.RuntimeProfileID, CapNanos: 1_000_000_000,
 		MaxRequests: 10, PerRequestCeilingNanos: 500_000_000, TTLSeconds: 600,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	key := "idem-" + uuid.NewString()
 	first, err := store.SpendExecutionEnvelope(ctx, env.ID, buyerID, 200_000_000, 10,
 		key, "req-1", profile)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	second, err := store.SpendExecutionEnvelope(ctx, env.ID, buyerID, 200_000_000, 10,
 		key, "req-1", profile)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if first.ID != second.ID {
 		t.Fatalf("idempotent replay must return same spend id: %s vs %s", first.ID, second.ID)
 	}
 	got, err := store.GetExecutionEnvelope(ctx, buyerID, env.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if got.ReservedNanos != 200_000_000 || got.RequestCount != 1 {
 		t.Fatalf("retry double-spent envelope: reserved=%d count=%d", got.ReservedNanos, got.RequestCount)
 	}
@@ -216,14 +196,10 @@ func TestExecutionEnvelopeCrashRecoveryReleasesOrphanHold(t *testing.T) {
 		RuntimeProfileID: profile.RuntimeProfileID, CapNanos: 1_000_000_000,
 		MaxRequests: 10, PerRequestCeilingNanos: 500_000_000, TTLSeconds: 600,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	spend, err := store.SpendExecutionEnvelope(ctx, env.ID, buyerID, 300_000_000, 0,
 		"crash-"+uuid.NewString(), "req-crash", profile)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if spend.State != "RESERVED" || spend.ContractID != nil {
 		t.Fatalf("precondition: unbound RESERVED spend, got %+v", spend)
 	}
@@ -239,16 +215,12 @@ func TestExecutionEnvelopeCrashRecoveryReleasesOrphanHold(t *testing.T) {
 		t.Fatal(err)
 	}
 	n, err := store.RecoverOrphanEnvelopeSpends(ctx, 30*time.Second, 100)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if n != 1 {
 		t.Fatalf("recovered %d orphans, want 1", n)
 	}
 	after, err := store.GetExecutionEnvelope(ctx, buyerID, env.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if after.ReservedNanos != 0 || after.SpentNanos != 0 {
 		t.Fatalf("after recovery reserved=%d spent=%d want zeros", after.ReservedNanos, after.SpentNanos)
 	}
@@ -269,9 +241,7 @@ func TestExecutionEnvelopeExpiryReleasesUnspentRemainder(t *testing.T) {
 		RuntimeProfileID: profile.RuntimeProfileID, CapNanos: 2_000_000_000, // $2
 		MaxRequests: 10, PerRequestCeilingNanos: 500_000_000, TTLSeconds: 60,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	// Spend $0.30; $1.70 should return on expiry.
 	if _, err := store.SpendExecutionEnvelope(ctx, env.ID, buyerID, 300_000_000, 0,
 		"pre-exp-"+uuid.NewString(), "req", profile); err != nil {
@@ -287,9 +257,7 @@ func TestExecutionEnvelopeExpiryReleasesUnspentRemainder(t *testing.T) {
 		t.Fatalf("expiry release n=%d err=%v", n, err)
 	}
 	got, err := store.GetExecutionEnvelope(ctx, buyerID, env.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if got.State != "EXPIRED" || got.ClosedAt == nil {
 		t.Fatalf("want EXPIRED terminal envelope, got state=%s closed=%v", got.State, got.ClosedAt)
 	}
@@ -306,9 +274,7 @@ func TestExecutionEnvelopeExpiryReleasesUnspentRemainder(t *testing.T) {
 		RuntimeProfileID: profile.RuntimeProfileID, CapNanos: 2_000_000_000,
 		MaxRequests: 10, PerRequestCeilingNanos: 500_000_000, TTLSeconds: 60,
 	})
-	if err != nil {
-		t.Fatalf("post-expiry create should succeed once remainder released: %v", err)
-	}
+	mustf(t, err, "post-expiry create should succeed once remainder released: %v")
 	if env2.State != "ACTIVE" {
 		t.Fatalf("new envelope state=%s", env2.State)
 	}
@@ -331,9 +297,7 @@ func TestExecutionEnvelopeAuthorizeAndSettlePath(t *testing.T) {
 		PerRequestCeilingNanos: needNanos,
 		TTLSeconds:             600,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 
 	contract, replay, err := store.AuthorizeRealtimeContract(ctx, RealtimeContractAuthorization{
 		RequestID: "req-env-" + uuid.NewString(), BuyerID: buyerID, Profile: profile,
@@ -355,9 +319,7 @@ func TestExecutionEnvelopeAuthorizeAndSettlePath(t *testing.T) {
 
 	// Envelope should show a RESERVED hold, not yet spent.
 	mid, err := store.GetExecutionEnvelope(ctx, buyerID, env.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if mid.ReservedNanos != needNanos || mid.SpentNanos != 0 {
 		t.Fatalf("after auth reserved=%d spent=%d want reserved=%d spent=0",
 			mid.ReservedNanos, mid.SpentNanos, needNanos)
@@ -370,9 +332,7 @@ func TestExecutionEnvelopeAuthorizeAndSettlePath(t *testing.T) {
 		t.Fatalf("finalize failure: ok=%v err=%v", ok, err)
 	}
 	after, err := store.GetExecutionEnvelope(ctx, buyerID, env.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if after.ReservedNanos != 0 || after.SpentNanos != 0 {
 		t.Fatalf("after void reserved=%d spent=%d want zeros", after.ReservedNanos, after.SpentNanos)
 	}
@@ -389,14 +349,10 @@ func TestExecutionEnvelopeCaptureReleasesUnusedReservation(t *testing.T) {
 		RuntimeProfileID: profile.RuntimeProfileID, CapNanos: 1_000_000_000,
 		MaxRequests: 10, PerRequestCeilingNanos: 500_000_000, TTLSeconds: 600,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	spend, err := store.SpendExecutionEnvelope(ctx, env.ID, buyerID, 400_000_000, 100,
 		"cap-"+uuid.NewString(), "req", profile)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	// Synthetic contract row is not required: bind by inserting a minimal
 	// contract_id UUID into the spend and capturing against it. The capture
 	// helper looks up spends by contract_id only.
@@ -418,16 +374,10 @@ func TestExecutionEnvelopeCaptureReleasesUnusedReservation(t *testing.T) {
 		profile.BuyerInputUSDPerMillionTokens, profile.BuyerOutputUSDPerMillionTokens); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.BindEnvelopeSpendContractForTest(ctx, spend.ID, contractID); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.CaptureExecutionEnvelopeSpendForTest(ctx, contractID, 150_000_000, 40); err != nil {
-		t.Fatal(err)
-	}
+	must(t, store.BindEnvelopeSpendContractForTest(ctx, spend.ID, contractID))
+	must(t, store.CaptureExecutionEnvelopeSpendForTest(ctx, contractID, 150_000_000, 40))
 	got, err := store.GetExecutionEnvelope(ctx, buyerID, env.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if got.ReservedNanos != 0 || got.SpentNanos != 150_000_000 {
 		t.Fatalf("after capture reserved=%d spent=%d want reserved=0 spent=150000000",
 			got.ReservedNanos, got.SpentNanos)
@@ -448,9 +398,7 @@ func TestExecutionEnvelopePerRequestCeiling(t *testing.T) {
 		RuntimeProfileID: profile.RuntimeProfileID, CapNanos: 1_000_000_000,
 		MaxRequests: 10, PerRequestCeilingNanos: 100_000_000, TTLSeconds: 600,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	_, err = store.SpendExecutionEnvelope(ctx, env.ID, buyerID, 200_000_000, 0,
 		"ceil-"+uuid.NewString(), "req", profile)
 	if !errors.Is(err, errEnvelopeCeilingExceeded) {
@@ -458,115 +406,97 @@ func TestExecutionEnvelopePerRequestCeiling(t *testing.T) {
 	}
 }
 
-// TestExecutionEnvelopeSpendCheaperThanFullFunding measures concurrent
-// buyer-funding serialization — the cost envelopes amortize.
-//
-// Serial single-statement cost of an envelope spend (UPDATE + spend INSERT +
-// event INSERT) is often higher than a lone evaluateRealtimeBuyerFunding
-// SELECT, because the envelope writes durable hold rows. The win is under
-// concurrent load: N funding checks for one buyer take the advisory xact lock
-// one-at-a-time for the whole transaction, while N envelope spends only
-// briefly contend on the envelope row for one UPDATE and do not hold a
-// buyer-level lock across capacity selection / contract insert.
-func TestExecutionEnvelopeSpendCheaperThanFullFunding(t *testing.T) {
+// TestExecutionEnvelopeSpendBypassesBuyerFundingLock proves the structural
+// latency property that envelopes are meant to provide. A wall-clock race
+// between two unrelated Postgres paths is not a stable correctness assertion:
+// runner load can reverse it even when the lock topology is unchanged. Instead
+// hold the buyer-funding advisory lock, observe a funding check waiting on it,
+// and prove a bounded envelope spend still completes. This directly covers the
+// intended isolation without making a machine-specific throughput claim.
+func TestExecutionEnvelopeSpendBypassesBuyerFundingLock(t *testing.T) {
 	installSettlementCurrencyForTest(t, "usd")
-	ctx, store, pool := openIsolatedTestStore(t)
+	baseCtx, store, pool := openIsolatedTestStore(t)
+	ctx, cancel := context.WithTimeout(baseCtx, 10*time.Second)
+	defer cancel()
 	profile := sortedVLLMProfiles()[0]
 	buyerID := envelopeTestBuyer(t, ctx, store, pool, 500_000_000)
 
-	const (
-		needNanos   int64 = 1_000_000 // $0.001
-		serialN           = 30
-		concurrentN       = 32
-	)
+	const needNanos int64 = 1_000_000 // $0.001
 	env, err := store.CreateExecutionEnvelope(ctx, buyerID, ExecutionEnvelopeCreateRequest{
 		RuntimeProfileID:       profile.RuntimeProfileID,
-		CapNanos:               needNanos * int64(serialN+concurrentN+50),
-		MaxRequests:            int64(serialN + concurrentN + 50),
+		CapNanos:               needNanos * 64,
+		MaxRequests:            64,
 		PerRequestCeilingNanos: needNanos,
 		TTLSeconds:             3600,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	needUSD := microsToUSD(ceilNanosToMicros(needNanos))
 
-	start := time.Now()
-	for i := 0; i < serialN; i++ {
-		if _, err := store.SpendExecutionEnvelope(ctx, env.ID, buyerID, needNanos, 0,
-			"serial-env-"+uuid.NewString(), "req", profile); err != nil {
-			t.Fatal(err)
-		}
-	}
-	envSerial := time.Since(start)
+	lockTx, err := pool.Begin(ctx)
+	must(t, err)
+	defer lockTx.Rollback(context.Background())
+	_, err = lockTx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`,
+		"realtime-buyer-funding|"+buyerID.String())
+	must(t, err)
 
-	start = time.Now()
-	for i := 0; i < serialN; i++ {
+	fundingStarted := make(chan struct{})
+	fundingDone := make(chan error, 1)
+	go func() {
 		tx, err := pool.Begin(ctx)
 		if err != nil {
-			t.Fatal(err)
+			fundingDone <- err
+			return
 		}
+		defer tx.Rollback(context.Background())
+		close(fundingStarted)
 		if err := evaluateRealtimeBuyerFunding(ctx, tx, buyerID, needUSD); err != nil {
-			tx.Rollback(ctx)
-			t.Fatal(err)
+			fundingDone <- err
+			return
 		}
-		if err := tx.Commit(ctx); err != nil {
-			t.Fatal(err)
+		fundingDone <- tx.Commit(ctx)
+	}()
+	select {
+	case <-fundingStarted:
+	case err := <-fundingDone:
+		t.Fatalf("start funding check: %v", err)
+	case <-ctx.Done():
+		t.Fatalf("funding check did not start: %v", ctx.Err())
+	}
+
+	// Wait for the exact blocked state rather than guessing from elapsed time.
+	// This isolated database has no unrelated workload, so an ungranted advisory
+	// lock is the funding check above waiting behind lockTx.
+	deadline := time.NewTimer(2 * time.Second)
+	defer deadline.Stop()
+	for {
+		var waiters int
+		err := pool.QueryRow(ctx, `SELECT count(*) FROM pg_locks WHERE locktype='advisory' AND NOT granted`).Scan(&waiters)
+		must(t, err)
+		if waiters > 0 {
+			break
+		}
+		select {
+		case <-deadline.C:
+			t.Fatal("funding check never waited on the buyer advisory lock")
+		case <-time.After(5 * time.Millisecond):
 		}
 	}
-	fundSerial := time.Since(start)
 
-	start = time.Now()
-	var wg sync.WaitGroup
-	wg.Add(concurrentN)
-	for i := 0; i < concurrentN; i++ {
-		go func() {
-			defer wg.Done()
-			if _, err := store.SpendExecutionEnvelope(ctx, env.ID, buyerID, needNanos, 0,
-				"conc-env-"+uuid.NewString(), "req", profile); err != nil {
-				t.Errorf("envelope concurrent spend: %v", err)
-			}
-		}()
+	spendCtx, spendCancel := context.WithTimeout(ctx, 2*time.Second)
+	_, err = store.SpendExecutionEnvelope(spendCtx, env.ID, buyerID, needNanos, 0,
+		"buyer-lock-bypass-"+uuid.NewString(), "req", profile)
+	spendCancel()
+	if err != nil {
+		t.Fatalf("envelope spend blocked behind buyer funding lock: %v", err)
 	}
-	wg.Wait()
-	envConc := time.Since(start)
 
-	start = time.Now()
-	wg.Add(concurrentN)
-	for i := 0; i < concurrentN; i++ {
-		go func() {
-			defer wg.Done()
-			tx, err := pool.Begin(ctx)
-			if err != nil {
-				t.Errorf("begin: %v", err)
-				return
-			}
-			// Hold the funding lock the way authorize does: check, then more
-			// work before commit, so serialization cost is visible.
-			if err := evaluateRealtimeBuyerFunding(ctx, tx, buyerID, needUSD); err != nil {
-				tx.Rollback(ctx)
-				t.Errorf("funding: %v", err)
-				return
-			}
-			time.Sleep(2 * time.Millisecond)
-			if err := tx.Commit(ctx); err != nil {
-				t.Errorf("commit: %v", err)
-			}
-		}()
-	}
-	wg.Wait()
-	fundConc := time.Since(start)
-
-	t.Logf("serial:   envelope=%s (%.2fms/op) funding_check=%s (%.2fms/op) ratio=%.2fx",
-		envSerial, float64(envSerial.Microseconds())/1000/float64(serialN),
-		fundSerial, float64(fundSerial.Microseconds())/1000/float64(serialN),
-		float64(fundSerial)/float64(envSerial+1))
-	t.Logf("concurrent c=%d: envelope=%s funding_check_with_hold=%s ratio=%.2fx (higher => envelope wins under load)",
-		concurrentN, envConc, fundConc, float64(fundConc)/float64(envConc+1))
-
-	if envConc > fundConc {
-		t.Fatalf("concurrent envelope spends (%s) were not cheaper than concurrent funding holds (%s)",
-			envConc, fundConc)
+	// Releasing the funding lock must allow the waiting check to complete.
+	must(t, lockTx.Rollback(ctx))
+	select {
+	case err := <-fundingDone:
+		must(t, err)
+	case <-ctx.Done():
+		t.Fatalf("funding check did not resume after lock release: %v", ctx.Err())
 	}
 }
 

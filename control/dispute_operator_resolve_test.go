@@ -27,12 +27,8 @@ func TestOperatorResolveUnresolvableDisputeUnblocksPayout(t *testing.T) {
 	}
 
 	disputeID, err := store.RecordDispute(ctx, f.jobID, f.buyerID, "output does not match the submitted input")
-	if err != nil {
-		t.Fatalf("file dispute: %v", err)
-	}
-	if err := store.SetDisputeStatus(ctx, disputeID, "unresolvable"); err != nil {
-		t.Fatalf("park as unresolvable: %v", err)
-	}
+	mustf(t, err, "file dispute: %v")
+	mustf(t, store.SetDisputeStatus(ctx, disputeID, "unresolvable"), "park as unresolvable: %v")
 	due, err := store.DuePayouts(ctx, 100)
 	if err != nil || dueContains(due, f.entryID) {
 		t.Fatalf("unresolvable must still freeze payout: present=%v err=%v", dueContains(due, f.entryID), err)
@@ -53,9 +49,7 @@ func TestOperatorResolveUnresolvableDisputeUnblocksPayout(t *testing.T) {
 	}
 
 	var status string
-	if err := pool.QueryRow(ctx, `SELECT status FROM disputes WHERE id=$1`, disputeID).Scan(&status); err != nil {
-		t.Fatal(err)
-	}
+	must(t, pool.QueryRow(ctx, `SELECT status FROM disputes WHERE id=$1`, disputeID).Scan(&status))
 	if status != "rejected" {
 		t.Fatalf("status=%q want rejected", status)
 	}
@@ -90,9 +84,7 @@ func TestOperatorResolveUnresolvableDisputeUnblocksPayout(t *testing.T) {
 		// Funding was present — cash path advanced. Fine.
 	} else {
 		var status string
-		if err := pool.QueryRow(ctx, `SELECT payout_status FROM ledger_entries WHERE id=$1`, f.entryID).Scan(&status); err != nil {
-			t.Fatal(err)
-		}
+		must(t, pool.QueryRow(ctx, `SELECT payout_status FROM ledger_entries WHERE id=$1`, f.entryID).Scan(&status))
 		// awaiting_funding is the no-collection outcome; held would mean dispute still blocked.
 		if status == PayoutHeld {
 			// DuePayouts included it and Claim saw no dispute — re-read dispute block.
@@ -123,9 +115,7 @@ func TestOperatorResolveUnresolvableDisputeUnblocksPayout(t *testing.T) {
 	// Fail closed: open disputes are not on the operator queue.
 	f2 := seedDisputePayoutFixture(t, ctx, pool, "complete")
 	openID, err := store.RecordDispute(ctx, f2.jobID, f2.buyerID, "still in automatic re-verify path")
-	if err != nil {
-		t.Fatalf("file open dispute: %v", err)
-	}
+	mustf(t, err, "file open dispute: %v")
 	if err := store.ResolveDisputeTx(ctx, actor, openID, "rejected", "premature", corr+"-open"); !errors.Is(err, errDisputeNotOperatorQueue) {
 		t.Fatalf("open dispute operator resolve error = %v, want %v", err, errDisputeNotOperatorQueue)
 	}
@@ -138,17 +128,13 @@ func TestNoPeerDisputePromotesToOperatorQueueAfterBound(t *testing.T) {
 	f := seedDisputePayoutFixture(t, ctx, pool, "complete")
 
 	disputeID, err := store.RecordDispute(ctx, f.jobID, f.buyerID, "need independent re-verify")
-	if err != nil {
-		t.Fatalf("file dispute: %v", err)
-	}
+	mustf(t, err, "file dispute: %v")
 
 	// Drive the attempt bound: each call is one failed peer search.
 	var last string
 	for i := 0; i < noPeerDisputeMaxAttempts; i++ {
 		last, err = store.NoteDisputeNoPeer(ctx, disputeID)
-		if err != nil {
-			t.Fatalf("note no_peer attempt %d: %v", i+1, err)
-		}
+		mustf(t, err, "note no_peer attempt %d: %v", i+1)
 		if i+1 < noPeerDisputeMaxAttempts && last != "no_peer" {
 			t.Fatalf("attempt %d status=%q want no_peer", i+1, last)
 		}
@@ -169,9 +155,7 @@ func TestNoPeerDisputePromotesToOperatorQueueAfterBound(t *testing.T) {
 
 	// ActiveDisputes must no longer return it (operator queue, not sweep).
 	active, err := store.ActiveDisputes(ctx, 100)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	for _, d := range active {
 		if d.ID == disputeID {
 			t.Fatalf("unresolvable dispute %s still in ActiveDisputes sweep set", disputeID)
@@ -196,9 +180,7 @@ func TestNoPeerDisputePromotesToOperatorQueueAfterBound(t *testing.T) {
 	// with a low attempt count.
 	f2 := seedDisputePayoutFixture(t, ctx, pool, "complete")
 	d2, err := store.RecordDispute(ctx, f2.jobID, f2.buyerID, "age-bound peer starvation")
-	if err != nil {
-		t.Fatalf("file age-bound dispute: %v", err)
-	}
+	mustf(t, err, "file age-bound dispute: %v")
 	if _, err := store.NoteDisputeNoPeer(ctx, d2); err != nil {
 		t.Fatalf("first no_peer note: %v", err)
 	}
@@ -210,9 +192,7 @@ func TestNoPeerDisputePromotesToOperatorQueueAfterBound(t *testing.T) {
 		t.Fatal(err)
 	}
 	status2, err := store.NoteDisputeNoPeer(ctx, d2)
-	if err != nil {
-		t.Fatalf("age-bound note: %v", err)
-	}
+	mustf(t, err, "age-bound note: %v")
 	if status2 != "unresolvable" {
 		t.Fatalf("age-bound status=%q want unresolvable", status2)
 	}

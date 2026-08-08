@@ -267,7 +267,7 @@ start_agent() {
   n="$1"
   HOME="$ART/home" MERC_MODEL_CACHE="$MODEL_CACHE" \
     MERC_TLS_CA_FILE="$ART/tls/ca.crt" MERC_REQUIRE_SANDBOX=1 \
-    MERC_SANDBOX_PROFILE="$ROOT/macapp/ComputeExchangeAgent/merc-agent.sb" \
+    MERC_SANDBOX_PROFILE="$ROOT/clients/macapp/ComputeExchangeAgent/merc-agent.sb" \
     "$AGENT_BIN" run --config "$ART/agent$n/config.toml" > "$ART/agent$n.log" 2>&1 &
   STARTED_AGENT_PID=$!
 }

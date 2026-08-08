@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -154,6 +155,36 @@ type devCheckpointOptions struct {
 	databaseURL  string
 }
 
+// runCheckpointCommand waits for a child after forwarding an interrupt.  The
+// mutation runner restores the source in its signal trap; letting the parent
+// process exit first can strand an injected mutation in the worktree.
+func runCheckpointCommand(cmd *exec.Cmd, interrupts <-chan os.Signal) error {
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	finished := make(chan error, 1)
+	go func() { finished <- cmd.Wait() }()
+	if interrupts == nil {
+		return <-finished
+	}
+	select {
+	case err := <-finished:
+		return err
+	case interruptedBy := <-interrupts:
+		// Wait even when the process exited between the select and Signal.  In
+		// particular, mutation-test.sh must get to run its restoration trap
+		// before this parent reports an interrupted checkpoint.
+		if cmd.Process != nil {
+			_ = cmd.Process.Signal(interruptedBy)
+		}
+		err := <-finished
+		if err != nil {
+			return fmt.Errorf("checkpoint interrupted by %s (child exited: %w)", interruptedBy, err)
+		}
+		return fmt.Errorf("checkpoint interrupted by %s", interruptedBy)
+	}
+}
+
 func runDevCheckpoint(args []string) int {
 	fs := flag.NewFlagSet("dev checkpoint", flag.ContinueOnError)
 	skipMutation := fs.Bool("skip-mutation", false,
@@ -236,6 +267,20 @@ func devCheckpointIsPushEligible(receipt DevCheckpointReceipt) bool {
 }
 
 func performDevCheckpoint(opts devCheckpointOptions) (DevCheckpointReceipt, error) {
+	interrupts := make(chan os.Signal, 1)
+	signal.Notify(interrupts, os.Interrupt)
+	defer signal.Stop(interrupts)
+	interrupted := func() error {
+		select {
+		case sig := <-interrupts:
+			return fmt.Errorf("checkpoint interrupted by %s", sig)
+		default:
+			return nil
+		}
+	}
+	if err := interrupted(); err != nil {
+		return DevCheckpointReceipt{}, err
+	}
 	branch, err := git(opts.root, "rev-parse", "--abbrev-ref", "HEAD")
 	if err != nil {
 		return DevCheckpointReceipt{}, err
@@ -313,6 +358,9 @@ func performDevCheckpoint(opts devCheckpointOptions) (DevCheckpointReceipt, erro
 	mutationEnv = stripped
 
 	run := func(name string, skip bool, skipReason string, dir string, argv ...string) error {
+		if err := interrupted(); err != nil {
+			return err
+		}
 		step := devCheckpointStep{Name: name, Command: strings.Join(argv, " ")}
 		if skip {
 			step.Skipped, step.SkipReason = true, skipReason
@@ -329,7 +377,7 @@ func performDevCheckpoint(opts devCheckpointOptions) (DevCheckpointReceipt, erro
 		if name == "mutation-suite" {
 			cmd.Env = mutationEnv
 		}
-		err := cmd.Run()
+		err := runCheckpointCommand(cmd, interrupts)
 		step.DurationMS = time.Since(started).Milliseconds()
 		if err != nil {
 			step.ExitCode = 1

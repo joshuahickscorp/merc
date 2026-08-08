@@ -32,9 +32,7 @@ func TestAuthorizeSettlementDeadlockRepro(t *testing.T) {
 	// Faster deadlock detection so the repro is deterministic within test budget.
 	// ALTER DATABASE + pool.Reset so every Store connection inherits 50ms.
 	var dbName string
-	if err := pool.QueryRow(ctx, `SELECT current_database()`).Scan(&dbName); err != nil {
-		t.Fatal(err)
-	}
+	must(t, pool.QueryRow(ctx, `SELECT current_database()`).Scan(&dbName))
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`ALTER DATABASE %s SET deadlock_timeout = '50ms'`, quoteIdent(dbName))); err != nil {
 		t.Fatal(err)
 	}
@@ -48,9 +46,7 @@ func TestAuthorizeSettlementDeadlockRepro(t *testing.T) {
 		   AND c.relname IN ('buyers','realtime_worker_offers','execution_contracts',
 		                     'ledger_entries','buyer_prepaid_balances')
 		 ORDER BY c.relname`)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	for rows.Next() {
 		var oid int64
 		var name string
@@ -64,9 +60,7 @@ func TestAuthorizeSettlementDeadlockRepro(t *testing.T) {
 
 	buyerID, err := store.CreateBuyerAccount(ctx,
 		"deadlock-repro-"+uuid.NewString()+"@example.test", "integration-password", 50_000)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 
 	// Ample capacity so contention is on lock order, not no-supply.
 	if _, err := pool.Exec(ctx, `
@@ -201,9 +195,7 @@ func TestAuthorizeOnlyNoSettlementDeadlock(t *testing.T) {
 	profile, _, workerID := realtimeFundingFixture(t, ctx, store, pool)
 
 	var dbName string
-	if err := pool.QueryRow(ctx, `SELECT current_database()`).Scan(&dbName); err != nil {
-		t.Fatal(err)
-	}
+	must(t, pool.QueryRow(ctx, `SELECT current_database()`).Scan(&dbName))
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`ALTER DATABASE %s SET deadlock_timeout = '50ms'`, quoteIdent(dbName))); err != nil {
 		t.Fatal(err)
 	}
@@ -211,9 +203,7 @@ func TestAuthorizeOnlyNoSettlementDeadlock(t *testing.T) {
 
 	buyerID, err := store.CreateBuyerAccount(ctx,
 		"deadlock-authonly-"+uuid.NewString()+"@example.test", "integration-password", 50_000)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if _, err := pool.Exec(ctx, `
 		UPDATE realtime_worker_offers
 		   SET max_active_sequences=10_000, available_sequences=10_000, status='ACTIVE', last_seen_at=now()

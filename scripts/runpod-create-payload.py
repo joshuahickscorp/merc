@@ -28,7 +28,10 @@ start are easy to get wrong and were both wrong for the first three attempts:
 - volumeMountPath is the HuggingFace cache. Without a volume the model is
   re-downloaded on every restart, which is slow and billed.
 
-Usage: runpod-create-payload.py <gpu> <image> <model> <api-key> <name> <cloud>
+Usage: runpod-create-payload.py --api-key-stdin <gpu> <image> <model> <name> <cloud>
+
+The vLLM API key is read from standard input, never process arguments.  The
+caller must provide exactly one non-empty line through a private pipe/FD.
 
 MERC_VLLM_GGUF_REPO + MERC_VLLM_GGUF_FILE switch to GGUF mode, where <model>
 becomes the tokenizer repo.
@@ -56,7 +59,13 @@ def runtime_settings() -> dict:
         "max_model_len": os.environ.get("MERC_VLLM_MAX_MODEL_LEN", "32768"),
         "gpu_memory_utilization": os.environ.get("MERC_VLLM_GPU_MEMORY_UTILIZATION", "0.9"),
         "max_num_seqs": os.environ.get("MERC_VLLM_MAX_NUM_SEQS", "128"),
+        # "" (default) serves a generator; "embed" serves a pooling model
+        # through /v1/embeddings. The distinction changes which vLLM flags are
+        # even legal — see vllm_args.
+        "task": os.environ.get("MERC_VLLM_TASK", ""),
     }
+    if settings["task"] not in ("", "embed"):
+        raise ValueError("MERC_VLLM_TASK must be empty (generation) or 'embed'")
     if not REVISION.fullmatch(settings["model_revision"]):
         raise ValueError("MERC_VLLM_MODEL_REVISION must be an exact 40-character revision")
     if not REVISION.fullmatch(settings["tokenizer_revision"]):
@@ -76,16 +85,40 @@ def runtime_settings() -> dict:
 
 
 def vllm_args(settings: dict) -> list[str]:
-    return [
-    "--host", "0.0.0.0",
-    "--port", "8000",
-    "--max-model-len", settings["max_model_len"],
-    "--served-model-name", settings["served_model"],
-    "--gpu-memory-utilization", settings["gpu_memory_utilization"],
-    "--enable-prefix-caching",
-    "--enable-chunked-prefill",
-    "--max-num-seqs", settings["max_num_seqs"],
+    args = [
+        "--host", "0.0.0.0",
+        "--port", "8000",
+        "--max-model-len", settings["max_model_len"],
+        "--served-model-name", settings["served_model"],
+        "--gpu-memory-utilization", settings["gpu_memory_utilization"],
+        "--max-num-seqs", settings["max_num_seqs"],
     ]
+    if settings["task"] == "embed":
+        # A pooling model is not a generator, and vLLM refuses the generation
+        # tuning flags for one: prefix caching and chunked prefill both assume a
+        # decode loop that an embedding runner does not have. Passing them anyway
+        # fails at startup, which on a rented pod costs money to discover.
+        #
+        # This is also why the embed arm cannot inherit the generation profile's
+        # 32768 context: MiniLM's position embeddings stop at 512, and asking for
+        # more is refused before the first request.
+        #
+        # `--runner pooling`, NOT `--task embed`. The pinned image is vLLM
+        # 0.23.0, which removed --task entirely; vllm/config/model.py says it in
+        # so many words -- "Use `--runner pooling` or `--runner auto` for
+        # embedding models". An unrecognised argument makes argparse exit before
+        # the server binds, and RunPod's proxy then answers 404 with nothing
+        # behind it for the whole readiness window. That is indistinguishable
+        # from the GGUF failure recorded above, and it cost $0.07 and 9 minutes
+        # on an A40 to see once. The flag set is verifiable for free against the
+        # pinned image:
+        #
+        #   docker run --rm --platform linux/amd64 --entrypoint bash <image> \
+        #     -lc "grep -n 'runner' .../vllm/engine/arg_utils.py"
+        #
+        # Do that before changing engine flags rather than after renting a GPU.
+        return ["--runner", "pooling", *args]
+    return [*args, "--enable-prefix-caching", "--enable-chunked-prefill"]
 
 
 def gguf_start_command(repo: str, filename: str, tokenizer: str, key: str, settings: dict) -> str:
@@ -109,10 +142,14 @@ def gguf_start_command(repo: str, filename: str, tokenizer: str, key: str, setti
 
 
 def main() -> int:
-    if len(sys.argv) != 7:
+    if len(sys.argv) != 7 or sys.argv[1] != "--api-key-stdin":
         sys.stderr.write(__doc__.strip().splitlines()[-1] + "\n")
         return 2
-    gpu, image, model, key, name, cloud = sys.argv[1:7]
+    key = sys.stdin.read().rstrip("\n")
+    if not key or "\n" in key or "\r" in key:
+        sys.stderr.write("RunPod vLLM API key stdin must contain one non-empty line\n")
+        return 2
+    gpu, image, model, name, cloud = sys.argv[2:7]
     print(json.dumps({
         "name": name,
         "imageName": image,

@@ -26,13 +26,9 @@ func completeIdentity(t *testing.T, root string) (ReceiptIdentity, string) {
 	// Hash a stable file as stand-in "binary" for unit tests.
 	bin := filepath.Join(root, "control", "receipt_identity.go")
 	sum, err := sha256FileHex(bin)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	commit, err := ResolveRepoSourceCommit(root)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	id := ReceiptIdentity{
 		SourceCommit:        IdentitySlotValue(commit),
 		BuildDigest:         IdentitySlotValue(sum),
@@ -70,8 +66,20 @@ func TestValidateReceiptIdentityRejectsFreeStringCommit(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected free-string commit to be refused")
 	}
-	if !strings.Contains(err.Error(), "not a git object") {
+	if !strings.Contains(err.Error(), "full lowercase commit SHA") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestValidateReceiptIdentityRejectsExistingBlobAsSourceCommit(t *testing.T) {
+	root := testRepoRoot(t)
+	id, bin := completeIdentity(t, root)
+	blob, err := gitBytes(root, "rev-parse", "HEAD:control/receipt_identity.go")
+	must(t, err)
+	id.SourceCommit = IdentitySlotValue(strings.TrimSpace(string(blob)))
+	err = ValidateReceiptIdentity(root, id, bin)
+	if err == nil || !strings.Contains(err.Error(), "not a commit") {
+		t.Fatalf("existing blob was accepted as source commit: %v", err)
 	}
 }
 
@@ -113,17 +121,11 @@ func TestWriteBoundEvidenceJSONRoundTrip(t *testing.T) {
 		Identity:        id,
 		BuildBinaryPath: bin,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	raw, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	var got map[string]any
-	if err := json.Unmarshal(raw, &got); err != nil {
-		t.Fatal(err)
-	}
+	must(t, json.Unmarshal(raw, &got))
 	if got["binding_status"] != BindingBound {
 		t.Fatalf("binding_status=%v", got["binding_status"])
 	}
@@ -153,9 +155,7 @@ func TestWriteBoundEvidenceJSONStickyWithdrawal(t *testing.T) {
 		"binding_status": BindingWithdrawn,
 	}
 	raw, _ := json.MarshalIndent(seed, "", "  ")
-	if err := os.WriteFile(path, append(raw, '\n'), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	must(t, os.WriteFile(path, append(raw, '\n'), 0o644))
 
 	// Non-withdrawn overwrite without authority must fail.
 	err := WriteBoundEvidenceJSON(EvidenceWriteRequest{
@@ -181,13 +181,9 @@ func TestWriteBoundEvidenceJSONStickyWithdrawal(t *testing.T) {
 		BuildBinaryPath: bin,
 		AuthorityID:     "test-authority-rerun-1",
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	got, err := readJSONObjectFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if got["binding_status"] != BindingBound {
 		t.Fatalf("binding_status=%v", got["binding_status"])
 	}

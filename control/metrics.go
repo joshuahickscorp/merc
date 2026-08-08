@@ -400,7 +400,7 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	writeCounter(w, "merc_cold_model_hedges_suppressed_total", "Straggler hedges suppressed because the slowness was an expected cold GGUF load (worker not yet warm on the model), averting a spurious cold-to-cold hedge storm.", metrics.coldModelHedgesSuppressed.Load())
 	writeCounter(w, "merc_endgame_races_total", "Endgame-race duplicates actually inserted onto an idle warm same-class peer (Speed Lane wave 1B): the slowest running chunk raced the moment a job's queue emptied, ahead of the 90s hedge window. A subset of merc_hedges_total, split out so the fan-out planner's tail-latency work has its own signal.", metrics.endgameRaces.Load())
 	writeCounter(w, "merc_sla_misses_total", "Jobs whose bound speed-SLA settled as MISSED (Speed Lane wave 2A): the buyer-visible span exceeded the guarantee, sla_met stamped false, the once-only sla_refund credit recorded. Counted once per job (only the settle call that decided the miss bumps it).", metrics.slaMisses.Load())
-	writeCounter(w, "merc_no_hedge_peer_total", "Dispatch-time heterogeneous-fleet degradation: a redundancy/hedge peer was needed but no eligible same-class peer existed on the fleet (silent loss of hedging + warm-routing). Alerted on by monitoring/alerts.yml.", NoHedgePeerCount())
+	writeCounter(w, "merc_no_hedge_peer_total", "Dispatch-time heterogeneous-fleet degradation: a redundancy/hedge peer was needed but no eligible same-class peer existed on the fleet (silent loss of hedging + warm-routing). Alerted on by ops/monitoring/alerts.yml.", NoHedgePeerCount())
 	residentBytes, openFDs, fdAvailable := processResourceSnapshot()
 	var goMemory runtime.MemStats
 	runtime.ReadMemStats(&goMemory)

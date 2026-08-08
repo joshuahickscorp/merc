@@ -25,7 +25,7 @@ import (
 //
 // It does NOT wire a production path that skips the durable contract insert —
 // that design dies under concurrent ceiling and crash recovery (see
-// docs/HOT_PATH_DURABLE_ADMISSION.md). It measures the surviving floor:
+// docs/RUNTIME_AND_PERF.md). It measures the surviving floor:
 // amortized O(1) durable holds still synchronous before dispatch.
 //
 // Opt-in:
@@ -116,9 +116,7 @@ func TestHotPathFreeAdmitProbe(t *testing.T) {
 			PerRequestCeilingNanos: needNanos,
 			TTLSeconds:             3600,
 		})
-		if err != nil {
-			t.Fatalf("create envelope: %v", err)
-		}
+		mustf(t, err, "create envelope: %v")
 		env = created
 	}
 
@@ -147,7 +145,7 @@ func TestHotPathFreeAdmitProbe(t *testing.T) {
 				RequestID: "warm-leg-" + uuid.NewString(), BuyerID: buyerID, Profile: profile,
 				InputCommitment: strings.Repeat("a", 64), RequestSHA256: strings.Repeat("b", 64),
 				MaximumPriceUSD: maxUSD, EstimatedPriceUSD: estUSD,
-				DeadlineAt: time.Now().Add(time.Minute),
+				DeadlineAt:          time.Now().Add(time.Minute),
 				MaximumPromptTokens: maxPrompt, MaximumCompletionTokens: maxCompletion,
 				EstimatedPromptTokens: 7, EstimatedCompletionTokens: 2,
 				BuyerDeclaredCeilingUSD: maxUSD * 1.1,
@@ -164,7 +162,7 @@ func TestHotPathFreeAdmitProbe(t *testing.T) {
 				RequestID: "leg-" + uuid.NewString(), BuyerID: buyerID, Profile: profile,
 				InputCommitment: strings.Repeat("a", 64), RequestSHA256: strings.Repeat("b", 64),
 				MaximumPriceUSD: maxUSD, EstimatedPriceUSD: estUSD,
-				DeadlineAt: time.Now().Add(time.Minute),
+				DeadlineAt:          time.Now().Add(time.Minute),
 				MaximumPromptTokens: maxPrompt, MaximumCompletionTokens: maxCompletion,
 				EstimatedPromptTokens: 7, EstimatedCompletionTokens: 2,
 				BuyerDeclaredCeilingUSD: maxUSD * 1.1,
@@ -199,8 +197,8 @@ func TestHotPathFreeAdmitProbe(t *testing.T) {
 				RequestID: "warm-env-" + uuid.NewString(), BuyerID: buyerID, Profile: profile,
 				InputCommitment: strings.Repeat("a", 64), RequestSHA256: strings.Repeat("b", 64),
 				MaximumPriceUSD: maxUSD, EstimatedPriceUSD: estUSD,
-				DeadlineAt: time.Now().Add(time.Minute),
-				IdempotencyKey: "warm-env-key-" + uuid.NewString(),
+				DeadlineAt:          time.Now().Add(time.Minute),
+				IdempotencyKey:      "warm-env-key-" + uuid.NewString(),
 				MaximumPromptTokens: maxPrompt, MaximumCompletionTokens: maxCompletion,
 				EstimatedPromptTokens: 7, EstimatedCompletionTokens: 2,
 				EnvelopeID: env.ID,
@@ -219,8 +217,8 @@ func TestHotPathFreeAdmitProbe(t *testing.T) {
 				RequestID: "env-" + uuid.NewString(), BuyerID: buyerID, Profile: profile,
 				InputCommitment: strings.Repeat("a", 64), RequestSHA256: strings.Repeat("b", 64),
 				MaximumPriceUSD: maxUSD, EstimatedPriceUSD: estUSD,
-				DeadlineAt: time.Now().Add(time.Minute),
-				IdempotencyKey: "env-key-" + uuid.NewString(),
+				DeadlineAt:          time.Now().Add(time.Minute),
+				IdempotencyKey:      "env-key-" + uuid.NewString(),
 				MaximumPromptTokens: maxPrompt, MaximumCompletionTokens: maxCompletion,
 				EstimatedPromptTokens: 7, EstimatedCompletionTokens: 2,
 				EnvelopeID: env.ID,
@@ -311,9 +309,7 @@ func TestHotPathFreeAdmitProbe(t *testing.T) {
 			ensureEnvelope()
 			parts, contractID, err := authorizeEnvelopeDirectClaimTimed(ctx, store, pool, buyerID, env.ID,
 				worker, profile, maxUSD, estUSD, maxPrompt, maxCompletion, needNanos)
-			if err != nil {
-				t.Fatalf("decomp sample %d: %v", i, err)
-			}
+			mustf(t, err, "decomp sample %d: %v", i)
 			begins = append(begins, parts.begin)
 			spends = append(spends, parts.envelopeSpend)
 			offers = append(offers, parts.directOffer)
@@ -389,10 +385,10 @@ func TestHotPathFreeAdmitProbe(t *testing.T) {
 			"exposure_window":   "none beyond today's EXECUTING hold — durable before dispatch",
 		},
 		"measured_authorize_p50_c1_ms": map[string]float64{
-			"legacy":                 p50(find("legacy_multi_aggregate", 1)),
-			"envelope":               p50(find("envelope_active", 1)),
-			"envelope_plus_direct":   p50(find("envelope_plus_direct_offer_claim", 1)),
-			"direct_claim_decomp":    decompOut.TotalMs.P50,
+			"legacy":               p50(find("legacy_multi_aggregate", 1)),
+			"envelope":             p50(find("envelope_active", 1)),
+			"envelope_plus_direct": p50(find("envelope_plus_direct_offer_claim", 1)),
+			"direct_claim_decomp":  decompOut.TotalMs.P50,
 		},
 		"prior_context_ms": map[string]float64{
 			"merc_owned_metal_p50":  2.994,
@@ -408,22 +404,22 @@ func TestHotPathFreeAdmitProbe(t *testing.T) {
 	}
 
 	payload := map[string]any{
-		"kind":             "hot_path_free_admit_probe",
-		"schema_version":   1,
-		"binding_status":   "UNBOUND_PROBE",
-		"measured_at":      time.Now().UTC().Format(time.RFC3339Nano),
-		"hostname":         host,
-		"cpus":             runtime.NumCPU(),
-		"load_average":     loadAvg,
-		"load_n":           loadN,
-		"machine_quiet":    quiet,
-		"samples_per_cell": samplesPerCell,
-		"warmup":           warmup,
-		"profile_id":       profile.RuntimeProfileID,
-		"cells":            cells,
-		"summary_table":    table,
+		"kind":                   "hot_path_free_admit_probe",
+		"schema_version":         1,
+		"binding_status":         "UNBOUND_PROBE",
+		"measured_at":            time.Now().UTC().Format(time.RFC3339Nano),
+		"hostname":               host,
+		"cpus":                   runtime.NumCPU(),
+		"load_average":           loadAvg,
+		"load_n":                 loadN,
+		"machine_quiet":          quiet,
+		"samples_per_cell":       samplesPerCell,
+		"warmup":                 warmup,
+		"profile_id":             profile.RuntimeProfileID,
+		"cells":                  cells,
+		"summary_table":          table,
 		"direct_claim_decomp_c1": decompOut,
-		"verdict":          verdict,
+		"verdict":                verdict,
 		"can_prove": []string{
 			"envelope path authorize latency vs legacy at c=1,8,32",
 			"envelope + direct offer claim (lease stand-in) authorize latency",
@@ -435,26 +431,18 @@ func TestHotPathFreeAdmitProbe(t *testing.T) {
 			"safety of zero-durable-before-dispatch (disqualified by argument, not measured)",
 			"O(1) materialised committed-micros counter (named next step on short-reserve branch; not built here)",
 		},
-		"design_doc": "docs/HOT_PATH_DURABLE_ADMISSION.md",
+		"design_doc": "docs/RUNTIME_AND_PERF.md",
 	}
 
 	dir := filepath.Join("..", "evidence", "perf")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
-	}
+	must(t, os.MkdirAll(dir, 0o755))
 	ts := time.Now().UTC().Format("20060102T150405Z")
 	outPath := filepath.Join(dir, "hot-path-free-admit-"+ts+".json")
 	latest := filepath.Join(dir, "hot-path-free-admit-latest.json")
 	raw, err := json.MarshalIndent(payload, "", "  ")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(outPath, raw, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(latest, raw, 0o644); err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
+	must(t, os.WriteFile(outPath, raw, 0o644))
+	must(t, os.WriteFile(latest, raw, 0o644))
 	t.Logf("wrote %s and %s", outPath, latest)
 	fmt.Printf("HOT_PATH_FREE summary_table=%s\n", hotPathMustJSON(table))
 	fmt.Printf("HOT_PATH_FREE decomp_total_p50=%.3f envelope_spend_p50=%.3f direct_offer_p50=%.3f contract_batch_p50=%.3f commit_p50=%.3f\n",

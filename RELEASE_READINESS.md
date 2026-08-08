@@ -20,7 +20,7 @@ requires at least 95, zero open P0/P1, all mandatory scenarios, and a passing
 24-hour soak. Recompute with `python3 scripts/validate-readiness.py`. The
 decision ledger is `ops/go-no-go.json`; the advisory domain ledger is
 `ops/readiness.json` (hand-typed `earned` is ignored). The operator checklist
-for the remaining 16 points is `docs/FACET_EXTERNAL_ACTION_PACK.md`.
+for the remaining 16 points is `docs/PROGRAMME.md § "Facet external action pack"`.
 
 ## What is proven
 
@@ -42,12 +42,13 @@ for the remaining 16 points is `docs/FACET_EXTERNAL_ACTION_PACK.md`.
   rollback/forward recovery, a seeded nine-component restart storm, scoped
   DSAR/tombstone replay, technical incident scenarios, and 4,096 generated
   deterministic payment sequences also pass. The longest retained soak receipt is
-  `evidence/autonomous/local-soak-300s.json` (300 s); the only other is
-  `local-soak-60s.json`, which carries a single sample. No 15-minute, two-hour or
-  24-hour soak receipt exists, and `.artifacts/local-soak-failures/` records the
-  15-minute attempts that ended in an OOM kill and in a control restart. Soak
-  duration is therefore NOT EXECUTED beyond 300 s. Payment evidence is labelled
-  SIMULATED; Stripe test mode remains NOT EXECUTED.
+  `evidence/autonomous/local-soak-300s.json` (300 s; unbound historical soak, not
+  a bound qualifying soak); the only other is `local-soak-60s.json`, which
+  carries a single sample. No 15-minute, two-hour or 24-hour soak receipt exists,
+  and `.artifacts/local-soak-failures/` records the 15-minute attempts that ended
+  in an OOM kill and in a control restart. Soak duration is therefore NOT
+  EXECUTED beyond 300 s. Payment evidence is labelled SIMULATED; Stripe test mode
+  remains NOT EXECUTED.
 - Fourteen independent review domains contain the required scope, failure model,
   findings, severity, evidence, repair, verification, and residual risk fields in
   `ops/independent-reviews.json`.

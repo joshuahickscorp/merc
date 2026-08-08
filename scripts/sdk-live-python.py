@@ -10,7 +10,7 @@ Needs MERC_LIVE_BASE_URL and MERC_LIVE_API_KEY, or the local defaults below.
 """
 
 import sys, time, json
-sys.path.insert(0, "sdk/python")
+sys.path.insert(0, "clients/sdk/python")
 from merc import Client
 c = Client(base_url="http://127.0.0.1:8093", api_key="dev-api-key-0001")
 print("  models:", [m.get("id") for m in c.models()][:2])

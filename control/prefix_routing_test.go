@@ -93,14 +93,10 @@ func TestPrefixWarmthIsRecordedAndScoped(t *testing.T) {
 	prefixID := ComputePrefixID("You are a precise assistant. " + nonce)
 	other := ComputePrefixID("A completely different preamble. " + nonce)
 
-	if err := store.MarkPrefixWarm(ctx, warmWorker, prefixID); err != nil {
-		t.Fatalf("MarkPrefixWarm: %v", err)
-	}
+	mustf(t, store.MarkPrefixWarm(ctx, warmWorker, prefixID), "MarkPrefixWarm: %v")
 
 	warm, err := store.PrefixIsWarm(ctx, warmWorker, prefixID)
-	if err != nil {
-		t.Fatalf("PrefixIsWarm: %v", err)
-	}
+	mustf(t, err, "PrefixIsWarm: %v")
 	if !warm {
 		t.Fatal("worker that just served the prefix is not warm for it")
 	}
@@ -115,9 +111,7 @@ func TestPrefixWarmthIsRecordedAndScoped(t *testing.T) {
 	}
 
 	// Repeat hits accumulate rather than duplicating rows.
-	if err := store.MarkPrefixWarm(ctx, warmWorker, prefixID); err != nil {
-		t.Fatalf("second MarkPrefixWarm: %v", err)
-	}
+	mustf(t, store.MarkPrefixWarm(ctx, warmWorker, prefixID), "second MarkPrefixWarm: %v")
 	var hits int64
 	if err := pool.QueryRow(ctx,
 		`SELECT hits FROM worker_prefix_state WHERE worker_id=$1 AND prefix_id=$2`,
@@ -129,17 +123,13 @@ func TestPrefixWarmthIsRecordedAndScoped(t *testing.T) {
 	}
 
 	workers, err := store.PrefixWarmWorkers(ctx, prefixID)
-	if err != nil {
-		t.Fatalf("PrefixWarmWorkers: %v", err)
-	}
+	mustf(t, err, "PrefixWarmWorkers: %v")
 	if len(workers) != 1 || workers[0] != warmWorker {
 		t.Fatalf("warm workers = %v, want [%s]", workers, warmWorker)
 	}
 
 	// A malformed id is inert, never an error and never a stored row.
-	if err := store.MarkPrefixWarm(ctx, warmWorker, "not-a-prefix"); err != nil {
-		t.Fatalf("malformed id should be ignored, got %v", err)
-	}
+	mustf(t, store.MarkPrefixWarm(ctx, warmWorker, "not-a-prefix"), "malformed id should be ignored, got %v")
 	if got, err := store.PrefixWarmWorkers(ctx, "not-a-prefix"); err != nil || got != nil {
 		t.Fatalf("malformed id lookup should be empty: %v %v", got, err)
 	}
@@ -237,30 +227,20 @@ func TestDeepestWarmPrefixReportsReusableTokens(t *testing.T) {
 	}
 
 	f := seedPayoutFixture(t, ctx, pool, payoutFixtureOpts{creditUSD: 1.00, supplierID: supplier})
-	if err := store.RecordJobPrefixChain(ctx, f.jobID, chain); err != nil {
-		t.Fatalf("record chain: %v", err)
-	}
+	mustf(t, store.RecordJobPrefixChain(ctx, f.jobID, chain), "record chain: %v")
 
 	// deep holds everything; shallow only the first node.
-	if err := store.MarkPrefixChainWarm(ctx, deep, chain); err != nil {
-		t.Fatalf("warm deep: %v", err)
-	}
-	if err := store.MarkPrefixChainWarm(ctx, shallow, chain[:1]); err != nil {
-		t.Fatalf("warm shallow: %v", err)
-	}
+	mustf(t, store.MarkPrefixChainWarm(ctx, deep, chain), "warm deep: %v")
+	mustf(t, store.MarkPrefixChainWarm(ctx, shallow, chain[:1]), "warm shallow: %v")
 
 	deepest, err := store.DeepestWarmPrefix(ctx, deep, f.jobID)
-	if err != nil {
-		t.Fatalf("DeepestWarmPrefix(deep): %v", err)
-	}
+	mustf(t, err, "DeepestWarmPrefix(deep): %v")
 	if want := chain[len(chain)-1].Depth; deepest != want {
 		t.Fatalf("deep worker reusable tokens = %d, want %d", deepest, want)
 	}
 
 	shallowDepth, err := store.DeepestWarmPrefix(ctx, shallow, f.jobID)
-	if err != nil {
-		t.Fatalf("DeepestWarmPrefix(shallow): %v", err)
-	}
+	mustf(t, err, "DeepestWarmPrefix(shallow): %v")
 	if shallowDepth != chain[0].Depth {
 		t.Fatalf("shallow worker reusable tokens = %d, want %d", shallowDepth, chain[0].Depth)
 	}
@@ -269,9 +249,7 @@ func TestDeepestWarmPrefixReportsReusableTokens(t *testing.T) {
 	}
 
 	coldDepth, err := store.DeepestWarmPrefix(ctx, cold, f.jobID)
-	if err != nil {
-		t.Fatalf("DeepestWarmPrefix(cold): %v", err)
-	}
+	mustf(t, err, "DeepestWarmPrefix(cold): %v")
 	if coldDepth != 0 {
 		t.Fatalf("a worker holding nothing reports %d reusable tokens", coldDepth)
 	}
@@ -368,9 +346,7 @@ func TestEvictionKeepsTheValuableNodes(t *testing.T) {
 	// Budget fits the two 128-token nodes but not the 2048-token one.
 	budget := int64(3 * 128 * kvBytesPerToken)
 	evicted, err := store.EvictPrefixCacheToBudget(ctx, worker, budget)
-	if err != nil {
-		t.Fatalf("evict: %v", err)
-	}
+	mustf(t, err, "evict: %v")
 	if evicted == 0 {
 		t.Fatal("over budget but nothing was evicted")
 	}
@@ -378,15 +354,11 @@ func TestEvictionKeepsTheValuableNodes(t *testing.T) {
 	survived := map[string]bool{}
 	rows, err := pool.Query(ctx,
 		`SELECT prefix_id FROM worker_prefix_state WHERE worker_id=$1`, worker)
-	if err != nil {
-		t.Fatalf("read back: %v", err)
-	}
+	mustf(t, err, "read back: %v")
 	defer rows.Close()
 	for rows.Next() {
 		var id string
-		if err := rows.Scan(&id); err != nil {
-			t.Fatal(err)
-		}
+		must(t, rows.Scan(&id))
 		survived[id] = true
 	}
 
@@ -399,9 +371,7 @@ func TestEvictionKeepsTheValuableNodes(t *testing.T) {
 
 	// Idempotent once inside budget.
 	again, err := store.EvictPrefixCacheToBudget(ctx, worker, budget)
-	if err != nil {
-		t.Fatalf("second evict: %v", err)
-	}
+	mustf(t, err, "second evict: %v")
 	if again != 0 {
 		t.Fatalf("evicted %d more rows while already within budget", again)
 	}
@@ -428,9 +398,7 @@ func TestEnforcePrefixRoutingStateBudgetsCoversEveryWorker(t *testing.T) {
 		}
 	}
 	evicted, err := store.EnforcePrefixRoutingStateBudgets(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if evicted < 2 {
 		t.Fatalf("evicted=%d, want low-value state removed for both workers", evicted)
 	}

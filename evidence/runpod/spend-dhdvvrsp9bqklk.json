@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "kind": "runpod_spend_receipt",
+  "pod_id": "dhdvvrsp9bqklk",
+  "gpu": "NVIDIA A40",
+  "image": "vllm/vllm-openai@sha256:3a1e7f5904e1a1192a02aa0086ceaffc33985d7044c7bb25b3a43d61bdbe3ac0",
+  "model": "sentence-transformers/all-MiniLM-L6-v2",
+  "cost_per_hr_usd": 0.44,
+  "cap_usd": 1.0,
+  "lifetime_budget_secs": 6545,
+  "lifetime_actual_secs": 322,
+  "spend_usd": 0.04,
+  "cap_headroom_usd": 0.96,
+  "started_at_unix": 1785858412,
+  "stopped_at_unix": 1785858734,
+  "teardown_verified": true,
+  "orphan_pods": [],
+  "orphan_pods_scope": "account_after_this_run_teardown",
+  "orphan_pods_meaning": "Pod IDs still listed on the RunPod account after this run tore down its own pod (and, for governed experiment, after the exit sweep of every pod the process could see). Empty means none remained at receipt-write time. It does NOT mean the account is permanently clean, that a later SIGKILLed process left nothing behind, or that no operator-kept pod exists outside this run.",
+  "ready": true,
+  "admissible": true,
+  "refusals": [],
+  "limitations": [
+    "Spend is derived from RunPod's advertised cost per hour and the pod's observed lifetime, not from an invoice. It is what Merc believes it spent; the provider's own billing is the authority.",
+    "Storage and network egress are not included.",
+    "Pod IDs still listed on the RunPod account after this run tore down its own pod (and, for governed experiment, after the exit sweep of every pod the process could see). Empty means none remained at receipt-write time. It does NOT mean the account is permanently clean, that a later SIGKILLed process left nothing behind, or that no operator-kept pod exists outside this run."
+  ],
+  "producer_identity": {
+    "source_commit": {
+      "value": "33801e556b3bf0c1ff6e7045fff805d2a8cd1589"
+    },
+    "build_digest": {
+      "value": "68579b6481a6c64891b903ac2c4b30e0a60b33fc69bd6734a15fa73d8fd8c9eb"
+    },
+    "model_artifact_digest": {
+      "na": "model field is a name/ref (sentence-transformers/all-MiniLM-L6-v2), not a weight digest; weight pins live on the placement contract / runtime authority"
+    },
+    "image_digest": {
+      "value": "sha256:3a1e7f5904e1a1192a02aa0086ceaffc33985d7044c7bb25b3a43d61bdbe3ac0"
+    },
+    "harness_revision": {
+      "value": "scripts/runpod-spend-guard.py"
+    },
+    "corpus_digest": {
+      "na": "no external corpus in this measurement"
+    },
+    "exact_config": {
+      "value": "spend guard receipt: pod_id=dhdvvrsp9bqklk gpu=NVIDIA A40 image=vllm/vllm-openai@sha256:3a1e7f5904e1a1192a02aa0086ceaffc33985d7044c7bb25b3a43d61bdbe3ac0 model=sentence-transformers/all-MiniLM-L6-v2 cap_usd=1.0 cost_per_hr=0.44"
+    },
+    "raw_samples": {
+      "value": "spend fields embedded; no sample array"
+    }
+  },
+  "binding_status": "BOUND"
+}

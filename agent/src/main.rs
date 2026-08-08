@@ -1,13 +1,14 @@
 mod config;
 mod deadline;
+mod enrollment;
 mod executor;
 mod fabric;
 mod failure;
 mod hardware;
 mod inference;
-mod openai_serve;
 mod media;
 mod models;
+mod openai_serve;
 mod pool;
 mod protocol;
 mod quantized_llama_batched; // vendored + patched candle quantized_llama (bsz>1 batched prefill)
@@ -418,6 +419,34 @@ struct Cli {
 }
 
 #[derive(Subcommand)]
+enum EnrollCommand {
+    /// Generate (or reuse) the device key and print a `cxer2_…` request for the
+    /// supplier owner to approve in the console.
+    Request {
+        /// Control-plane origin, e.g. `https://control.example.test` or
+        /// `http://127.0.0.1:8080` for local test.
+        #[arg(long)]
+        control_origin: String,
+        /// Directory for the device key and pending request (default: ~/.merc/enrollment).
+        #[arg(long)]
+        state_dir: Option<PathBuf>,
+    },
+    /// Exchange an owner-issued `cxeb2_…` approval bundle for a worker token and
+    /// write it into agent.toml.
+    Complete {
+        /// Approval bundle from the supplier console (or stdin when `-`).
+        #[arg(long)]
+        bundle: String,
+        /// Agent config path to write/update.
+        #[arg(long, default_value = "")]
+        config: String,
+        /// Directory holding the pending device key/request.
+        #[arg(long)]
+        state_dir: Option<PathBuf>,
+    },
+}
+
+#[derive(Subcommand)]
 enum Command {
     Run {
         #[arg(long, default_value = "agent.toml")]
@@ -637,8 +666,47 @@ enum Command {
         #[arg(long, default_value = "")]
         out: String,
     },
+    /// Interleaved candle vs llama.cpp embed parity on one corpus (Metal).
+    ///
+    /// Warm both arms, discard warmup, then A/B/A/B timed reps so host drift
+    /// does not land in one block. Emits p50/p95/p99 ms/unit, absolute delta,
+    /// cosine equivalence, and per-rep raw samples. Used by
+    /// scripts/engine-parity-metal-embed-measure.py to seal a BOUND receipt.
+    BenchEmbedParity {
+        #[arg(long, default_value = "all-minilm-l6-v2")]
+        model: String,
+        /// llama-server started with `--embedding --pooling mean` on the pinned GGUF.
+        #[arg(long, default_value = "http://127.0.0.1:8188")]
+        llama_base_url: String,
+        /// Texts per timed request. Same batch for both arms.
+        #[arg(long, default_value_t = 8)]
+        batch: usize,
+        /// Timed interleaved pairs after warmup (each pair = one candle + one llama).
+        #[arg(long, default_value_t = 32)]
+        reps: u32,
+        /// Warmup calls per arm discarded before timing.
+        #[arg(long, default_value_t = 5)]
+        warmup: u32,
+        /// Where to write the JSON payload. Printed to stdout when empty.
+        #[arg(long, default_value = "")]
+        out: String,
+    },
     Characterize,
     Version,
+    /// Device-bound enrollment: print a request for the supplier owner, then
+    /// complete against an approval bundle to obtain a worker token.
+    Enroll {
+        #[command(subcommand)]
+        action: EnrollCommand,
+    },
+    /// Fetch earnings aggregates and the recent per-credit payout ledger.
+    Earnings {
+        #[arg(long, default_value = "agent.toml")]
+        config: PathBuf,
+        /// Maximum ledger rows to print (newest first).
+        #[arg(long, default_value_t = 50)]
+        limit: u32,
+    },
     /// Serve a minimal OpenAI-compatible HTTP surface over the in-process Candle
     /// engine on the pinned GGUF. Exists so merc-serving-matrix-v1 can enter
     /// Candle as a same-digest arm against llama.cpp (streamed chat completions).
@@ -759,6 +827,14 @@ async fn main() -> Result<()> {
             println!("merc-agent {AGENT_VERSION}");
             Ok(())
         }
+        Command::Enroll { action } => {
+            init_tracing();
+            run_enroll(action).await
+        }
+        Command::Earnings { config, limit } => {
+            init_tracing();
+            run_earnings_cli(config, limit).await
+        }
         Command::ServeOpenAI {
             bind,
             model,
@@ -853,6 +929,17 @@ async fn main() -> Result<()> {
                 &out,
             )
             .await
+        }
+        Command::BenchEmbedParity {
+            model,
+            llama_base_url,
+            batch,
+            reps,
+            warmup,
+            out,
+        } => {
+            init_tracing();
+            run_bench_embed_parity(&model, &llama_base_url, batch, reps, warmup, &out).await
         }
         Command::EmitEmbedArtifact {
             runtime,
@@ -1729,6 +1816,297 @@ const EMBED_BENCH_CORPUS: &[&str] = &[
     "Supplier payouts are held until verification clears.",
     "A quantized model is a different product, not a cheaper one.",
 ];
+
+/// Interleaved candle vs llama.cpp embed timing + cosine gate.
+///
+/// Unit = one text. ms_per_unit = wall_ms / batch for each timed request.
+/// Order is candle, llama, candle, llama… so load drift is shared.
+async fn run_bench_embed_parity(
+    model: &str,
+    llama_base_url: &str,
+    batch: usize,
+    reps: u32,
+    warmup: u32,
+    out: &str,
+) -> Result<()> {
+    use runtime_driver::{
+        cosine, CandleDriver, LlamaCppDriver, LlamaServerSupervision, RuntimeDriver,
+    };
+    use sha2::{Digest, Sha256};
+
+    if batch == 0 {
+        anyhow::bail!("batch must be >= 1");
+    }
+    let timed_reps = reps.max(1) as usize;
+    let warmup_n = warmup as usize;
+
+    let candle: Arc<dyn RuntimeDriver> = Arc::new(CandleDriver::new());
+    let llama_concrete = Arc::new(LlamaCppDriver::new(LlamaServerSupervision::Attach {
+        base_url: llama_base_url.to_string(),
+    })?);
+    let llama: Arc<dyn RuntimeDriver> = llama_concrete.clone();
+    candle.launch().await?;
+    llama
+        .launch()
+        .await
+        .with_context(|| format!("llama-server at {llama_base_url} must be serving embeddings"))?;
+    let engine_props = llama_concrete.engine_properties().await?;
+
+    let pool = ModelPool::new();
+    let corpus_digest = {
+        let mut hasher = Sha256::new();
+        for line in EMBED_BENCH_CORPUS {
+            hasher.update(line.as_bytes());
+            hasher.update([0u8]);
+        }
+        format!("{:x}", hasher.finalize())
+    };
+
+    let quality_texts: Vec<String> = EMBED_BENCH_CORPUS.iter().map(|s| s.to_string()).collect();
+    let ours = candle.embed(model, &quality_texts, &pool).await?;
+    let theirs = llama.embed(model, &quality_texts, &pool).await?;
+    anyhow::ensure!(
+        ours.len() == theirs.len() && ours.len() == quality_texts.len(),
+        "quality embed row counts mismatch candle={} llama={} corpus={}",
+        ours.len(),
+        theirs.len(),
+        quality_texts.len()
+    );
+    let mut min_cosine = f32::MAX;
+    let mut sum_cosine = 0.0_f32;
+    let mut per_text_cosine = Vec::with_capacity(ours.len());
+    for (a, b) in ours.iter().zip(&theirs) {
+        let c = cosine(a, b).context("cosine over mismatched vectors")?;
+        min_cosine = min_cosine.min(c);
+        sum_cosine += c;
+        per_text_cosine.push(c);
+    }
+    let mean_cosine = sum_cosine / ours.len() as f32;
+    const COSINE_GATE: f32 = 0.999;
+    let quality_passes = min_cosine >= COSINE_GATE;
+
+    let texts: Vec<String> = (0..batch)
+        .map(|i| EMBED_BENCH_CORPUS[i % EMBED_BENCH_CORPUS.len()].to_string())
+        .collect();
+
+    // Warm both arms; discard.
+    for _ in 0..warmup_n.max(1) {
+        candle.embed(model, &texts, &pool).await?;
+        llama.embed(model, &texts, &pool).await?;
+    }
+
+    let mut candle_ms_per_unit: Vec<f64> = Vec::with_capacity(timed_reps);
+    let mut llama_ms_per_unit: Vec<f64> = Vec::with_capacity(timed_reps);
+    let mut candle_wall_ms: Vec<f64> = Vec::with_capacity(timed_reps);
+    let mut llama_wall_ms: Vec<f64> = Vec::with_capacity(timed_reps);
+    let mut raw_samples = Vec::with_capacity(timed_reps * 2);
+
+    for i in 0..timed_reps {
+        // A then B within each pair — fixed order so the pair is comparable;
+        // pairs themselves are interleaved over wall time.
+        let t0 = std::time::Instant::now();
+        let v_c = candle.embed(model, &texts, &pool).await?;
+        let wall_c = t0.elapsed().as_secs_f64() * 1000.0;
+        anyhow::ensure!(v_c.len() == batch, "candle returned {} rows", v_c.len());
+        let mpu_c = wall_c / batch as f64;
+        candle_wall_ms.push(wall_c);
+        candle_ms_per_unit.push(mpu_c);
+        raw_samples.push(serde_json::json!({
+            "pair": i,
+            "arm": "candle_metal",
+            "order_in_pair": 0,
+            "wall_ms": wall_c,
+            "ms_per_unit": mpu_c,
+            "batch": batch,
+        }));
+
+        let t1 = std::time::Instant::now();
+        let v_l = llama.embed(model, &texts, &pool).await?;
+        let wall_l = t1.elapsed().as_secs_f64() * 1000.0;
+        anyhow::ensure!(v_l.len() == batch, "llama returned {} rows", v_l.len());
+        let mpu_l = wall_l / batch as f64;
+        llama_wall_ms.push(wall_l);
+        llama_ms_per_unit.push(mpu_l);
+        raw_samples.push(serde_json::json!({
+            "pair": i,
+            "arm": "llama_cpp_metal",
+            "order_in_pair": 1,
+            "wall_ms": wall_l,
+            "ms_per_unit": mpu_l,
+            "batch": batch,
+        }));
+    }
+
+    fn pct(xs: &[f64], p: f64) -> f64 {
+        if xs.is_empty() {
+            return f64::NAN;
+        }
+        let mut s = xs.to_vec();
+        s.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        if s.len() == 1 {
+            return s[0];
+        }
+        let k = (s.len() - 1) as f64 * (p / 100.0);
+        let f = k.floor() as usize;
+        let c = (f + 1).min(s.len() - 1);
+        if f == c {
+            s[f]
+        } else {
+            s[f] + (s[c] - s[f]) * (k - f as f64)
+        }
+    }
+
+    let c_p50 = pct(&candle_ms_per_unit, 50.0);
+    let c_p95 = pct(&candle_ms_per_unit, 95.0);
+    let c_p99 = pct(&candle_ms_per_unit, 99.0);
+    let l_p50 = pct(&llama_ms_per_unit, 50.0);
+    let l_p95 = pct(&llama_ms_per_unit, 95.0);
+    let l_p99 = pct(&llama_ms_per_unit, 99.0);
+
+    // Paired delta = llama - candle (positive => candle faster).
+    let paired_delta: Vec<f64> = candle_ms_per_unit
+        .iter()
+        .zip(&llama_ms_per_unit)
+        .map(|(c, l)| l - c)
+        .collect();
+    let delta_p50 = pct(&paired_delta, 50.0);
+    let delta_p95 = pct(&paired_delta, 95.0);
+    let delta_p99 = pct(&paired_delta, 99.0);
+    let ratio_p50 = if c_p50 > 0.0 { l_p50 / c_p50 } else { f64::NAN };
+    let ratio_p95 = if c_p95 > 0.0 { l_p95 / c_p95 } else { f64::NAN };
+    let ratio_p99 = if c_p99 > 0.0 { l_p99 / c_p99 } else { f64::NAN };
+
+    // Bootstrap SE of paired median for MDE (rough, n pairs).
+    let n = paired_delta.len().max(1) as f64;
+    let mean_d = paired_delta.iter().sum::<f64>() / n;
+    let var_d = paired_delta
+        .iter()
+        .map(|d| {
+            let x = d - mean_d;
+            x * x
+        })
+        .sum::<f64>()
+        / n.max(1.0);
+    let se_mean = (var_d / n).sqrt();
+    // Approximate MDE for mean delta at ~80% power, two-sided alpha 0.05: ~2.8 * SE.
+    let mde_ms_per_unit = 2.8 * se_mean;
+    let abs_delta_p50 = delta_p50.abs();
+    let indistinguishable = abs_delta_p50 < mde_ms_per_unit;
+
+    let faster = if !quality_passes {
+        "VOID_QUALITY"
+    } else if indistinguishable {
+        "INDISTINGUISHABLE"
+    } else if delta_p50 > 0.0 {
+        "candle_metal"
+    } else if delta_p50 < 0.0 {
+        "llama_cpp_metal"
+    } else {
+        "INDISTINGUISHABLE"
+    };
+
+    eprintln!(
+        "parity quality min_cos={min_cosine:.6} mean={mean_cosine:.6} gate={COSINE_GATE} pass={quality_passes}"
+    );
+    eprintln!(
+        "candle  p50={c_p50:.4} p95={c_p95:.4} p99={c_p99:.4} ms/unit (batch={batch}, n={timed_reps})"
+    );
+    eprintln!("llama   p50={l_p50:.4} p95={l_p95:.4} p99={l_p99:.4} ms/unit");
+    eprintln!(
+        "delta(llama-candle) p50={delta_p50:.4} p95={delta_p95:.4} p99={delta_p99:.4} ms/unit; ratio_p50={ratio_p50:.4}; mde≈{mde_ms_per_unit:.4}; faster={faster}"
+    );
+
+    let payload = serde_json::json!({
+        "schema_version": 1,
+        "kind": "engine_parity_metal_embed",
+        "question": "Which engine is faster on all-minilm-l6-v2 embed on Metal, at p50/p95/p99 ms/unit, with bound producer identity?",
+        "harness": format!("merc-agent {AGENT_VERSION} bench-embed-parity"),
+        "model_id": model,
+        "unit": "text",
+        "batch": batch,
+        "warmup_per_arm": warmup_n.max(1),
+        "timed_pairs": timed_reps,
+        "interleave": "A/B within each pair (candle then llama), pairs sequential",
+        "corpus": {
+            "texts": EMBED_BENCH_CORPUS.len(),
+            "sha256": corpus_digest,
+            "source": "EMBED_BENCH_CORPUS in agent/src/main.rs",
+        },
+        "quality": {
+            "verification": "cosine",
+            "gate": COSINE_GATE,
+            "min_cosine": min_cosine,
+            "mean_cosine": mean_cosine,
+            "per_text_cosine": per_text_cosine,
+            "passes": quality_passes,
+            "reference": "candle_metal",
+            "timing_void_if_quality_fails": true,
+        },
+        "engine_configuration": {
+            "llama_cpp_metal": engine_props,
+            "candle_metal": {
+                "device": models::device_label(),
+                "note": "in-process candle 0.10.2 metal; no server configuration",
+            },
+        },
+        "arms": {
+            "candle_metal": {
+                "engine": "candle",
+                "runtime_profile_id": "candle_metal",
+                "n": timed_reps,
+                "ms_per_unit_p50": c_p50,
+                "ms_per_unit_p95": c_p95,
+                "ms_per_unit_p99": c_p99,
+                "wall_ms_p50": pct(&candle_wall_ms, 50.0),
+                "wall_ms_p95": pct(&candle_wall_ms, 95.0),
+                "wall_ms_p99": pct(&candle_wall_ms, 99.0),
+                "raw_ms_per_unit": candle_ms_per_unit,
+            },
+            "llama_cpp_metal": {
+                "engine": "llama_cpp",
+                "runtime_profile_id": "llama_cpp_metal",
+                "n": timed_reps,
+                "ms_per_unit_p50": l_p50,
+                "ms_per_unit_p95": l_p95,
+                "ms_per_unit_p99": l_p99,
+                "wall_ms_p50": pct(&llama_wall_ms, 50.0),
+                "wall_ms_p95": pct(&llama_wall_ms, 95.0),
+                "wall_ms_p99": pct(&llama_wall_ms, 99.0),
+                "raw_ms_per_unit": llama_ms_per_unit,
+            },
+        },
+        "comparison": {
+            "delta_definition": "llama_ms_per_unit - candle_ms_per_unit (positive => candle faster)",
+            "delta_ms_per_unit_p50": delta_p50,
+            "delta_ms_per_unit_p95": delta_p95,
+            "delta_ms_per_unit_p99": delta_p99,
+            "ratio_llama_over_candle_p50": ratio_p50,
+            "ratio_llama_over_candle_p95": ratio_p95,
+            "ratio_llama_over_candle_p99": ratio_p99,
+            "paired_deltas_ms_per_unit": paired_delta,
+            "mde_ms_per_unit_approx": mde_ms_per_unit,
+            "mde_method": "2.8 * SE(mean paired delta); rough 80% power two-sided alpha~0.05",
+            "indistinguishable_at_sample_size": indistinguishable,
+            "faster_arm": faster,
+            "quality_voids_timing": !quality_passes,
+        },
+        "raw_samples": raw_samples,
+        "hardware": {
+            "hw_class": hardware::detected_hw_class_wire(),
+            "device": models::device_label(),
+            "memory_gb": hardware::read_memory_snapshot().total_gb,
+        },
+    });
+
+    let rendered = serde_json::to_string_pretty(&payload)?;
+    if out.is_empty() {
+        println!("{rendered}");
+    } else {
+        std::fs::write(out, rendered + "\n").with_context(|| format!("writing {out}"))?;
+        eprintln!("parity payload written to {out}");
+    }
+    Ok(())
+}
 
 /// Measure the embed cell on both runtime profiles over one corpus.
 async fn run_bench_embed(
@@ -2609,6 +2987,7 @@ async fn execute_task(
     wipe(&mut input);
 
     let (duration_ms, tokens_used) = (output.duration_ms, output.tokens_used);
+    let cached_prompt_tokens = output.cached_prompt_tokens;
 
     let mut result = output.result;
     let content_type = output.content_type;
@@ -2643,6 +3022,7 @@ async fn execute_task(
         result_sha256,
         hardware_temp_c: None,
         inference_backend: output.inference_backend,
+        cached_prompt_tokens,
     };
 
     wipe(&mut result);
@@ -2993,6 +3373,114 @@ struct WorkCtx {
     s3: reqwest::Client,
     checkpoint_secs: u64,
     status: Arc<StatusWriter>,
+}
+
+async fn run_enroll(action: EnrollCommand) -> Result<()> {
+    match action {
+        EnrollCommand::Request {
+            control_origin,
+            state_dir,
+        } => {
+            let state_dir = state_dir.unwrap_or_else(enrollment::enrollment_dir);
+            let (encoded, payload) =
+                enrollment::create_device_request(&control_origin, &state_dir)?;
+            println!("device_request={encoded}");
+            println!("control_origin={}", payload.control_origin);
+            println!("request_id={}", payload.request_id);
+            println!("state_dir={}", state_dir.display());
+            println!(
+                "next: have the supplier owner approve this request in the console, then run:\n  merc-agent enroll complete --bundle <cxeb2_…>"
+            );
+            Ok(())
+        }
+        EnrollCommand::Complete {
+            bundle,
+            config,
+            state_dir,
+        } => {
+            let state_dir = state_dir.unwrap_or_else(enrollment::enrollment_dir);
+            let bundle = if bundle == "-" {
+                use std::io::Read;
+                let mut buf = String::new();
+                std::io::stdin()
+                    .read_to_string(&mut buf)
+                    .context("read enrollment bundle from stdin")?;
+                buf.trim().to_string()
+            } else {
+                bundle.trim().to_string()
+            };
+            let input = enrollment::build_exchange_input(&state_dir, &bundle)?;
+            let result = enrollment::exchange_enrollment(&input.control_origin, &input).await?;
+            let config_path = if config.is_empty() {
+                config::agent_home_dir().join("agent.toml")
+            } else {
+                PathBuf::from(config)
+            };
+            enrollment::write_enrolled_config(&config_path, &input.control_origin, &result)?;
+            println!("credential_id={}", result.credential_id);
+            println!("worker_id={}", result.worker_id);
+            println!("supplier_id={}", result.supplier_id);
+            println!("device_fingerprint={}", result.device_fingerprint);
+            println!("config={}", config_path.display());
+            println!(
+                "enrolled. start with: merc-agent run --config {}",
+                config_path.display()
+            );
+            // Do not print the worker token: it is one-time secret material on disk.
+            Ok(())
+        }
+    }
+}
+
+async fn run_earnings_cli(config: PathBuf, limit: u32) -> Result<()> {
+    let cfg = AgentConfig::load(&config)?;
+    let client = ControlPlaneClient::new(&cfg.control_url, &cfg.worker_token)
+        .context("build control-plane client")?;
+    let earnings = client
+        .earnings()
+        .await
+        .context("fetch /v1/worker/earnings")?;
+    let ledger = client
+        .payout_ledger(limit)
+        .await
+        .context("fetch /v1/worker/ledger")?;
+    println!(
+        "currency={} balance={} lifetime={} carried={} held={}",
+        earnings.currency,
+        earnings.balance_usd,
+        earnings.lifetime_usd,
+        earnings.carried_usd,
+        earnings.held_usd
+    );
+    if earnings.manual_payout_gate {
+        println!(
+            "manual_payout_gate=true {}",
+            earnings.manual_payout_gate_note
+        );
+    }
+    for hold in &earnings.held_by_reason {
+        println!(
+            "hold reason={} amount={} entries={} detail={}",
+            hold.reason, hold.amount_usd, hold.entry_count, hold.detail
+        );
+    }
+    println!("ledger_rows={}", ledger.entries.len());
+    for row in &ledger.entries {
+        println!(
+            "{} kind={} amount={} status={} task={} job={}",
+            row.created_at,
+            row.kind,
+            row.amount_usd,
+            row.payout_status,
+            row.task_id
+                .map(|id| id.to_string())
+                .unwrap_or_else(|| "-".into()),
+            row.job_id
+                .map(|id| id.to_string())
+                .unwrap_or_else(|| "-".into()),
+        );
+    }
+    Ok(())
 }
 
 async fn run_agent(mut cfg: AgentConfig) -> Result<()> {

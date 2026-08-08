@@ -27,13 +27,9 @@ func concreteAuthorizationPath(pattern string) string {
 
 func TestAuthorizationMatrixProtectedRoutesRejectAnonymousAndWrongCredentialNamespace(t *testing.T) {
 	raw, err := os.ReadFile("../ops/authorization-matrix.json")
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	var matrix authorizationMatrix
-	if err := json.Unmarshal(raw, &matrix); err != nil {
-		t.Fatal(err)
-	}
+	must(t, json.Unmarshal(raw, &matrix))
 
 	checked := 0
 	for _, class := range matrix.RouteClasses {
@@ -125,7 +121,15 @@ func TestAuthorizationMatrixProtectedRoutesRejectAnonymousAndWrongCredentialName
 	// decided what each role may do with them. Listing them puts them under this
 	// exhaustive anonymous/wrong-namespace check like every other buyer route;
 	// neither can create or move money outside the envelope's own bounded cap.
-	if checked != 101 {
-		t.Fatalf("checked %d protected routes, want 101", checked)
+	// 103 after the two operator selector routes joined the matrix: applying an
+	// activation policy, and submitting a directed job onto a named non-routable
+	// cell. Both are authAdmin, and both are now covered by this exhaustive
+	// anonymous / wrong-namespace check like every other protected route. Neither
+	// can move money, and neither can promote a cell without the promotion gate.
+	// 104 after GET /v1/worker/ledger entered the worker_owned surface: the
+	// per-credit payout trail a supplier sees beside earnings aggregates. Same
+	// worker token boundary as /v1/worker/earnings; no cash movement.
+	if checked != 104 {
+		t.Fatalf("checked %d protected routes, want 104", checked)
 	}
 }

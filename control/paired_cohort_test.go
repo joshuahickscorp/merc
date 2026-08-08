@@ -30,7 +30,7 @@ import (
 // promotion gate's decision, and this test asserts the gate reaches a decision
 // with reasons — not that the decision is yes.
 // cohortRecordsPerTask is the batch size each cohort task embeds. Batch 32 is on
-// the measured curve in evidence/perf/runtime-benchmarks/embed-cell-candle-vs-llama-cpp-r1.json,
+// the measured curve in evidence/perf/runtime-benchmarks/embed-cell-candle-vs-llama-cpp-r2.json,
 // where the two engines are 2.7x apart — far enough that a real difference cannot
 // be mistaken for timer noise.
 const cohortRecordsPerTask = 32
@@ -117,16 +117,12 @@ func TestPairedCohortMeasuresCostAndRegret(t *testing.T) {
 					t.Fatalf("%s[%d]: upload %s: %v", c.name, i, key, err)
 				}
 			}
-			if err := store.SubmitJobTx(cohortCtx, job, tasks); err != nil {
-				t.Fatalf("%s[%d]: submit: %v", c.name, i, err)
-			}
+			mustf(t, store.SubmitJobTx(cohortCtx, job, tasks), "%s[%d]: submit: %v", c.name, i)
 			// Recorded the way the API records it, so the regret read has decisions
 			// to pair costs with. createJob does exactly this after the submit
 			// transaction commits.
 			shadow, err := planShadowSelection(job.WorkloadDecision)
-			if err != nil {
-				t.Fatalf("%s[%d]: shadow selection: %v", c.name, i, err)
-			}
+			mustf(t, err, "%s[%d]: shadow selection: %v", c.name, i)
 			if len(shadow.Considered) > 1 {
 				byHW, costErr := store.MeasuredCellCostsByHardware(
 					cohortCtx, shadow.JobType, shadow.ModelRef)
@@ -135,9 +131,7 @@ func TestPairedCohortMeasuresCostAndRegret(t *testing.T) {
 				}
 				shadow = shadow.rankedByMeasuredCost(byHW)
 			}
-			if err := store.RecordShadowSelection(cohortCtx, f.JobID.String(), shadow); err != nil {
-				t.Fatalf("%s[%d]: record shadow selection: %v", c.name, i, err)
-			}
+			mustf(t, store.RecordShadowSelection(cohortCtx, f.JobID.String(), shadow), "%s[%d]: record shadow selection: %v", c.name, i)
 			all = append(all, cohortSubmission{cell: c.cell, jobID: f.JobID, taskID: tasks[0].ID})
 		}
 	}
@@ -147,9 +141,7 @@ func TestPairedCohortMeasuresCostAndRegret(t *testing.T) {
 	t.Logf("terminal after wait: %v", terminal)
 
 	byHW, err := store.MeasuredCellCostsByHardware(cohortCtx, "embed", "all-minilm-l6-v2")
-	if err != nil {
-		t.Fatalf("measured cell costs: %v", err)
-	}
+	mustf(t, err, "measured cell costs: %v")
 	hw := comparableHardwareFor(byHW, []string{candleEmbedCell, llamaEmbedCell})
 	if hw == "" {
 		t.Fatalf("no hardware class carries a measured cost for both cells: %s",
@@ -180,9 +172,7 @@ func TestPairedCohortMeasuresCostAndRegret(t *testing.T) {
 	regret, _, err := store.SelectorRegretForScope(cohortCtx, cellCostScope{
 		JobType: "embed", ModelRef: "all-minilm-l6-v2", HWClass: hw,
 	})
-	if err != nil {
-		t.Fatalf("selector regret: %v", err)
-	}
+	mustf(t, err, "selector regret: %v")
 	if regret.Decisions != len(all) {
 		t.Errorf("regret saw %d decisions, %d were recorded", regret.Decisions, len(all))
 	}
@@ -206,13 +196,9 @@ func TestPairedCohortMeasuresCostAndRegret(t *testing.T) {
 		CellID: llamaEmbedCell, QualityTier: "OUTCOME_EQUIVALENT",
 		Verification: "cosine",
 	}, candleEmbedCell, time.Now())
-	if err != nil {
-		t.Fatalf("evaluate promotion: %v", err)
-	}
+	mustf(t, err, "evaluate promotion: %v")
 	ref, err := evidence.ReceiptRef()
-	if err != nil {
-		t.Fatalf("receipt ref: %v", err)
-	}
+	mustf(t, err, "receipt ref: %v")
 	t.Logf("promotion gate: passed=%v saving=%.4f latency_ratio=%.3f refusals=%v receipt=%s",
 		evidence.Passed(), evidence.SavingFraction, evidence.LatencyRatio,
 		evidence.Refusals, ref)
@@ -249,9 +235,7 @@ func waitForCohortTerminal(
 	for time.Now().Before(deadline) {
 		rows, err := pool.Query(ctx, `
 			SELECT status, COUNT(*) FROM tasks WHERE id = ANY($1) GROUP BY status`, taskIDs)
-		if err != nil {
-			t.Fatalf("cohort census: %v", err)
-		}
+		mustf(t, err, "cohort census: %v")
 		census = map[string]int{}
 		for rows.Next() {
 			var status string
@@ -280,9 +264,7 @@ func writeCohortReceipt(
 ) {
 	t.Helper()
 	dir := filepath.Join("..", "evidence", "perf", "selector")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatalf("create receipt directory: %v", err)
-	}
+	mustf(t, os.MkdirAll(dir, 0o755), "create receipt directory: %v")
 	receipt := map[string]any{
 		"schema_version":        1,
 		"kind":                  "paired_cell_cohort",
@@ -304,9 +286,7 @@ func writeCohortReceipt(
 	path := filepath.Join(dir, "paired-cohort-embed.json")
 	id, bin, err := DefaultBoundIdentity("..", "control/paired_cohort_test.go",
 		"embedded measured_cost + promotion_evidence", "embedded cohort samples")
-	if err != nil {
-		t.Fatalf("identity: %v", err)
-	}
+	mustf(t, err, "identity: %v")
 	if err := WriteBoundEvidenceJSON(EvidenceWriteRequest{
 		RepoRoot: "..", Path: path, Payload: receipt,
 		Identity: id, BuildBinaryPath: bin,

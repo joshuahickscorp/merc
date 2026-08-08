@@ -35,13 +35,9 @@ func strangerCADEconomicFixture(t *testing.T) (EconomicPlan, EconomicScenario) {
 		nanosPer1KFromFloat(settlementPer1K),
 		NanoWorkUnitsFromFloat(units),
 	)
-	if err != nil {
-		t.Fatalf("catalogue gross: %v", err)
-	}
+	mustf(t, err, "catalogue gross: %v")
 	base, err := mulDiv(gross.Nanos, int64(econTasks), int64(primaryTasks), false)
-	if err != nil {
-		t.Fatalf("scale base across economic tasks: %v", err)
-	}
+	mustf(t, err, "scale base across economic tasks: %v")
 	// Primary gross on this fixture is the 1,436-nano figure the money-nanos
 	// comments and pricing_authority_reconciliation_test record.
 	if gross.Nanos != 1436 {
@@ -69,9 +65,7 @@ func strangerCADEconomicFixture(t *testing.T) (EconomicPlan, EconomicScenario) {
 		t.Fatalf("CAD stranger plan blocked: %s", plan.BlockReason)
 	}
 	full, err := fullSuccessEconomicScenario(plan)
-	if err != nil {
-		t.Fatalf("full-success scenario: %v", err)
-	}
+	mustf(t, err, "full-success scenario: %v")
 	return plan, full
 }
 

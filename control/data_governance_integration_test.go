@@ -93,13 +93,9 @@ func TestDSARDeletionTombstoneAndRestoreReplay(t *testing.T) {
 	}
 
 	export, err := store.ExportBuyerData(ctx, buyerID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	raw, err := json.Marshal(export)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	text := string(raw)
 	for _, required := range []string{email, jobID.String(), taskID.String(), workerID.String(), inputRef, outputRef,
 		paymentIntent, chargeID, "model-revision", "dsar-submit-key", "private", "finalized", "pass"} {
@@ -116,9 +112,7 @@ func TestDSARDeletionTombstoneAndRestoreReplay(t *testing.T) {
 
 	correlation := "PRIV-DSAR-" + uuid.NewString()
 	result, err := store.TombstoneBuyer(ctx, admin, buyerID, "verified deletion request", correlation)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if result.BuyerID != buyerID || result.TombstoneID == uuid.Nil || !result.FinancialRetained {
 		t.Fatalf("incomplete deletion result: %+v", result)
 	}
@@ -163,21 +157,13 @@ func TestDSARDeletionTombstoneAndRestoreReplay(t *testing.T) {
 	if !strings.HasPrefix(currentEmail, "deleted+") || password != nil || deletedAt == nil {
 		t.Fatalf("buyer row not minimally tombstoned: %q %v %v", currentEmail, password, deletedAt)
 	}
-	if err := pool.QueryRow(ctx, `SELECT input_ref FROM jobs WHERE id=$1`, jobID).Scan(&restoredInput); err != nil {
-		t.Fatal(err)
-	}
+	must(t, pool.QueryRow(ctx, `SELECT input_ref FROM jobs WHERE id=$1`, jobID).Scan(&restoredInput))
 	if restoredInput == inputRef {
 		t.Fatal("private job input reference survived deletion")
 	}
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM buyer_cash_collections WHERE buyer_id=$1`, buyerID).Scan(&financialRows); err != nil {
-		t.Fatal(err)
-	}
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM webhooks WHERE buyer_id=$1`, buyerID).Scan(&webhookRows); err != nil {
-		t.Fatal(err)
-	}
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM quotes WHERE buyer_id=$1`, buyerID).Scan(&quoteRows); err != nil {
-		t.Fatal(err)
-	}
+	must(t, pool.QueryRow(ctx, `SELECT count(*) FROM buyer_cash_collections WHERE buyer_id=$1`, buyerID).Scan(&financialRows))
+	must(t, pool.QueryRow(ctx, `SELECT count(*) FROM webhooks WHERE buyer_id=$1`, buyerID).Scan(&webhookRows))
+	must(t, pool.QueryRow(ctx, `SELECT count(*) FROM quotes WHERE buyer_id=$1`, buyerID).Scan(&quoteRows))
 	if financialRows != 1 || webhookRows != 0 || quoteRows != 0 {
 		t.Fatalf("retention/removal mismatch financial=%d webhooks=%d quotes=%d", financialRows, webhookRows, quoteRows)
 	}

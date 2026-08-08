@@ -102,17 +102,21 @@ ci:
 	@bash scripts/test-release-image-boots.sh
 	@bash scripts/test-release-image-contents.sh
 	cd agent && cargo fmt --all -- --check && cargo clippy --all-targets -- -D warnings && cargo test
-	python3 -m json.tool proto/manifest.schema.json >/dev/null
+	python3 -m json.tool clients/proto/manifest.schema.json >/dev/null
 	python3 -m json.tool ops/governance-approval-bundle.schema.json >/dev/null
 	python3 -m json.tool ops/live-payment-activation.schema.json >/dev/null
 	python3 scripts/runpod-spend-guard.py --self-test
 	python3 scripts/test-runpod-orphan-reconcile.py
+	python3 scripts/test-runpod-create-payload.py
+	bash scripts/test-runpod-command-safety.sh
+	python3 scripts/test-runpod-receipt-withdrawals.py
 	python3 scripts/runpod-spend-guard.py revalidate
 	python3 scripts/validate-authorization-matrix.py
 	python3 scripts/validate-sdk-routes.py
 	python3 scripts/validate-independent-reviews.py
 	python3 scripts/validate-governance.py
 	python3 scripts/validate-readiness.py
+	python3 scripts/test-readiness-candidate-binding.py
 	python3 scripts/assert-soak-claims.py
 	python3 scripts/validate-claim-surfaces.py
 	python3 scripts/rename-residue-audit.py
@@ -123,13 +127,16 @@ ci:
 	python3 scripts/test-bench-accounting.py
 	python3 scripts/test-gateway-parity-receipt.py
 	python3 scripts/validate-evidence-binding.py
+	python3 scripts/test-evidence-binding-historical-lfs.py
+	python3 scripts/verify-lfs-corpus.py
+	bash scripts/test-lfs-origin-durability.sh
 	python3 scripts/test-evidence-writer-bypass.py
 	bash scripts/test-readiness-gaming.sh
 	bash scripts/test-agent-review-gaming.sh
 	bash scripts/test-technical-exercises-fail-closed.sh
 	bash scripts/test-canary-gaming.sh
 	bash scripts/test-canary-scenario-receipt.sh
-	bash scripts/test-canary-database-corroboration.sh
+	MERC_TEST_DATABASE_URL="$(MERC_TEST_DATABASE_URL)" bash scripts/test-canary-database-corroboration.sh
 	MERC_TEST_DATABASE_URL="$(MERC_TEST_DATABASE_URL)" bash scripts/test-agent-restart-authority.sh
 	bash scripts/test-go-closure-soak-authority.sh
 	python3 scripts/test-go-closure-evidence-chain.py
@@ -137,6 +144,13 @@ ci:
 	bash scripts/test-governance-approval-authority.sh
 	MERC_STRIPE_WEBHOOK_VERSION_SELF_TEST=1 bash scripts/stripe-webhooks.sh
 	bash scripts/test-stripe-sandbox-contract.sh
+	# Placement readiness is allowed to print NOT_READY (exit 1) when preconditions
+	# are honestly unsatisfied. The pin test asserts the gate refuses correctly and
+	# cannot be env-bypassed; it does not require the programme to be READY.
+	python3 scripts/validate-placement-readiness.py; \
+	  pr_status=$$?; \
+	  if [ $$pr_status -ne 0 ] && [ $$pr_status -ne 1 ]; then exit $$pr_status; fi
+	python3 scripts/test-placement-readiness.py
 	node scripts/site-build.mjs
 	node scripts/test-supplier-console.mjs
 	bash -n scripts/*.sh
@@ -161,7 +175,7 @@ license-register:
 	python3 scripts/validate-license-register.py
 
 audit:
-	cd control && go run . audit codebase --out census
+	cd control && go run . audit codebase --out evidence/census
 
 loc: audit
 

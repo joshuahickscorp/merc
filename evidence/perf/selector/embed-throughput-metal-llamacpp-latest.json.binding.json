@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "kind": "historical_lfs_binding_envelope",
+  "append_only": true,
+  "historical_source_commit": "0c72195201412ad0468ae2b5c197a26156da6535",
+  "target_path": "evidence/perf/selector/embed-throughput-metal-llamacpp-latest.json",
+  "indexed_lfs_oid_sha256": "135a4d48dc1bae34b340b2f04190c7e96eb494dca940346e4bb879d02a42d529",
+  "indexed_lfs_size_bytes": 4050,
+  "hydrated_body_sha256": "135a4d48dc1bae34b340b2f04190c7e96eb494dca940346e4bb879d02a42d529",
+  "binding_status": "UNBOUND",
+  "missing_identity_fields": [
+    "source_commit",
+    "build_digest",
+    "model_artifact_digest",
+    "image_digest",
+    "harness_revision",
+    "corpus_digest",
+    "exact_config"
+  ],
+  "reason": "Historical Git-LFS measurement predates formal producer identity. Its immutable body is retained unchanged, is explicitly UNBOUND, and must not support a claim."
+}

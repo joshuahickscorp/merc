@@ -78,9 +78,19 @@ if missing or stale:
 # buyer-owned execution-envelope routes (POST /v1/execution-envelopes and
 # GET /v1/execution-envelopes/{id}), which are registered through authBuyer at
 # control/api.go:151-152 and were serving traffic while absent from this matrix.
+# 123 for the two operator selector routes added when directed routing was wired:
+# POST /admin/runtime/selector/activation applies an activation policy (rollback
+# already existed; promote did not), and POST /admin/runtime/jobs/directed submits
+# a job onto a named non-routable cell, which is the only way a challenger cell can
+# ever accumulate the measured samples its promotion gate requires. Both are
+# authAdmin at control/api.go:218,220. Neither can promote a cell by itself --
+# activation still needs the promotion gate's verdict.
+# 124 for the worker-owned per-credit payout trail GET /v1/worker/ledger. It is
+# registered through authWorker at control/api.go:203 and was added to the
+# reviewed worker_owned surface by 03f07d36; it exposes no money-moving action.
 # The count is pinned so a NEW route cannot be added without a reviewer deciding
 # what every role may do with it.
-if len(reviewed) != 121:
-    fail(f"expected reviewed 121-route surface, found {len(reviewed)}")
+if len(reviewed) != 124:
+    fail(f"expected reviewed 124-route surface, found {len(reviewed)}")
 
 print(f"authorization matrix: PASS ({len(reviewed)} routes, {len(ROLES)} roles, default deny)")

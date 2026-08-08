@@ -21,9 +21,7 @@ func bindWorkerToGovernedProfile(t *testing.T, pool *pgxpool.Pool, ctx context.C
 	workerID uuid.UUID) {
 	t.Helper()
 	id, revision, digest, err := governedProfileIdentity("candle")
-	if err != nil {
-		t.Fatalf("resolve governed profile: %v", err)
-	}
+	mustf(t, err, "resolve governed profile: %v")
 	if _, err := pool.Exec(ctx,
 		`UPDATE workers SET engine='candle', runtime_profile_id=$2,
 		                    runtime_profile_revision=$3, runtime_profile_digest=$4

@@ -49,9 +49,7 @@ func trueNetDistributedFixture(t *testing.T) (
 		t.Fatalf("normalize: %s", herr.msg)
 	}
 	workload, err := buildWorkloadDecision(sub, strings.Repeat("a", 64))
-	if err != nil {
-		t.Fatalf("workload: %v", err)
-	}
+	mustf(t, err, "workload: %v")
 	schedule := chargeBatchEconomicSchedule(t)
 	// Size the job so contribution headroom absorbs storage/egress/risk.
 	economic := BuildEconomicPlan(EconomicPlanInput{
@@ -75,12 +73,8 @@ func trueNetDistributedFixture(t *testing.T) (
 		QuoteConfidence{Score: 0.9, Reasons: []string{"true-net fixture"}},
 		nil,
 	)
-	if err != nil {
-		t.Fatalf("compute plan: %v", err)
-	}
-	if err := ValidateComputePlanEconomicSnapshot(compute, workload, economic); err != nil {
-		t.Fatalf("compute/economic authority: %v", err)
-	}
+	mustf(t, err, "compute plan: %v")
+	mustf(t, ValidateComputePlanEconomicSnapshot(compute, workload, economic), "compute/economic authority: %v")
 	// Force community cell if the workload picked something else.
 	if len(workload.RuntimeCandidates) == 1 {
 		// Prefer candle embed (not cloud-backed).
@@ -94,9 +88,7 @@ func trueNetDistributedFixture(t *testing.T) (
 	pricing, err := newDistributedPricingDecision(
 		workload, compute, placement, economic, authority, workload.Binding.Tier, "",
 	)
-	if err != nil {
-		t.Fatalf("pricing: %v", err)
-	}
+	mustf(t, err, "pricing: %v")
 	cost := DefaultCostSchedule(schedule.Currency)
 	return workload, compute, placement, economic, pricing, cost
 }
@@ -144,12 +136,8 @@ func TestTrueNetCommunitySupplyPopulatesExactContribution(t *testing.T) {
 			economic.EconomicRoundingPolicy, economic.SupplierPayoutPerTaskNanos, economic.BuyerChargePerTaskNanos)
 	}
 	scenario, err := fullSuccessEconomicScenario(economic)
-	if err != nil {
-		t.Fatalf("scenario: %v", err)
-	}
-	if err := validateFixedPointMatchesPlan(pricing, economic, scenario); err != nil {
-		t.Fatalf("validateFixedPointMatchesPlan: %v", err)
-	}
+	mustf(t, err, "scenario: %v")
+	mustf(t, validateFixedPointMatchesPlan(pricing, economic, scenario), "validateFixedPointMatchesPlan: %v")
 	wantSupplier := economic.SupplierPayoutPerTaskNanos * int64(scenario.AcceptedTasks)
 	if fixed.SupplierEntitlementsNanos != wantSupplier {
 		t.Fatalf("supplier leg %d != plan entitlement %d × %d tasks",
@@ -214,9 +202,7 @@ func TestTrueNetCloudBackedIncludesProviderCost(t *testing.T) {
 		t.Fatal("nvidia_24gb rate missing")
 	}
 	providerNanos, err := providerCostNanos(rate.CostPerHrUSD, 60)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if providerNanos <= 0 {
 		t.Fatalf("provider cost for 60s at $%.2f/hr is %d, want > 0", rate.CostPerHrUSD, providerNanos)
 	}
@@ -280,9 +266,7 @@ func TestTrueNetCloudUnresolvableRateLeavesProviderUnknown(t *testing.T) {
 	fixed, err := fixedPointPricingFromScenarioWithExtras(
 		"usd", 1.0, 1.0, scenario, 0, []string{"provider cost"},
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if fixed.TrueNetContributionNanos != nil {
 		t.Fatal("true net populated while provider cost is unknown")
 	}
@@ -322,9 +306,7 @@ func TestModeledCostOmittedFromKnownVariableCostsIsRefused(t *testing.T) {
 	fixed, err := fixedPointPricingFromScenarioWithExtras(
 		"usd", 1.0, 1.0, scenario, 0, nil,
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	decision := PricingDecision{
 		Currency:             "usd",
 		FixedPoint:           fixed,
@@ -374,9 +356,7 @@ func TestRiskReserveAccrueReleaseConsumeLedgerBalances(t *testing.T) {
 		}
 	}
 	bal, err := store.RiskReserveBalanceMicros(ctx, jobID)
-	if err != nil {
-		t.Fatalf("balance after accrue: %v", err)
-	}
+	mustf(t, err, "balance after accrue: %v")
 	if bal != usdToMicros(0.05) {
 		t.Fatalf("balance after accrue = %d, want %d", bal, usdToMicros(0.05))
 	}
@@ -394,36 +374,24 @@ func TestRiskReserveAccrueReleaseConsumeLedgerBalances(t *testing.T) {
 		 WHERE payout_ref = $1`, riskReserveAccrualRef(jobID)); err != nil {
 		t.Fatalf("backdate release_at: %v", err)
 	}
-	if err := store.ReleaseRiskReserveAfterDisputeWindow(ctx, jobID, time.Now()); err != nil {
-		t.Fatalf("release after window: %v", err)
-	}
+	mustf(t, store.ReleaseRiskReserveAfterDisputeWindow(ctx, jobID, time.Now()), "release after window: %v")
 	bal, err = store.RiskReserveBalanceMicros(ctx, jobID)
-	if err != nil {
-		t.Fatalf("balance after release: %v", err)
-	}
+	mustf(t, err, "balance after release: %v")
 	if bal != 0 {
 		t.Fatalf("balance after release = %d, want 0", bal)
 	}
 
 	// Fresh job for consume path.
 	job2 := uuid.New()
-	if err := AccrueRiskReserveAtSettlementTx(ctx, pool, job2, pricing); err != nil {
-		t.Fatalf("accrue job2: %v", err)
-	}
-	if err := store.ConsumeRiskReserveOnRefund(ctx, job2); err != nil {
-		t.Fatalf("consume: %v", err)
-	}
+	mustf(t, AccrueRiskReserveAtSettlementTx(ctx, pool, job2, pricing), "accrue job2: %v")
+	mustf(t, store.ConsumeRiskReserveOnRefund(ctx, job2), "consume: %v")
 	bal, err = store.RiskReserveBalanceMicros(ctx, job2)
-	if err != nil {
-		t.Fatalf("balance after consume: %v", err)
-	}
+	mustf(t, err, "balance after consume: %v")
 	if bal != 0 {
 		t.Fatalf("balance after consume = %d, want 0", bal)
 	}
 	// Double-consume is idempotent (same payout_ref).
-	if err := store.ConsumeRiskReserveOnRefund(ctx, job2); err != nil {
-		t.Fatalf("idempotent consume: %v", err)
-	}
+	mustf(t, store.ConsumeRiskReserveOnRefund(ctx, job2), "idempotent consume: %v")
 }
 
 func TestHistoricalDecisionWithUnknownsKeepsTrueNetUnavailable(t *testing.T) {
@@ -480,19 +448,13 @@ func TestHistoricalDecisionWithUnknownsKeepsTrueNetUnavailable(t *testing.T) {
 func TestStorageEgressSettleFromActualBytesBesideAcceptedBound(t *testing.T) {
 	schedule := DefaultCostSchedule("usd")
 	digest, err := costScheduleDigest(schedule)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	retention := 30 * 24 * time.Hour
 	acceptedStorage, acceptedEgress := int64(10*BytesPerGiB), int64(1*BytesPerGiB)
 	storageAcceptedNanos, err := storageNanosForBytes(schedule, acceptedStorage, retention)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	egressAcceptedNanos, err := egressNanosForBytes(schedule, acceptedEgress)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	pricing := PricingDecision{
 		CostScheduleSHA256:   digest,
 		StorageAcceptedBytes: acceptedStorage,
@@ -505,9 +467,7 @@ func TestStorageEgressSettleFromActualBytesBesideAcceptedBound(t *testing.T) {
 	actuals, err := settleStorageEgressFromBytes(
 		schedule, pricing, actualStorage, actualEgress, retention, time.Now(),
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if actuals.StorageAcceptedBytes != acceptedStorage || actuals.EgressAcceptedBytes != acceptedEgress {
 		t.Fatalf("accepted bounds not recorded: %+v", actuals)
 	}

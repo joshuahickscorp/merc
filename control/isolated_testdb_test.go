@@ -27,9 +27,7 @@ func openIsolatedTestStore(t *testing.T) (context.Context, *Store, *pgxpool.Pool
 	base := requireTestDatabase(t)
 
 	parsed, err := url.Parse(base)
-	if err != nil {
-		t.Fatalf("parse MERC_TEST_DATABASE_URL: %v", err)
-	}
+	mustf(t, err, "parse MERC_TEST_DATABASE_URL: %v")
 	name := "cx_iso_" + strings.ReplaceAll(uuid.NewString(), "-", "")[:24]
 
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
@@ -38,9 +36,7 @@ func openIsolatedTestStore(t *testing.T) (context.Context, *Store, *pgxpool.Pool
 	admin := *parsed
 	admin.Path = "/postgres"
 	adminPool, err := pgxpool.New(ctx, admin.String())
-	if err != nil {
-		t.Fatalf("connect to postgres for database creation: %v", err)
-	}
+	mustf(t, err, "connect to postgres for database creation: %v")
 	if _, err := adminPool.Exec(ctx, `CREATE DATABASE `+name); err != nil {
 		adminPool.Close()
 		t.Fatalf("create isolated database: %v", err)
@@ -60,15 +56,19 @@ func openIsolatedTestStore(t *testing.T) (context.Context, *Store, *pgxpool.Pool
 
 	own := *parsed
 	own.Path = "/" + name
-	pool, err := pgxpool.New(ctx, own.String())
-	if err != nil {
-		t.Fatalf("connect isolated database: %v", err)
-	}
+	poolCfg, err := pgxpool.ParseConfig(own.String())
+	mustf(t, err, "parse isolated database pool configuration: %v", err)
+	// pgxpool's implicit default is CPU-dependent and may be four connections
+	// on a small CI runner. The production verifier deliberately requires five
+	// (three verifier, two API/headroom), so this production-path harness must
+	// use the same explicit default as main rather than silently constructing an
+	// incapable store.
+	poolCfg.MaxConns = defaultDBMaxConns
+	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
+	mustf(t, err, "connect isolated database: %v")
 	t.Cleanup(pool.Close)
 
 	store := NewStore(pool)
-	if err := store.Migrate(ctx); err != nil {
-		t.Fatalf("apply canonical schema to isolated database: %v", err)
-	}
+	mustf(t, store.Migrate(ctx), "apply canonical schema to isolated database: %v")
 	return ctx, store, pool
 }

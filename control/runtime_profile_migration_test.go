@@ -27,9 +27,7 @@ func freshMigratedDatabase(t *testing.T) (*Store, *pgxpool.Pool, context.Context
 	t.Cleanup(cancel)
 
 	admin, err := pgxpool.New(ctx, adminURL)
-	if err != nil {
-		t.Fatalf("connect admin: %v", err)
-	}
+	mustf(t, err, "connect admin: %v")
 	defer admin.Close()
 
 	name := "merc_migr_" + strings.ReplaceAll(uuid.NewString()[:8], "-", "")
@@ -49,14 +47,10 @@ func freshMigratedDatabase(t *testing.T) (*Store, *pgxpool.Pool, context.Context
 
 	freshURL := swapDatabaseName(t, adminURL, name)
 	pool, err := pgxpool.New(ctx, freshURL)
-	if err != nil {
-		t.Fatalf("connect %s: %v", name, err)
-	}
+	mustf(t, err, "connect %s: %v", name)
 	t.Cleanup(pool.Close)
 	store := NewStore(pool)
-	if err := store.Migrate(ctx); err != nil {
-		t.Fatalf("migrate fresh database: %v", err)
-	}
+	mustf(t, store.Migrate(ctx), "migrate fresh database: %v")
 	return store, pool, ctx
 }
 
@@ -105,17 +99,13 @@ func TestFreshDatabaseStartsWithAGovernedRegistry(t *testing.T) {
 	rows, err := pool.Query(ctx,
 		`SELECT runtime_profile_id, lifecycle, routable, profile_digest, revision
 		   FROM runtime_profiles ORDER BY runtime_profile_id`)
-	if err != nil {
-		t.Fatalf("read profiles: %v", err)
-	}
+	mustf(t, err, "read profiles: %v")
 	defer rows.Close()
 	seen := 0
 	for rows.Next() {
 		var id, lifecycle, digest, revision string
 		var routable bool
-		if err := rows.Scan(&id, &lifecycle, &routable, &digest, &revision); err != nil {
-			t.Fatalf("scan profile: %v", err)
-		}
+		mustf(t, rows.Scan(&id, &lifecycle, &routable, &digest, &revision), "scan profile: %v")
 		seen++
 		profile, ok := runtimeProfileByID(id)
 		if !ok {
@@ -128,9 +118,7 @@ func TestFreshDatabaseStartsWithAGovernedRegistry(t *testing.T) {
 				runtimeLifecycleRoutable(profile.Lifecycle))
 		}
 		want, err := profile.CapabilityDigest(runtimeAuthorityModels)
-		if err != nil {
-			t.Fatal(err)
-		}
+		must(t, err)
 		if digest != want || revision != profile.Revision {
 			t.Errorf("%s: stored %s/%s, want %s/%s", id, revision, digest,
 				profile.Revision, want)
@@ -143,17 +131,13 @@ func TestFreshDatabaseStartsWithAGovernedRegistry(t *testing.T) {
 	// A database with no workers is trivially reconciled, which is the correct
 	// answer and the one that makes the NOT NULL step safe on a fresh install.
 	rec, err := store.ReconcileWorkerRuntimeProfiles(ctx)
-	if err != nil {
-		t.Fatalf("reconcile: %v", err)
-	}
+	mustf(t, err, "reconcile: %v")
 	if !rec.Ready {
 		t.Fatalf("fresh database is not reconciled: %+v", rec)
 	}
 
 	// Migrating twice must be a no-op, not a drift refusal.
-	if err := store.Migrate(ctx); err != nil {
-		t.Fatalf("second migrate: %v", err)
-	}
+	mustf(t, store.Migrate(ctx), "second migrate: %v")
 }
 
 // The backfill is the whole reason the migration can be additive. A worker row
@@ -178,17 +162,13 @@ func TestLegacyCandleWorkerSurvivesTheBackfill(t *testing.T) {
 	}
 
 	rec, err := store.ReconcileWorkerRuntimeProfiles(ctx)
-	if err != nil {
-		t.Fatalf("reconcile before backfill: %v", err)
-	}
+	mustf(t, err, "reconcile before backfill: %v")
 	if rec.Unreconciled != 1 || rec.Ready {
 		t.Fatalf("a legacy worker should be unreconciled before the backfill: %+v", rec)
 	}
 
 	// Re-running the migration runs the backfill.
-	if err := store.Migrate(ctx); err != nil {
-		t.Fatalf("migrate for backfill: %v", err)
-	}
+	mustf(t, store.Migrate(ctx), "migrate for backfill: %v")
 
 	var profileID *string
 	if err := pool.QueryRow(ctx,
@@ -200,9 +180,7 @@ func TestLegacyCandleWorkerSurvivesTheBackfill(t *testing.T) {
 	}
 
 	rec, err = store.ReconcileWorkerRuntimeProfiles(ctx)
-	if err != nil {
-		t.Fatalf("reconcile after backfill: %v", err)
-	}
+	mustf(t, err, "reconcile after backfill: %v")
 	if !rec.Ready || rec.Unreconciled != 0 || rec.EngineMismatched != 0 {
 		t.Fatalf("backfilled database is not ready for NOT NULL: %+v", rec)
 	}
@@ -280,9 +258,7 @@ func TestSyncRefusesProfileContentDriftUnderTheSameRevision(t *testing.T) {
 	}
 
 	conn, err := pool.Acquire(ctx)
-	if err != nil {
-		t.Fatalf("acquire: %v", err)
-	}
+	mustf(t, err, "acquire: %v")
 	defer conn.Release()
 
 	err = syncRuntimeProfiles(ctx, conn)
@@ -306,9 +282,7 @@ func TestSyncRefusesProfileContentDriftUnderTheSameRevision(t *testing.T) {
 		  WHERE runtime_profile_id='candle_metal'`, currentCandleDigest(t)); err != nil {
 		t.Fatalf("restore digest: %v", err)
 	}
-	if err := syncRuntimeProfiles(ctx, conn); err != nil {
-		t.Fatalf("sync after restoring the true digest: %v", err)
-	}
+	mustf(t, syncRuntimeProfiles(ctx, conn), "sync after restoring the true digest: %v")
 }
 
 func currentCandleDigest(t *testing.T) string {
@@ -318,9 +292,7 @@ func currentCandleDigest(t *testing.T) string {
 		t.Fatal("candle_metal is not registered")
 	}
 	d, err := p.CapabilityDigest(runtimeAuthorityModels)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	return d
 }
 
@@ -352,13 +324,9 @@ func TestHistoricalRevisionsAreRetainedAndUndeletable(t *testing.T) {
 
 	// Re-syncing must not remove it.
 	conn, err := pool.Acquire(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	defer conn.Release()
-	if err := syncRuntimeProfiles(ctx, conn); err != nil {
-		t.Fatalf("sync with a historical revision present: %v", err)
-	}
+	mustf(t, syncRuntimeProfiles(ctx, conn), "sync with a historical revision present: %v")
 	var kept int
 	if err := pool.QueryRow(ctx,
 		`SELECT COUNT(*) FROM runtime_profiles
@@ -399,13 +367,9 @@ func TestSyncAllowsLifecycleMovementWithoutARevisionBump(t *testing.T) {
 		t.Fatalf("promote: %v", err)
 	}
 	conn, err := pool.Acquire(ctx)
-	if err != nil {
-		t.Fatalf("acquire: %v", err)
-	}
+	mustf(t, err, "acquire: %v")
 	defer conn.Release()
-	if err := syncRuntimeProfiles(ctx, conn); err != nil {
-		t.Fatalf("sync after a lifecycle move: %v", err)
-	}
+	mustf(t, syncRuntimeProfiles(ctx, conn), "sync after a lifecycle move: %v")
 	// The sync restores the document's lifecycle, because the document is the
 	// source of truth for state as well as content.
 	var lifecycle string
@@ -505,9 +469,7 @@ func TestWorkerProfileValidationRefusesEveryUnsatisfiedClaim(t *testing.T) {
 		SupportedJobs:   []string{"embed", "batch_infer"},
 		SupportedModels: []string{"all-minilm-l6-v2", "llama-3.2-1b-instruct-q4"},
 	}
-	if err := ValidateWorkerAgainstProfile(candle, good); err != nil {
-		t.Fatalf("a valid worker was refused: %v", err)
-	}
+	mustf(t, ValidateWorkerAgainstProfile(candle, good), "a valid worker was refused: %v")
 
 	for _, tc := range []struct {
 		name   string
@@ -634,9 +596,7 @@ func TestUpsertWorkerEnforcesTheGovernedProfile(t *testing.T) {
 		SupportedJobs:   []string{"embed"},
 		SupportedModels: []string{"all-minilm-l6-v2"},
 	}
-	if err := store.UpsertWorker(ctx, good); err != nil {
-		t.Fatalf("a valid worker was refused: %v", err)
-	}
+	mustf(t, store.UpsertWorker(ctx, good), "a valid worker was refused: %v")
 	var stored string
 	if err := pool.QueryRow(ctx,
 		`SELECT runtime_profile_id FROM workers WHERE id=$1`, good.WorkerID).Scan(&stored); err != nil {
@@ -714,9 +674,7 @@ func TestDispatchRequiresGovernedProfileIdentityNotRowCreation(t *testing.T) {
 
 	// With the full identity — id, revision AND digest — it is allowed.
 	id, revision, digest, err := governedProfileIdentity("candle")
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if _, err := pool.Exec(ctx,
 		`UPDATE workers SET engine='candle', runtime_profile_id=$2,
 		                    runtime_profile_revision=$3, runtime_profile_digest=$4
@@ -766,16 +724,12 @@ func TestRegistryAndDocumentAgreeOnEveryRoutableCell(t *testing.T) {
 	_, pool, ctx := freshMigratedDatabase(t)
 	rows, err := pool.Query(ctx,
 		`SELECT runtime_profile_id, cell_id FROM runtime_profile_models WHERE routable`)
-	if err != nil {
-		t.Fatalf("read cells: %v", err)
-	}
+	mustf(t, err, "read cells: %v")
 	defer rows.Close()
 	inDB := map[string]bool{}
 	for rows.Next() {
 		var profileID, cellID string
-		if err := rows.Scan(&profileID, &cellID); err != nil {
-			t.Fatalf("scan: %v", err)
-		}
+		mustf(t, rows.Scan(&profileID, &cellID), "scan: %v")
 		inDB[fmt.Sprintf("%s/%s", profileID, cellID)] = true
 	}
 	// Document side uses the same Routable predicate the registry writes
@@ -829,9 +783,7 @@ func TestRevisionBumpSucceedsAgainstAPopulatedRegistry(t *testing.T) {
 	_, pool, ctx := freshMigratedDatabase(t)
 
 	documentRevision, err := currentRevisionOf(ctx, pool, "candle_metal")
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 
 	// Rewind the database to the state an upgrade starts from: an OLDER revision
 	// that is current, routable, and owns every cell — which is what the document's
@@ -882,15 +834,11 @@ func TestRevisionBumpSucceedsAgainstAPopulatedRegistry(t *testing.T) {
 	// Re-applying the whole schema is what an upgrade does, and it is where all
 	// three bugs aborted.
 	store := NewStore(pool)
-	if err := store.Migrate(ctx); err != nil {
-		t.Fatalf("upgrade a registry whose current revision is older than the document: %v", err)
-	}
+	mustf(t, store.Migrate(ctx), "upgrade a registry whose current revision is older than the document: %v")
 
 	// The document's revision took over.
 	current, err := currentRevisionOf(ctx, pool, "candle_metal")
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if current != documentRevision {
 		t.Fatalf("current revision is %s, want the document's %s", current, documentRevision)
 	}
@@ -960,9 +908,7 @@ func TestContentDigestMovesWhenResolvedArtifactsMove(t *testing.T) {
 		}
 	}
 	before, err := profile.CapabilityDigest(models)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 
 	// Swap the bytes behind the model the profile's first cell resolves, leaving
 	// every field of the profile itself untouched.
@@ -976,9 +922,7 @@ func TestContentDigestMovesWhenResolvedArtifactsMove(t *testing.T) {
 		swapped[id] = model
 	}
 	after, err := profile.CapabilityDigest(swapped)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if before == after {
 		t.Fatal("repointing a resolved artifact left the profile's content digest unchanged")
 	}

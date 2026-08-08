@@ -335,9 +335,7 @@ func TestArrivalBatchingPerfSweep(t *testing.T) {
 	path := filepath.Join(dir, "arrival-batching.json")
 	id, bin, err := DefaultBoundIdentity("..", "control/arrival_batch_perf_test.go",
 		"embedded receipt body", "embedded level samples")
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if err := WriteBoundEvidenceJSON(EvidenceWriteRequest{
 		RepoRoot: "..", Path: path, Payload: receipt,
 		Identity: id, BuildBinaryPath: bin,

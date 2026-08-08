@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "kind": "runpod_spend_receipt",
+  "pod_id": "vjkaoy59vudbfi",
+  "gpu": "NVIDIA RTX A5000",
+  "image": "vllm/vllm-openai@sha256:3a1e7f5904e1a1192a02aa0086ceaffc33985d7044c7bb25b3a43d61bdbe3ac0",
+  "model": "unsloth/Llama-3.2-1B-Instruct",
+  "cost_per_hr_usd": 0.27,
+  "cap_usd": 0.25,
+  "lifetime_budget_secs": 2666,
+  "lifetime_actual_secs": 575,
+  "spend_usd": 0.05,
+  "cap_headroom_usd": 0.2,
+  "started_at_unix": 1786216164,
+  "stopped_at_unix": 1786216739,
+  "teardown_verified": true,
+  "orphan_pods": [],
+  "orphan_pods_scope": "account_after_this_run_teardown",
+  "orphan_pods_meaning": "Pod IDs still listed on the RunPod account after this run tore down its own pod. Empty means none remained at receipt-write time. It does NOT mean the account is permanently clean, that a later SIGKILLed process left nothing behind, or that no operator-kept pod exists outside this run. A governed experiment never sweeps unrelated account pods; those remain visible to reconcile until provider-level idempotency or a durable account coordinator exists.",
+  "ready": false,
+  "admissible": false,
+  "refusals": [
+    "vLLM never reached a verified ready state, so this is a failed startup receipt rather than usable CUDA-runtime evidence"
+  ],
+  "limitations": [
+    "Spend is derived from RunPod's advertised cost per hour and the pod's observed lifetime, not from an invoice. It is what Merc believes it spent; the provider's own billing is the authority.",
+    "Storage and network egress are not included.",
+    "Pod IDs still listed on the RunPod account after this run tore down its own pod. Empty means none remained at receipt-write time. It does NOT mean the account is permanently clean, that a later SIGKILLed process left nothing behind, or that no operator-kept pod exists outside this run. A governed experiment never sweeps unrelated account pods; those remain visible to reconcile until provider-level idempotency or a durable account coordinator exists."
+  ],
+  "producer_identity": {
+    "source_commit": {
+      "value": "bac4b1cfc3199b110557e735c2b0470ea8c4e136"
+    },
+    "build_digest": {
+      "value": "c557a67a8fce66aeba5b58b092744eb0784cc2dfeaf338ae71e395f65ee15321"
+    },
+    "model_artifact_digest": {
+      "na": "model field is a name/ref (unsloth/Llama-3.2-1B-Instruct), not a weight digest; weight pins live on the placement contract / runtime authority"
+    },
+    "image_digest": {
+      "value": "sha256:3a1e7f5904e1a1192a02aa0086ceaffc33985d7044c7bb25b3a43d61bdbe3ac0"
+    },
+    "harness_revision": {
+      "value": "scripts/runpod-spend-guard.py"
+    },
+    "corpus_digest": {
+      "na": "no external corpus in this measurement"
+    },
+    "exact_config": {
+      "value": "spend guard receipt: pod_id=vjkaoy59vudbfi gpu=NVIDIA RTX A5000 image=vllm/vllm-openai@sha256:3a1e7f5904e1a1192a02aa0086ceaffc33985d7044c7bb25b3a43d61bdbe3ac0 model=unsloth/Llama-3.2-1B-Instruct cap_usd=0.25 cost_per_hr=0.27"
+    },
+    "raw_samples": {
+      "value": "spend fields embedded; no sample array"
+    }
+  },
+  "binding_status": "BOUND"
+}

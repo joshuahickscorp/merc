@@ -137,9 +137,7 @@ func TestLoRASettlementSplitsRiskAsDesigned(t *testing.T) {
 		eval := validLoRAEval()
 		eval.CandidateScore = eval.BaselineScore * 1.01 // +1%, below the agreed 5%
 		s, err := settleLoRARun(eval, loraQuoteFromMajor(quoted))
-		if err != nil {
-			t.Fatalf("settle: %v", err)
-		}
+		mustf(t, err, "settle: %v")
 		if s.Succeeded {
 			t.Fatal("a 1% improvement met a 5% requirement")
 		}
@@ -157,9 +155,7 @@ func TestLoRASettlementSplitsRiskAsDesigned(t *testing.T) {
 
 	t.Run("success charges the full quoted maximum", func(t *testing.T) {
 		s, err := settleLoRARun(validLoRAEval(), loraQuoteFromMajor(quoted))
-		if err != nil {
-			t.Fatalf("settle: %v", err)
-		}
+		mustf(t, err, "settle: %v")
 		if !s.Succeeded {
 			t.Fatalf("a 10%% improvement missed a 5%% requirement (measured %.4f)",
 				s.ImprovementFraction)
@@ -175,9 +171,7 @@ func TestLoRASettlementSplitsRiskAsDesigned(t *testing.T) {
 		eval.CandidateScore = 1.05
 		eval.RequiredImprovement = 0.05
 		s, err := settleLoRARun(eval, loraQuoteFromMajor(quoted))
-		if err != nil {
-			t.Fatalf("settle: %v", err)
-		}
+		mustf(t, err, "settle: %v")
 		if !s.Succeeded {
 			t.Fatal("exactly meeting the agreed margin was treated as failure")
 		}
@@ -189,13 +183,9 @@ func TestLoRASettlementSplitsRiskAsDesigned(t *testing.T) {
 		fail := validLoRAEval()
 		fail.CandidateScore = fail.BaselineScore
 		failed, err := settleLoRARun(fail, loraQuoteFromMajor(quoted))
-		if err != nil {
-			t.Fatalf("settle: %v", err)
-		}
+		mustf(t, err, "settle: %v")
 		ok, err := settleLoRARun(validLoRAEval(), loraQuoteFromMajor(quoted))
-		if err != nil {
-			t.Fatalf("settle: %v", err)
-		}
+		mustf(t, err, "settle: %v")
 		if failed.PlatformMicros > ok.PlatformMicros {
 			t.Fatalf("merc keeps %d on failure but %d on success -- merc is paid to fail runs",
 				failed.PlatformMicros, ok.PlatformMicros)
@@ -216,14 +206,10 @@ func TestLoRASettlementConservesMoney(t *testing.T) {
 		quoted := microsToUSD(minLoRAQuoteMicros) + rng.Float64()*5000
 		quote := loraQuoteFromMajor(quoted)
 		quotedMicros, err := LedgerMicrosFromNanos(quote)
-		if err != nil {
-			t.Fatalf("iteration %d: project quote: %v", i, err)
-		}
+		mustf(t, err, "iteration %d: project quote: %v", i)
 
 		s, err := settleLoRARun(eval, quote)
-		if err != nil {
-			t.Fatalf("iteration %d: settle(%v, %v): %v", i, eval.CandidateScore, quoted, err)
-		}
+		mustf(t, err, "iteration %d: settle(%v, %v): %v", i, eval.CandidateScore, quoted)
 
 		if s.BuyerDebitMicros != s.SupplierPayableMicros+s.PlatformMicros {
 			t.Fatalf("iteration %d: buyer %d != supplier %d + platform %d",
@@ -259,26 +245,18 @@ func TestLoRASettlementConservesMoney(t *testing.T) {
 // applying the floor recreates the zero-share and buyer/supplier split defects.
 func TestLoRASettlementAppliesSharesBeforeLedgerProjection(t *testing.T) {
 	quote, err := NewMoneyNanos(MustParseCurrency("cad"), minLoRAQuoteMicros*NanosPerMicro+501)
-	if err != nil {
-		t.Fatalf("quote: %v", err)
-	}
+	mustf(t, err, "quote: %v")
 	eval := validLoRAEval()
 	eval.CandidateScore = eval.BaselineScore // settle the compute floor only
 	s, err := settleLoRARun(eval, quote)
-	if err != nil {
-		t.Fatalf("settle: %v", err)
-	}
+	mustf(t, err, "settle: %v")
 	exact, err := settleLoRAExact(quote.Nanos, false)
-	if err != nil {
-		t.Fatalf("exact settlement: %v", err)
-	}
+	mustf(t, err, "exact settlement: %v")
 	if s.Currency != "cad" || s.FloorNanos != exact.FloorNanos || s.BonusNanos != exact.BonusNanos {
 		t.Fatalf("currency-bound nanos were not retained: %#v, want %#v", s, exact)
 	}
 	quotedMicros, err := LedgerMicrosFromNanos(quote)
-	if err != nil {
-		t.Fatalf("project quote: %v", err)
-	}
+	mustf(t, err, "project quote: %v")
 	if s.FloorMicros+s.BonusMicros != quotedMicros {
 		t.Fatalf("presentation split %d + %d does not partition projected quote %d",
 			s.FloorMicros, s.BonusMicros, quotedMicros)
@@ -295,9 +273,7 @@ func TestLoRAFloorSurvivesSmallQuotes(t *testing.T) {
 	quotes := []float64{0.01, 0.001, 0.0001, microsToUSD(minLoRAQuoteMicros)}
 	for _, quoted := range quotes {
 		s, err := settleLoRARun(eval, loraQuoteFromMajor(quoted))
-		if err != nil {
-			t.Fatalf("quoted %v: %v", quoted, err)
-		}
+		mustf(t, err, "quoted %v: %v", quoted)
 		if s.SupplierPayableMicros <= 0 {
 			t.Fatalf("quoted $%v: supplier owed %d micro-USD for real compute -- the floor "+
 				"rounded away", quoted, s.SupplierPayableMicros)

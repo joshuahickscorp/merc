@@ -11,9 +11,7 @@ func TestMediaContractNormalizesAndRejectsTextOnlyFields(t *testing.T) {
 		Type: "media_transcode", InputFormat: " MP4 ", MaxWidth: 320,
 		MaxHeight: 180, VideoBitrateKbps: 400,
 	}
-	if err := normalizeMediaJobType(&j); err != nil {
-		t.Fatalf("valid media contract rejected: %v", err)
-	}
+	mustf(t, normalizeMediaJobType(&j), "valid media contract rejected: %v")
 	if j.InputFormat != "mp4" || j.FPS != mediaTranscodeDefaultFPS {
 		t.Fatalf("normalized media shape = %+v", j)
 	}
@@ -36,9 +34,7 @@ func TestMediaContractNormalizesAndRejectsTextOnlyFields(t *testing.T) {
 func TestMediaInputScanUsesOneBoundedBinaryGeometry(t *testing.T) {
 	input := append([]byte{0, 0, 0, 24, 'f', 't', 'y', 'p'}, bytes.Repeat([]byte{'x'}, 16)...)
 	scan, err := mediaInputScan(input, 1)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	// Pin single-segment numbers: one record, full object byte geometry.
 	if scan.Records != 1 || scan.Bytes != len(input) || scan.MaxLineBytes != len(input) {
 		t.Fatalf("media scan geometry = %+v", scan)
@@ -46,9 +42,7 @@ func TestMediaInputScanUsesOneBoundedBinaryGeometry(t *testing.T) {
 	if scan.InputDepth.P90DepthBand == "" {
 		t.Fatal("media scan did not produce the bounded depth profile")
 	}
-	if err := validateMediaInputBytes(input); err != nil {
-		t.Fatal(err)
-	}
+	must(t, validateMediaInputBytes(input))
 	if err := validateMediaInputBytes([]byte(`{"not":"media"}`)); err == nil {
 		t.Fatal("JSONL bytes entered the binary media lane")
 	}
@@ -57,13 +51,9 @@ func TestMediaInputScanUsesOneBoundedBinaryGeometry(t *testing.T) {
 func TestMediaInputScanPricesNSegmentsAsNUnits(t *testing.T) {
 	input := append([]byte{0, 0, 0, 24, 'f', 't', 'y', 'p'}, bytes.Repeat([]byte{'x'}, 8)...)
 	one, err := mediaInputScan(input, 1)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	three, err := mediaInputScan(input, 3)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if one.Records != 1 || three.Records != 3 {
 		t.Fatalf("records one=%d three=%d", one.Records, three.Records)
 	}
@@ -95,9 +85,7 @@ func TestMediaInputScanPricesNSegmentsAsNUnits(t *testing.T) {
 func TestMediaResultIsOneDeterministicMP4Artifact(t *testing.T) {
 	valid := append([]byte{0, 0, 0, 24, 'f', 't', 'y', 'p'}, bytes.Repeat([]byte{'x'}, 16)...)
 	info := &CommitTaskInfo{jobType: "media_transcode", ExpectedOutputRecords: 1}
-	if err := validateTaskResultArtifact(info, valid); err != nil {
-		t.Fatalf("valid media result rejected: %v", err)
-	}
+	mustf(t, validateTaskResultArtifact(info, valid), "valid media result rejected: %v")
 	if !resultsAgree("media_transcode", valid, append([]byte(nil), valid...)) {
 		t.Fatal("media byte-exact comparator rejected equal artifacts")
 	}
@@ -114,9 +102,7 @@ func TestMediaResultIsOneDeterministicMP4Artifact(t *testing.T) {
 func TestInlineMediaBase64IsBoundedAndByteExact(t *testing.T) {
 	want := []byte("\x00\x01ftyp-is-binary")
 	got, err := decodeInlineMediaBase64(base64.StdEncoding.EncodeToString(want))
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if !bytes.Equal(got, want) {
 		t.Fatalf("decoded media changed bytes: %x != %x", got, want)
 	}

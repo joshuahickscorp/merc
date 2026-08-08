@@ -9,9 +9,7 @@ import (
 
 func TestStripeSimulatorScenarioAndGeneratedProperties(t *testing.T) {
 	receipt, err := runDeterministicStripeSimulation(20260719)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if receipt.Status != "SIMULATED PASS" || receipt.Label != "SIMULATED" {
 		t.Fatalf("simulator receipt is not explicitly labeled: %+v", receipt)
 	}
@@ -30,9 +28,7 @@ func TestStripeSimulatorScenarioAndGeneratedProperties(t *testing.T) {
 			t.Fatalf("simulator property %q was not asserted", property)
 		}
 	}
-	if err := runGeneratedStripeProperties(4096); err != nil {
-		t.Fatal(err)
-	}
+	must(t, runGeneratedStripeProperties(4096))
 }
 
 func TestStripeSimulatorConcurrentIdempotentRetry(t *testing.T) {
