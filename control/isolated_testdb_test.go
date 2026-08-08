@@ -56,7 +56,15 @@ func openIsolatedTestStore(t *testing.T) (context.Context, *Store, *pgxpool.Pool
 
 	own := *parsed
 	own.Path = "/" + name
-	pool, err := pgxpool.New(ctx, own.String())
+	poolCfg, err := pgxpool.ParseConfig(own.String())
+	mustf(t, err, "parse isolated database pool configuration: %v", err)
+	// pgxpool's implicit default is CPU-dependent and may be four connections
+	// on a small CI runner. The production verifier deliberately requires five
+	// (three verifier, two API/headroom), so this production-path harness must
+	// use the same explicit default as main rather than silently constructing an
+	// incapable store.
+	poolCfg.MaxConns = defaultDBMaxConns
+	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
 	mustf(t, err, "connect isolated database: %v")
 	t.Cleanup(pool.Close)
 

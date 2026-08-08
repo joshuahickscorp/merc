@@ -193,6 +193,9 @@ jobs:
         with:
           lfs: true
           ref: ${{ env.CANDIDATE_SHA }}
+          # Evidence bindings intentionally verify historical source commits.
+          # A shallow checkout cannot establish those immutable references.
+          fetch-depth: 0
       # Gates (validate-evidence-binding, claim surfaces, readiness) resolve
       # evidence/perf/** bodies. Without this, .lfsconfig fetchexclude leaves
       # pointers and the suite either false-passes or fails opaquely.
