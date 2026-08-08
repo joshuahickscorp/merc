@@ -1,0 +1,47 @@
+title = "Merc narrowly reviewed false-positive policy"
+
+[extend]
+useDefault = true
+
+# These entries retain the default detector. Each exception requires both the
+# exact file and a non-secret semantic marker on the flagged line, so unrelated
+# values in the same files continue to be scanned.
+[[allowlists]]
+description = "deterministic market-liquidity test fixture"
+targetRules = ["generic-api-key"]
+condition = "AND"
+regexTarget = "line"
+paths = ['''^control/market_liquidity_test\.go$''']
+regexes = ['''MERC_TOKEN_KEY''']
+
+[[allowlists]]
+description = "deterministic verification test fixtures"
+targetRules = ["generic-api-key"]
+condition = "AND"
+regexTarget = "line"
+paths = ['''^control/(rejection_economics_test|second_runtime_verification_test)\.go$''']
+regexes = ['''MERC_VERIFICATION_SAMPLE_SECRET''']
+
+[[allowlists]]
+description = "model tokenizer revision digests are not credentials"
+targetRules = ["generic-api-key"]
+condition = "AND"
+regexTarget = "line"
+paths = ['''^control/(runtime-authority|runtime-profiles/vllm-llama-3\.2-1b-instruct-bf16)\.json$''']
+regexes = ['''"tokenizer_revision"''']
+
+[[allowlists]]
+description = "test-only benchmark environment references"
+targetRules = ["generic-api-key"]
+condition = "AND"
+regexTarget = "line"
+paths = ['''^control/realtime_integration_test\.go$''']
+regexes = ['''(upstreamToken|MERC_BENCHMARK_API_KEY|MERC_DIRECT_VLLM_API_KEY)''']
+
+[[allowlists]]
+description = "model revision environment default"
+targetRules = ["generic-api-key"]
+condition = "AND"
+regexTarget = "line"
+paths = ['''^scripts/runpod-create-payload\.py$''']
+regexes = ['''MERC_VLLM_TOKENIZER_REVISION''']

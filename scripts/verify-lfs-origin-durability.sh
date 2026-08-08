@@ -236,6 +236,17 @@ trap cleanup EXIT INT TERM
 # objects, alternates, or LFS cache inherited from the candidate checkout.
 git init -q "$CLONE"
 git -C "$CLONE" remote add origin "$REMOTE_URL"
+# GitHub Actions checkout stores its short-lived token as a scoped HTTP
+# extraheader in the outer repository config. A fresh inner repository does
+# not inherit it, so copy only GitHub's header locally for this disposable
+# clone. Do not print, serialize, or copy any other credential configuration.
+if [[ "$CANONICAL_REMOTE_ID" = github.com/* ]]; then
+  while IFS= read -r github_header; do
+    [[ -z "$github_header" ]] && continue
+    git -C "$CLONE" config --local --add \
+      "http.https://github.com/.extraheader" "$github_header"
+  done < <(git config --get-all "http.https://github.com/.extraheader" 2>/dev/null || true)
+fi
 # Keep the LFS filter installation in the disposable repository. The proof
 # deliberately ignores global/system configuration, so checkout must not rely
 # on a machine-wide `git lfs install` entry.
