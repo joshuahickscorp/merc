@@ -44,6 +44,30 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 
 say() { printf '%s\n' "$*"; }
 die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
+usage() {
+  cat <<'USAGE'
+usage: scripts/runpod-vllm.sh <command>
+
+commands:
+  experiment                 governed, cost-bounded run with receipt and teardown
+  up [--keep]                provision explicitly; --keep is bounded
+  list                       list current account pods
+  reconcile [--terminate-orphans]
+  renew-keep
+  down <pod-id>
+  down-all                   explicit account-wide emergency stop
+USAGE
+}
+
+# Never make a missing command bill money. Help is deliberately available
+# without credentials or profile validation so operators can inspect the
+# command surface safely on a fresh host.
+COMMAND="${1:-}"
+case "$COMMAND" in
+  ""|help|-h|--help) usage; exit 0 ;;
+  list|reconcile|renew-keep|down|down-all|experiment|up) ;;
+  *) usage >&2; die "unknown command $COMMAND" ;;
+esac
 
 # shellcheck disable=SC1091
 [ -f "$ROOT/.merc-credentials.env" ] && { set -a; . "$ROOT/.merc-credentials.env"; set +a; }
@@ -467,7 +491,7 @@ complete_pending_intent_if_matching() {
   )
 }
 
-case "${1:-up}" in
+case "$COMMAND" in
 list) list_pods; exit 0 ;;
 reconcile)
   TERMINATE_FLAG=0
