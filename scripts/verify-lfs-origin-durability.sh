@@ -237,11 +237,10 @@ trap cleanup EXIT INT TERM
 git init -q "$CLONE"
 git -C "$CLONE" remote add origin "$REMOTE_URL"
 git -C "$CLONE" config lfs.storage "$CLONE/.git/lfs"
-# Candidate .lfsconfig, global config, and system config may redirect transfer
-# bytes elsewhere. Force the reviewed endpoint at the command layer below and
-# retain a local pin for inspection; credentials are supplied only by Git/LFS,
-# never embedded in this policy or receipt.
-git -C "$CLONE" config --local lfs.url "$EXPECTED_LFS_ENDPOINT"
+# Do not configure lfs.url here. For an SSH origin, Git LFS derives the
+# GitHub credential flow from the remote; forcing an HTTPS endpoint can discard
+# that authenticated transport. Candidate .lfsconfig is instead resolved and
+# checked below before any payload fetch is allowed.
 mkdir -p "$CLONE/.git/lfs/objects"
 CACHE_BEFORE="$(count_lfs_objects "$CLONE/.git/lfs/objects")"
 if [[ "$CACHE_BEFORE" != "0" ]]; then
@@ -269,10 +268,11 @@ if [[ ! -f "$CLONE/scripts/verify-lfs-corpus.py" ]]; then
   fail "exact remote commit lacks scripts/verify-lfs-corpus.py; cannot establish independent corpus integrity"
 fi
 
-# Command-line config has higher precedence than a candidate .lfsconfig.  Do
-# not inherit a caller's global/system filters or lfs.url into the fresh proof.
+# Do not inherit caller global/system configuration. A candidate .lfsconfig is
+# intentionally visible here: if it redirects the endpoint, the exact match
+# check below refuses before fetching any payload from it.
 RESOLVED_LFS_ENDPOINT="$(env GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \
-  git -C "$CLONE" -c lfs.url="$EXPECTED_LFS_ENDPOINT" lfs env \
+  git -C "$CLONE" lfs env \
   | sed -n 's/^Endpoint=\([^ ]*\).*/\1/p' | head -n 1)"
 if ! python3 "$ROOT/scripts/validate-lfs-origin-authority.py" \
   --lfs-endpoint "$RESOLVED_LFS_ENDPOINT" >/dev/null 2>&1; then
@@ -287,8 +287,7 @@ fi
 # explicitly every LFS path referenced by the exact commit, including
 # .tools/runpodctl, not merely the receipts a particular CI job reads.
 if env GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \
-  git -C "$CLONE" -c lfs.url="$EXPECTED_LFS_ENDPOINT" \
-  -c lfs.fetchinclude= -c lfs.fetchexclude= \
+  git -C "$CLONE" -c lfs.fetchinclude= -c lfs.fetchexclude= \
   lfs fetch --include="*" --exclude="" origin "$REMOTE_HEAD" >"$WORKDIR/lfs-fetch.log" 2>&1; then
   FETCH_STATUS="OK"
 else
@@ -298,7 +297,7 @@ fi
 # Materialise the fetched bodies and then make unresolved pointers a hard
 # failure.  `git lfs fsck` is not consulted for this verdict.
 if env GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \
-  git -C "$CLONE" -c lfs.url="$EXPECTED_LFS_ENDPOINT" lfs checkout >"$WORKDIR/lfs-checkout.log" 2>&1; then
+  git -C "$CLONE" lfs checkout >"$WORKDIR/lfs-checkout.log" 2>&1; then
   CHECKOUT_STATUS="OK"
 else
   CHECKOUT_STATUS="FAIL"
