@@ -109,6 +109,7 @@ ci:
 	python3 scripts/test-runpod-orphan-reconcile.py
 	python3 scripts/test-runpod-create-payload.py
 	bash scripts/test-runpod-command-safety.sh
+	python3 scripts/test-runpod-receipt-withdrawals.py
 	python3 scripts/runpod-spend-guard.py revalidate
 	python3 scripts/validate-authorization-matrix.py
 	python3 scripts/validate-sdk-routes.py

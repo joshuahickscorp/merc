@@ -259,6 +259,113 @@ def receipt_withdrawal(receipt: dict):
     return reason or None
 
 
+def _sha256_file(path: str) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _git_file_sha256(commit: str, path: str) -> tuple[Optional[str], Optional[str]]:
+    """Return the exact blob digest for a path in a named commit.
+
+    Historical receipt withdrawals are allowed only when their target is still
+    byte-for-byte the object retained in an ancestor commit.  That prevents a
+    sidecar from laundering a rewritten receipt into a harmless-looking
+    withdrawal.  A missing or non-commit source is a refusal, not a best-effort
+    lookup: the proof needs durable history, not the current working tree.
+    """
+    if not re.fullmatch(r"[0-9a-f]{40}", commit):
+        return None, "historical_source_commit must be a full 40-hex commit"
+    try:
+        object_type = subprocess.run(
+            ["git", "-C", ROOT, "cat-file", "-t", commit],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        if object_type != "commit":
+            return None, "historical_source_commit does not name a commit"
+        ancestor = subprocess.run(
+            ["git", "-C", ROOT, "merge-base", "--is-ancestor", commit, "HEAD"],
+            capture_output=True,
+            text=True,
+        )
+        if ancestor.returncode != 0:
+            return None, "historical_source_commit is not an ancestor of HEAD"
+        blob = subprocess.run(
+            ["git", "-C", ROOT, "show", f"{commit}:{path}"],
+            check=True,
+            capture_output=True,
+        ).stdout
+    except (OSError, subprocess.CalledProcessError) as exc:
+        return None, f"cannot read historical target from Git: {exc}"
+    return hashlib.sha256(blob).hexdigest(), None
+
+
+def external_receipt_withdrawal(path: str, receipt: dict) -> tuple[Optional[str], Optional[str]]:
+    """Return a verified append-only withdrawal reason for an old failed receipt.
+
+    Raw receipts are historical accounting facts and must not be edited to make
+    later policy explicit.  A sibling ``.withdrawal.json`` may retire exactly a
+    failed-startup receipt, but it has to pin the current bytes *and* bytes at a
+    historical ancestor commit.  It can only reduce what may be claimed; it can
+    never make an inadmissible receipt pass.
+    """
+    sidecar = f"{path[:-5]}.withdrawal.json" if path.endswith(".json") else f"{path}.withdrawal.json"
+    if not os.path.exists(sidecar):
+        return None, None
+    rel = os.path.relpath(path, ROOT)
+    try:
+        with open(sidecar, encoding="utf-8") as handle:
+            envelope = json.load(handle)
+    except (OSError, json.JSONDecodeError) as exc:
+        return None, f"cannot read withdrawal envelope: {exc}"
+    if not isinstance(envelope, dict):
+        return None, "withdrawal envelope must be a JSON object"
+    if envelope.get("schema_version") != 1:
+        return None, "withdrawal envelope schema_version must be 1"
+    if envelope.get("kind") != "runpod_spend_receipt_withdrawal":
+        return None, "withdrawal envelope kind is not runpod_spend_receipt_withdrawal"
+    if envelope.get("status") != "WITHDRAWN" or envelope.get("append_only") is not True:
+        return None, "withdrawal envelope must be append_only WITHDRAWN"
+    if envelope.get("target_path") != rel:
+        return None, "withdrawal envelope target_path does not match its sibling receipt"
+    if envelope.get("target_kind") != "runpod_spend_receipt":
+        return None, "withdrawal envelope target_kind must be runpod_spend_receipt"
+    if envelope.get("target_binding_status") != receipt.get("binding_status"):
+        return None, "withdrawal envelope target_binding_status does not match receipt"
+    if envelope.get("target_admissible") is not False or receipt.get("admissible") is not False:
+        return None, "external withdrawal may retire only an inadmissible receipt"
+    if envelope.get("target_ready") is not False or receipt.get("ready") is not False:
+        return None, "external withdrawal may retire only a failed-startup receipt"
+    expected = envelope.get("target_sha256")
+    if not isinstance(expected, str) or not re.fullmatch(r"[0-9a-f]{64}", expected):
+        return None, "withdrawal envelope target_sha256 must be a 64-hex digest"
+    actual = _sha256_file(path)
+    if actual != expected:
+        return None, "withdrawal envelope target_sha256 does not match current receipt"
+    historical, error = _git_file_sha256(str(envelope.get("historical_source_commit", "")), rel)
+    if error:
+        return None, error
+    if historical != expected:
+        return None, "withdrawal envelope target_sha256 does not match historical receipt"
+    required_refusal = envelope.get("required_refusal")
+    if not isinstance(required_refusal, str) or not required_refusal.strip():
+        return None, "withdrawal envelope required_refusal is required"
+    refusals = receipt.get("refusals")
+    if not isinstance(refusals, list) or required_refusal not in refusals:
+        return None, "withdrawal envelope required_refusal is not present in receipt"
+    reason = envelope.get("withdrawn_reason")
+    if isinstance(reason, list):
+        reason = "; ".join(str(item).strip() for item in reason if str(item).strip())
+    reason = str(reason or "").strip()
+    if not reason:
+        return None, "withdrawal envelope withdrawn_reason is required"
+    return reason, None
+
+
 def revalidate_stored_receipt(path: str, receipt: dict) -> list:
     """Re-apply today's rules to a retained receipt. Does not rewrite the file."""
     if receipt.get("kind") != "runpod_spend_receipt":
@@ -299,7 +406,9 @@ def revalidate_retained_receipts() -> int:
     paths = sorted(
         os.path.join(root, name)
         for name in os.listdir(root)
-        if name.endswith(".json") and name.startswith("spend-")
+        if name.endswith(".json")
+        and name.startswith("spend-")
+        and not name.endswith(".withdrawal.json")
     )
     if not paths:
         print("runpod-spend-guard revalidate: no spend-*.json receipts retained")
@@ -314,6 +423,15 @@ def revalidate_retained_receipts() -> int:
         except (OSError, json.JSONDecodeError) as exc:
             print(f"FAIL {rel}: cannot read receipt: {exc}", file=sys.stderr)
             failed += 1
+            continue
+        withdrawal, withdrawal_error = external_receipt_withdrawal(path, receipt)
+        if withdrawal_error:
+            failed += 1
+            print(f"FAIL {rel}: invalid withdrawal envelope: {withdrawal_error}", file=sys.stderr)
+            continue
+        if withdrawal is not None:
+            withdrawn_count += 1
+            print(f"WITHDRAWN {rel}: {withdrawal}")
             continue
         refusals = revalidate_stored_receipt(path, receipt)
         if refusals:
