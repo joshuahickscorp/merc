@@ -89,8 +89,13 @@ jobs:
           go vet ./...
           bash ../scripts/with-isolated-test-storage.sh \
             bash ../scripts/with-isolated-test-db.sh go test ./...
+          # The full race-instrumented integration package has individual
+          # bounded contexts for its blocking paths, but it legitimately takes
+          # longer than Go's default package-wide ten-minute alarm on GitHub's
+          # shared Postgres runner. Keep the race suite complete rather than
+          # letting that aggregate default truncate it mid-progress.
           bash ../scripts/with-isolated-test-storage.sh \
-            bash ../scripts/with-isolated-test-db.sh go test -race ./...
+            bash ../scripts/with-isolated-test-db.sh go test -race -timeout 20m ./...
       # A skipped test is an assertion nobody made.  MERC_TEST_DATABASE_URL is set
       # for this job, so the money and scheduling suite must actually run; this
       # step fails if any test skips without being allowlisted.

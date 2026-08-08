@@ -40,21 +40,25 @@ func TestAdmissionTelemetryAsyncStillRecorded(t *testing.T) {
 	worker := newRealtimeClearingOffer(t, ctx, store, pool, profile, "HOT", 0.08, 0.30, 64)
 	_ = worker
 
-	tel := newAdmissionTelemetry(store)
-	if tel == nil {
-		t.Fatal("expected telemetry recorder")
+	srv := NewServer(store, nil, nil, nil)
+	if srv.admissionTelemetry.Load() != nil {
+		t.Fatal("telemetry workers must not start before the first realtime admission")
 	}
+	t.Cleanup(func() { srv.CloseAdmissionTelemetry(5 * time.Second) })
 	// Crash-loss bound is documented and finite.
+	const n = 64
+	for i := 0; i < n; i++ {
+		srv.recordRealtimeAdmissionEvent(ctx, buyerID, profile.RuntimeProfileID, "", realtimeAdmissionNoCapacity, uuid.Nil)
+	}
+	tel := srv.admissionTelemetry.Load()
+	if tel == nil {
+		t.Fatal("first realtime admission did not start telemetry")
+	}
 	if cap := tel.queueCap(); cap != admissionTelemetryQueueCap || cap < 1 {
 		t.Fatalf("queue cap = %d, want %d", cap, admissionTelemetryQueueCap)
 	}
-
-	const n = 64
-	for i := 0; i < n; i++ {
-		tel.record(buyerID, profile.RuntimeProfileID, "", realtimeAdmissionNoCapacity, uuid.Nil)
-	}
 	// Drain: every event must land.
-	tel.Close(5 * time.Second)
+	srv.CloseAdmissionTelemetry(5 * time.Second)
 
 	var count int
 	if err := pool.QueryRow(ctx,
@@ -73,6 +77,37 @@ func TestAdmissionTelemetryAsyncStillRecorded(t *testing.T) {
 		t.Fatalf("queued residual after Close = %d, want 0", queued)
 	}
 	_ = syncFB
+}
+
+// TestAdmissionTelemetryCloseBeforeFirstEvent avoids creating background
+// workers during shutdown while retaining the no-drop synchronous fallback.
+func TestAdmissionTelemetryCloseBeforeFirstEvent(t *testing.T) {
+	installSettlementCurrencyForTest(t, "usd")
+	ctx, store, pool := openIsolatedTestStore(t)
+	buyerID, err := store.CreateBuyerAccount(ctx,
+		"adm-close-"+uuid.NewString()+"@example.test", "integration-password", 5)
+	must(t, err)
+	profile := sortedVLLMProfiles()[0]
+
+	srv := NewServer(store, nil, nil, nil)
+	srv.CloseAdmissionTelemetry(5 * time.Second)
+	if srv.admissionTelemetry.Load() != nil {
+		t.Fatal("close before the first event started telemetry workers")
+	}
+	srv.recordRealtimeAdmissionEvent(ctx, buyerID, profile.RuntimeProfileID, "", realtimeAdmissionNoCapacity, uuid.Nil)
+	if srv.admissionTelemetry.Load() != nil {
+		t.Fatal("post-close fallback restarted telemetry workers")
+	}
+
+	var count int
+	if err := pool.QueryRow(ctx,
+		`SELECT count(*) FROM realtime_admission_events WHERE buyer_id=$1 AND decision=$2`,
+		buyerID, realtimeAdmissionNoCapacity).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("post-close synchronous fallback recorded=%d, want 1", count)
+	}
 }
 
 // TestAdmissionTelemetryFullQueueFallsBackSync proves overload cannot drop:

@@ -21,6 +21,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -45,9 +47,13 @@ type Server struct {
 	// consults it.
 	arrivalBatcher *ArrivalBatcher
 	// admissionTelemetry moves observational market-liquidity events off the
-	// first-token path. Nil falls back to a synchronous write (tests that
-	// construct Server{} by hand keep the old behaviour).
-	admissionTelemetry *admissionTelemetry
+	// first-token path. It is allocated lazily on the first event: most control
+	// plane servers never handle a realtime admission, so eagerly starting two
+	// workers for each of them only creates idle lifetime management work.
+	// Servers constructed by hand still use the synchronous fallback.
+	admissionTelemetryMu     sync.Mutex
+	admissionTelemetry       atomic.Pointer[admissionTelemetry]
+	admissionTelemetryClosed bool
 }
 
 func NewServer(store *Store, storage *Storage, verifier *Verifier, payout Payout) *Server {
@@ -73,18 +79,48 @@ func NewServer(store *Store, storage *Storage, verifier *Verifier, payout Payout
 		// costs measured latency for an unmeasured gain should not be on the
 		// path by default. Everything under it — class derivation, the deadline
 		// gate, billing neutrality — is tested and stays wired.
-		arrivalBatcher:     NewArrivalBatcher(ArrivalBatchConfig{Enabled: false}),
-		admissionTelemetry: newAdmissionTelemetry(store),
+		arrivalBatcher: NewArrivalBatcher(ArrivalBatchConfig{Enabled: false}),
 	}
 }
 
 // CloseAdmissionTelemetry drains the async admission-event queue. Call during
 // graceful shutdown so in-flight telemetry is not lost on a clean stop.
 func (s *Server) CloseAdmissionTelemetry(timeout time.Duration) {
-	if s == nil || s.admissionTelemetry == nil {
+	if s == nil {
 		return
 	}
-	s.admissionTelemetry.Close(timeout)
+	s.admissionTelemetryMu.Lock()
+	s.admissionTelemetryClosed = true
+	tel := s.admissionTelemetry.Load()
+	s.admissionTelemetryMu.Unlock()
+	if tel != nil {
+		tel.Close(timeout)
+	}
+}
+
+// admissionTelemetryRecorder creates the process-local writer only when a
+// server actually records a realtime admission. Close marks the server first,
+// so no shutdown race can start a new worker after HTTP has stopped accepting
+// requests. An already-created recorder is returned after Close so record()
+// retains its documented synchronous fallback semantics.
+func (s *Server) admissionTelemetryRecorder() *admissionTelemetry {
+	if s == nil || s.store == nil {
+		return nil
+	}
+	if tel := s.admissionTelemetry.Load(); tel != nil {
+		return tel
+	}
+	s.admissionTelemetryMu.Lock()
+	defer s.admissionTelemetryMu.Unlock()
+	if tel := s.admissionTelemetry.Load(); tel != nil {
+		return tel
+	}
+	if s.admissionTelemetryClosed {
+		return nil
+	}
+	tel := newAdmissionTelemetry(s.store)
+	s.admissionTelemetry.Store(tel)
+	return tel
 }
 
 const signupsPerIPPerDay = 5
