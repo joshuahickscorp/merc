@@ -85,6 +85,14 @@ TestPairedCohortMeasuresCostAndRegret
 # Delete this line when a lane exists that always has a built agent.
 TestFirstCompleteLoopThroughThePublicAPI
 
+# The public CAD Project-IR execution loop adds a real enrolled agent and a
+# reachable llama embedding server on top of object storage, then waits for
+# claim, execution, verification, settlement, and retained-result delivery.
+# The control CI lane provides Postgres and MinIO but deliberately does not
+# build or host that runtime. The quote/admission half runs independently in
+# CI; delete this line when a dedicated agent-and-engine lane is added.
+TestProjectCompilerCADExecutionThroughPublicAPI
+
 #
 # Opt-in latency and placement measurement harnesses added during the performance
 # wave. Each is gated behind its own env var because running it in CI would take
@@ -114,6 +122,11 @@ TestWriteCellEconomicsCensusReceipt
 # TestGovernedComparisonFalsifiesPriorThroughputClaim; this test only seals
 # evidence/perf/selector/governed-candle-vs-llama-shadow-decision.json when asked.
 TestWriteGovernedComparisonReceipt
+# Writer-only economic selector receipt. Its arithmetic and selector behaviour
+# are covered by ordinary tests; enabling this test would rewrite the tracked
+# evidence/perf receipt during verification. Delete this line when receipt
+# generation moves to a dedicated measurement/publishing workflow.
+TestWriteEconomicSelectorProofReceipt
 #
 # Live serving-matrix measurements against a real llama.cpp/Candle Metal server.
 # Require MERC_RUN_LIVE_SERVING_MATRIX=1 plus a local engine and a GGUF on disk;

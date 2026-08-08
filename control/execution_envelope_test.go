@@ -406,109 +406,97 @@ func TestExecutionEnvelopePerRequestCeiling(t *testing.T) {
 	}
 }
 
-// TestExecutionEnvelopeSpendCheaperThanFullFunding measures concurrent
-// buyer-funding serialization — the cost envelopes amortize.
-//
-// Serial single-statement cost of an envelope spend (UPDATE + spend INSERT +
-// event INSERT) is often higher than a lone evaluateRealtimeBuyerFunding
-// SELECT, because the envelope writes durable hold rows. The win is under
-// concurrent load: N funding checks for one buyer take the advisory xact lock
-// one-at-a-time for the whole transaction, while N envelope spends only
-// briefly contend on the envelope row for one UPDATE and do not hold a
-// buyer-level lock across capacity selection / contract insert.
-func TestExecutionEnvelopeSpendCheaperThanFullFunding(t *testing.T) {
+// TestExecutionEnvelopeSpendBypassesBuyerFundingLock proves the structural
+// latency property that envelopes are meant to provide. A wall-clock race
+// between two unrelated Postgres paths is not a stable correctness assertion:
+// runner load can reverse it even when the lock topology is unchanged. Instead
+// hold the buyer-funding advisory lock, observe a funding check waiting on it,
+// and prove a bounded envelope spend still completes. This directly covers the
+// intended isolation without making a machine-specific throughput claim.
+func TestExecutionEnvelopeSpendBypassesBuyerFundingLock(t *testing.T) {
 	installSettlementCurrencyForTest(t, "usd")
-	ctx, store, pool := openIsolatedTestStore(t)
+	baseCtx, store, pool := openIsolatedTestStore(t)
+	ctx, cancel := context.WithTimeout(baseCtx, 10*time.Second)
+	defer cancel()
 	profile := sortedVLLMProfiles()[0]
 	buyerID := envelopeTestBuyer(t, ctx, store, pool, 500_000_000)
 
-	const (
-		needNanos   int64 = 1_000_000 // $0.001
-		serialN           = 30
-		concurrentN       = 32
-	)
+	const needNanos int64 = 1_000_000 // $0.001
 	env, err := store.CreateExecutionEnvelope(ctx, buyerID, ExecutionEnvelopeCreateRequest{
 		RuntimeProfileID:       profile.RuntimeProfileID,
-		CapNanos:               needNanos * int64(serialN+concurrentN+50),
-		MaxRequests:            int64(serialN + concurrentN + 50),
+		CapNanos:               needNanos * 64,
+		MaxRequests:            64,
 		PerRequestCeilingNanos: needNanos,
 		TTLSeconds:             3600,
 	})
 	must(t, err)
 	needUSD := microsToUSD(ceilNanosToMicros(needNanos))
 
-	start := time.Now()
-	for i := 0; i < serialN; i++ {
-		if _, err := store.SpendExecutionEnvelope(ctx, env.ID, buyerID, needNanos, 0,
-			"serial-env-"+uuid.NewString(), "req", profile); err != nil {
-			t.Fatal(err)
-		}
-	}
-	envSerial := time.Since(start)
+	lockTx, err := pool.Begin(ctx)
+	must(t, err)
+	defer lockTx.Rollback(context.Background())
+	_, err = lockTx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`,
+		"realtime-buyer-funding|"+buyerID.String())
+	must(t, err)
 
-	start = time.Now()
-	for i := 0; i < serialN; i++ {
+	fundingStarted := make(chan struct{})
+	fundingDone := make(chan error, 1)
+	go func() {
 		tx, err := pool.Begin(ctx)
-		must(t, err)
-		if err := evaluateRealtimeBuyerFunding(ctx, tx, buyerID, needUSD); err != nil {
-			tx.Rollback(ctx)
-			t.Fatal(err)
+		if err != nil {
+			fundingDone <- err
+			return
 		}
-		must(t, tx.Commit(ctx))
+		defer tx.Rollback(context.Background())
+		close(fundingStarted)
+		if err := evaluateRealtimeBuyerFunding(ctx, tx, buyerID, needUSD); err != nil {
+			fundingDone <- err
+			return
+		}
+		fundingDone <- tx.Commit(ctx)
+	}()
+	select {
+	case <-fundingStarted:
+	case err := <-fundingDone:
+		t.Fatalf("start funding check: %v", err)
+	case <-ctx.Done():
+		t.Fatalf("funding check did not start: %v", ctx.Err())
 	}
-	fundSerial := time.Since(start)
 
-	start = time.Now()
-	var wg sync.WaitGroup
-	wg.Add(concurrentN)
-	for i := 0; i < concurrentN; i++ {
-		go func() {
-			defer wg.Done()
-			if _, err := store.SpendExecutionEnvelope(ctx, env.ID, buyerID, needNanos, 0,
-				"conc-env-"+uuid.NewString(), "req", profile); err != nil {
-				t.Errorf("envelope concurrent spend: %v", err)
-			}
-		}()
+	// Wait for the exact blocked state rather than guessing from elapsed time.
+	// This isolated database has no unrelated workload, so an ungranted advisory
+	// lock is the funding check above waiting behind lockTx.
+	deadline := time.NewTimer(2 * time.Second)
+	defer deadline.Stop()
+	for {
+		var waiters int
+		err := pool.QueryRow(ctx, `SELECT count(*) FROM pg_locks WHERE locktype='advisory' AND NOT granted`).Scan(&waiters)
+		must(t, err)
+		if waiters > 0 {
+			break
+		}
+		select {
+		case <-deadline.C:
+			t.Fatal("funding check never waited on the buyer advisory lock")
+		case <-time.After(5 * time.Millisecond):
+		}
 	}
-	wg.Wait()
-	envConc := time.Since(start)
 
-	start = time.Now()
-	wg.Add(concurrentN)
-	for i := 0; i < concurrentN; i++ {
-		go func() {
-			defer wg.Done()
-			tx, err := pool.Begin(ctx)
-			if err != nil {
-				t.Errorf("begin: %v", err)
-				return
-			}
-			// Hold the funding lock the way authorize does: check, then more
-			// work before commit, so serialization cost is visible.
-			if err := evaluateRealtimeBuyerFunding(ctx, tx, buyerID, needUSD); err != nil {
-				tx.Rollback(ctx)
-				t.Errorf("funding: %v", err)
-				return
-			}
-			time.Sleep(2 * time.Millisecond)
-			if err := tx.Commit(ctx); err != nil {
-				t.Errorf("commit: %v", err)
-			}
-		}()
+	spendCtx, spendCancel := context.WithTimeout(ctx, 2*time.Second)
+	_, err = store.SpendExecutionEnvelope(spendCtx, env.ID, buyerID, needNanos, 0,
+		"buyer-lock-bypass-"+uuid.NewString(), "req", profile)
+	spendCancel()
+	if err != nil {
+		t.Fatalf("envelope spend blocked behind buyer funding lock: %v", err)
 	}
-	wg.Wait()
-	fundConc := time.Since(start)
 
-	t.Logf("serial:   envelope=%s (%.2fms/op) funding_check=%s (%.2fms/op) ratio=%.2fx",
-		envSerial, float64(envSerial.Microseconds())/1000/float64(serialN),
-		fundSerial, float64(fundSerial.Microseconds())/1000/float64(serialN),
-		float64(fundSerial)/float64(envSerial+1))
-	t.Logf("concurrent c=%d: envelope=%s funding_check_with_hold=%s ratio=%.2fx (higher => envelope wins under load)",
-		concurrentN, envConc, fundConc, float64(fundConc)/float64(envConc+1))
-
-	if envConc > fundConc {
-		t.Fatalf("concurrent envelope spends (%s) were not cheaper than concurrent funding holds (%s)",
-			envConc, fundConc)
+	// Releasing the funding lock must allow the waiting check to complete.
+	must(t, lockTx.Rollback(ctx))
+	select {
+	case err := <-fundingDone:
+		must(t, err)
+	case <-ctx.Done():
+		t.Fatalf("funding check did not resume after lock release: %v", ctx.Err())
 	}
 }
 
