@@ -65,8 +65,9 @@ if python3 scripts/validate-lfs-origin-authority.py \
   exit 1
 fi
 
-# A candidate .lfsconfig and caller global config cannot redirect transfer
-# bytes because durability uses explicit -c lfs.url under isolated config.
+# A candidate .lfsconfig is deliberately visible to the fresh proof. It must
+# resolve outside reviewed authority and be rejected before transfer; caller
+# global configuration is disabled entirely.
 TMPDIR_LFS="$(mktemp -d "${TMPDIR:-/tmp}/merc-lfs-authority.XXXXXX")"
 cleanup_lfs_authority_test() { rm -rf -- "$TMPDIR_LFS"; }
 trap cleanup_lfs_authority_test EXIT INT TERM
@@ -74,10 +75,14 @@ git init -q "$TMPDIR_LFS/repo"
 git -C "$TMPDIR_LFS/repo" config --file .lfsconfig lfs.url 'https://example.invalid/redirect.git/info/lfs'
 git config --file "$TMPDIR_LFS/global" lfs.url 'https://example.invalid/global.git/info/lfs'
 RESOLVED="$(env GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \
-  git -C "$TMPDIR_LFS/repo" -c lfs.url="$EXPECTED_LFS" lfs env \
+  git -C "$TMPDIR_LFS/repo" lfs env \
   | sed -n 's/^Endpoint=\([^ ]*\).*/\1/p' | head -n 1)"
-if [[ "$RESOLVED" != "$EXPECTED_LFS" ]]; then
-  echo "lfs-origin-durability self-test: FAIL -- candidate/global LFS redirect won: $RESOLVED" >&2
+if [[ "$RESOLVED" = "$EXPECTED_LFS" ]]; then
+  echo "lfs-origin-durability self-test: FAIL -- candidate LFS redirect was not observable" >&2
   exit 1
 fi
-echo "lfs-origin-durability self-test: PASS -- candidate/global LFS redirects cannot override reviewed endpoint"
+if python3 scripts/validate-lfs-origin-authority.py --lfs-endpoint "$RESOLVED" >/dev/null 2>&1; then
+  echo "lfs-origin-durability self-test: FAIL -- candidate LFS redirect was accepted" >&2
+  exit 1
+fi
+echo "lfs-origin-durability self-test: PASS -- candidate/global LFS redirects are detected and rejected"
