@@ -76,79 +76,84 @@ expect_deny  "read ~/Library/Keychains (login keychain)"   /bin/cat "$H/Library/
 expect_deny  "read ~/Documents (personal files)"           /bin/cat "$H/Documents/taxes.txt"
 expect_deny  "write a new ~/.zshrc (rc injection)"         /bin/sh -c "printf pwn > '$H/.zshrc'"
 
-PY="$(command -v python3 || true)"
-if [ -z "$PY" ]; then
-  printf '  \033[1;33m•\033[0m SKIP  network rows  -  python3 not found (socket-level probe unavailable)\n'
+PERL="/usr/bin/perl"
+if [ ! -x "$PERL" ]; then
+  printf '  \033[1;33m•\033[0m SKIP  network rows  -  system Perl unavailable (socket-level probe unavailable)\n'
 else
   echo
   echo "  network containment:"
 
-  if run "$PY" -c 'import socket,sys
-s=socket.socket(socket.AF_INET,socket.SOCK_STREAM)
-try:
-    s.bind(("127.0.0.1",0)); s.listen(1); sys.exit(1)   # bind SUCCEEDED = containment breach
-except OSError as e:
-    sys.exit(0 if e.errno==1 else 2)                    # errno 1 = EPERM = sandbox denied it' >/dev/null 2>&1; then
+  # Use the system Perl runtime, which the production profile permits under
+  # /usr/bin. Homebrew Python is deliberately outside the executable allowlist;
+  # using it here made a failed exec look like a network-containment failure.
+  if run "$PERL" -MSocket=AF_INET,SOCK_STREAM,INADDR_LOOPBACK,sockaddr_in \
+      -MErrno=EPERM -e '
+socket(my $s, AF_INET, SOCK_STREAM, 0) or exit 2;
+bind($s, sockaddr_in(0, INADDR_LOOPBACK)) and exit 1; # bind succeeded = breach
+exit($! == EPERM ? 0 : 2)' >/dev/null 2>&1; then
     ok  "DENY   open a listening socket (no inbound backdoor)"
   else
-    bad "DENY   open a listening socket  -  bind was ALLOWED (a payload could listen)"
+    bad "DENY   open a listening socket  -  bind was allowed or probe was not denied with EPERM"
   fi
 
-  LPORT="$("$PY" -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1]);s.close()' 2>/dev/null || echo 0)"
-  if [ "$LPORT" != "0" ]; then
-    "$PY" -c "import socket
-srv=socket.socket(); srv.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1)
-srv.bind(('127.0.0.1',$LPORT)); srv.listen(1); srv.settimeout(8)
-try:
-    c,_=srv.accept(); c.close()
-except OSError:
-    pass
-srv.close()" >/dev/null 2>&1 &
+  PORT_FILE="$FAKE/loopback-port"
+  "$PERL" -MSocket=AF_INET,SOCK_STREAM,INADDR_LOOPBACK,sockaddr_in -e '
+socket(my $s, AF_INET, SOCK_STREAM, 0) or exit 1;
+setsockopt($s, SOL_SOCKET, SO_REUSEADDR, 1);
+bind($s, sockaddr_in(0, INADDR_LOOPBACK)) or exit 1;
+listen($s, 1) or exit 1;
+my ($port) = sockaddr_in(getsockname($s));
+open my $out, ">", $ARGV[0] or exit 1;
+print {$out} $port;
+close $out;
+alarm 8;
+accept(my $client, $s);
+' "$PORT_FILE" >/dev/null 2>&1 &
     LSRV=$!
-    sleep 1
-    if run "$PY" -c "import socket,sys
-s=socket.socket(); s.settimeout(4)
-try:
-    s.connect(('127.0.0.1',$LPORT)); sys.exit(0)
-except OSError:
-    sys.exit(1)" >/dev/null 2>&1; then
+  for _ in $(seq 1 20); do
+    [ -s "$PORT_FILE" ] && break
+    sleep 0.1
+  done
+  LPORT=""
+  if [ -s "$PORT_FILE" ]; then
+    LPORT="$(<"$PORT_FILE")"
+  fi
+  if [ -n "$LPORT" ]; then
+    if run "$PERL" -MSocket=AF_INET,SOCK_STREAM,inet_aton,sockaddr_in -e '
+socket(my $s, AF_INET, SOCK_STREAM, 0) or exit 1;
+connect($s, sockaddr_in($ARGV[1], inet_aton($ARGV[0]))) or exit 1;
+exit 0' 127.0.0.1 "$LPORT" >/dev/null 2>&1; then
       ok "ALLOW  outbound to loopback (dev control plane / local sidecar)"
     else
       bad "ALLOW  outbound to loopback  -  legitimate local egress was BLOCKED"
     fi
-    kill "$LSRV" >/dev/null 2>&1 || true
-    wait "$LSRV" 2>/dev/null || true
   fi
+  kill "$LSRV" >/dev/null 2>&1 || true
+  wait "$LSRV" 2>/dev/null || true
 
   REMOTE_IP="1.1.1.1"
-  if "$PY" -c "import socket,sys
-s=socket.socket(); s.settimeout(4)
-try:
-    s.connect(('$REMOTE_IP',443)); sys.exit(0)
-except OSError:
-    sys.exit(1)" >/dev/null 2>&1; then
+  if "$PERL" -MSocket=AF_INET,SOCK_STREAM,inet_aton,sockaddr_in -e '
+socket(my $s, AF_INET, SOCK_STREAM, 0) or exit 1;
+connect($s, sockaddr_in($ARGV[1], inet_aton($ARGV[0]))) or exit 1;
+exit 0' "$REMOTE_IP" 443 >/dev/null 2>&1; then
 
     # Deny-default profile: arbitrary remote :443 must be DENIED. Only hosts
     # declared via CONTROL_HOST / ARTIFACT_HOST / MODEL_HOST are reachable.
-    if run "$PY" -c "import socket,sys,time
-s=socket.socket(); s.settimeout(6); t=time.time()
-try:
-    s.connect(('$REMOTE_IP',443)); sys.exit(1)          # connect SUCCEEDED = containment breach
-except OSError as e:
-    dt=time.time()-t
-    sys.exit(0 if (e.errno==1 or dt<2.0) else 2)" >/dev/null 2>&1; then
+    if run "$PERL" -MSocket=AF_INET,SOCK_STREAM,inet_aton,sockaddr_in \
+        -MErrno=EPERM -e '
+socket(my $s, AF_INET, SOCK_STREAM, 0) or exit 2;
+connect($s, sockaddr_in($ARGV[1], inet_aton($ARGV[0]))) and exit 1;
+exit($! == EPERM ? 0 : 2)' "$REMOTE_IP" 443 >/dev/null 2>&1; then
       ok "DENY   outbound HTTPS to arbitrary host :443 (no open exfil egress)"
     else
       bad "DENY   outbound arbitrary :443  -  buyer payload could exfiltrate to any host"
     fi
 
-    if run "$PY" -c "import socket,sys,time
-s=socket.socket(); s.settimeout(6); t=time.time()
-try:
-    s.connect(('$REMOTE_IP',6667)); sys.exit(1)          # connect SUCCEEDED = containment breach
-except OSError as e:
-    dt=time.time()-t
-    sys.exit(0 if (e.errno==1 and dt<1.0) else 2)        # fast EPERM = in-kernel sandbox deny" >/dev/null 2>&1; then
+    if run "$PERL" -MSocket=AF_INET,SOCK_STREAM,inet_aton,sockaddr_in \
+        -MErrno=EPERM -e '
+socket(my $s, AF_INET, SOCK_STREAM, 0) or exit 2;
+connect($s, sockaddr_in($ARGV[1], inet_aton($ARGV[0]))) and exit 1;
+exit($! == EPERM ? 0 : 2)' "$REMOTE_IP" 6667 >/dev/null 2>&1; then
       ok "DENY   outbound to an arbitrary port :6667 (no C2/exfil egress)"
     else
       bad "DENY   outbound :6667  -  a payload could phone home on an arbitrary port"
