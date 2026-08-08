@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "kind": "runpod_spend_receipt_withdrawal",
+  "binding_status": "WITHDRAWN",
+  "status": "WITHDRAWN",
+  "append_only": true,
+  "target_path": "evidence/runpod/spend-vjkaoy59vudbfi.json",
+  "target_kind": "runpod_spend_receipt",
+  "target_binding_status": "BOUND",
+  "target_admissible": false,
+  "target_ready": false,
+  "target_sha256": "1b28412e93989718925d403d136991eef53303e938a2289c6a2ce31de18a3391",
+  "historical_source_commit": "f09fb6ab1825b0c62b7db756e4cfa9d2687eaf0d",
+  "required_refusal": "vLLM never reached a verified ready state, so this is a failed startup receipt rather than usable CUDA-runtime evidence",
+  "withdrawn_reason": [
+    "The retained receipt records a bounded, teardown-verified failed startup (ready=false), not usable CUDA-runtime evidence.",
+    "This append-only envelope retires the exact historical receipt from every claim without changing its bytes."
+  ]
+}
