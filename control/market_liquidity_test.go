@@ -34,8 +34,10 @@ func TestRealtimeMarketLiquidityRetainsOfferAndCapacityEvidence(t *testing.T) {
 	}
 
 	buyerID, err := store.CreateBuyerAccount(ctx,
-		"liquidity-"+uuid.NewString()+"@example.test", "integration-password", 5)
+		"liquidity-"+uuid.NewString()+"@example.test", "integration-password", 0)
 	must(t, err)
+	// CAD settlement ignores free_credit_usd; fund the currency-scoped prepaid row.
+	must(t, store.SeedPrepaidBalance(ctx, buyerID, 5_000_000, "liquidity-prepaid-"+buyerID.String()))
 	supplierID, workerID := uuid.New(), uuid.New()
 	if _, err := pool.Exec(ctx, `INSERT INTO suppliers (id,email,status) VALUES ($1,$2,'active')`,
 		supplierID, "liquidity-supplier-"+uuid.NewString()+"@example.test"); err != nil {
@@ -131,7 +133,11 @@ func TestRealtimeMarketLiquidityRetainsOfferAndCapacityEvidence(t *testing.T) {
 }
 
 func TestRealtimeMarketClearingReceiptBindsOfferBookAndPricing(t *testing.T) {
-	installSettlementCurrencyForTest(t, "usd")
+	// Version-3 market receipts bind supplier rates in USD reference and buyer
+	// money in the process settlement currency. Exercise the cross-currency map
+	// (usd rates → cad buyer money), which is the Step 5 authority surface.
+	installSettlementCurrencyForTest(t, "cad")
+	installRealtimeCADFXForTest(t)
 	ctx, store, pool := openPayoutTestStore(t)
 	t.Setenv("MERC_TOKEN_KEY", "market-clearing-test-key-with-at-least-32-bytes")
 	if _, err := pool.Exec(ctx, `TRUNCATE
@@ -144,8 +150,10 @@ func TestRealtimeMarketClearingReceiptBindsOfferBookAndPricing(t *testing.T) {
 	}
 
 	buyerID, err := store.CreateBuyerAccount(ctx,
-		"market-clearing-"+uuid.NewString()+"@example.test", "integration-password", 5)
+		"market-clearing-"+uuid.NewString()+"@example.test", "integration-password", 0)
 	must(t, err)
+	// free_credit_usd is not spendable under CAD; seed CAD prepaid for the ceiling.
+	must(t, store.SeedPrepaidBalance(ctx, buyerID, 5_000_000, "market-clearing-prepaid-"+buyerID.String()))
 	profile := sortedVLLMProfiles()[0]
 	newOffer := func(warmth string, input, output float64) WorkerAuth {
 		supplierID, workerID := uuid.New(), uuid.New()

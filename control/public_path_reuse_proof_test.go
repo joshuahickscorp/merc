@@ -51,8 +51,11 @@ func TestPublicPathExactReuse128To1WritesSealedReceipt(t *testing.T) {
 
 	suffix := uuid.NewString()
 	buyerID, err := store.CreateBuyerAccount(ctx,
-		"public-reuse-"+suffix+"@example.test", "integration-password", 50)
+		"public-reuse-"+suffix+"@example.test", "integration-password", 0)
 	must(t, err)
+	// CAD settlement does not spend free_credit_usd. Seed prepaid in the
+	// process settlement currency so each of the 128 admits is funded.
+	must(t, store.SeedPrepaidBalance(ctx, buyerID, 50_000_000, "public-reuse-prepaid-"+suffix))
 	_, buyerKey, _, err := store.CreateAPIKey(ctx, buyerID, "public-path reuse proof", true)
 	must(t, err)
 	supplierID := uuid.New()
@@ -582,8 +585,10 @@ func TestPublicPathExactReuseDoesNotCrossTenants(t *testing.T) {
 	makeBuyer := func(label string) (uuid.UUID, string) {
 		t.Helper()
 		id, err := store.CreateBuyerAccount(ctx,
-			label+"-"+suffix+"@example.test", "integration-password", 20)
+			label+"-"+suffix+"@example.test", "integration-password", 0)
 		must(t, err)
+		// free_credit_usd is USD-only; CAD settlement requires prepaid CAD.
+		must(t, store.SeedPrepaidBalance(ctx, id, 20_000_000, "tenant-prepaid-"+label+"-"+suffix))
 		_, key, _, err := store.CreateAPIKey(ctx, id, label+" key", true)
 		must(t, err)
 		return id, key

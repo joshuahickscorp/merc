@@ -68,8 +68,11 @@ func TestProductionRealtimeCoalescing128DeliveriesOnePhysicalSettlement(t *testi
 
 	suffix := uuid.NewString()
 	buyerID, err := store.CreateBuyerAccount(ctx,
-		"coalesced-"+suffix+"@example.test", "integration-password", 5)
+		"coalesced-"+suffix+"@example.test", "integration-password", 0)
 	must(t, err)
+	// free_credit_usd is USD-denominated and is not spendable under CAD settlement.
+	// Seed settlement-currency prepaid so concurrent ceiling holds fund honestly.
+	must(t, store.SeedPrepaidBalance(ctx, buyerID, 50_000_000, "coalesced-prepaid-"+suffix))
 	_, buyerKey, _, err := store.CreateAPIKey(ctx, buyerID, "128 coalescing integration", true)
 	must(t, err)
 	supplierID := uuid.New()
@@ -544,9 +547,12 @@ func TestOneExecutionWith128FollowersWritesNoSupplierCreditAndOneAuthorityEach(t
 	for _, id := range []uuid.UUID{buyerID, otherBuyerID} {
 		if _, err := pool.Exec(ctx, `
 			INSERT INTO buyers (id,email,password_hash,free_credit_usd)
-			VALUES ($1,$2,'x',100.0)`, id, id.String()+"@coalesced.invalid"); err != nil {
+			VALUES ($1,$2,'x',0)`, id, id.String()+"@coalesced.invalid"); err != nil {
 			t.Fatalf("seed buyer: %v", err)
 		}
+		// free_credit_usd is ignored under non-USD settlement. Fund the CAD
+		// prepaid balance that evaluateRealtimeBuyerFunding actually reads.
+		must(t, store.SeedPrepaidBalance(ctx, id, 50_000_000, "coalesced-store-"+id.String()))
 	}
 
 	profile := sortedVLLMProfiles()[0]

@@ -150,17 +150,6 @@ func TestStoreAnchoredPricingRejectsRewrittenCatalogueFields(t *testing.T) {
 			field: "SupplierShare",
 		},
 		{
-			name: "reference_to_settlement_rate",
-			mutate: func(c CataloguePriceAuthority) CataloguePriceAuthority {
-				c.ReferenceToSettlementRate *= 1.25
-				c.SettlementPricePer1K = ceilPricePer1K(
-					c.ReferencePricePer1K * c.ReferenceToSettlementRate,
-				)
-				return c
-			},
-			field: "ReferenceToSettlementRate",
-		},
-		{
 			name: "schedule_sha256",
 			mutate: func(c CataloguePriceAuthority) CataloguePriceAuthority {
 				// Keep numbers; only the digest the pure path trusts is forged.
@@ -227,6 +216,63 @@ func TestStoreAnchoredPricingRejectsRewrittenCatalogueFields(t *testing.T) {
 			}
 		})
 	}
+
+	// Same-currency deployments require exact identity FX (rate=1, nanos=scale,
+	// revision=identity-<currency>). A forged non-identity rate is no longer
+	// representable as an internally consistent decision — that is correct
+	// production behaviour, not a validator hole. Exercise the rewrite under a
+	// real cross-currency settlement so the forgery can stay coherent and the
+	// store still refuses the rewritten catalogue field.
+	t.Run("reference_to_settlement_rate", func(t *testing.T) {
+		installSettlementCurrencyForTest(t, "cad")
+		t.Setenv(priceFXRateEnv, "1.35")
+		t.Setenv(priceFXRevisionEnv, "test-fx-cad-catalogue-anchor")
+		cadCtx, cadStore, _, cadWorkload, cadCompute, _, cadEconomic, cadPricing, cadAuthority :=
+			storeAnchoredDistributedFixture(t)
+		if cadAuthority.SettlementCurrency != "cad" || cadAuthority.ReferenceToSettlementRate == 1 {
+			t.Fatalf("CAD catalogue fixture is not cross-currency: %+v", cadAuthority)
+		}
+		cadRate := cadPricing.ExpectedSupplierUnitsPerSec
+		mutant := cadAuthority
+		mutant.ReferenceToSettlementRate *= 1.25
+		mutant.SettlementPricePer1K = ceilPricePer1K(
+			mutant.ReferencePricePer1K * mutant.ReferenceToSettlementRate,
+		)
+		if reflect.DeepEqual(mutant, cadAuthority) {
+			t.Fatal("CAD rate mutation left catalogue unchanged")
+		}
+		forgedPlacement, forgedEconomic, forged := forgeDistributedPricingAtCatalogue(
+			t, cadWorkload, cadCompute, cadEconomic, mutant, cadRate,
+		)
+		if err := ValidateDistributedPricingDecisionSnapshot(
+			forged, cadWorkload, cadCompute, forgedPlacement, forgedEconomic,
+		); err != nil {
+			t.Fatalf("pure validator refused a coherently rewritten CAD FX rate: %v", err)
+		}
+		err := ValidateDistributedPricingDecisionSnapshotWithStore(
+			cadCtx, cadStore, forged, cadWorkload, cadCompute, forgedPlacement, forgedEconomic,
+		)
+		if err == nil {
+			t.Fatal("store-backed validator accepted a rewritten catalogue ReferenceToSettlementRate")
+		}
+		if !strings.Contains(err.Error(), "does not match append-only authority") &&
+			!strings.Contains(err.Error(), "not resolvable") {
+			t.Fatalf("store-backed error was not a catalogue anchor refusal: %v", err)
+		}
+		honestPlacement, honestEconomic, honest := forgeDistributedPricingAtCatalogue(
+			t, cadWorkload, cadCompute, cadEconomic, cadAuthority, cadRate,
+		)
+		if err := ValidateDistributedPricingDecisionSnapshot(
+			honest, cadWorkload, cadCompute, honestPlacement, honestEconomic,
+		); err != nil {
+			t.Fatalf("honest CAD pure validation failed: %v", err)
+		}
+		if err := ValidateDistributedPricingDecisionSnapshotWithStore(
+			cadCtx, cadStore, honest, cadWorkload, cadCompute, honestPlacement, honestEconomic,
+		); err != nil {
+			t.Fatalf("honest CAD store-backed validation failed: %v", err)
+		}
+	})
 }
 
 // A later reprice moves models.price_* and the current LoadCatalogue pointer.

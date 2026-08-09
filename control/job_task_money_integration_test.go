@@ -705,6 +705,19 @@ func currentUniformMoneyPathJob(t *testing.T) (
 	}
 
 	fixture := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{TaskCount: 2})
+	// seedMoneyPathFixture hardcodes a USD economic schedule. Under non-USD
+	// settlement the Step 5 cost-policy freeze refuses a USD catalogue/FX against
+	// the process settlement currency, so align the plan before job construction.
+	if code := SettlementCurrencyCode(); code != "" && fixture.Plan.Schedule.Currency != code {
+		schedule := fixture.Plan.Schedule
+		schedule.Currency = code
+		plan := BuildEconomicPlan(fixture.Plan.Input, schedule)
+		if !plan.Executable {
+			t.Fatalf("align money-path economics to settlement %q: %s", code, plan.BlockReason)
+		}
+		mustf(t, ValidateEconomicPlanSnapshot(plan), "aligned money-path economics invalid: %v")
+		fixture.Plan = plan
+	}
 	tasks := makeTasks(fixture, 2)
 	fixture.TaskIDs = []uuid.UUID{tasks[0].ID, tasks[1].ID}
 	unseeded := fixture
