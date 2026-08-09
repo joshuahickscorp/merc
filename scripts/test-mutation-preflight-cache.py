@@ -90,11 +90,46 @@ def fixture(root: Path) -> tuple[Path, Path, Path]:
     return proof, sources, proof / "preflight-cache.json"
 
 
+def selector_names(value: str) -> list[str]:
+    value = value.strip()
+    if not value.startswith("^(") or not value.endswith(")$"):
+        raise AssertionError(f"selector is not exactly anchored: {value!r}")
+    names = value[2:-2].split("|")
+    if not names or any(not name for name in names):
+        raise AssertionError(f"selector has an empty test name: {value!r}")
+    return names
+
+
 def main() -> int:
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary) / "candidate"
         root.mkdir()
         proof, sources, cache = fixture(root)
+        selector_command = ("--root", str(root), "--sources", str(sources))
+        whole = selector_names(run(root, *selector_command, "--selector").stdout)
+        first_shards = run(
+            root, *selector_command, "--selector-shards", "2"
+        ).stdout
+        second_shards = run(
+            root, *selector_command, "--selector-shards", "2"
+        ).stdout
+        if first_shards != second_shards:
+            raise AssertionError("selector sharding is not byte-for-byte deterministic")
+        lanes: dict[int, list[str]] = {}
+        for line in first_shards.splitlines():
+            raw_lane, raw_selector = line.split("\t", 1)
+            lane = int(raw_lane)
+            if lane in lanes:
+                raise AssertionError(f"selector sharding repeated lane {lane}")
+            lanes[lane] = selector_names(raw_selector)
+        if sorted(lanes) != [1, 2] or lanes[1] != whole[0::2] or lanes[2] != whole[1::2]:
+            raise AssertionError(f"selector shards are not stable lexical round-robin: {lanes!r}")
+        flattened = [name for lane in sorted(lanes) for name in lanes[lane]]
+        if len(flattened) != len(set(flattened)) or set(flattened) != set(whole):
+            raise AssertionError("selector shards do not form a disjoint complete union")
+        run(root, *selector_command, "--selector-shards", "0", expect=1)
+        run(root, *selector_command, "--selector-shards", "4", expect=1)
+
         command = ("--root", str(root), "--sources", str(sources), "--cache", str(cache))
         created = run(root, *command, "--create")
         if "CREATED 2 exact source contracts" not in created.stdout:
@@ -113,6 +148,12 @@ def main() -> int:
         payload["sources"][0]["source_sha256"] = "0" * 64
         cache.write_text(json.dumps(payload), encoding="utf-8")
         run(root, *command, "--verify", expect=1)
+
+        with (root / "control" / "store_test.go").open("a", encoding="utf-8") as handle:
+            handle.write("// newArtifactHarness( requires per-lane MinIO\n")
+        storage = run(root, *selector_command, "--selector-shards", "2", expect=1)
+        if "per-lane isolated object storage" not in storage.stderr:
+            raise AssertionError(f"storage contract guard did not explain refusal: {storage.stderr!r}")
     print("test-mutation-preflight-cache: PASS")
     return 0
 

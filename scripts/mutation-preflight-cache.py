@@ -29,6 +29,16 @@ UNIT_LOG_NAME = "preflight-unit.json"
 DB_LOG_NAME = "preflight-db.json"
 HEX_SHA256 = re.compile(r"^[0-9a-f]{64}$")
 COMMIT = re.compile(r"^[0-9a-f]{40}$")
+STORAGE_CONTRACT_MARKERS = (
+    "MERC_TEST_S3_",
+    "S3_ENDPOINT",
+    "S3_BUCKET",
+    "S3_ACCESS_KEY",
+    "S3_SECRET_KEY",
+    "newArtifactHarness(",
+    "NewStorageFromEnv(",
+    "NewStorage(",
+)
 
 
 def fail(message: str) -> "NoReturn":
@@ -91,6 +101,61 @@ def load_sources(path: Path, resolver: Any) -> list[str]:
 
 def selector(expected: list[str]) -> str:
     return "^(" + "|".join(expected) + ")$"
+
+
+def expected_names(root: Path, sources: list[str], resolver: Any) -> list[str]:
+    names = sorted({name for source in sources for name in resolver.resolve(root, source)})
+    if not names:
+        fail("selected sources resolve to no invariant tests")
+    return names
+
+
+def assert_no_external_storage_contracts(
+    root: Path, sources: list[str], resolver: Any
+) -> None:
+    """Keep parallel preflight lanes away from a shared object-store authority.
+
+    The mutation contract currently needs PostgreSQL but no MinIO/S3 fixture.
+    If a mapped test starts using the storage harness, parallel lanes need their
+    own `with-isolated-test-storage.sh` sidecars and buckets before they may run.
+    Failing here keeps an inherited MERC_TEST_S3_* environment from silently
+    turning two otherwise-isolated database lanes into one shared-state test.
+    """
+    contracts = resolver.load_contracts(root)
+    checked: set[str] = set()
+    violations: list[str] = []
+    for source in sources:
+        for test_file in contracts[source]:
+            if test_file in checked:
+                continue
+            checked.add(test_file)
+            path = root / "control" / test_file
+            try:
+                body = path.read_text(encoding="utf-8")
+            except OSError as exc:
+                fail(f"cannot inspect mutation contract storage use in {path}: {exc}")
+            markers = [marker for marker in STORAGE_CONTRACT_MARKERS if marker in body]
+            if markers:
+                violations.append(f"{test_file} ({', '.join(markers)})")
+    if violations:
+        fail(
+            "parallel contract tests require per-lane isolated object storage: "
+            + "; ".join(sorted(violations))
+        )
+
+
+def sharded_selectors(expected: list[str], count: int) -> list[str]:
+    if count < 1 or count > 32:
+        fail("selector shard count must be from 1 through 32")
+    if count > len(expected):
+        fail("selector shard count exceeds the invariant test count")
+    groups = [expected[index::count] for index in range(count)]
+    flattened = [name for group in groups for name in group]
+    if any(not group for group in groups):
+        fail("selector sharding produced an empty lane")
+    if len(flattened) != len(expected) or set(flattened) != set(expected):
+        fail("selector sharding did not preserve a disjoint complete test union")
+    return [selector(group) for group in groups]
 
 
 def source_records(root: Path, sources: list[str], resolver: Any) -> list[dict[str, Any]]:
@@ -246,17 +311,24 @@ def main() -> int:
     parser.add_argument("--cache")
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--selector", action="store_true")
+    mode.add_argument("--selector-shards", type=int)
     mode.add_argument("--create", action="store_true")
     mode.add_argument("--verify", action="store_true")
     args = parser.parse_args()
     root = Path(args.root).resolve()
     resolver = load_contract_resolver(root)
     sources = load_sources(args.sources.resolve(), resolver)
+    if args.selector or args.selector_shards is not None:
+        assert_no_external_storage_contracts(root, sources, resolver)
+        names = expected_names(root, sources, resolver)
     if args.selector:
-        names = sorted({name for source in sources for name in resolver.resolve(root, source)})
-        if not names:
-            fail("selected sources resolve to no invariant tests")
         print(selector(names))
+        return 0
+    if args.selector_shards is not None:
+        for lane, lane_selector in enumerate(
+            sharded_selectors(names, args.selector_shards), 1
+        ):
+            print(f"{lane}\t{lane_selector}")
         return 0
     if not args.cache:
         parser.error("--cache is required with --create or --verify")
