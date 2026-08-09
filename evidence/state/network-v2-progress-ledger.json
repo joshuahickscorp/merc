@@ -12,7 +12,7 @@
     "exact_config",
     "raw_samples"
   ],
-  "updated_at": "2026-08-09T18:25:00Z",
+  "updated_at": "2026-08-09T19:40:00Z",
   "baseline_head": "ae443f69b0a63835a356eb1ed01999325677ad1b",
   "plan": "docs/NETWORK_V2_EXECUTION_PLAN.md",
   "steps": [
@@ -83,11 +83,12 @@
       "grade": {
         "plan_fidelity": 100,
         "correctness": 100,
-        "evidence_quality": 100,
+        "evidence_quality": 70,
         "architectural_simplicity": 100,
         "performance_impact": 100,
         "security_money_safety": 100,
-        "future_network_compatibility": 100
+        "future_network_compatibility": 100,
+        "evidence_quality_requires": "bound campaign receipt under evidence/ for the exact candidate"
       },
       "key_evidence": [
         "0450da06 closes runtime-cell publication/admission/claim/settlement authority",
@@ -96,7 +97,8 @@
         "CORRECTION 2026-08-09: these proofs are a named subset, not a whole-suite green. Measured at 53c804f1 with disposable PostgreSQL + object store, `go test ./...` over the complete control package reports 70 failures in 452.9s, all stale test premises left by making the checked-in benchmark authority honestly non-routable. The 287s campaign binds the mutation preflight selector, which is a deliberate subset and was green. Remaining fixture reconciliation is owned by step 5."
       ],
       "blocker": "none for the runtime-cell economics authority; production evidence remains honestly non-routable where superseded. Whole-suite DB gate was NOT green at this boundary \u2014 carried into step 5 rather than claimed here.",
-      "next_dependency": "step 5 PricingDecision reconciliation"
+      "next_dependency": "step 5 PricingDecision reconciliation",
+      "grade_notes": "evidence_quality lowered from 100 to 70 on 2026-08-09. The gates named in key_evidence were really run, but none of them is replayable from this tree: no tracked receipt anywhere names candidate 541c13575aa1f21356c128d0beceb888babb2c7c, so the 84-caught/287s/16-worker numbers exist only as prose in this ledger and in the execution plan, and this ledger is itself binding_status UNBOUND with every identity field missing. 'terminal Step-4 audit: no remaining P0/P1' has no audit body in the tree either. Bible section 22 requires evidence reproducibility 10/10 for evidence changes, and an unreplayable number cannot earn that. Restoring 100 requires a bound campaign receipt under evidence/ carrying candidate SHA, wall clock, per-case results, pathway set, preflight selector identity and worker count \u2014 not a rewrite of this note."
     },
     {
       "step": 5,
