@@ -77,6 +77,7 @@
       "contract_binding_shape_test.go",
       "realtime_integration_test.go",
       "realtime_clearing_test.go",
+      "realtime_pricing_decision_test.go",
       "realtime_reuse_pricing_decision_test.go",
       "reuse_money_wiring_test.go",
       "reuse_underflow_test.go"
