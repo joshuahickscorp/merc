@@ -126,6 +126,7 @@ ci:
 	python3 scripts/verify-lfs-corpus.py
 	python3 scripts/test-evidence-writer-bypass.py
 	bash scripts/test-mutation-test-parallel.sh
+	python3 scripts/test-mutation-test-contracts.py
 	bash scripts/test-readiness-gaming.sh
 	bash scripts/test-agent-review-gaming.sh
 	bash scripts/test-technical-exercises-fail-closed.sh
@@ -297,9 +298,11 @@ private-canary:
 mutation-test:
 	bash scripts/mutation-test.sh
 
-# Full candidate campaign in isolated worktrees/databases. This leaves the
-# candidate source tree untouched and fails if its 25-minute default budget is
-# exceeded; see scripts/mutation-test-parallel.sh for explicit tuning knobs.
+# Every candidate mutation in isolated worktrees/databases. The default is an
+# audited adaptive test strategy: full fast unit coverage first, then an exact
+# database contract for any survivor. This leaves the candidate source tree
+# untouched and fails if its 25-minute default budget is exceeded; see
+# scripts/mutation-test-parallel.sh for explicit tuning knobs.
 mutation-test-parallel:
 	bash scripts/mutation-test-parallel.sh
 

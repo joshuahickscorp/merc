@@ -9,14 +9,17 @@
 # campaign useful wall-clock parallelism without letting concurrent tests share
 # source bytes, database state, or one server's WAL lock.
 #
-# The default is deliberately aggressive enough for a 28-core development host:
-# 16 workers, a 25-minute mutation budget.  The run fails rather than quietly
+# The default deliberately preserves interactive headroom on a 28-core
+# development host: up to 12 one-runtime workers, a 25-minute mutation budget,
+# and explicit invariant-test contracts. The run fails rather than quietly
 # reducing coverage when any worker, mutation, restoration proof, or budget
-# fails.  Adjust only through explicit environment variables:
+# fails. Adjust only through explicit environment variables:
 #
-#   MERC_MUTATION_WORKERS=16              # 1..32; default 16
+#   MERC_MUTATION_WORKERS=12              # 1..32; default min(12, CPUs-4)
 #   MERC_MUTATION_WALLCLOCK_SECONDS=1500  # default 25 minutes
 #   MERC_MUTATION_POSTGRES_PORT_BASE=0     # 0 finds an unused local range
+#   MERC_MUTATION_TEST_STRATEGY=adaptive   # adaptive (default), contracts, or full
+#   MERC_MUTATION_GOMAXPROCS=1             # per-worker runtime CPU ceiling
 #   MERC_MUTATION_KEEP_WORKDIR=1          # retain failed shard logs/worktrees
 #
 #   bash scripts/mutation-test-parallel.sh --plan
@@ -44,9 +47,21 @@ case "${1:-}" in
   *) usage >&2; exit 2 ;;
 esac
 
-workers="${MERC_MUTATION_WORKERS:-16}"
+cpu_count="$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)"
+if ! [[ "$cpu_count" =~ ^[1-9][0-9]*$ ]]; then
+  cpu_count=4
+fi
+default_workers=$((cpu_count - 4))
+if [ "$default_workers" -lt 1 ]; then
+  default_workers=1
+elif [ "$default_workers" -gt 12 ]; then
+  default_workers=12
+fi
+workers="${MERC_MUTATION_WORKERS:-$default_workers}"
 budget_seconds="${MERC_MUTATION_WALLCLOCK_SECONDS:-1500}"
 postgres_port_base="${MERC_MUTATION_POSTGRES_PORT_BASE:-0}"
+test_strategy="${MERC_MUTATION_TEST_STRATEGY:-adaptive}"
+go_max_procs="${MERC_MUTATION_GOMAXPROCS:-1}"
 if ! [[ "$workers" =~ ^[1-9][0-9]*$ ]] || [ "$workers" -gt 32 ]; then
   echo "MERC_MUTATION_WORKERS must be an integer from 1 through 32" >&2
   exit 2
@@ -57,6 +72,17 @@ if ! [[ "$budget_seconds" =~ ^[1-9][0-9]*$ ]]; then
 fi
 if ! [[ "$postgres_port_base" =~ ^[0-9]+$ ]]; then
   echo "MERC_MUTATION_POSTGRES_PORT_BASE must be zero or a TCP port" >&2
+  exit 2
+fi
+case "$test_strategy" in
+  adaptive|contracts|full) ;;
+  *)
+    echo "MERC_MUTATION_TEST_STRATEGY must be adaptive, contracts, or full" >&2
+    exit 2
+    ;;
+esac
+if ! [[ "$go_max_procs" =~ ^[1-9][0-9]*$ ]]; then
+  echo "MERC_MUTATION_GOMAXPROCS must be a positive integer" >&2
   exit 2
 fi
 
@@ -86,8 +112,8 @@ fi
 
 print_plan() {
   local worker index separator ids
-  printf 'parallel-mutation-test: candidate=%s cases=%s workers=%s budget=%ss db=isolated-clusters\n' \
-    "$(git rev-parse HEAD)" "$case_count" "$workers" "$budget_seconds"
+  printf 'parallel-mutation-test: candidate=%s cases=%s workers=%s budget=%ss db=isolated-clusters strategy=%s gomaxprocs=%s\n' \
+    "$(git rev-parse HEAD)" "$case_count" "$workers" "$budget_seconds" "$test_strategy" "$go_max_procs"
   worker=1
   while [ "$worker" -le "$workers" ]; do
     index=$((worker - 1))
@@ -274,6 +300,8 @@ for ((worker = 1; worker <= workers; worker++)); do
     export MERC_TEST_DATABASE_URL="postgres://cx@127.0.0.1:${port}/cx?sslmode=disable"
     export MERC_MUTATION_CASE_IDS="$shard_ids"
     export MERC_MUTATION_DB_PREFIX="merc_mutation_w${worker}"
+    export MERC_MUTATION_TEST_STRATEGY="$test_strategy"
+    export GOMAXPROCS="$go_max_procs"
     exec bash scripts/mutation-test.sh
   ) >"$log" 2>&1 &
   worker_pids+=("$!")

@@ -1,0 +1,110 @@
+{
+  "version": 1,
+  "contracts": {
+    "batch_policy.go": [
+      "batch_policy_test.go",
+      "batch_policy_wiring_test.go"
+    ],
+    "billing.go": [
+      "billing_test.go",
+      "billing_schema_integration_test.go",
+      "money_completeness_test.go"
+    ],
+    "billing_classes.go": [
+      "billing_classes_test.go",
+      "money_state_machine_test.go"
+    ],
+    "compute_plan.go": [
+      "compute_plan_test.go",
+      "project_quote_test.go"
+    ],
+    "exact_reuse.go": [
+      "exact_reuse_test.go",
+      "exact_reuse_authority_test.go",
+      "exact_reuse_identity_fields_test.go"
+    ],
+    "exact_reuse_batch.go": [
+      "exact_reuse_authority_test.go",
+      "reuse_money_wiring_test.go",
+      "project_order_test.go"
+    ],
+    "money_nanos.go": [
+      "money_nanos_test.go"
+    ],
+    "payment.go": [
+      "payment_test.go",
+      "money_completeness_test.go",
+      "payout_money_path_test.go"
+    ],
+    "payment_authority.go": [
+      "payment_authority_test.go"
+    ],
+    "prefix_routing.go": [
+      "prefix_routing_test.go",
+      "prefix_routing_wiring_test.go"
+    ],
+    "pricing_decision.go": [
+      "pricing_decision_test.go",
+      "pricing_decision_catalogue_anchor_test.go",
+      "realtime_pricing_decision_test.go",
+      "realtime_reuse_pricing_decision_test.go"
+    ],
+    "quote.go": [
+      "quote_test.go",
+      "quote_currency_integration_test.go",
+      "project_quote_test.go"
+    ],
+    "realtime.go": [
+      "realtime_test.go",
+      "realtime_pricing_decision_test.go",
+      "realtime_reuse_pricing_decision_test.go"
+    ],
+    "realtime_placement.go": [
+      "realtime_placement_test.go"
+    ],
+    "realtime_pricing_decision.go": [
+      "realtime_pricing_decision_test.go"
+    ],
+    "realtime_reuse_pricing_decision.go": [
+      "realtime_reuse_pricing_decision_test.go"
+    ],
+    "realtime_store.go": [
+      "realtime_integration_test.go",
+      "realtime_clearing_test.go",
+      "realtime_reuse_pricing_decision_test.go"
+    ],
+    "runtime_cell_admission_binding.go": [
+      "runtime_cell_admission_binding_test.go"
+    ],
+    "runtime_cell_economics.go": [
+      "runtime_cell_economics_test.go"
+    ],
+    "runtime_cost_tie_authority.go": [
+      "runtime_cost_tie_authority_test.go"
+    ],
+    "runtime_governed_comparison.go": [
+      "runtime_governed_comparison_test.go"
+    ],
+    "runtime_shadow_selection.go": [
+      "runtime_shadow_selection_test.go"
+    ],
+    "scheduler.go": [
+      "scheduler_ask_claim_integration_test.go",
+      "prefix_placement_test.go"
+    ],
+    "store_jobs.go": [
+      "job_task_money_integration_test.go",
+      "project_order_test.go",
+      "pricing_decision_catalogue_anchor_test.go"
+    ],
+    "stripe_api_contract.go": [
+      "stripe_api_contract_test.go"
+    ],
+    "supplier_accrual.go": [
+      "supplier_accrual_test.go"
+    ],
+    "workload_classification.go": [
+      "workload_classification_test.go"
+    ]
+  }
+}

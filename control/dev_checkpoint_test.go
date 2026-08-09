@@ -198,6 +198,7 @@ func TestCheckpointUsesTheIsolatedParallelMutationRunner(t *testing.T) {
 	for _, fragment := range []string{
 		`git worktree add --detach`,
 		`MERC_MUTATION_CASE_IDS`,
+		`MERC_MUTATION_TEST_STRATEGY=adaptive`,
 		`MERC_MUTATION_WALLCLOCK_SECONDS`,
 		`initdb --no-locale`,
 		`pg_ctl -D "$cluster"`,

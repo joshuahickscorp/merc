@@ -358,7 +358,9 @@ func performDevCheckpoint(opts devCheckpointOptions) (DevCheckpointReceipt, erro
 		return receipt, err
 	}
 
-	// 3. Full mutation suite in disposable worktrees.
+	// 3. Every mutation in disposable worktrees. The runner's default adaptive
+	//    strategy first exercises the whole fast unit suite, then requires an
+	//    exact database contract for any unit-suite survivor.
 	if err := run("mutation-suite", opts.skipMutation, "--skip-mutation", ".",
 		"bash", "scripts/mutation-test-parallel.sh"); err != nil {
 		return receipt, err
