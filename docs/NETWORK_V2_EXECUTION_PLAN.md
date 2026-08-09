@@ -385,10 +385,18 @@ is a post-commit shadow row.
 
 **Correction, 2026-08-09 — this note first claimed the full Step 11 chain was a
 load-bearing prerequisite for Step 8. That was wrong, and the error was mine.**
-Four of those five facts are *already* frozen atomically: `SubmitJobTx` writes
+Three of those five facts are *already* frozen atomically: `SubmitJobTx` writes
 `workload_decision`, `compute_plan`, `placement_requirement` and
 `pricing_decision` with all four digests in a single INSERT
-(`store_jobs.go:499-519`). Nothing needs moving for them.
+(`store_jobs.go:499-519`), which covers engine/cell, benchmark/build/hardware and
+money. Nothing needs moving for those.
+
+**The activation revision is NOT one of them, and an earlier draft of this note
+blurred that.** It is admit-guard *context* at `store_jobs.go:172`, `:367` and
+`types.go:224-227` — checked at write time, not frozen as a column in that INSERT.
+Step 8's completion still lists activation revision, so freezing it durably is
+real remaining work, not something already settled. Read literally the earlier
+"four of five, one outside" phrasing invited exactly the wrong inference.
 
 The one fact outside the transaction is the selection basis, and it is outside
 **deliberately**. `api.go:1676-1683` places shadow selection after commit and
