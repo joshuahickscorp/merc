@@ -691,8 +691,11 @@ func (s *Store) SettleJobSLA(ctx context.Context, jobID uuid.UUID) (SLASettleRes
 	if err != nil {
 		return res, err
 	}
-	if err := RequireSettlementCurrency(jobCurrency); err != nil {
-		return res, fmt.Errorf("job %s cannot settle SLA under this deployment: %w", jobID, err)
+	// SLA settlement finishes an already accepted job obligation. The job's
+	// frozen currency is the authority — not today's process settlement code.
+	// Require a supported currency; do not demand it match the deployment.
+	if _, err := ParseCurrency(jobCurrency); err != nil {
+		return res, fmt.Errorf("job %s SLA currency: %w", jobID, err)
 	}
 	if guarantee <= 0 || met != nil || status != "complete" || mergedAt == nil {
 		return res, nil
@@ -712,9 +715,18 @@ func (s *Store) SettleJobSLA(ctx context.Context, jobID uuid.UUID) (SLASettleRes
 	refund := slaRefundAmount(premium, chargeable)
 	if refund > 0 {
 		buyer := buyerID
+		// Job row is already locked above; re-bind through the shared helper so
+		// the ledger authority is exact against jobs.currency.
+		// Job row is already locked above; re-bind through the shared helper so
+		// the ledger authority is exact against jobs.currency.
+		jobAuth, boundCurrency, err := lockJobCurrencyAuthority(ctx, tx, jobID, jobCurrency)
+		if err != nil {
+			return res, err
+		}
 		if _, err := insertLedgerEntryIfAbsentByRefTx(ctx, tx, ledgerInsert{
 			Kind: KindSLARefund, BuyerID: &buyer, AmountMicros: usdToMicros(refund),
-			Currency: jobCurrency, PayoutStatus: PayoutReleased, PayoutRef: slaRefundRef(jobID),
+			Currency: boundCurrency, CurrencyAuthority: jobAuth, BoundJobCurrency: boundCurrency,
+			PayoutStatus: PayoutReleased, PayoutRef: slaRefundRef(jobID),
 		}); err != nil {
 			return res, err
 		}

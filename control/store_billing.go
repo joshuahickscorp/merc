@@ -687,17 +687,26 @@ func (s *Store) JobInvoice(ctx context.Context, jobID, buyerID uuid.UUID) (*Invo
 	}
 	// Job-level SLA premium charge/refund rows have no task_id and are not
 	// joined above. Include them so the receipt shows the full buyer picture.
+	// Dispute SLA refunds must be scoped to THIS job via disputes.job_id —
+	// a buyer-wide LIKE would fold every other job's dispute refund into this
+	// invoice and count the same refund once per invoice. Currency must match
+	// the job's frozen currency so cross-currency rows cannot pollute the net.
 	var slaCharge, slaRefund float64
 	if err := s.pool.QueryRow(ctx, `
 		SELECT
-		  COALESCE(SUM(amount_usd) FILTER (WHERE kind='buyer_charge'),0)::float8,
-		  COALESCE(SUM(amount_usd) FILTER (WHERE kind='buyer_refund'),0)::float8
-		  FROM ledger_entries
-		 WHERE task_id IS NULL AND buyer_id = $1
+		  COALESCE(SUM(le.amount_usd) FILTER (WHERE le.kind='buyer_charge'),0)::float8,
+		  COALESCE(SUM(le.amount_usd) FILTER (WHERE le.kind='buyer_refund'),0)::float8
+		  FROM ledger_entries le
+		 WHERE le.task_id IS NULL AND le.buyer_id = $1
+		   AND le.currency = $3
 		   AND (
-		     payout_ref = $2
-		     OR payout_ref LIKE 'dispute-sla-refund-%'
-		   )`, buyerID, slaPremiumChargeRef(jobID)).
+		     le.payout_ref = $2
+		     OR le.payout_ref IN (
+		       SELECT 'dispute-sla-refund-' || d.id::text
+		         FROM disputes d
+		        WHERE d.job_id = $4
+		     )
+		   )`, buyerID, slaPremiumChargeRef(jobID), iv.Currency, jobID).
 		Scan(&slaCharge, &slaRefund); err != nil {
 		return nil, err
 	}

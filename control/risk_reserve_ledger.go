@@ -295,8 +295,13 @@ func AccrueRiskReserveAtSettlementTx(
 		return nil
 	}
 
+	jobAuth, boundCurrency, err := lockJobCurrencyAuthority(ctx, tx, jobID, currency)
+	if err != nil {
+		return err
+	}
 	if _, err := insertLedgerEntryIfAbsentByRefTx(ctx, tx, ledgerInsert{
-		Kind: KindRiskReserveAccrual, AmountMicros: ledgerMicros, Currency: currency,
+		Kind: KindRiskReserveAccrual, AmountMicros: ledgerMicros, Currency: boundCurrency,
+		CurrencyAuthority: jobAuth, BoundJobCurrency: boundCurrency,
 		PayoutStatus: PayoutHeld, ReleaseAt: &releaseAt, PayoutRef: riskReserveAccrualRef(jobID),
 	}); err != nil {
 		return err
@@ -410,10 +415,15 @@ func consumeRiskReserveForCauseTx(
 	}
 	payoutRef := ""
 	if ledgerDelta > 0 {
+		jobAuth, boundCurrency, err := lockJobCurrencyAuthority(ctx, tx, jobID, reserve.Currency)
+		if err != nil {
+			return err
+		}
 		payoutRef = riskReserveCausalConsumeRef(jobID, cause.Kind, cause.Ref)
 		if _, err := insertLedgerEntryIfAbsentByRefTx(ctx, tx, ledgerInsert{
 			Kind: KindRiskReserveConsume, AmountMicros: -ledgerDelta,
-			Currency: reserve.Currency, PayoutStatus: PayoutReleased, PayoutRef: payoutRef,
+			Currency: boundCurrency, CurrencyAuthority: jobAuth, BoundJobCurrency: boundCurrency,
+			PayoutStatus: PayoutReleased, PayoutRef: payoutRef,
 		}); err != nil {
 			return err
 		}
@@ -544,8 +554,13 @@ func consumeLegacyRiskReserveForCauseTx(
 	}
 	// Causality was validated before entering this compatibility path. Historical
 	// rows had only an all-or-nothing consume identity, so preserve that fact.
+	jobAuth, boundCurrency, err := lockJobCurrencyAuthority(ctx, tx, jobID, currency)
+	if err != nil {
+		return err
+	}
 	_, err = insertLedgerEntryIfAbsentByRefTx(ctx, tx, ledgerInsert{
-		Kind: KindRiskReserveConsume, AmountMicros: -accruedMicros, Currency: currency,
+		Kind: KindRiskReserveConsume, AmountMicros: -accruedMicros, Currency: boundCurrency,
+		CurrencyAuthority: jobAuth, BoundJobCurrency: boundCurrency,
 		PayoutStatus: PayoutReleased, PayoutRef: riskReserveConsumeRef(jobID),
 	})
 	_ = cause
@@ -620,10 +635,15 @@ func releaseRiskReserveTx(
 	ledgerDelta := reserve.LedgerHeldMicros
 	payoutRef := ""
 	if ledgerDelta > 0 {
+		jobAuth, boundCurrency, err := lockJobCurrencyAuthority(ctx, tx, jobID, reserve.Currency)
+		if err != nil {
+			return false, err
+		}
 		payoutRef = riskReserveReleaseRef(jobID)
 		if _, err := insertLedgerEntryIfAbsentByRefTx(ctx, tx, ledgerInsert{
 			Kind: KindRiskReserveRelease, AmountMicros: -ledgerDelta,
-			Currency: reserve.Currency, PayoutStatus: PayoutReleased, PayoutRef: payoutRef,
+			Currency: boundCurrency, CurrencyAuthority: jobAuth, BoundJobCurrency: boundCurrency,
+			PayoutStatus: PayoutReleased, PayoutRef: payoutRef,
 		}); err != nil {
 			return false, err
 		}
@@ -712,8 +732,13 @@ func releaseLegacyRiskReserveTx(
 	if alreadyClosed {
 		return false, nil
 	}
+	jobAuth, boundCurrency, err := lockJobCurrencyAuthority(ctx, tx, jobID, currency)
+	if err != nil {
+		return false, err
+	}
 	_, err = insertLedgerEntryIfAbsentByRefTx(ctx, tx, ledgerInsert{
-		Kind: KindRiskReserveRelease, AmountMicros: -accruedMicros, Currency: currency,
+		Kind: KindRiskReserveRelease, AmountMicros: -accruedMicros, Currency: boundCurrency,
+		CurrencyAuthority: jobAuth, BoundJobCurrency: boundCurrency,
 		PayoutStatus: PayoutReleased, PayoutRef: riskReserveReleaseRef(jobID),
 	})
 	return err == nil, err

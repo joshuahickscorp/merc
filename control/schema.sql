@@ -2975,20 +2975,11 @@ CREATE TABLE IF NOT EXISTS buyer_prepaid_balances (
     PRIMARY KEY (buyer_id,currency)
 );
 
--- Existing rows predate currency-labelled balances and were explicitly
--- micro-USD. Preserve that historical meaning; never fill them from today's
--- process settlement currency.
+-- Legacy installs may still have the pre-currency shape (buyer_id PK, no
+-- currency column). Add the column as nullable first; the reconstruction
+-- below runs only after prepaid_*_operations exist so unlabeled cash can be
+-- labelled from collected history rather than defaulted to usd.
 ALTER TABLE buyer_prepaid_balances ADD COLUMN IF NOT EXISTS currency TEXT;
-UPDATE buyer_prepaid_balances SET currency='usd' WHERE currency IS NULL;
-ALTER TABLE buyer_prepaid_balances ALTER COLUMN currency SET NOT NULL;
-ALTER TABLE buyer_prepaid_balances DROP CONSTRAINT IF EXISTS buyer_prepaid_balances_pkey;
-ALTER TABLE buyer_prepaid_balances
-    ADD CONSTRAINT buyer_prepaid_balances_pkey PRIMARY KEY (buyer_id,currency);
-ALTER TABLE buyer_prepaid_balances
-    DROP CONSTRAINT IF EXISTS buyer_prepaid_balances_currency_supported;
-ALTER TABLE buyer_prepaid_balances
-    ADD CONSTRAINT buyer_prepaid_balances_currency_supported
-    CHECK (currency IN ('usd','cad','jpy'));
 
 -- Funding authority is accepted with a job, not inferred from a future
 -- process environment.  Legacy jobs deliberately default to deferred-card
@@ -3033,6 +3024,84 @@ CREATE TABLE IF NOT EXISTS prepaid_refund_operations (
     payment_intent  TEXT,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Reconstruct unlabeled prepaid balance currency from collected operations.
+-- Production top-ups used SettlementCurrencyCode() long before this column
+-- existed, so a CAD liability may sit unlabeled. Never default non-zero cash
+-- to usd and never convert between currencies.
+--
+-- Escape hatch: session GUC merc.prepaid_legacy_currency may be set to an
+-- explicit prior settlement code (usd/cad/jpy) for residual non-zero rows
+-- whose history cannot determine a single currency. Silence is not an option.
+DO $$
+DECLARE
+    override TEXT := lower(btrim(COALESCE(current_setting('merc.prepaid_legacy_currency', true), '')));
+    bad_count BIGINT;
+BEGIN
+    -- Single-currency operations history determines the label. Do not require
+    -- net micros to equal balance_micros: prepaid debits reduce the balance
+    -- without a refund operation row.
+    UPDATE buyer_prepaid_balances b
+       SET currency = determined.currency
+      FROM (
+        SELECT buyer_id, MIN(currency) AS currency
+          FROM (
+            SELECT buyer_id, currency
+              FROM prepaid_topup_operations
+             WHERE status IN ('succeeded', 'refunded')
+            UNION ALL
+            SELECT buyer_id, currency
+              FROM prepaid_refund_operations
+             WHERE status = 'succeeded'
+          ) ops
+         GROUP BY buyer_id
+        HAVING COUNT(DISTINCT currency) = 1
+      ) determined
+     WHERE b.currency IS NULL
+       AND b.buyer_id = determined.buyer_id;
+
+    -- Zero balances hold no cash; any supported label is safe. Prefer the
+    -- operator override when supplied, otherwise usd as a stable placeholder.
+    UPDATE buyer_prepaid_balances
+       SET currency = CASE
+                        WHEN override IN ('usd', 'cad', 'jpy') THEN override
+                        ELSE 'usd'
+                      END
+     WHERE currency IS NULL
+       AND balance_micros = 0;
+
+    -- Residual non-zero unlabeled cash: only an explicit prior settlement code
+    -- may label it. Never invent usd.
+    IF override IN ('usd', 'cad', 'jpy') THEN
+        UPDATE buyer_prepaid_balances
+           SET currency = override
+         WHERE currency IS NULL
+           AND balance_micros > 0;
+    END IF;
+
+    SELECT COUNT(*) INTO bad_count
+      FROM buyer_prepaid_balances
+     WHERE currency IS NULL
+       AND balance_micros > 0;
+    IF bad_count > 0 THEN
+        RAISE EXCEPTION
+          'buyer_prepaid_balances: cannot determine currency for % non-zero unlabeled balance(s); repair prepaid_topup_operations / prepaid_refund_operations history or set merc.prepaid_legacy_currency to an explicit prior settlement code (usd|cad|jpy)',
+          bad_count;
+    END IF;
+
+    -- Any remaining NULL rows are zero-balance edge cases (should be empty).
+    UPDATE buyer_prepaid_balances SET currency = 'usd' WHERE currency IS NULL;
+END $$;
+
+ALTER TABLE buyer_prepaid_balances ALTER COLUMN currency SET NOT NULL;
+ALTER TABLE buyer_prepaid_balances DROP CONSTRAINT IF EXISTS buyer_prepaid_balances_pkey;
+ALTER TABLE buyer_prepaid_balances
+    ADD CONSTRAINT buyer_prepaid_balances_pkey PRIMARY KEY (buyer_id,currency);
+ALTER TABLE buyer_prepaid_balances
+    DROP CONSTRAINT IF EXISTS buyer_prepaid_balances_currency_supported;
+ALTER TABLE buyer_prepaid_balances
+    ADD CONSTRAINT buyer_prepaid_balances_currency_supported
+    CHECK (currency IN ('usd','cad','jpy'));
 
 -- A refund row must exist before Stripe is asked to move the cash.  The
 -- original 'succeeded'-only CHECK forced the provider call to come first, so a

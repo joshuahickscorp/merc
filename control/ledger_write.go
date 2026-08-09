@@ -66,13 +66,18 @@ type ledgerInsert struct {
 	// historical clawbacks to preserve the source row's currency.
 	Currency string
 	// CurrencyAuthority is set only after a caller has loaded and locked an
-	// immutable historical source (currently a prepaid card operation/balance
-	// or an execution contract). It permits preserving that supported currency
-	// after a deployment cutover; it is never an FX/conversion escape hatch.
+	// immutable historical source (currently a prepaid card operation/balance,
+	// an execution contract, or a job's frozen currency). It permits preserving
+	// that supported currency after a deployment cutover; it is never an
+	// FX/conversion escape hatch.
 	CurrencyAuthority ledgerCurrencyAuthority
-	PayoutStatus      string
-	ReleaseAt         *time.Time
-	PayoutRef         string
+	// BoundJobCurrency is jobs.currency loaded under FOR UPDATE. Required when
+	// CurrencyAuthority is ledgerCurrencyAuthorityJob; the insert currency must
+	// equal this value exactly.
+	BoundJobCurrency string
+	PayoutStatus    string
+	ReleaseAt       *time.Time
+	PayoutRef       string
 }
 
 type ledgerCurrencyAuthority string
@@ -81,7 +86,33 @@ const (
 	ledgerCurrencyAuthorityNone              ledgerCurrencyAuthority = ""
 	ledgerCurrencyAuthorityPrepaid           ledgerCurrencyAuthority = "prepaid_source"
 	ledgerCurrencyAuthorityExecutionContract ledgerCurrencyAuthority = "execution_contract_source"
+	// ledgerCurrencyAuthorityJob authorises risk_reserve_* and sla_refund rows
+	// in the job's immutable accepted currency after a process settlement cutover.
+	ledgerCurrencyAuthorityJob ledgerCurrencyAuthority = "job_source"
 )
+
+// lockJobCurrencyAuthority loads jobs.currency under FOR UPDATE and returns a
+// job-source currency authority bound to that immutable value. wantCurrency,
+// when non-empty, must equal the locked job currency (exact match, no conversion).
+func lockJobCurrencyAuthority(
+	ctx context.Context, tx pgx.Tx, jobID uuid.UUID, wantCurrency string,
+) (ledgerCurrencyAuthority, string, error) {
+	var jobCurrency string
+	if err := tx.QueryRow(ctx,
+		`SELECT currency FROM jobs WHERE id=$1 FOR UPDATE`, jobID,
+	).Scan(&jobCurrency); err != nil {
+		return "", "", err
+	}
+	if _, err := ParseCurrency(jobCurrency); err != nil {
+		return "", "", fmt.Errorf("job %s currency: %w", jobID, err)
+	}
+	if wantCurrency != "" && wantCurrency != jobCurrency {
+		return "", "", fmt.Errorf(
+			"%w: ledger currency %s does not match job %s currency %s",
+			errCurrencyMismatch, wantCurrency, jobID, jobCurrency)
+	}
+	return ledgerCurrencyAuthorityJob, jobCurrency, nil
+}
 
 func ledgerInsertFromEntry(e LedgerEntry) ledgerInsert {
 	cur := e.Currency
@@ -410,10 +441,12 @@ func resolveLedgerInsert(e ledgerInsert) (ledgerInsert, error) {
 		return ledgerInsert{}, serr
 	}
 	// Reversal kinds preserve the historical currency of the row they reverse.
-	// Source-bound prepaid and execution-contract writers may also finish an
-	// already accepted historical obligation after a deployment cutover. The
-	// caller and database triggers prove the immutable source; arbitrary new
-	// money continues to require the current process currency.
+	// Source-bound prepaid, execution-contract, and job writers may also finish
+	// an already accepted historical obligation after a deployment cutover. The
+	// caller proves the immutable source (locked prepaid balance, execution
+	// contract, or jobs.currency); arbitrary new money continues to require the
+	// current process currency. Job authority is exact: insert currency must
+	// equal the locked jobs.currency, not merely any non-settlement code.
 	sourceBound := false
 	switch e.CurrencyAuthority {
 	case ledgerCurrencyAuthorityNone:
@@ -421,6 +454,25 @@ func resolveLedgerInsert(e ledgerInsert) (ledgerInsert, error) {
 		sourceBound = e.Kind == KindPrepaidTopup || e.Kind == KindPrepaidDebit || e.Kind == KindPrepaidRefund
 	case ledgerCurrencyAuthorityExecutionContract:
 		sourceBound = e.ExecutionContractID != nil
+	case ledgerCurrencyAuthorityJob:
+		if strings.TrimSpace(e.BoundJobCurrency) == "" {
+			return ledgerInsert{}, fmt.Errorf("ledger insert job currency authority requires bound job currency")
+		}
+		bound, berr := ParseCurrency(e.BoundJobCurrency)
+		if berr != nil {
+			return ledgerInsert{}, fmt.Errorf("ledger insert bound job currency: %w", berr)
+		}
+		if !got.Equal(bound) {
+			return ledgerInsert{}, fmt.Errorf(
+				"%w: ledger insert currency %s does not match job currency %s",
+				errCurrencyMismatch, got, bound)
+		}
+		switch e.Kind {
+		case KindRiskReserveAccrual, KindRiskReserveRelease, KindRiskReserveConsume, KindSLARefund:
+			sourceBound = true
+		default:
+			sourceBound = false
+		}
 	default:
 		return ledgerInsert{}, fmt.Errorf("ledger insert has unknown currency authority %q", e.CurrencyAuthority)
 	}

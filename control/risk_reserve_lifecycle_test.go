@@ -345,3 +345,253 @@ func TestRiskReserveConcurrentReleaseConsumeAndDuplicateCalls(t *testing.T) {
 		t.Fatalf("raced consume/release events=%d/%d, want 1/0", consumeEvents, releaseEvents)
 	}
 }
+
+func TestRiskReserveAndSLASurviveSettlementCurrencyCutover(t *testing.T) {
+	// Job accepted and settled under CAD; process settlement then moves to USD.
+	// Release and SLA-consume must still post in the job's frozen CAD.
+	installSettlementCurrencyForTest(t, "cad")
+	t.Setenv(costScheduleRevisionEnv, "")
+	ctx, store, pool := openIsolatedTestStore(t)
+	t.Setenv("MERC_CANARY_MODE", "false")
+	t.Setenv("MERC_CANARY_DISABLE_DECISION_REF", "test:risk-reserve-cutover")
+
+	buyerID := uuid.New()
+	supplierID := uuid.New()
+	jobID := uuid.New()
+	taskID := uuid.New()
+	terminalAt := time.Now().UTC().Add(-8 * 24 * time.Hour)
+	settledMicros := int64(1_000_000)
+	slaPremiumMicros := int64(1_000)
+
+	catalogue := CataloguePriceAuthority{
+		Version: 1, ScheduleVersion: 1,
+		ScheduleSHA256:            fmt.Sprintf("%064x", 1),
+		BoardSHA256:               fmt.Sprintf("%064x", 2),
+		ReferenceCurrency:         costReferenceCurrency,
+		SettlementCurrency:        "cad",
+		ReferenceToSettlementRate: 1.375,
+		FXRevision:                "test-cad-risk-cutover",
+	}
+	costPolicy, err := freezeCurrentCostPolicySnapshot(catalogue, "cad")
+	mustf(t, err, "freeze CAD cost policy: %v")
+	acceptedNanos := settledMicros * NanosPerMicro
+	acceptedRisk, err := riskReserveNanos(costPolicy.Schedule, acceptedNanos)
+	mustf(t, err, "derive CAD risk reserve: %v")
+	pricing := PricingDecision{
+		Version: pricingDecisionVersion, PolicyRevision: pricingDecisionPolicyRevision,
+		ExecutionMode: computeExecutionExactReuse, Currency: "cad", Tier: "batch",
+		WorkloadDecisionSHA256: fmt.Sprintf("%064x", 3),
+		ComputePlanSHA256:      fmt.Sprintf("%064x", 4),
+		CostScheduleSHA256:     costPolicy.ScheduleSHA256,
+		CostScheduleRevision:   costPolicy.Schedule.Revision,
+		CostPolicy:             costPolicy,
+		Catalogue:              catalogue,
+		BuyerPrice:             microsToUSD(settledMicros),
+		MaximumBuyerPrice:      microsToUSD(settledMicros),
+		FixedPoint: &FixedPointPricingDecision{
+			Currency: "cad", BuyerChargeNanos: acceptedNanos,
+			AcceptedCeilingNanos: acceptedNanos,
+		},
+		PrimarySupplierCost:      notApplicableCost("exact-reuse fixture"),
+		VerificationCost:         notApplicableCost("exact-reuse fixture"),
+		RiskReserve:              modeledCost(nanosToEconomicUSD(acceptedRisk), "frozen risk reserve test policy"),
+		RiskReserveAcceptedNanos: acceptedRisk,
+	}
+	pricingSHA, err := pricingDecisionDigest(pricing)
+	mustf(t, err, "digest CAD pricing: %v")
+	pricingJSON, err := json.Marshal(pricing)
+	mustf(t, err, "marshal CAD pricing: %v")
+
+	mustf(t, pool.QueryRow(ctx, `
+		INSERT INTO buyers (id,email) VALUES ($1,$2) RETURNING id`,
+		buyerID, buyerID.String()+"@risk-cutover.invalid").Scan(&buyerID),
+		"insert CAD buyer: %v")
+	mustf(t, pool.QueryRow(ctx, `
+		INSERT INTO suppliers (id,email,reputation,status)
+		VALUES ($1,$2,0.9,'active') RETURNING id`,
+		supplierID, supplierID.String()+"@risk-cutover.invalid").Scan(&supplierID),
+		"insert CAD supplier: %v")
+	createdAt := terminalAt.Add(-2 * time.Minute)
+	actualMicros := settledMicros + slaPremiumMicros
+	_, err = pool.Exec(ctx, `
+		INSERT INTO jobs
+		  (id,buyer_id,status,job_type,tier,input_ref,currency,created_at,terminal_at,
+		   results_merged_at,actual_usd,sla_guarantee_secs,sla_premium_usd,
+		   workload_decision_sha256,compute_plan_sha256,
+		   pricing_decision,pricing_decision_sha256)
+		VALUES ($1,$2,'complete','embed','batch','risk/input','cad',$3,$4,$5,
+		        ($6::numeric/1000000),1,($7::numeric/1000000),$8,$9,$10::jsonb,$11)`,
+		jobID, buyerID, createdAt, terminalAt, terminalAt, actualMicros,
+		slaPremiumMicros,
+		pricing.WorkloadDecisionSHA256, pricing.ComputePlanSHA256,
+		pricingJSON, pricingSHA)
+	mustf(t, err, "insert CAD job: %v")
+	_, err = pool.Exec(ctx, `
+		INSERT INTO tasks
+		  (id,job_id,status,verification_outcome,completed_at)
+		VALUES ($1,$2,'complete','pass',$3)`,
+		taskID, jobID, terminalAt)
+	mustf(t, err, "insert CAD task: %v")
+	supplierMicros := settledMicros * 4 / 5
+	platformMicros := settledMicros - supplierMicros
+	for _, row := range []struct {
+		kind, status    string
+		buyer, supplier *uuid.UUID
+		micros          int64
+	}{
+		{KindBuyerCharge, PayoutReleased, &buyerID, nil, -settledMicros},
+		{KindSupplierCredit, PayoutHeld, nil, &supplierID, supplierMicros},
+		{KindPlatformTake, PayoutReleased, nil, nil, platformMicros},
+	} {
+		_, err := pool.Exec(ctx, `
+			INSERT INTO ledger_entries
+			  (kind,buyer_id,supplier_id,task_id,amount_usd,currency,payout_status,release_at)
+			VALUES ($1,$2,$3,$4,($5::numeric/1000000),'cad',$6,
+			        CASE WHEN $1='supplier_credit' THEN $7::timestamptz ELSE NULL END)`,
+			row.kind, row.buyer, row.supplier, taskID, row.micros, row.status,
+			terminalAt.Add(riskReserveDisputeWindow))
+		mustf(t, err, "insert CAD ledger %s: %v", row.kind)
+	}
+	_, err = insertLedgerEntryIfAbsentByRefTx(ctx, pool, ledgerInsert{
+		Kind: KindBuyerCharge, BuyerID: &buyerID,
+		AmountMicros: -slaPremiumMicros, Currency: "cad",
+		PayoutStatus: PayoutReleased, PayoutRef: slaPremiumChargeRef(jobID),
+	})
+	mustf(t, err, "insert CAD SLA premium charge: %v")
+	mustf(t, store.AccrueRiskReserveAtSettlement(ctx, jobID, pricing),
+		"accrue CAD risk reserve under CAD settlement: %v")
+
+	// Cutover: process settlement is now USD. Historical CAD obligations must finish.
+	installSettlementCurrencyForTest(t, "usd")
+
+	// SLA miss path: posts sla_refund + risk_reserve_consume in frozen CAD.
+	// Force a miss by keeping created/merged span beyond the 1s guarantee already set.
+	result, err := store.SettleJobSLA(ctx, jobID)
+	mustf(t, err, "SLA settle after USD cutover: %v")
+	if !result.Decided || result.Met {
+		t.Fatalf("SLA result after cutover=%+v, want decided miss", result)
+	}
+	var slaCurrency string
+	var slaMicros int64
+	mustf(t, pool.QueryRow(ctx, `
+		SELECT currency,(amount_usd*1000000)::bigint FROM ledger_entries
+		 WHERE kind=$1 AND payout_ref=$2`, KindSLARefund, slaRefundRef(jobID)).
+		Scan(&slaCurrency, &slaMicros), "load SLA refund after cutover: %v")
+	if slaCurrency != "cad" || slaMicros != slaPremiumMicros {
+		t.Fatalf("SLA refund after cutover=%s/%d, want cad/%d", slaCurrency, slaMicros, slaPremiumMicros)
+	}
+	got, err := store.RiskReserveSnapshot(ctx, jobID)
+	mustf(t, err, "load reserve after SLA consume: %v")
+	assertRiskReserveConserves(t, got)
+	if got.Currency != "cad" || got.ConsumedNanos <= 0 || got.HeldNanos >= got.AccruedNanos {
+		t.Fatalf("reserve after SLA cutover consume=%+v, want CAD partial/full consume", got)
+	}
+
+	// Second job: clean release after cutover (no SLA premium).
+	job2 := uuid.New()
+	task2 := uuid.New()
+	pricing2 := pricing
+	pricing2.BuyerPrice = microsToUSD(settledMicros)
+	pricing2JSON, err := json.Marshal(pricing2)
+	mustf(t, err, "marshal release pricing: %v")
+	pricing2SHA, err := pricingDecisionDigest(pricing2)
+	mustf(t, err, "digest release pricing: %v")
+	// Reuse same pricing digest fields by writing identical decision JSON used above.
+	// Accrual needs pricing_decision_sha256 to match digest(pricing2); keep identical body.
+	_ = pricing2JSON
+	_ = pricing2SHA
+	// Use the original pricing document (same SHA) with a new job that has no SLA.
+	_, err = pool.Exec(ctx, `
+		INSERT INTO jobs
+		  (id,buyer_id,status,job_type,tier,input_ref,currency,created_at,terminal_at,
+		   results_merged_at,actual_usd,sla_guarantee_secs,sla_premium_usd,sla_met,
+		   workload_decision_sha256,compute_plan_sha256,
+		   pricing_decision,pricing_decision_sha256)
+		VALUES ($1,$2,'complete','embed','batch','risk/input2','cad',$3,$4,$5,
+		        ($6::numeric/1000000),NULL,NULL,true,$7,$8,$9::jsonb,$10)`,
+		job2, buyerID, createdAt, terminalAt, terminalAt, settledMicros,
+		pricing.WorkloadDecisionSHA256, pricing.ComputePlanSHA256,
+		pricingJSON, pricingSHA)
+	mustf(t, err, "insert CAD release job: %v")
+	_, err = pool.Exec(ctx, `
+		INSERT INTO tasks (id,job_id,status,verification_outcome,completed_at)
+		VALUES ($1,$2,'complete','pass',$3)`, task2, job2, terminalAt)
+	mustf(t, err, "insert CAD release task: %v")
+	for _, row := range []struct {
+		kind, status    string
+		buyer, supplier *uuid.UUID
+		micros          int64
+	}{
+		{KindBuyerCharge, PayoutReleased, &buyerID, nil, -settledMicros},
+		{KindSupplierCredit, PayoutHeld, nil, &supplierID, supplierMicros},
+		{KindPlatformTake, PayoutReleased, nil, nil, platformMicros},
+	} {
+		_, err := pool.Exec(ctx, `
+			INSERT INTO ledger_entries
+			  (kind,buyer_id,supplier_id,task_id,amount_usd,currency,payout_status,release_at)
+			VALUES ($1,$2,$3,$4,($5::numeric/1000000),'cad',$6,NULL)`,
+			row.kind, row.buyer, row.supplier, task2, row.micros, row.status)
+		mustf(t, err, "insert release job ledger %s: %v", row.kind)
+	}
+	// Accrual still works post-cutover when bound to the job's frozen CAD.
+	mustf(t, store.AccrueRiskReserveAtSettlement(ctx, job2, pricing),
+		"accrue CAD reserve after USD cutover: %v")
+	mustf(t, store.ReleaseRiskReserveAfterDisputeWindow(ctx, job2, time.Now().UTC()),
+		"release CAD reserve after USD cutover: %v")
+	released, err := store.RiskReserveSnapshot(ctx, job2)
+	mustf(t, err, "load released cutover reserve: %v")
+	assertRiskReserveConserves(t, released)
+	if released.Currency != "cad" || released.HeldNanos != 0 || released.ReleasedNanos != released.AccruedNanos {
+		t.Fatalf("cutover release did not terminalise CAD reserve: %+v", released)
+	}
+	var releaseCurrency string
+	mustf(t, pool.QueryRow(ctx, `
+		SELECT currency FROM ledger_entries
+		 WHERE kind=$1 AND payout_ref=$2`, KindRiskReserveRelease, riskReserveReleaseRef(job2)).
+		Scan(&releaseCurrency), "load release ledger currency: %v")
+	if releaseCurrency != "cad" {
+		t.Fatalf("release ledger currency=%s, want cad", releaseCurrency)
+	}
+}
+
+func TestJobCurrencyAuthorityRefusesMismatchedCurrency(t *testing.T) {
+	// Job authority is exact: a risk_reserve row whose currency does not match
+	// the locked jobs.currency is refused even when process settlement would
+	// otherwise accept the insert currency.
+	installSettlementCurrencyForTest(t, "usd")
+	err := validateLedgerInsert(ledgerInsert{
+		Kind: KindRiskReserveRelease, AmountMicros: -1_000,
+		Currency: "usd", CurrencyAuthority: ledgerCurrencyAuthorityJob,
+		BoundJobCurrency: "cad", PayoutStatus: PayoutReleased, PayoutRef: "x",
+	})
+	if err == nil || !errors.Is(err, errCurrencyMismatch) {
+		t.Fatalf("mismatched job authority err=%v, want errCurrencyMismatch", err)
+	}
+	// Matching bound currency is accepted after cutover (settlement usd, job cad).
+	err = validateLedgerInsert(ledgerInsert{
+		Kind: KindRiskReserveRelease, AmountMicros: -1_000,
+		Currency: "cad", CurrencyAuthority: ledgerCurrencyAuthorityJob,
+		BoundJobCurrency: "cad", PayoutStatus: PayoutReleased, PayoutRef: "x",
+	})
+	if err != nil {
+		t.Fatalf("matching job authority refused: %v", err)
+	}
+	// Authority without a bound job currency is refused.
+	err = validateLedgerInsert(ledgerInsert{
+		Kind: KindRiskReserveRelease, AmountMicros: -1_000,
+		Currency: "cad", CurrencyAuthority: ledgerCurrencyAuthorityJob,
+		PayoutStatus: PayoutReleased, PayoutRef: "x",
+	})
+	if err == nil {
+		t.Fatal("job authority without BoundJobCurrency was accepted")
+	}
+	// Wrong kind with job authority is refused (no blanket exemption).
+	err = validateLedgerInsert(ledgerInsert{
+		Kind: KindPlatformTake, AmountMicros: 1_000,
+		Currency: "cad", CurrencyAuthority: ledgerCurrencyAuthorityJob,
+		BoundJobCurrency: "cad", PayoutStatus: PayoutReleased,
+	})
+	if err == nil {
+		t.Fatal("job authority bound a non-risk/SLA kind")
+	}
+}

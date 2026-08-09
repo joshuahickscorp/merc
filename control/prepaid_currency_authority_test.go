@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func TestPrepaidBalancesRemainCurrencyKeyedAcrossCutoverAndHistoricalWebhook(t *testing.T) {
@@ -141,12 +143,11 @@ func TestFreeCreditUSDDoesNotFundCADRealtime(t *testing.T) {
 	}
 }
 
-func TestLegacyPrepaidBalanceMigrationFreezesUSDMeaning(t *testing.T) {
-	ctx, store, pool := openIsolatedTestStore(t)
-	buyerID := uuid.New()
-	_, err := pool.Exec(ctx, `INSERT INTO buyers (id,email) VALUES ($1,$2)`, buyerID, buyerID.String()+"@legacy.invalid")
-	must(t, err)
-	_, err = pool.Exec(ctx, `DROP TABLE buyer_prepaid_balances`)
+// restoreLegacyUnlabeledPrepaidBalances rebuilds the pre-currency table shape
+// so Migrate() re-runs the unlabeled-balance reconstruction path.
+func restoreLegacyUnlabeledPrepaidBalances(t *testing.T, ctx context.Context, pool *pgxpool.Pool, buyerID uuid.UUID, micros int64) {
+	t.Helper()
+	_, err := pool.Exec(ctx, `DROP TABLE buyer_prepaid_balances`)
 	must(t, err)
 	_, err = pool.Exec(ctx, `
 		CREATE TABLE buyer_prepaid_balances (
@@ -155,8 +156,30 @@ func TestLegacyPrepaidBalanceMigrationFreezesUSDMeaning(t *testing.T) {
 		  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 		)`)
 	must(t, err)
-	_, err = pool.Exec(ctx, `INSERT INTO buyer_prepaid_balances (buyer_id,balance_micros) VALUES ($1,1234567)`, buyerID)
+	_, err = pool.Exec(ctx, `INSERT INTO buyer_prepaid_balances (buyer_id,balance_micros) VALUES ($1,$2)`, buyerID, micros)
 	must(t, err)
+}
+
+func TestLegacyPrepaidBalanceMigrationLabelsFromCADOperationsHistory(t *testing.T) {
+	// CAD cash collected before the currency column existed must be labelled
+	// cad from prepaid_topup_operations — never silently usd.
+	installSettlementCurrencyForTest(t, "cad")
+	ctx, store, pool := openIsolatedTestStore(t)
+	buyerID := uuid.New()
+	_, err := pool.Exec(ctx, `INSERT INTO buyers (id,email) VALUES ($1,$2)`, buyerID, buyerID.String()+"@legacy-cad.invalid")
+	must(t, err)
+
+	const balanceMicros int64 = 25_000_000 // 25.00 CAD
+	const amountCents int64 = 2500
+	opKey := "legacy-cad-topup-" + uuid.NewString()
+	_, err = pool.Exec(ctx, `
+		INSERT INTO prepaid_topup_operations
+		  (operation_key,buyer_id,amount_cents,currency,status,payment_intent,charge_id,credited_at)
+		VALUES ($1,$2,$3,'cad','succeeded',$4,$5,now())`,
+		opKey, buyerID, amountCents, "pi_"+opKey, "ch_"+opKey)
+	must(t, err)
+
+	restoreLegacyUnlabeledPrepaidBalances(t, ctx, pool, buyerID, balanceMicros)
 	must(t, store.Migrate(ctx))
 
 	var currency string
@@ -165,11 +188,62 @@ func TestLegacyPrepaidBalanceMigrationFreezesUSDMeaning(t *testing.T) {
 		Scan(&currency, &amount); err != nil {
 		t.Fatal(err)
 	}
-	if currency != "usd" || amount != 1_234_567 {
-		t.Fatalf("legacy balance migrated as %s/%d, want usd/1234567", currency, amount)
+	if currency != "cad" || amount != balanceMicros {
+		t.Fatalf("legacy CAD balance migrated as %s/%d, want cad/%d", currency, amount, balanceMicros)
 	}
-	if _, err := pool.Exec(ctx, `INSERT INTO buyer_prepaid_balances (buyer_id,currency,balance_micros) VALUES ($1,'cad',9)`, buyerID); err != nil {
-		t.Fatalf("composite currency key did not admit separate CAD liability: %v", err)
+
+	// Spendable under CAD settlement: the reconstructed bucket funds the buyer.
+	got, err := store.BuyerPrepaidBalanceMicros(ctx, buyerID)
+	must(t, err)
+	if got != balanceMicros {
+		t.Fatalf("CAD settlement cannot see migrated CAD balance: got %d want %d", got, balanceMicros)
+	}
+	// A separate USD liability may still coexist after the composite key lands.
+	if _, err := pool.Exec(ctx, `INSERT INTO buyer_prepaid_balances (buyer_id,currency,balance_micros) VALUES ($1,'usd',9)`, buyerID); err != nil {
+		t.Fatalf("composite currency key did not admit separate USD liability: %v", err)
+	}
+}
+
+func TestLegacyPrepaidBalanceMigrationFailsWithoutDeterminableCurrency(t *testing.T) {
+	// Non-zero unlabeled cash with no operations history must fail Migrate()
+	// loudly — never default to usd.
+	ctx, store, pool := openIsolatedTestStore(t)
+	buyerID := uuid.New()
+	_, err := pool.Exec(ctx, `INSERT INTO buyers (id,email) VALUES ($1,$2)`, buyerID, buyerID.String()+"@legacy-fail.invalid")
+	must(t, err)
+
+	restoreLegacyUnlabeledPrepaidBalances(t, ctx, pool, buyerID, 1_234_567)
+	err = store.Migrate(ctx)
+	if err == nil {
+		t.Fatal("Migrate() labelled non-zero unlabeled balance without operations history")
+	}
+	if !strings.Contains(err.Error(), "cannot determine currency") &&
+		!strings.Contains(err.Error(), "unlabeled") {
+		t.Fatalf("Migrate() error does not name the currency reconstruction failure: %v", err)
+	}
+}
+
+func TestLegacyPrepaidZeroBalanceMigrationAcceptsPlaceholderLabel(t *testing.T) {
+	// Zero balances hold no cash; a placeholder label is safe when history is empty.
+	ctx, store, pool := openIsolatedTestStore(t)
+	buyerID := uuid.New()
+	_, err := pool.Exec(ctx, `INSERT INTO buyers (id,email) VALUES ($1,$2)`, buyerID, buyerID.String()+"@legacy-zero.invalid")
+	must(t, err)
+
+	restoreLegacyUnlabeledPrepaidBalances(t, ctx, pool, buyerID, 0)
+	must(t, store.Migrate(ctx))
+
+	var currency string
+	var amount int64
+	if err := pool.QueryRow(ctx, `SELECT currency,balance_micros FROM buyer_prepaid_balances WHERE buyer_id=$1`, buyerID).
+		Scan(&currency, &amount); err != nil {
+		t.Fatal(err)
+	}
+	if amount != 0 {
+		t.Fatalf("zero balance changed during migration: %d", amount)
+	}
+	if currency != "usd" && currency != "cad" && currency != "jpy" {
+		t.Fatalf("zero balance label %q is not a supported currency", currency)
 	}
 }
 

@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -107,6 +108,20 @@ func (s *Store) Migrate(ctx context.Context) error {
 		return err
 	}
 	defer release()
+	// Optional operator escape hatch for unlabeled prepaid cash whose operations
+	// history cannot determine a single currency. The schema reconstruction
+	// reads merc.prepaid_legacy_currency; silence is not a default to usd.
+	if override := strings.TrimSpace(os.Getenv("MERC_PREPAID_LEGACY_CURRENCY")); override != "" {
+		parsed, perr := ParseCurrency(override)
+		if perr != nil {
+			return fmt.Errorf("MERC_PREPAID_LEGACY_CURRENCY: %w", perr)
+		}
+		if _, err := conn.Exec(ctx,
+			`SELECT set_config('merc.prepaid_legacy_currency', $1, false)`,
+			parsed.Code()); err != nil {
+			return fmt.Errorf("set prepaid legacy currency override: %w", err)
+		}
+	}
 	_, err = conn.Conn().PgConn().Exec(ctx, canonicalSchema).ReadAll()
 	if err != nil {
 		return fmt.Errorf("apply canonical schema: %w", err)
