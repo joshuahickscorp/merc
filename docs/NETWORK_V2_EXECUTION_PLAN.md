@@ -554,7 +554,93 @@ exactly as Step 7 uses `market_shape`.
 12. **Rollback:** Revert any topology path that admits unmeasured tight fabric,
     oversubscribes devices, or changes legacy single-device behavior.
 
+### Step 10 shape note — amended 2026-08-09 after reconnaissance
+
+Every claim below was re-verified against `codex/network-v2` at `0deb8b6b`.
+
+**Topology is not a missing planner. The planner already exists; the accept
+binding does not.** `TopologyPlan` and `PlanTopology` choose shape and then
+delegate supply-lane physics to `ChooseExecutionMode`
+(`control/topology_planner.go:44-55`, `:107-120`). WAN-tight and unmeasured-fabric
+refusal is already coded (`control/execution_mode.go:170-177`). Treating Step 10
+as inventing that refusal would re-author a pure function that already decides
+correctly.
+
+**"Promote TopologyPlan as the canonical core" is struck as a rename path.**
+Production accept paths do not bind `TopologyPlan` except as post-commit shadow
+JSON and as a non-authority fabric projection. Batch stores topology only on
+`runtime_shadow_selections.topology_plan` after `SubmitJobTx` commits
+(`control/api.go:1676-1711`; `control/runtime_shadow_selection.go:529-561`;
+schema at `control/schema.sql:6428-6439`). That write cannot veto admission, and
+its error is logged and dropped on purpose. Promoting the type name without
+moving the write into the accept transaction recreates a lying authority: a
+digest-looking object that money and placement never consulted.
+
+**Batch does not choose among multi-device topologies today.** Accepted batch
+work freezes `independent_task_fanout` at tensor-parallel degree 1
+(`control/workload_classification.go:408-410`). Shadow then calls `PlanTopology`
+with `Fabric: FabricUnknown` (`control/runtime_shadow_selection.go:177-181`). The
+comment above that call claims "nothing in this tree measures link bandwidth or
+latency between workers" (`:172-176`). That comment is **false as written**: the
+tree does measure fabric links and synthetic collectives
+(`control/fabric_measurement.go`, `control/fabric_topology.go`). What is true is
+that **batch admission does not consume those measurements**. Passing
+`FabricUnknown` is honest for the batch path; claiming the tree has no fabric
+measurement is not.
+
+**"Measured local gang admission" is struck as a Step 10 completion criterion.**
+Fabric evaluations force `LocalClusterAdmissible: false` at construct and persist
+`local_cluster_admissible=false` (`control/fabric_topology.go:146`, `:327-332`).
+Statuses are mesh/collective measurement strings, never
+`LOCAL_CLUSTER_ADMITTED_V1` (`:283-289`; constant at
+`control/fabric_topology_planner.go:18`). The planner gate itself documents that
+current evaluations always map to `FabricUnknown` and refuse tightly coupled work
+(`control/fabric_topology_planner.go:58-62`). The evaluation lists the missing
+authorities: gang scheduler, customer collectives, topology pricing
+(`control/fabric_topology.go:294-298`). Until those exist, the correct production
+outcome remains refuse `LOCAL_CLUSTER`, which the planner already does. Completing
+Step 10 by inventing admitted gang placement would be a false record.
+
+**Realtime host topology is already frozen; do not replace it with a second TP
+decision.** `RealtimePlacementPlan` freezes interconnect, configured/admitted
+tensor parallel, and replica execution mode (`control/realtime_placement.go:24-46`).
+It is built at offer registration (`control/realtime_store.go:337-344`) and
+copied/revalidated into the authorize transaction (`:1068-1076`, insert
+`:1139-1163`). Comments state single-host TP ranks remain one replica, never
+`LOCAL_CLUSTER` evidence (`realtime_placement.go:41-43`). Private
+`tensorParallelPlan` (`control/multi_gpu_admission.go:89-94`) is pure host
+arithmetic feeding that plan — keep it private. Retiring "embedded realtime
+topology fields" without preserving the placement-plan digest would destroy the
+lane's actual topology authority, not remove duplication.
+
+**`ProjectIRTopology` is already labeled non-placement.** It is compiler shape
+evidence with no fabric, worker, price, or capacity fields
+(`control/project_compiler.go:78-90`). Later cleanup may rename it to a
+requirement; promoting it to accept authority would be the reverse error.
+
+**`TopologyDecision` as a Go type, digest, and accepted-job column is ABSENT.**
+What Step 10 still owes, by lane:
+
+1. **Batch:** an immutable accept-time topology record inside the accept
+   transaction — which for today's product may honestly be the singleton
+   (independent fan-out degree 1 + fabric class + refusal of tight multi-host
+   coupling) written as a job field, not only a shadow JSON blob.
+2. **Realtime:** cite the existing `RealtimePlacementPlan` digest as host/topology
+   authority; do not invent a parallel decision that re-decides TP.
+3. **Service lease:** freezes worker and pricing, not topology; record that
+   absence honestly rather than synthesising a multi-host plan.
+
+**Performance of topology planning remains UNMEASURED.** Do not invent p50/p95
+budgets here.
+
+**Completion, restated:** every accepted execution cites either (i) the frozen
+host/topology authority that already exists for that lane, or (ii) an immutable
+refuse/shape record written in the accept transaction. Shadow may reference
+digests; it must not be the sole record of an accepted topology claim. Measured
+local gang admission and "promote TopologyPlan by rename" are not completion.
+
 ### Step 11 — Persist the accepted production decision chain atomically
+
 
 1. **Objective:** Bind MarketDecision → RuntimeDecision → PlacementDecision →
    TopologyDecision, with Workload and PricingDecision identities, in the same
@@ -581,7 +667,80 @@ exactly as Step 7 uses `market_shape`.
 12. **Rollback:** Roll back the migration/caller switch if deadlocks, double
     reservation, lost capacity/money, or tail budget breach appears.
 
+### Step 11 shape note — amended 2026-08-09 after reconnaissance
+
+Every claim below was re-verified against `codex/network-v2` at `0deb8b6b`.
+
+**"Atomic decision chain wholly ABSENT" overstates the gap.** Money and substantial
+plans already share accept transactions per lane. What is ABSENT is a single
+canonical Market → Runtime → Placement → Topology chain object with cross-linked
+digests of those four types — and those four types are not all present as
+production authorities (Step 7/8/9/10 notes). Claiming total absence of atomic
+accept writes would produce a second "accept" writer beside the ones that already
+reserve money and freeze digests.
+
+**What each lane already freezes in one transaction:**
+
+- **Batch `SubmitJobTx`** (`control/store_jobs.go:361+`, insert digests
+  `:499-519`): activation guard, prepaid/quote checks, `workload_decision`,
+  `compute_plan`, `placement_requirement`, `pricing_decision`, economic plan,
+  tasks. **Not** in that TX: shadow topology/selection
+  (`control/api.go:1676-1711`), MarketDecision, TopologyDecision, or the worker
+  (worker is pull claim — `control/scheduler.go:1140+`).
+- **Realtime `AuthorizeRealtimeContract`** (lock order documented at
+  `control/realtime_store.go:892-906`; contract insert `:1139-1163`): funding,
+  offer capacity, worker, placement plan + sha, PricingDecision + sha,
+  `market_clearing`. Host placement was frozen earlier at offer upsert
+  (`:337-344`); authorize revalidates, it does not re-plan. Mid-TX failure rolls
+  funding and capacity back together.
+- **Service lease `CreateServiceLease`** (`control/service_leases.go:664-691+`):
+  `FOR UPDATE` on the profile+region offer book, PricingDecision, prepaid
+  ceiling, worker/capacity, market detail on the activation event. Single TX;
+  rollback restores capacity and prepaid.
+
+**The real tear is post-commit authoritative explanation on batch.** After
+`SubmitJobTx` commits, shadow selection may fail and the job still lives
+(`control/api.go:1679-1682`; `RecordShadowSelection` uses `ON CONFLICT DO NOTHING`
+at `control/runtime_shadow_selection.go:554`). Shadow cannot undo money. If a
+fact is described as an accepted decision, it must be written inside the accept
+transaction or demoted to observational. Leaving it post-commit-only and calling
+it accepted is the false record this step exists to prevent.
+
+**"Worker choice is implicit later" is true for batch only.** Realtime and service
+lease freeze the worker in the accept transaction. Batch freezes eligibility at
+claim time under pull semantics (`ClaimTasksTx`); that is a separate boundary, not
+a chain bug by itself. Extending claim as if it were the accept chain freezes the
+wrong market shape (see Step 7).
+
+**Full Step 11 is not a hard prerequisite for Step 8.** The Step 8 shape note
+already corrected the earlier claim that RuntimeDecision required the four-node
+chain. Four of the five runtime-relevant facts are already inside `SubmitJobTx`;
+the fifth — measured shadow selection basis — is post-commit **deliberately** and
+must not be dragged into accept to satisfy wording without turning an
+observational selector into a router. Step 8 freezes the in-transaction lifecycle
+ranked cell. Step 11 still owns: moving any remaining *accepted* decision digests
+into the lane accept TX, linking digests that **exist for that lane**, and proving
+crash/retry leaves no orphan prepaid, capacity, or accepted job without its
+declared digests.
+
+**Do not invent MarketDecision or TopologyDecision solely to fill a four-name
+diagram.** Batch MarketDecision remains a pull eligibility snapshot at claim (Step
+7). Topology binding follows Step 10's amended absences. Cross-link what is real;
+refuse decorative chain rows that restate digests under a second algorithm.
+
+**Admission/claim lock-wait and chain write budgets for this step remain
+UNMEASURED** as a Step 11 deliverable. Existing claim duration instrumentation is
+not a substitute for a measured chain gate.
+
+**Completion, restated:** every accepted execution is replayable from digests
+written in its lane accept TX; shadow is observational or references those
+digests; claim-time batch assignment remains a documented pull boundary with its
+own eligibility receipt, not a silent rewrite of accept-time decisions. The
+canonical four-decision chain root is still ABSENT and is completed only when the
+amended Steps 7–10 objects that actually apply per lane exist and link.
+
 ### Step 12 — Canonicalize VerificationContract
+
 
 1. **Objective:** Freeze verifier class/evaluator/reference, threshold and
    comparator revision, sampling, failure consequence, recompute, quality and
@@ -609,7 +768,79 @@ exactly as Step 7 uses `market_shape`.
 12. **Rollback:** Revert if verification weakens, receipt evidence is lost, or
     money can settle against a different contract.
 
+### Step 12 shape note — amended 2026-08-09 after reconnaissance
+
+Every claim below was re-verified against `codex/network-v2` at `0deb8b6b`.
+
+**`VerificationContract` as a Go type is ABSENT.** Authority is split across
+buyer knobs, free strings, governed classes, sampling pins, work plans, decision
+effects, and a rich comparator whose full result is dropped on the ordinary path.
+Building a greenfield contract that also becomes outcome/money authority would
+duplicate objects that already hold those roles under other names.
+
+**What already binds (do not re-author as a second digest authority):**
+
+- **Governed class + policy revision** — `SAMPLED|REQUIRED|HONEYPOT|REDUNDANT|REPLAY`
+  and `verify-class-v1` (`control/verification_class.go:23-50`), frozen on the
+  compute plan (`control/compute_plan.go:76-87`) and disclosed on task receipts
+  (`control/receipt.go:53-59`).
+- **Sampling pin** — policy `hmac-reputation-v1`, probability and selection on
+  `VerificationWorkPlan` (`control/verification_work_plan.go:17-32`).
+- **Attempt outcome + ledger plan** — `VerificationWorkPlan` carries
+  `Decision`, `Settlement`, and `DecisionSHA256` (`:22-32`, `:69-75`); digest
+  function at `control/verification_apply.go:844`.
+- **Failure consequences** — `VerificationDecision.Effects` kinds
+  (`control/verification_plan.go:29-58`), applied after plan.
+- **Embed equivalence** — `embed-cosine-v2` thresholds and full
+  `EmbeddingComparison` (`control/embedding_comparator.go:29-45`, `:145-173`).
+
+**What is partial or misleading today:**
+
+- **`VerificationPolicy` is not the verification contract.** It is three buyer
+  knobs: redundancy frac, honeypot frac, payout hold secs
+  (`control/types.go:140-144`).
+- **Cell `Verification` and `WorkloadDecision.VerificationStrategy` are free
+  composite strings**, not frozen check proofs (`control/runtime_authority.go:134`;
+  strategy builder `control/workload_classification.go:316-327`). They can name a
+  method while SAMPLED selection is false. That is the buyer-overrun risk: the
+  strategy/cost line, not the aggregate `fully-verified` label alone.
+  `fully-verified` requires every delivered chunk to have been verified under the
+  aggregate rules (`control/types.go:421-424`); task receipts can disclose
+  `verification_selected` (`control/receipt.go:53-59`).
+- **Rich comparator output is not retained on the ordinary path.**
+  `resultsAgree` keeps only `.Passed` (`control/verification.go:581-584`) while
+  `EmbeddingComparison` was designed to persist full diagnosis
+  (`embedding_comparator.go:145-149`). Threshold/revision/reference are therefore
+  **not** acceptance-bound on one ordinary-path object today.
+- **Named recompute policy is ABSENT.** Only effect kinds like requeue/tiebreak
+  exist (`control/verification_plan.go:36-37`); there is no pre-acceptance policy
+  for how many times / when to re-execute.
+- **Cross-lane:** realtime receipt carries a free `verification` string
+  (`control/realtime_store.go:2482`), not the batch work-plan machinery.
+
+**Step 12 is therefore bind acceptance-time verification identity, not invent a
+second outcome authority.** Freeze and cite: governed class + class policy
+revision, sampling policy identity, evaluator kind (byte-exact vs embed
+comparator revision + frozen thresholds/reference digest when applicable), and
+the failure-consequence **vocabulary** apply is allowed to emit. Keep
+`VerificationWorkPlan` / `VerificationDecision` / `decision_sha256` as attempt
+outcome authority. Retain rich comparator outcomes where money or buyer claims
+depend on them. Project legacy strategy strings from the bound identity without
+policy loss. Refuse settlement against a class/threshold other than the pinned
+work plan.
+
+**Verification latency and sampling-ratio production budgets remain UNMEASURED**
+as programme gates for this step.
+
+**Completion, restated:** no buyer-visible "verified under X" claim without either
+a check selection record or an explicit SAMPLED-not-selected status; no second
+digest that competes with `decision_sha256` for outcomes; recompute remains
+ABSENT-as-policy until product requires a named policy. Ledger status PARTIAL is
+correct: split authorities exist; the single pre-acceptance contract object does
+not.
+
 ### Step 13 — Canonicalize SettlementPlan
+
 
 1. **Objective:** Freeze buyer charge, supplier/provider/verifier entitlements,
    holds, reserves, refund/dispute rules, payout state machine identity, true
@@ -636,7 +867,85 @@ exactly as Step 7 uses `market_shape`.
 12. **Rollback:** Immediate rollback on any lost/double money, hidden subsidy,
     historical rewrite, or unknown outcome misclassification.
 
+### Step 13 shape note — amended 2026-08-09 after reconnaissance
+
+Every claim below was re-verified against `codex/network-v2` at `0deb8b6b`.
+
+**`SettlementPlan` as a Go type is ABSENT. Batch money authority is not.** Building
+a SettlementPlan that re-states buyer/supplier/provider nanos already fixed-pointed
+on `PricingDecision` would create a second money truth. Renaming
+`PricingDecision` or `ContributionSettlement` to `SettlementPlan` is likewise
+refused — that is duplicate canonical authority under a new label, not completion.
+
+**What already binds money (extend; do not replace):**
+
+- **`PricingDecision` / `FixedPointPricingDecision`** — accepted price/cost
+  forecast authority, multi-mode, with explicit `ContributionStage`
+  (`control/pricing_decision.go:86-110`, components including verification cost
+  at `:183-191`). Comments state pricing never becomes true net by completion
+  alone (`:105-109`).
+- **`ContributionSettlement`** — **only** batch-job authority allowed to call
+  contribution "true net" (`control/contribution_settlement.go:16-19`, stages
+  `:22-25`, struct `:54-59`). Keyed by subject + `PricingDecisionSHA256` +
+  currency (`:35-42`). True net is structurally absent outside FINAL
+  (`:54-55`). Loaded for jobs via `ContributionSettlementForJob` (`:1112-1138`).
+  Invoice projection treats it as canonical; legacy contribution view projects
+  only from it (`control/store_billing.go:157-159`).
+- **Verification attempt ledger plan** — `VerificationWorkPlan.Settlement` digested
+  with the decision (`control/verification_work_plan.go:29-31`).
+- **Holds** — supplier credit `PayoutHeld` + `ReleaseAt`, minimum hold 24h
+  (`control/payment.go:92-99`, `:115-128`); buyer policy hold secs on
+  `VerificationPolicy` (`control/types.go:143`).
+- **Lane terminals** — `RealtimeSettlement` (`control/realtime_store.go:1267-1276`)
+  and receipt money fields; `ServiceLeaseSettlement`
+  (`control/service_leases.go:231-245`) with true-net status often blocked
+  (`UNKNOWN_ECONOMIC_FINALITY_BLOCKERS` at `:220`).
+- **Ledger idempotency** — per write path (e.g. lease
+  `insertServiceLeaseLedgerEntryTx` / `insertLedgerEntryIfAbsentByRefTx` at
+  `control/service_leases.go:288-305`; refund/reversal keys required in
+  `control/payment.go:385`, `:456`). Do not invent a second write-idempotency
+  authority.
+
+**Critical lane split:** `ContributionSettlement` is batch-job only. Realtime and
+service lease have their own settlement structs and do **not** share that true-net
+reducer. One SettlementPlan body spanning all three lanes would freeze a fake
+shared lifecycle the code does not run.
+
+**What is genuinely absent:**
+
+- One accepted-before-execution object that freezes refund/dispute/payout
+  **state-machine rules** (as opposed to amounts + post-facto reduction from
+  ledger/dispute rows).
+- Cross-lane settlement identity that makes batch / realtime / lease prove the
+  same liability state machine.
+- Verifier **entitlement** as a first-class settled party (verification appears as
+  a **cost component** on pricing — `pricing_decision.go:184` — not a separate
+  verifier payout plan).
+- Pre-execution "true net" — correctly refused today; true net only at FINAL.
+
+**"Every liability transition authorized by one pre-execution SettlementPlan" is
+struck as written.** Transitions are authorized by pricing digest + lane writers +
+ledger code paths + post-hoc `ContributionSettlement` reduction. Pre-binding true
+net is unreachable by construction of the forecast/settlement split.
+
+**Work that remains real (if product still requires it):** (a) document and, only
+if needed, freeze a refund/dispute/payout state-machine **revision identity** cited
+by writers; (b) make realtime/lease finality status as explicit as batch FINAL
+blockers; (c) ensure every liability transition cites an existing authority digest
+(pricing and/or contribution settlement and/or lane settlement id) — not a parallel
+plan body that copies amounts. If audit finds no lifecycle gap after that census,
+mark the step reconciled documentation rather than implement a type.
+
+**Settlement tail and time-to-payable budgets remain UNMEASURED** as new Step 13
+gates unless measured under existing authorities.
+
+**Completion, restated:** 100% nano reconciliation under **existing** authorities;
+zero second fixed-point tables; no true-net promotion from forecast. Status
+language: PARTIAL — amounts canonical for batch; lifecycle plan object absent;
+not a greenfield SettlementPlan build.
+
 ### Step 14 — Introduce the immutable EvidenceEnvelope chain root
+
 
 1. **Objective:** Create one hash-linked envelope for request → workload →
    market → pricing → runtime → placement → topology → execution → verification
@@ -663,7 +972,64 @@ exactly as Step 7 uses `market_shape`.
 12. **Rollback:** Revert if write latency breaches budget, history becomes
     unreadable, or any chain mutation is accepted.
 
+### Step 14 shape note — amended 2026-08-09 after reconnaissance
+
+Every claim below was re-verified against `codex/network-v2` at `0deb8b6b`.
+
+**`EvidenceEnvelope` as a transaction chain root is ABSENT. File evidence binding
+is not a substitute, and calling it one would produce a false partial.**
+
+What exists today:
+
+- **`ReceiptIdentity` + `scripts/lib/evidence_binding.py`** — eight-field
+  **producer identity** for files under `evidence/` (`control/receipt_identity.go:75-86`;
+  Python mirror `scripts/lib/evidence_binding.py:1-39`). BOUND/UNBOUND/WITHDRAWN.
+  This is file provenance, not request-to-money chain authority. The plan body
+  already says so; recon agrees.
+- **LFS corpus integrity** — separate from transaction envelopes.
+- **Per-object decision digests** — workload/compute/placement/pricing on
+  `ReceiptAuthority` (`control/receipt.go:21-26`); realtime placement and pricing
+  digests on contracts; verification `decision_sha256`. Digests exist **per
+  object**. There is no append-only envelope node list linking
+  market → runtime → placement → topology → execution → verification → settlement
+  as one root.
+- **Lane receipts** — `ClearingReceipt`, `RealtimeReceipt`, `ServiceLeaseReceipt`,
+  project receipts as separate roots. Batch buyer receipt is **live multi-query
+  assembly** then `assembleClearingReceipt` (`control/api.go:3940-3987`;
+  `control/receipt.go:112-139`). Re-read re-aggregates verification/dispute/invoice
+  state; historical immutability of the assembled receipt is not guaranteed by a
+  stored root.
+- **Funding `execution_envelopes`** — prepaid/funding holds
+  (`control/accounts.go`, `control/store_prepaid.go`), **not** EvidenceEnvelope.
+  Name collision risk only; unrelated authority.
+
+**Therefore Step 14 is a genuine greenfield for the transaction chain, not a
+rename of evidence binding or of per-decision SHAs.** Closest cousins must be
+**cited**, not reimplemented:
+
+1. Do not reimplement file binding as "EvidenceEnvelope" for files.
+2. Envelope nodes cite existing authority digests; they do not recompute alternate
+   digests of the same facts.
+3. Realtime already freezes some clearing money identity on the contract
+   (`RealtimeMarketClearingReceipt` at `control/realtime_store.go:249-277`); cite
+   it.
+4. Keep funding envelopes out of this type namespace in prose and code.
+
+**Completion criterion "no lane assembles authoritative identity from mutable
+current rows" is not met today** for batch ClearingReceipt. The work is: define
+node kinds and digest linkage; write nodes at state transitions (not only at GET);
+project existing lane receipts from a stored root when present; refuse
+authoritative identity built only from mutable current rows for **new** outcomes;
+leave producer-identity fields on the file layer.
+
+**Envelope write/read latency budgets remain UNMEASURED.** Do not invent them
+without measurement.
+
+**Ledger: ABSENT is correct for the transaction chain.** Do not mark partial solely
+because evidence binding or per-object digests exist.
+
 ### Step 15 — Expand two-worker locality into canonical cache-aware routing
+
 
 1. **Objective:** Feed governed model, prefix/KV, adapter, artifact, dataset,
    render asset, container layer, kernel, and preprocessing residency/freshness
@@ -720,7 +1086,89 @@ exactly as Step 7 uses `market_shape`.
 12. **Rollback:** Revert a workload class if conversion is lossy, estimates
     breach gates, or dependent execution escapes contracts/budget.
 
+### Step 16 shape note — amended 2026-08-09 after reconnaissance
+
+Every claim below was re-verified against `codex/network-v2` at `0deb8b6b`.
+
+**There is no canonical accepted `Workload` type. Promoting `ProjectWorkloadIR`
+into one while leaving the admission freeze path alone would create a second
+classifier beside production.**
+
+What exists:
+
+- **`ProjectWorkloadIR` / `ProjectIRStep`** — versioned **proposal** graph, not an
+  executable JobManifest (`control/project_compiler.go:29-31`, steps with
+  `depends_on`, estimates, topology, checkpoint, verification at `:51-68`).
+- **`project_compile_receipts`** — buyer-scoped immutable IR JSONB evidence
+  (`control/schema.sql:6736-6748`). Schema comments say the control plane keeps
+  IR identity and ceiling only on the order (`:6730-6735`); compile receipts **do**
+  store the graph body for that buyer (`ir JSONB` at `:6748`).
+- **`ProjectOrder`** — server ceiling + `ir_sha256`, no source graph body on the
+  order (`control/project_order.go:18-31`).
+- **`WorkloadDecision`** — **single-job** admission authority, frozen on jobs and
+  exposed on receipts (`control/workload_classification.go:67-71`, type `:72-97`).
+  Ordinary admission freezes exactly one runtime cell (`:198-206`, `:387-392`).
+  Production freeze path is `buildWorkloadDecisionForSubmit`
+  (`:432-439`; caller `control/api.go:1102-1105`). Persisted as
+  `jobs.workload_decision` + digest (insert `control/store_jobs.go:499-519`; load
+  validates digest `:671-702`).
+- **`JobManifest`** — thin agent wire DTO at dispatch (`control/types.go:147-156`;
+  built `control/api.go:3247-3256`); inputs travel via presigned URL, not the
+  manifest.
+
+**Graph policy does not survive compile → receipt as one identity.** Quote path
+allocates a fresh `cliJobSubmit` per IR step and reclassifies independently
+(`control/project_quote.go:67-91`). Independent submit refuses any step with
+dependencies (`control/project_submit.go:74-76`) and creates one ordinary job per
+step (`:177-216`). Dependent graphs submit roots first
+(`control/project_dependency.go:129-134`), then materialize
+(`control/project_materialize.go:26-41`) and re-quote/submit later steps — still
+one job each time. Jobs link project only via `project_order_id` +
+`project_step_id` (`control/schema.sql:6887-6896`), not the full graph.
+`ClearingReceipt` exposes per-job `WorkloadDecision` digests
+(`control/receipt.go:5-26`), not `ir_sha256`.
+
+**"`WorkloadDecision` is the accepted per-step projection of the graph" is
+FALSE.** It is an independently classified single-job authority
+(`buildWorkloadDecisionFromBindingDirected` path), not a lossless projection of
+IR dependencies, result contract, checkpoint/egress policy, or project economic
+context. Dependencies, result contracts, and graph-level economics do **not**
+appear on the frozen decision. Two identities run in parallel: `ir_sha256` on
+order/compile, `workload_decision_sha256` on the job.
+
+**Highest-value duplication traps:**
+
+1. A second "canonical Workload" writer beside `buildWorkloadDecisionForSubmit` /
+   `jobs.workload_decision`.
+2. Rebuilding project compile/quote/order/materialize — they already exist as
+   proposal, ceiling, and hand-off authorities.
+3. Thickening `JobManifest` to re-encode graph policy the agent path intentionally
+   does not carry.
+
+**What is genuinely absent:** a single accepted graph object (post-buyer approval)
+that quote, job, placement, verification, settlement, and receipt all cite;
+lossless projection of IR graph fields into each step's frozen decision; server-side
+execution of dependent DAGs as one accepted unit; graph digests inside
+decision-chain / envelope objects (envelope itself ABSENT — Step 14).
+
+**Step 16 work, restated:** keep `ProjectWorkloadIR` as proposal and compile
+receipts as durable IR evidence. On buyer approval, freeze one immutable graph
+digest (`ir_sha256` plus any acceptance stamp) that every subsequent project job,
+quote, order step, materialization, and job receipt must cite. Make each step's
+accepted `WorkloadDecision` a **digest-linked projection** of that graph — not a
+re-run of catalogue classification that forgets deps/result/economic context —
+while ordinary non-project jobs keep today's single-job freeze path. If a
+projection is lossy relative to the approved IR, refuse that project class rather
+than ship a second Workload writer.
+
+**Compile/quote latency budgets remain UNMEASURED** as new programme gates unless
+measured.
+
+**Ledger PARTIAL is correct:** substantial compiler + decision machinery exists;
+canonical graph-through-receipt does not.
+
 ### Step 17 — Build the Digital Twin on production decision functions
+
 
 1. **Objective:** Add a deterministic harness that invokes the same canonical
    market, pricing, runtime, placement, topology, and decision-chain validators
@@ -773,7 +1221,90 @@ exactly as Step 7 uses `market_shape`.
 12. **Rollback:** Fall back to bounded fail-closed DB selection if index parity,
     freshness, memory, or reservation correctness fails.
 
+### Step 18 shape note — amended 2026-08-09 after reconnaissance
+
+Every claim below was re-verified against `codex/network-v2` at `0deb8b6b`.
+
+**"A linear full-fleet scan cannot remain the large-scale hot path" is overstated
+for two of three lanes and misstates the third.** Treating Step 18 as replacing a
+universal full-fleet worker scan would reimplement filters that already exist
+inside production SQL and miss the costs that still scale.
+
+**What production selection actually does:**
+
+- **Realtime** — profile-scoped offer book, not every worker.
+  `AuthorizeRealtimeContract` reserves via
+  `realtimeAuthorizeSelectOfferSQL*` with hard filters on
+  `runtime_profile_id` + `runtime_profile_sha256`, active status, capacity,
+  freshness, supplier quarantine, and profile rate ceilings
+  (`control/realtime_supplier_outcome_stats.go:120-125`; call site
+  `control/realtime_store.go:999-1044`). Ranking is verified-outcome cost then
+  warmth/capacity/recency (`:89-114`). Multi-offer uses `SKIP LOCKED` by rank;
+  single-offer blocks (`realtime_store.go:1002-1007`). Deliberately allows
+  non-rank-1 under SKIP contention (comments `:32-36`).
+- **Service lease** — profile + **region** scoped offers, ordered by total
+  supplier+residency nanos, all candidates locked `FOR UPDATE`, first ask that
+  clears `PricingDecision` wins (`control/service_leases.go:681-691+`). Not a
+  full-fleet worker scan.
+- **Batch** — pull claim, not push select of a worker for a job.
+  `ClaimTasksTx` (`control/scheduler.go:1140+`) locks the claiming worker, then
+  finds a task (`FOR UPDATE OF t SKIP LOCKED LIMIT 1` at `:1104-1105`). Hard
+  filters (currency, frozen runtime cell vs `worker_authorized_capabilities`,
+  memory, hw_classes, residency, reputation, rate, placement v3, containment,
+  ready task) live inside one large CTE (`:842+`). **Fleet-relative work remains:**
+  for each eligible job, `cheaper_class_online` / `cheaper_ask_online` run
+  `EXISTS` over live workers (`:558+`). Comments record the former
+  O(queue × fleet) shape reduced to once per candidate job via `MATERIALIZED`
+  (`:516-531`). That is still live-fleet work per eligible job, not "visit every
+  worker to pick supply for one request," and it is the batch cost Step 18 must
+  actually target. Warmth is ORDER BY preference only, never a hard filter
+  (`:756-760`). Side path `Match` + `CandidateWorkers` (`:97-146`) is peer /
+  redundancy ranking in Go — **not** the poll hot path; do not treat it as the
+  production selector.
+
+**Postgres indexes and capability projections exist** (e.g.
+`worker_authorized_capabilities`, ready-task partial indexes). **Absent as the
+product this step names:** versioned hierarchical candidate indexes, coherent
+network epoch snapshots shared by production and twin, and a multi-stage shortlist
+pipeline with published stage cardinalities. **`failure_domain` is ABSENT** in
+control Go and schema (repo search under `control/` returns no symbol). Region
+appears as a hard filter on service lease; batch uses residency lists; realtime
+offer SQL cited above has no region filter.
+
+**Bible-style ladder stages that already exist are implicit inside SQL** (hard
+contract, trust/sandbox pieces on batch, runtime capability projection, economic
+rank). Separate expensive scoring stage is ABSENT; preferences are ORDER BY terms,
+not first-class stage metrics. Reservation is against **live rows under locks**,
+not against an epoch snapshot.
+
+**Duplication traps:** reimplementing lane SQL filters in a Go index that claims
+to admit while `ClaimTasksTx` / authorize offer SQL / `CreateServiceLease` remain
+the writers of capacity; building a second scorer while those paths still decide;
+treating `Match` as production selection.
+
+**Step 18 work, restated:** define versioned capability / market / locality
+**epochs** derived from durable tables. Production selection remains SQL
+reservation against durable counters **until** an epoch-backed shortlist proves
+parity and fail-closed behaviour. Target the real costs: (a) batch
+`cheaper_class_online` / `cheaper_ask_online` EXISTS over live workers per eligible
+job; (b) any future push-select that would unscoped-scan workers. Do not replace
+DB capacity rows and SKIP LOCKED / FOR UPDATE reservation with index-only admit.
+False positives/negatives fail closed to current SQL. Twin (when built) must
+consume the same epoch reader — Step 20's note already forbids a Go stand-in
+selector.
+
+**Index update/snapshot latency and stage-cardinality production gates remain
+UNMEASURED** until published.
+
+**Completion, restated:** hot-path claim/authorize reports stage cardinalities;
+large fleets do not re-evaluate full live worker tables per job for preference
+signals without an epoch index; RT/service profile scoping is preserved, not
+"fixed" as if it were a full-fleet scan. Ledger ABSENT remains correct for the
+hierarchical index **product**; do not claim partial solely because SQL already
+narrows.
+
 ### Step 19 — Generate deterministic governed fleets and canonical scenarios
+
 
 1. **Objective:** Generate fleets of 10, 100, 1k, 10k, 100k, and 1M workers
    varying engine, hardware, price, region, failure domain, network, queue,
