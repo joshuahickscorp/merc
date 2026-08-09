@@ -147,6 +147,14 @@ if [ -n "$(git status --porcelain)" ]; then
   echo "parallel mutation test requires a clean frozen candidate" >&2
   exit 2
 fi
+# The detached worktrees below begin with Git LFS pointer text. Verify the
+# candidate's hydrated corpus independently before fan-out, then require each
+# worker to materialize those same local objects. This is intentionally local:
+# remote fresh-clone durability remains the separate origin-authority gate.
+if ! python3 scripts/verify-lfs-corpus.py --root "$ROOT" >/dev/null; then
+  echo "parallel mutation test requires an independently verified hydrated LFS corpus" >&2
+  exit 2
+fi
 
 # Share the serial runner's candidate-root lock.  A concurrent serial mutation
 # would otherwise change the candidate while isolated shards were proving a
@@ -272,6 +280,21 @@ for ((worker = 1; worker <= workers; worker++)); do
     echo "worker $worker did not start at a clean exact candidate" >&2
     exit 1
   fi
+  if ! git -C "$worktree" lfs checkout >/dev/null; then
+    echo "worker $worker could not hydrate its local LFS corpus" >&2
+    exit 1
+  fi
+  # `git lfs checkout` does not fetch. Reject a leftover canonical pointer so
+  # evidence readers cannot fail for missing bytes and be misclassified as a
+  # mutation catch. The candidate corpus above has already verified OID, size,
+  # and hydrated-body SHA-256 for these exact indexed objects.
+  while IFS= read -r lfs_path; do
+    [ -n "$lfs_path" ] || continue
+    if [ "$(LC_ALL=C head -c 42 "$worktree/$lfs_path")" = "version https://git-lfs.github.com/spec/v1" ]; then
+      echo "worker $worker retained an unhydrated LFS pointer: $lfs_path" >&2
+      exit 1
+    fi
+  done < <(git -C "$worktree" lfs ls-files -n)
 done
 
 for ((worker = 1; worker <= workers; worker++)); do

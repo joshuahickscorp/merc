@@ -200,6 +200,8 @@ func TestCheckpointUsesTheIsolatedParallelMutationRunner(t *testing.T) {
 		`MERC_MUTATION_CASE_IDS`,
 		`MERC_MUTATION_TEST_STRATEGY=adaptive`,
 		`MERC_MUTATION_WALLCLOCK_SECONDS`,
+		`git -C "$worktree" lfs checkout`,
+		`verify-lfs-corpus.py --root "$ROOT"`,
 		`initdb --no-locale`,
 		`pg_ctl -D "$cluster"`,
 		`candidate tree changed while shards ran`,
