@@ -10,12 +10,12 @@ plan="$(MERC_MUTATION_WORKERS=16 MERC_MUTATION_WALLCLOCK_SECONDS=1500 \
 printf '%s\n' "$plan"
 
 header="$(printf '%s\n' "$plan" | sed -n '1p')"
-printf '%s\n' "$header" | grep -Eq 'cases=84 workers=16 budget=1500s db=isolated-clusters strategy=adaptive gomaxprocs=1' || {
+printf '%s\n' "$header" | grep -Eq 'cases=84 workers=16 budget=1500s db=isolated-clusters strategy=adaptive gomaxprocs=1 sharding=weighted-p90' || {
   echo "parallel mutation plan has an unexpected header" >&2
   exit 1
 }
 
-ids="$(printf '%s\n' "$plan" | sed -n 's/^  worker [0-9][0-9]: //p' | tr ',' '\n' | sort -n)"
+ids="$(printf '%s\n' "$plan" | sed -n 's/^  worker [0-9][0-9]: \(.*\) (p90_load=.*$/\1/p' | tr ',' '\n' | sort -n)"
 count="$(printf '%s\n' "$ids" | sed '/^$/d' | wc -l | tr -d ' ')"
 unique="$(printf '%s\n' "$ids" | sed '/^$/d' | uniq | wc -l | tr -d ' ')"
 first="$(printf '%s\n' "$ids" | sed -n '1p')"
@@ -37,7 +37,7 @@ printf '%s\n' "$subset_header" | grep -Eq 'cases=3 workers=3 ' || {
   echo "parallel mutation subset did not preserve exactly its requested cases" >&2
   exit 1
 }
-subset_ids="$(printf '%s\n' "$subset" | sed -n 's/^  worker [0-9][0-9]: //p' | tr ',' '\n' | sort -n | tr '\n' ',')"
+subset_ids="$(printf '%s\n' "$subset" | sed -n 's/^  worker [0-9][0-9]: \(.*\) (p90_load=.*$/\1/p' | tr ',' '\n' | sort -n | tr '\n' ',')"
 [ "$subset_ids" = "1,25,49," ] || {
   echo "parallel mutation subset contains the wrong cases: $subset_ids" >&2
   exit 1

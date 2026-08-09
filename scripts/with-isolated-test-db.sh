@@ -23,6 +23,11 @@ if ! [[ "$prefix" =~ ^[a-z][a-z0-9_]{2,40}$ ]]; then
   echo "with-isolated-test-db: invalid database prefix" >&2
   exit 2
 fi
+template_database="${MERC_ISOLATED_TEST_DB_TEMPLATE:-}"
+if [ -n "$template_database" ] && ! [[ "$template_database" =~ ^[a-z][a-z0-9_]{2,60}$ ]]; then
+  echo "with-isolated-test-db: invalid template database name" >&2
+  exit 2
+fi
 
 database_name="${prefix}_$(python3 - <<'PY'
 import secrets
@@ -38,7 +43,14 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-createdb --maintenance-db="$base_database_url" "$database_name"
+if [ -n "$template_database" ]; then
+  # The caller owns the template cluster and must prove it is a schema-only,
+  # exact-candidate fixture before a contract uses it. PostgreSQL copies the
+  # template atomically, so every mutant still starts with a separate database.
+  createdb --maintenance-db="$base_database_url" --template="$template_database" "$database_name"
+else
+  createdb --maintenance-db="$base_database_url" "$database_name"
+fi
 test_database_url="$(MERC_SOURCE_DATABASE_URL="$base_database_url" \
   MERC_TARGET_DATABASE_NAME="$database_name" python3 - <<'PY'
 import os

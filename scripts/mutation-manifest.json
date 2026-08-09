@@ -1,0 +1,2513 @@
+{
+  "mutations": [
+    {
+      "authority_domain": "money_rounding",
+      "class": "PURE",
+      "description": "pricing divides before scaling to nanos",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 1,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestBothTaskFloorDerivationsAgree",
+        "TestConservationHoldsExactlyAcrossManySmallJobs",
+        "TestExactDerivationsRefuseDegenerateInputs",
+        "TestExactMoneyRefusesToMixCurrencies",
+        "TestExactMoneyRefusesToOverflowInsteadOfWrapping",
+        "TestLegacyFloatConversionIsGuarded",
+        "TestManyTinyAccrualsLoseNothing",
+        "TestRealtimeBuyerAndSupplierRoundingDirectionsAreOpposite",
+        "TestRealtimeLedgerProjectionOccursAfterTokenClassesAreCombined",
+        "TestRealtimeReuseAppliesShareBeforeSingleLedgerProjection",
+        "TestRealtimeReuseNamesMinimumExternalLedgerCharge",
+        "TestRealtimeTokenMoneyMultipliesBeforeDivisionInCurrencyBoundNanos",
+        "TestRealtimeTokenMoneyRejectsInvalidShape",
+        "TestRemainderCarryPostsOnWholeMicrosAndKeepsTheRest",
+        "TestRoundingDirectionFavoursNeitherSideByAccident",
+        "TestRoundingPolicyIsNamed",
+        "TestTheAdmissionDefectDisappearsUnderExactComparison"
+      ],
+      "source_target": "control/money_nanos.go"
+    },
+    {
+      "authority_domain": "money_rounding",
+      "class": "PURE",
+      "description": "pricing compares amounts with mismatched currencies",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 2,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestBothTaskFloorDerivationsAgree",
+        "TestConservationHoldsExactlyAcrossManySmallJobs",
+        "TestExactDerivationsRefuseDegenerateInputs",
+        "TestExactMoneyRefusesToMixCurrencies",
+        "TestExactMoneyRefusesToOverflowInsteadOfWrapping",
+        "TestLegacyFloatConversionIsGuarded",
+        "TestManyTinyAccrualsLoseNothing",
+        "TestRealtimeBuyerAndSupplierRoundingDirectionsAreOpposite",
+        "TestRealtimeLedgerProjectionOccursAfterTokenClassesAreCombined",
+        "TestRealtimeReuseAppliesShareBeforeSingleLedgerProjection",
+        "TestRealtimeReuseNamesMinimumExternalLedgerCharge",
+        "TestRealtimeTokenMoneyMultipliesBeforeDivisionInCurrencyBoundNanos",
+        "TestRealtimeTokenMoneyRejectsInvalidShape",
+        "TestRemainderCarryPostsOnWholeMicrosAndKeepsTheRest",
+        "TestRoundingDirectionFavoursNeitherSideByAccident",
+        "TestRoundingPolicyIsNamed",
+        "TestTheAdmissionDefectDisappearsUnderExactComparison"
+      ],
+      "source_target": "control/money_nanos.go"
+    },
+    {
+      "authority_domain": "pricing",
+      "class": "PURE",
+      "description": "pricing ceilings fractional work units to integers",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 3,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestAttachRealtimeContractPricingRefusesDigestAndLegacyAuthorityDrift",
+        "TestAttachRealtimeReusePricingRefusesPersistedAuthorityDrift",
+        "TestBoundQuoteCatalogueSelectionNeverReadsCurrentModelPrice",
+        "TestCatalogueAnchoredValidationRequiresStore",
+        "TestDistributedPricingDecisionUsesExplicitUnknownCostStates",
+        "TestExactReusePricingHasNoPhysicalSupplierOrPlacement",
+        "TestFixedPointPricingConservesAndRefusesFalseTrueNet",
+        "TestMediaRenderingPricingUsesDeclaredPixelsNotSceneBytes",
+        "TestPricingDecisionDigestBindsEveryEconomicAuthorityFamily",
+        "TestPricingDecisionRejectsArbitraryPositiveSupplierAdmissionRate",
+        "TestQuoteFrozenSupplierRateSurvivesTheRevalidationBoundary",
+        "TestRealtimePricingDecisionBindsExactCompositeAuthority",
+        "TestRealtimePricingDecisionRefusesCurrencyMismatchAndZeroFloor",
+        "TestRealtimePricingDecisionRefusesTamperingAndCeilingBreach",
+        "TestRealtimeReusePricingDecisionBindsZeroPhysicalExactAuthority",
+        "TestRealtimeReusePricingDecisionRefusesTamperCurrencyCeilingAndClass",
+        "TestStoreAnchoredPricingFailsClosedOnUnresolvableSchedule",
+        "TestStoreAnchoredPricingRejectsRewrittenCatalogueFields",
+        "TestStoreAnchoredPricingSurvivesLegitimateReprice",
+        "TestStoredPricingDecisionCannotCertifyItsOwnSupplierRate",
+        "TestV4PricingBillableUnitsUseFrozenSettlementAuthority"
+      ],
+      "source_target": "control/pricing_decision.go"
+    },
+    {
+      "authority_domain": "money_rounding",
+      "class": "PURE",
+      "description": "pricing quantises buyer gross to micros before supplier share",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 4,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestBothTaskFloorDerivationsAgree",
+        "TestConservationHoldsExactlyAcrossManySmallJobs",
+        "TestExactDerivationsRefuseDegenerateInputs",
+        "TestExactMoneyRefusesToMixCurrencies",
+        "TestExactMoneyRefusesToOverflowInsteadOfWrapping",
+        "TestLegacyFloatConversionIsGuarded",
+        "TestManyTinyAccrualsLoseNothing",
+        "TestRealtimeBuyerAndSupplierRoundingDirectionsAreOpposite",
+        "TestRealtimeLedgerProjectionOccursAfterTokenClassesAreCombined",
+        "TestRealtimeReuseAppliesShareBeforeSingleLedgerProjection",
+        "TestRealtimeReuseNamesMinimumExternalLedgerCharge",
+        "TestRealtimeTokenMoneyMultipliesBeforeDivisionInCurrencyBoundNanos",
+        "TestRealtimeTokenMoneyRejectsInvalidShape",
+        "TestRemainderCarryPostsOnWholeMicrosAndKeepsTheRest",
+        "TestRoundingDirectionFavoursNeitherSideByAccident",
+        "TestRoundingPolicyIsNamed",
+        "TestTheAdmissionDefectDisappearsUnderExactComparison"
+      ],
+      "source_target": "control/money_nanos.go"
+    },
+    {
+      "authority_domain": "pricing",
+      "class": "PURE",
+      "description": "supplier floor uses reference price while entitlement uses settlement authority",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 5,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestAttachRealtimeContractPricingRefusesDigestAndLegacyAuthorityDrift",
+        "TestAttachRealtimeReusePricingRefusesPersistedAuthorityDrift",
+        "TestBoundQuoteCatalogueSelectionNeverReadsCurrentModelPrice",
+        "TestCatalogueAnchoredValidationRequiresStore",
+        "TestDistributedPricingDecisionUsesExplicitUnknownCostStates",
+        "TestExactReusePricingHasNoPhysicalSupplierOrPlacement",
+        "TestFixedPointPricingConservesAndRefusesFalseTrueNet",
+        "TestMediaRenderingPricingUsesDeclaredPixelsNotSceneBytes",
+        "TestPricingDecisionDigestBindsEveryEconomicAuthorityFamily",
+        "TestPricingDecisionRejectsArbitraryPositiveSupplierAdmissionRate",
+        "TestQuoteFrozenSupplierRateSurvivesTheRevalidationBoundary",
+        "TestRealtimePricingDecisionBindsExactCompositeAuthority",
+        "TestRealtimePricingDecisionRefusesCurrencyMismatchAndZeroFloor",
+        "TestRealtimePricingDecisionRefusesTamperingAndCeilingBreach",
+        "TestRealtimeReusePricingDecisionBindsZeroPhysicalExactAuthority",
+        "TestRealtimeReusePricingDecisionRefusesTamperCurrencyCeilingAndClass",
+        "TestStoreAnchoredPricingFailsClosedOnUnresolvableSchedule",
+        "TestStoreAnchoredPricingRejectsRewrittenCatalogueFields",
+        "TestStoreAnchoredPricingSurvivesLegitimateReprice",
+        "TestStoredPricingDecisionCannotCertifyItsOwnSupplierRate",
+        "TestV4PricingBillableUnitsUseFrozenSettlementAuthority"
+      ],
+      "source_target": "control/pricing_decision.go"
+    },
+    {
+      "authority_domain": "pricing",
+      "class": "PURE",
+      "description": "catalogue and compute plan use divergent billable units",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 6,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestAttachRealtimeContractPricingRefusesDigestAndLegacyAuthorityDrift",
+        "TestAttachRealtimeReusePricingRefusesPersistedAuthorityDrift",
+        "TestBoundQuoteCatalogueSelectionNeverReadsCurrentModelPrice",
+        "TestCatalogueAnchoredValidationRequiresStore",
+        "TestDistributedPricingDecisionUsesExplicitUnknownCostStates",
+        "TestExactReusePricingHasNoPhysicalSupplierOrPlacement",
+        "TestFixedPointPricingConservesAndRefusesFalseTrueNet",
+        "TestMediaRenderingPricingUsesDeclaredPixelsNotSceneBytes",
+        "TestPricingDecisionDigestBindsEveryEconomicAuthorityFamily",
+        "TestPricingDecisionRejectsArbitraryPositiveSupplierAdmissionRate",
+        "TestQuoteFrozenSupplierRateSurvivesTheRevalidationBoundary",
+        "TestRealtimePricingDecisionBindsExactCompositeAuthority",
+        "TestRealtimePricingDecisionRefusesCurrencyMismatchAndZeroFloor",
+        "TestRealtimePricingDecisionRefusesTamperingAndCeilingBreach",
+        "TestRealtimeReusePricingDecisionBindsZeroPhysicalExactAuthority",
+        "TestRealtimeReusePricingDecisionRefusesTamperCurrencyCeilingAndClass",
+        "TestStoreAnchoredPricingFailsClosedOnUnresolvableSchedule",
+        "TestStoreAnchoredPricingRejectsRewrittenCatalogueFields",
+        "TestStoreAnchoredPricingSurvivesLegitimateReprice",
+        "TestStoredPricingDecisionCannotCertifyItsOwnSupplierRate",
+        "TestV4PricingBillableUnitsUseFrozenSettlementAuthority"
+      ],
+      "source_target": "control/pricing_decision.go"
+    },
+    {
+      "authority_domain": "pricing",
+      "class": "PURE",
+      "description": "exact supplier floor is silently zeroed",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 7,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestAttachRealtimeContractPricingRefusesDigestAndLegacyAuthorityDrift",
+        "TestAttachRealtimeReusePricingRefusesPersistedAuthorityDrift",
+        "TestBoundQuoteCatalogueSelectionNeverReadsCurrentModelPrice",
+        "TestCatalogueAnchoredValidationRequiresStore",
+        "TestDistributedPricingDecisionUsesExplicitUnknownCostStates",
+        "TestExactReusePricingHasNoPhysicalSupplierOrPlacement",
+        "TestFixedPointPricingConservesAndRefusesFalseTrueNet",
+        "TestMediaRenderingPricingUsesDeclaredPixelsNotSceneBytes",
+        "TestPricingDecisionDigestBindsEveryEconomicAuthorityFamily",
+        "TestPricingDecisionRejectsArbitraryPositiveSupplierAdmissionRate",
+        "TestQuoteFrozenSupplierRateSurvivesTheRevalidationBoundary",
+        "TestRealtimePricingDecisionBindsExactCompositeAuthority",
+        "TestRealtimePricingDecisionRefusesCurrencyMismatchAndZeroFloor",
+        "TestRealtimePricingDecisionRefusesTamperingAndCeilingBreach",
+        "TestRealtimeReusePricingDecisionBindsZeroPhysicalExactAuthority",
+        "TestRealtimeReusePricingDecisionRefusesTamperCurrencyCeilingAndClass",
+        "TestStoreAnchoredPricingFailsClosedOnUnresolvableSchedule",
+        "TestStoreAnchoredPricingRejectsRewrittenCatalogueFields",
+        "TestStoreAnchoredPricingSurvivesLegitimateReprice",
+        "TestStoredPricingDecisionCannotCertifyItsOwnSupplierRate",
+        "TestV4PricingBillableUnitsUseFrozenSettlementAuthority"
+      ],
+      "source_target": "control/pricing_decision.go"
+    },
+    {
+      "authority_domain": "money_rounding",
+      "class": "PURE",
+      "description": "buyer gross rounds upward beyond its ceiling",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 8,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestBothTaskFloorDerivationsAgree",
+        "TestConservationHoldsExactlyAcrossManySmallJobs",
+        "TestExactDerivationsRefuseDegenerateInputs",
+        "TestExactMoneyRefusesToMixCurrencies",
+        "TestExactMoneyRefusesToOverflowInsteadOfWrapping",
+        "TestLegacyFloatConversionIsGuarded",
+        "TestManyTinyAccrualsLoseNothing",
+        "TestRealtimeBuyerAndSupplierRoundingDirectionsAreOpposite",
+        "TestRealtimeLedgerProjectionOccursAfterTokenClassesAreCombined",
+        "TestRealtimeReuseAppliesShareBeforeSingleLedgerProjection",
+        "TestRealtimeReuseNamesMinimumExternalLedgerCharge",
+        "TestRealtimeTokenMoneyMultipliesBeforeDivisionInCurrencyBoundNanos",
+        "TestRealtimeTokenMoneyRejectsInvalidShape",
+        "TestRemainderCarryPostsOnWholeMicrosAndKeepsTheRest",
+        "TestRoundingDirectionFavoursNeitherSideByAccident",
+        "TestRoundingPolicyIsNamed",
+        "TestTheAdmissionDefectDisappearsUnderExactComparison"
+      ],
+      "source_target": "control/money_nanos.go"
+    },
+    {
+      "authority_domain": "money_rounding",
+      "class": "PURE",
+      "description": "supplier entitlement rounds downward below its floor",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 9,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestBothTaskFloorDerivationsAgree",
+        "TestConservationHoldsExactlyAcrossManySmallJobs",
+        "TestExactDerivationsRefuseDegenerateInputs",
+        "TestExactMoneyRefusesToMixCurrencies",
+        "TestExactMoneyRefusesToOverflowInsteadOfWrapping",
+        "TestLegacyFloatConversionIsGuarded",
+        "TestManyTinyAccrualsLoseNothing",
+        "TestRealtimeBuyerAndSupplierRoundingDirectionsAreOpposite",
+        "TestRealtimeLedgerProjectionOccursAfterTokenClassesAreCombined",
+        "TestRealtimeReuseAppliesShareBeforeSingleLedgerProjection",
+        "TestRealtimeReuseNamesMinimumExternalLedgerCharge",
+        "TestRealtimeTokenMoneyMultipliesBeforeDivisionInCurrencyBoundNanos",
+        "TestRealtimeTokenMoneyRejectsInvalidShape",
+        "TestRemainderCarryPostsOnWholeMicrosAndKeepsTheRest",
+        "TestRoundingDirectionFavoursNeitherSideByAccident",
+        "TestRoundingPolicyIsNamed",
+        "TestTheAdmissionDefectDisappearsUnderExactComparison"
+      ],
+      "source_target": "control/money_nanos.go"
+    },
+    {
+      "authority_domain": "money_rounding",
+      "class": "PURE",
+      "description": "realtime pricing divides the rate before multiplying tokens",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 10,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestBothTaskFloorDerivationsAgree",
+        "TestConservationHoldsExactlyAcrossManySmallJobs",
+        "TestExactDerivationsRefuseDegenerateInputs",
+        "TestExactMoneyRefusesToMixCurrencies",
+        "TestExactMoneyRefusesToOverflowInsteadOfWrapping",
+        "TestLegacyFloatConversionIsGuarded",
+        "TestManyTinyAccrualsLoseNothing",
+        "TestRealtimeBuyerAndSupplierRoundingDirectionsAreOpposite",
+        "TestRealtimeLedgerProjectionOccursAfterTokenClassesAreCombined",
+        "TestRealtimeReuseAppliesShareBeforeSingleLedgerProjection",
+        "TestRealtimeReuseNamesMinimumExternalLedgerCharge",
+        "TestRealtimeTokenMoneyMultipliesBeforeDivisionInCurrencyBoundNanos",
+        "TestRealtimeTokenMoneyRejectsInvalidShape",
+        "TestRemainderCarryPostsOnWholeMicrosAndKeepsTheRest",
+        "TestRoundingDirectionFavoursNeitherSideByAccident",
+        "TestRoundingPolicyIsNamed",
+        "TestTheAdmissionDefectDisappearsUnderExactComparison"
+      ],
+      "source_target": "control/money_nanos.go"
+    },
+    {
+      "authority_domain": "money_rounding",
+      "class": "PURE",
+      "description": "realtime input is quantised to micros before token classes combine",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 11,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestBothTaskFloorDerivationsAgree",
+        "TestConservationHoldsExactlyAcrossManySmallJobs",
+        "TestExactDerivationsRefuseDegenerateInputs",
+        "TestExactMoneyRefusesToMixCurrencies",
+        "TestExactMoneyRefusesToOverflowInsteadOfWrapping",
+        "TestLegacyFloatConversionIsGuarded",
+        "TestManyTinyAccrualsLoseNothing",
+        "TestRealtimeBuyerAndSupplierRoundingDirectionsAreOpposite",
+        "TestRealtimeLedgerProjectionOccursAfterTokenClassesAreCombined",
+        "TestRealtimeReuseAppliesShareBeforeSingleLedgerProjection",
+        "TestRealtimeReuseNamesMinimumExternalLedgerCharge",
+        "TestRealtimeTokenMoneyMultipliesBeforeDivisionInCurrencyBoundNanos",
+        "TestRealtimeTokenMoneyRejectsInvalidShape",
+        "TestRemainderCarryPostsOnWholeMicrosAndKeepsTheRest",
+        "TestRoundingDirectionFavoursNeitherSideByAccident",
+        "TestRoundingPolicyIsNamed",
+        "TestTheAdmissionDefectDisappearsUnderExactComparison"
+      ],
+      "source_target": "control/money_nanos.go"
+    },
+    {
+      "authority_domain": "money_rounding",
+      "class": "PURE",
+      "description": "realtime buyer charge rounds in the supplier direction",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 12,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestBothTaskFloorDerivationsAgree",
+        "TestConservationHoldsExactlyAcrossManySmallJobs",
+        "TestExactDerivationsRefuseDegenerateInputs",
+        "TestExactMoneyRefusesToMixCurrencies",
+        "TestExactMoneyRefusesToOverflowInsteadOfWrapping",
+        "TestLegacyFloatConversionIsGuarded",
+        "TestManyTinyAccrualsLoseNothing",
+        "TestRealtimeBuyerAndSupplierRoundingDirectionsAreOpposite",
+        "TestRealtimeLedgerProjectionOccursAfterTokenClassesAreCombined",
+        "TestRealtimeReuseAppliesShareBeforeSingleLedgerProjection",
+        "TestRealtimeReuseNamesMinimumExternalLedgerCharge",
+        "TestRealtimeTokenMoneyMultipliesBeforeDivisionInCurrencyBoundNanos",
+        "TestRealtimeTokenMoneyRejectsInvalidShape",
+        "TestRemainderCarryPostsOnWholeMicrosAndKeepsTheRest",
+        "TestRoundingDirectionFavoursNeitherSideByAccident",
+        "TestRoundingPolicyIsNamed",
+        "TestTheAdmissionDefectDisappearsUnderExactComparison"
+      ],
+      "source_target": "control/money_nanos.go"
+    },
+    {
+      "authority_domain": "money_rounding",
+      "class": "PURE",
+      "description": "realtime supplier entitlement rounds in the buyer direction",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 13,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestBothTaskFloorDerivationsAgree",
+        "TestConservationHoldsExactlyAcrossManySmallJobs",
+        "TestExactDerivationsRefuseDegenerateInputs",
+        "TestExactMoneyRefusesToMixCurrencies",
+        "TestExactMoneyRefusesToOverflowInsteadOfWrapping",
+        "TestLegacyFloatConversionIsGuarded",
+        "TestManyTinyAccrualsLoseNothing",
+        "TestRealtimeBuyerAndSupplierRoundingDirectionsAreOpposite",
+        "TestRealtimeLedgerProjectionOccursAfterTokenClassesAreCombined",
+        "TestRealtimeReuseAppliesShareBeforeSingleLedgerProjection",
+        "TestRealtimeReuseNamesMinimumExternalLedgerCharge",
+        "TestRealtimeTokenMoneyMultipliesBeforeDivisionInCurrencyBoundNanos",
+        "TestRealtimeTokenMoneyRejectsInvalidShape",
+        "TestRemainderCarryPostsOnWholeMicrosAndKeepsTheRest",
+        "TestRoundingDirectionFavoursNeitherSideByAccident",
+        "TestRoundingPolicyIsNamed",
+        "TestTheAdmissionDefectDisappearsUnderExactComparison"
+      ],
+      "source_target": "control/money_nanos.go"
+    },
+    {
+      "authority_domain": "money_rounding",
+      "class": "PURE",
+      "description": "realtime reuse rounds full price to micros before retained share",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 14,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestBothTaskFloorDerivationsAgree",
+        "TestConservationHoldsExactlyAcrossManySmallJobs",
+        "TestExactDerivationsRefuseDegenerateInputs",
+        "TestExactMoneyRefusesToMixCurrencies",
+        "TestExactMoneyRefusesToOverflowInsteadOfWrapping",
+        "TestLegacyFloatConversionIsGuarded",
+        "TestManyTinyAccrualsLoseNothing",
+        "TestRealtimeBuyerAndSupplierRoundingDirectionsAreOpposite",
+        "TestRealtimeLedgerProjectionOccursAfterTokenClassesAreCombined",
+        "TestRealtimeReuseAppliesShareBeforeSingleLedgerProjection",
+        "TestRealtimeReuseNamesMinimumExternalLedgerCharge",
+        "TestRealtimeTokenMoneyMultipliesBeforeDivisionInCurrencyBoundNanos",
+        "TestRealtimeTokenMoneyRejectsInvalidShape",
+        "TestRemainderCarryPostsOnWholeMicrosAndKeepsTheRest",
+        "TestRoundingDirectionFavoursNeitherSideByAccident",
+        "TestRoundingPolicyIsNamed",
+        "TestTheAdmissionDefectDisappearsUnderExactComparison"
+      ],
+      "source_target": "control/money_nanos.go"
+    },
+    {
+      "authority_domain": "money_rounding",
+      "class": "PURE",
+      "description": "realtime reuse silently removes retained-share discount",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 15,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestBothTaskFloorDerivationsAgree",
+        "TestConservationHoldsExactlyAcrossManySmallJobs",
+        "TestExactDerivationsRefuseDegenerateInputs",
+        "TestExactMoneyRefusesToMixCurrencies",
+        "TestExactMoneyRefusesToOverflowInsteadOfWrapping",
+        "TestLegacyFloatConversionIsGuarded",
+        "TestManyTinyAccrualsLoseNothing",
+        "TestRealtimeBuyerAndSupplierRoundingDirectionsAreOpposite",
+        "TestRealtimeLedgerProjectionOccursAfterTokenClassesAreCombined",
+        "TestRealtimeReuseAppliesShareBeforeSingleLedgerProjection",
+        "TestRealtimeReuseNamesMinimumExternalLedgerCharge",
+        "TestRealtimeTokenMoneyMultipliesBeforeDivisionInCurrencyBoundNanos",
+        "TestRealtimeTokenMoneyRejectsInvalidShape",
+        "TestRemainderCarryPostsOnWholeMicrosAndKeepsTheRest",
+        "TestRoundingDirectionFavoursNeitherSideByAccident",
+        "TestRoundingPolicyIsNamed",
+        "TestTheAdmissionDefectDisappearsUnderExactComparison"
+      ],
+      "source_target": "control/money_nanos.go"
+    },
+    {
+      "authority_domain": "money_rounding",
+      "class": "PURE",
+      "description": "realtime reuse silently removes minimum delivery charge",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 16,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestBothTaskFloorDerivationsAgree",
+        "TestConservationHoldsExactlyAcrossManySmallJobs",
+        "TestExactDerivationsRefuseDegenerateInputs",
+        "TestExactMoneyRefusesToMixCurrencies",
+        "TestExactMoneyRefusesToOverflowInsteadOfWrapping",
+        "TestLegacyFloatConversionIsGuarded",
+        "TestManyTinyAccrualsLoseNothing",
+        "TestRealtimeBuyerAndSupplierRoundingDirectionsAreOpposite",
+        "TestRealtimeLedgerProjectionOccursAfterTokenClassesAreCombined",
+        "TestRealtimeReuseAppliesShareBeforeSingleLedgerProjection",
+        "TestRealtimeReuseNamesMinimumExternalLedgerCharge",
+        "TestRealtimeTokenMoneyMultipliesBeforeDivisionInCurrencyBoundNanos",
+        "TestRealtimeTokenMoneyRejectsInvalidShape",
+        "TestRemainderCarryPostsOnWholeMicrosAndKeepsTheRest",
+        "TestRoundingDirectionFavoursNeitherSideByAccident",
+        "TestRoundingPolicyIsNamed",
+        "TestTheAdmissionDefectDisappearsUnderExactComparison"
+      ],
+      "source_target": "control/money_nanos.go"
+    },
+    {
+      "authority_domain": "realtime_pricing",
+      "class": "PURE",
+      "description": "realtime supplier offer accepts a zero floor",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 17,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestAttachRealtimeContractPricingRefusesDigestAndLegacyAuthorityDrift",
+        "TestAttachRealtimeReusePricingRefusesPersistedAuthorityDrift",
+        "TestPrepareRealtimeRequestCanonicalizesDefaultsAndPriceCeiling",
+        "TestPrepareRealtimeRequestPreservesLargeIntegerFields",
+        "TestPrepareRealtimeRequestRejectsInvalidCompatibilityInputs",
+        "TestProxySSEBuildsUsageBoundHashChain",
+        "TestProxySSERejectsWorkerDeathInsideEvent",
+        "TestRealtimeHTTPClientDoesNotFollowWorkerRedirects",
+        "TestRealtimeHTTPClientIdlePoolCoversOfferConcurrency",
+        "TestRealtimeHTTPClientReusesConnectionsUnderConcurrency",
+        "TestRealtimeOfferRequiresPositiveGrossContributionInEveryTokenClass",
+        "TestRealtimePricingDecisionBindsExactCompositeAuthority",
+        "TestRealtimePricingDecisionRefusesCurrencyMismatchAndZeroFloor",
+        "TestRealtimePricingDecisionRefusesTamperingAndCeilingBreach",
+        "TestRealtimeReusePricingDecisionBindsZeroPhysicalExactAuthority",
+        "TestRealtimeReusePricingDecisionRefusesTamperCurrencyCeilingAndClass",
+        "TestVLLMRuntimeProfilesAreImmutableAndExact",
+        "TestValidateRealtimeUpstreamURLPreventsWorkerSSRF"
+      ],
+      "source_target": "control/realtime.go"
+    },
+    {
+      "authority_domain": "realtime_pricing",
+      "class": "PURE",
+      "description": "realtime supplier offer accepts a sub-nano contribution spread",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 18,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestAttachRealtimeContractPricingRefusesDigestAndLegacyAuthorityDrift",
+        "TestAttachRealtimeReusePricingRefusesPersistedAuthorityDrift",
+        "TestPrepareRealtimeRequestCanonicalizesDefaultsAndPriceCeiling",
+        "TestPrepareRealtimeRequestPreservesLargeIntegerFields",
+        "TestPrepareRealtimeRequestRejectsInvalidCompatibilityInputs",
+        "TestProxySSEBuildsUsageBoundHashChain",
+        "TestProxySSERejectsWorkerDeathInsideEvent",
+        "TestRealtimeHTTPClientDoesNotFollowWorkerRedirects",
+        "TestRealtimeHTTPClientIdlePoolCoversOfferConcurrency",
+        "TestRealtimeHTTPClientReusesConnectionsUnderConcurrency",
+        "TestRealtimeOfferRequiresPositiveGrossContributionInEveryTokenClass",
+        "TestRealtimePricingDecisionBindsExactCompositeAuthority",
+        "TestRealtimePricingDecisionRefusesCurrencyMismatchAndZeroFloor",
+        "TestRealtimePricingDecisionRefusesTamperingAndCeilingBreach",
+        "TestRealtimeReusePricingDecisionBindsZeroPhysicalExactAuthority",
+        "TestRealtimeReusePricingDecisionRefusesTamperCurrencyCeilingAndClass",
+        "TestVLLMRuntimeProfilesAreImmutableAndExact",
+        "TestValidateRealtimeUpstreamURLPreventsWorkerSSRF"
+      ],
+      "source_target": "control/realtime.go"
+    },
+    {
+      "authority_domain": "realtime_pricing",
+      "class": "PURE",
+      "description": "realtime pricing accepts a divergent embedded profile",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 19,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestAttachRealtimeContractPricingRefusesDigestAndLegacyAuthorityDrift",
+        "TestRealtimePricingDecisionBindsExactCompositeAuthority",
+        "TestRealtimePricingDecisionRefusesCurrencyMismatchAndZeroFloor",
+        "TestRealtimePricingDecisionRefusesTamperingAndCeilingBreach"
+      ],
+      "source_target": "control/realtime_pricing_decision.go"
+    },
+    {
+      "authority_domain": "realtime_pricing",
+      "class": "PURE",
+      "description": "realtime pricing accepts a currency mismatch",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 20,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestAttachRealtimeContractPricingRefusesDigestAndLegacyAuthorityDrift",
+        "TestRealtimePricingDecisionBindsExactCompositeAuthority",
+        "TestRealtimePricingDecisionRefusesCurrencyMismatchAndZeroFloor",
+        "TestRealtimePricingDecisionRefusesTamperingAndCeilingBreach"
+      ],
+      "source_target": "control/realtime_pricing_decision.go"
+    },
+    {
+      "authority_domain": "realtime_pricing",
+      "class": "PURE",
+      "description": "realtime pricing ignores the buyer ceiling",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 21,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestAttachRealtimeContractPricingRefusesDigestAndLegacyAuthorityDrift",
+        "TestRealtimePricingDecisionBindsExactCompositeAuthority",
+        "TestRealtimePricingDecisionRefusesCurrencyMismatchAndZeroFloor",
+        "TestRealtimePricingDecisionRefusesTamperingAndCeilingBreach"
+      ],
+      "source_target": "control/realtime_pricing_decision.go"
+    },
+    {
+      "authority_domain": "realtime_reuse",
+      "class": "PURE",
+      "description": "realtime reuse accepts a divergent embedded profile",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 22,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestAttachRealtimeReusePricingRefusesPersistedAuthorityDrift",
+        "TestRealtimeReusePricingDecisionBindsZeroPhysicalExactAuthority",
+        "TestRealtimeReusePricingDecisionRefusesTamperCurrencyCeilingAndClass"
+      ],
+      "source_target": "control/realtime_reuse_pricing_decision.go"
+    },
+    {
+      "authority_domain": "realtime_reuse",
+      "class": "PURE",
+      "description": "realtime reuse accepts a currency mismatch",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 23,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestAttachRealtimeReusePricingRefusesPersistedAuthorityDrift",
+        "TestRealtimeReusePricingDecisionBindsZeroPhysicalExactAuthority",
+        "TestRealtimeReusePricingDecisionRefusesTamperCurrencyCeilingAndClass"
+      ],
+      "source_target": "control/realtime_reuse_pricing_decision.go"
+    },
+    {
+      "authority_domain": "realtime_reuse",
+      "class": "PURE",
+      "description": "realtime reuse ignores the buyer ceiling",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 24,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestAttachRealtimeReusePricingRefusesPersistedAuthorityDrift",
+        "TestRealtimeReusePricingDecisionBindsZeroPhysicalExactAuthority",
+        "TestRealtimeReusePricingDecisionRefusesTamperCurrencyCeilingAndClass"
+      ],
+      "source_target": "control/realtime_reuse_pricing_decision.go"
+    },
+    {
+      "authority_domain": "realtime_settlement",
+      "class": "DB",
+      "description": "physical contract persistence drops PricingDecision authority",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 25,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestAttachRealtimeReusePricingRefusesPersistedAuthorityDrift",
+        "TestCacheHitBillsReuseClassAndSchedulesNoSupplier",
+        "TestPropertyBuyerChargeImpliesPositiveSupplierLiability",
+        "TestRealtimeClearingHigherAskWithNoFailuresBeatsCheaperThatNeedsDoubleExecution",
+        "TestRealtimeClearingRankingInputsRecordEveryTerm",
+        "TestRealtimeClearingReceiptRecordsEveryRankingInput",
+        "TestRealtimeClearingSameCostClassKeepsWarmthTiebreak",
+        "TestRealtimeClearingSelfDeclaredHOTDoesNotBeatCheaperVerifiedCost",
+        "TestRealtimeExactReuseSettlementNoSupplier",
+        "TestRealtimeOfferBeatsPutsCostAboveWarmth",
+        "TestRealtimeReusePricingDecisionBindsZeroPhysicalExactAuthority",
+        "TestRealtimeReusePricingDecisionRefusesTamperCurrencyCeilingAndClass",
+        "TestRealtimeStreamContractVerificationSettlementAndReceipt",
+        "TestRealtimeVerifiedOutcomeCostUsesOnlyMeasuredTerms",
+        "TestReuseHitAlwaysBillsAtLeastOneMicroUSD",
+        "TestReuseHitMicroUSDConservation",
+        "TestReuseHitWithNoTokensBillsNothing",
+        "TestReuseWiringNonDeterministicNeverCached",
+        "TestReuseWiringTenantIsolation",
+        "TestServiceLeaseClearingRanksByTotalSupplierPlusResidency",
+        "TestStoreExactResultAliasPopulatesCache"
+      ],
+      "source_target": "control/realtime_store.go"
+    },
+    {
+      "authority_domain": "realtime_settlement",
+      "class": "DB",
+      "description": "reuse contract persistence drops PricingDecision authority",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 26,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestAttachRealtimeReusePricingRefusesPersistedAuthorityDrift",
+        "TestCacheHitBillsReuseClassAndSchedulesNoSupplier",
+        "TestPropertyBuyerChargeImpliesPositiveSupplierLiability",
+        "TestRealtimeClearingHigherAskWithNoFailuresBeatsCheaperThatNeedsDoubleExecution",
+        "TestRealtimeClearingRankingInputsRecordEveryTerm",
+        "TestRealtimeClearingReceiptRecordsEveryRankingInput",
+        "TestRealtimeClearingSameCostClassKeepsWarmthTiebreak",
+        "TestRealtimeClearingSelfDeclaredHOTDoesNotBeatCheaperVerifiedCost",
+        "TestRealtimeExactReuseSettlementNoSupplier",
+        "TestRealtimeOfferBeatsPutsCostAboveWarmth",
+        "TestRealtimeReusePricingDecisionBindsZeroPhysicalExactAuthority",
+        "TestRealtimeReusePricingDecisionRefusesTamperCurrencyCeilingAndClass",
+        "TestRealtimeStreamContractVerificationSettlementAndReceipt",
+        "TestRealtimeVerifiedOutcomeCostUsesOnlyMeasuredTerms",
+        "TestReuseHitAlwaysBillsAtLeastOneMicroUSD",
+        "TestReuseHitMicroUSDConservation",
+        "TestReuseHitWithNoTokensBillsNothing",
+        "TestReuseWiringNonDeterministicNeverCached",
+        "TestReuseWiringTenantIsolation",
+        "TestServiceLeaseClearingRanksByTotalSupplierPlusResidency",
+        "TestStoreExactResultAliasPopulatesCache"
+      ],
+      "source_target": "control/realtime_store.go"
+    },
+    {
+      "authority_domain": "realtime_settlement",
+      "class": "DB",
+      "description": "persisted realtime PricingDecision digest mismatch is ignored",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 27,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestAttachRealtimeReusePricingRefusesPersistedAuthorityDrift",
+        "TestCacheHitBillsReuseClassAndSchedulesNoSupplier",
+        "TestPropertyBuyerChargeImpliesPositiveSupplierLiability",
+        "TestRealtimeClearingHigherAskWithNoFailuresBeatsCheaperThatNeedsDoubleExecution",
+        "TestRealtimeClearingRankingInputsRecordEveryTerm",
+        "TestRealtimeClearingReceiptRecordsEveryRankingInput",
+        "TestRealtimeClearingSameCostClassKeepsWarmthTiebreak",
+        "TestRealtimeClearingSelfDeclaredHOTDoesNotBeatCheaperVerifiedCost",
+        "TestRealtimeExactReuseSettlementNoSupplier",
+        "TestRealtimeOfferBeatsPutsCostAboveWarmth",
+        "TestRealtimeReusePricingDecisionBindsZeroPhysicalExactAuthority",
+        "TestRealtimeReusePricingDecisionRefusesTamperCurrencyCeilingAndClass",
+        "TestRealtimeStreamContractVerificationSettlementAndReceipt",
+        "TestRealtimeVerifiedOutcomeCostUsesOnlyMeasuredTerms",
+        "TestReuseHitAlwaysBillsAtLeastOneMicroUSD",
+        "TestReuseHitMicroUSDConservation",
+        "TestReuseHitWithNoTokensBillsNothing",
+        "TestReuseWiringNonDeterministicNeverCached",
+        "TestReuseWiringTenantIsolation",
+        "TestServiceLeaseClearingRanksByTotalSupplierPlusResidency",
+        "TestStoreExactResultAliasPopulatesCache"
+      ],
+      "source_target": "control/realtime_store.go"
+    },
+    {
+      "authority_domain": "realtime_settlement",
+      "class": "DB",
+      "description": "legacy supplier projection may diverge from PricingDecision",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 28,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestAttachRealtimeReusePricingRefusesPersistedAuthorityDrift",
+        "TestCacheHitBillsReuseClassAndSchedulesNoSupplier",
+        "TestPropertyBuyerChargeImpliesPositiveSupplierLiability",
+        "TestRealtimeClearingHigherAskWithNoFailuresBeatsCheaperThatNeedsDoubleExecution",
+        "TestRealtimeClearingRankingInputsRecordEveryTerm",
+        "TestRealtimeClearingReceiptRecordsEveryRankingInput",
+        "TestRealtimeClearingSameCostClassKeepsWarmthTiebreak",
+        "TestRealtimeClearingSelfDeclaredHOTDoesNotBeatCheaperVerifiedCost",
+        "TestRealtimeExactReuseSettlementNoSupplier",
+        "TestRealtimeOfferBeatsPutsCostAboveWarmth",
+        "TestRealtimeReusePricingDecisionBindsZeroPhysicalExactAuthority",
+        "TestRealtimeReusePricingDecisionRefusesTamperCurrencyCeilingAndClass",
+        "TestRealtimeStreamContractVerificationSettlementAndReceipt",
+        "TestRealtimeVerifiedOutcomeCostUsesOnlyMeasuredTerms",
+        "TestReuseHitAlwaysBillsAtLeastOneMicroUSD",
+        "TestReuseHitMicroUSDConservation",
+        "TestReuseHitWithNoTokensBillsNothing",
+        "TestReuseWiringNonDeterministicNeverCached",
+        "TestReuseWiringTenantIsolation",
+        "TestServiceLeaseClearingRanksByTotalSupplierPlusResidency",
+        "TestStoreExactResultAliasPopulatesCache"
+      ],
+      "source_target": "control/realtime_store.go"
+    },
+    {
+      "authority_domain": "realtime_settlement",
+      "class": "DB",
+      "description": "persisted reuse delivered tokens may diverge from PricingDecision",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 29,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestAttachRealtimeReusePricingRefusesPersistedAuthorityDrift",
+        "TestCacheHitBillsReuseClassAndSchedulesNoSupplier",
+        "TestPropertyBuyerChargeImpliesPositiveSupplierLiability",
+        "TestRealtimeClearingHigherAskWithNoFailuresBeatsCheaperThatNeedsDoubleExecution",
+        "TestRealtimeClearingRankingInputsRecordEveryTerm",
+        "TestRealtimeClearingReceiptRecordsEveryRankingInput",
+        "TestRealtimeClearingSameCostClassKeepsWarmthTiebreak",
+        "TestRealtimeClearingSelfDeclaredHOTDoesNotBeatCheaperVerifiedCost",
+        "TestRealtimeExactReuseSettlementNoSupplier",
+        "TestRealtimeOfferBeatsPutsCostAboveWarmth",
+        "TestRealtimeReusePricingDecisionBindsZeroPhysicalExactAuthority",
+        "TestRealtimeReusePricingDecisionRefusesTamperCurrencyCeilingAndClass",
+        "TestRealtimeStreamContractVerificationSettlementAndReceipt",
+        "TestRealtimeVerifiedOutcomeCostUsesOnlyMeasuredTerms",
+        "TestReuseHitAlwaysBillsAtLeastOneMicroUSD",
+        "TestReuseHitMicroUSDConservation",
+        "TestReuseHitWithNoTokensBillsNothing",
+        "TestReuseWiringNonDeterministicNeverCached",
+        "TestReuseWiringTenantIsolation",
+        "TestServiceLeaseClearingRanksByTotalSupplierPlusResidency",
+        "TestStoreExactResultAliasPopulatesCache"
+      ],
+      "source_target": "control/realtime_store.go"
+    },
+    {
+      "authority_domain": "realtime_settlement",
+      "class": "DB",
+      "description": "reuse settlement invents a supplier nano liability",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 30,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestAttachRealtimeReusePricingRefusesPersistedAuthorityDrift",
+        "TestCacheHitBillsReuseClassAndSchedulesNoSupplier",
+        "TestPropertyBuyerChargeImpliesPositiveSupplierLiability",
+        "TestRealtimeClearingHigherAskWithNoFailuresBeatsCheaperThatNeedsDoubleExecution",
+        "TestRealtimeClearingRankingInputsRecordEveryTerm",
+        "TestRealtimeClearingReceiptRecordsEveryRankingInput",
+        "TestRealtimeClearingSameCostClassKeepsWarmthTiebreak",
+        "TestRealtimeClearingSelfDeclaredHOTDoesNotBeatCheaperVerifiedCost",
+        "TestRealtimeExactReuseSettlementNoSupplier",
+        "TestRealtimeOfferBeatsPutsCostAboveWarmth",
+        "TestRealtimeReusePricingDecisionBindsZeroPhysicalExactAuthority",
+        "TestRealtimeReusePricingDecisionRefusesTamperCurrencyCeilingAndClass",
+        "TestRealtimeStreamContractVerificationSettlementAndReceipt",
+        "TestRealtimeVerifiedOutcomeCostUsesOnlyMeasuredTerms",
+        "TestReuseHitAlwaysBillsAtLeastOneMicroUSD",
+        "TestReuseHitMicroUSDConservation",
+        "TestReuseHitWithNoTokensBillsNothing",
+        "TestReuseWiringNonDeterministicNeverCached",
+        "TestReuseWiringTenantIsolation",
+        "TestServiceLeaseClearingRanksByTotalSupplierPlusResidency",
+        "TestStoreExactResultAliasPopulatesCache"
+      ],
+      "source_target": "control/realtime_store.go"
+    },
+    {
+      "authority_domain": "realtime_settlement",
+      "class": "DB",
+      "description": "reuse idempotency accepts a different request digest",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 31,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestAttachRealtimeReusePricingRefusesPersistedAuthorityDrift",
+        "TestCacheHitBillsReuseClassAndSchedulesNoSupplier",
+        "TestPropertyBuyerChargeImpliesPositiveSupplierLiability",
+        "TestRealtimeClearingHigherAskWithNoFailuresBeatsCheaperThatNeedsDoubleExecution",
+        "TestRealtimeClearingRankingInputsRecordEveryTerm",
+        "TestRealtimeClearingReceiptRecordsEveryRankingInput",
+        "TestRealtimeClearingSameCostClassKeepsWarmthTiebreak",
+        "TestRealtimeClearingSelfDeclaredHOTDoesNotBeatCheaperVerifiedCost",
+        "TestRealtimeExactReuseSettlementNoSupplier",
+        "TestRealtimeOfferBeatsPutsCostAboveWarmth",
+        "TestRealtimeReusePricingDecisionBindsZeroPhysicalExactAuthority",
+        "TestRealtimeReusePricingDecisionRefusesTamperCurrencyCeilingAndClass",
+        "TestRealtimeStreamContractVerificationSettlementAndReceipt",
+        "TestRealtimeVerifiedOutcomeCostUsesOnlyMeasuredTerms",
+        "TestReuseHitAlwaysBillsAtLeastOneMicroUSD",
+        "TestReuseHitMicroUSDConservation",
+        "TestReuseHitWithNoTokensBillsNothing",
+        "TestReuseWiringNonDeterministicNeverCached",
+        "TestReuseWiringTenantIsolation",
+        "TestServiceLeaseClearingRanksByTotalSupplierPlusResidency",
+        "TestStoreExactResultAliasPopulatesCache"
+      ],
+      "source_target": "control/realtime_store.go"
+    },
+    {
+      "authority_domain": "realtime_settlement",
+      "class": "DB",
+      "description": "reuse idempotency replay is bypassed",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 32,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestAttachRealtimeReusePricingRefusesPersistedAuthorityDrift",
+        "TestCacheHitBillsReuseClassAndSchedulesNoSupplier",
+        "TestPropertyBuyerChargeImpliesPositiveSupplierLiability",
+        "TestRealtimeClearingHigherAskWithNoFailuresBeatsCheaperThatNeedsDoubleExecution",
+        "TestRealtimeClearingRankingInputsRecordEveryTerm",
+        "TestRealtimeClearingReceiptRecordsEveryRankingInput",
+        "TestRealtimeClearingSameCostClassKeepsWarmthTiebreak",
+        "TestRealtimeClearingSelfDeclaredHOTDoesNotBeatCheaperVerifiedCost",
+        "TestRealtimeExactReuseSettlementNoSupplier",
+        "TestRealtimeOfferBeatsPutsCostAboveWarmth",
+        "TestRealtimeReusePricingDecisionBindsZeroPhysicalExactAuthority",
+        "TestRealtimeReusePricingDecisionRefusesTamperCurrencyCeilingAndClass",
+        "TestRealtimeStreamContractVerificationSettlementAndReceipt",
+        "TestRealtimeVerifiedOutcomeCostUsesOnlyMeasuredTerms",
+        "TestReuseHitAlwaysBillsAtLeastOneMicroUSD",
+        "TestReuseHitMicroUSDConservation",
+        "TestReuseHitWithNoTokensBillsNothing",
+        "TestReuseWiringNonDeterministicNeverCached",
+        "TestReuseWiringTenantIsolation",
+        "TestServiceLeaseClearingRanksByTotalSupplierPlusResidency",
+        "TestStoreExactResultAliasPopulatesCache"
+      ],
+      "source_target": "control/realtime_store.go"
+    },
+    {
+      "authority_domain": "realtime_settlement",
+      "class": "DB",
+      "description": "verified usage may exceed frozen PricingDecision bounds",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 33,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestAttachRealtimeReusePricingRefusesPersistedAuthorityDrift",
+        "TestCacheHitBillsReuseClassAndSchedulesNoSupplier",
+        "TestPropertyBuyerChargeImpliesPositiveSupplierLiability",
+        "TestRealtimeClearingHigherAskWithNoFailuresBeatsCheaperThatNeedsDoubleExecution",
+        "TestRealtimeClearingRankingInputsRecordEveryTerm",
+        "TestRealtimeClearingReceiptRecordsEveryRankingInput",
+        "TestRealtimeClearingSameCostClassKeepsWarmthTiebreak",
+        "TestRealtimeClearingSelfDeclaredHOTDoesNotBeatCheaperVerifiedCost",
+        "TestRealtimeExactReuseSettlementNoSupplier",
+        "TestRealtimeOfferBeatsPutsCostAboveWarmth",
+        "TestRealtimeReusePricingDecisionBindsZeroPhysicalExactAuthority",
+        "TestRealtimeReusePricingDecisionRefusesTamperCurrencyCeilingAndClass",
+        "TestRealtimeStreamContractVerificationSettlementAndReceipt",
+        "TestRealtimeVerifiedOutcomeCostUsesOnlyMeasuredTerms",
+        "TestReuseHitAlwaysBillsAtLeastOneMicroUSD",
+        "TestReuseHitMicroUSDConservation",
+        "TestReuseHitWithNoTokensBillsNothing",
+        "TestReuseWiringNonDeterministicNeverCached",
+        "TestReuseWiringTenantIsolation",
+        "TestServiceLeaseClearingRanksByTotalSupplierPlusResidency",
+        "TestStoreExactResultAliasPopulatesCache"
+      ],
+      "source_target": "control/realtime_store.go"
+    },
+    {
+      "authority_domain": "realtime_settlement",
+      "class": "DB",
+      "description": "settlement substitutes buyer authority for supplier floor",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 34,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestAttachRealtimeReusePricingRefusesPersistedAuthorityDrift",
+        "TestCacheHitBillsReuseClassAndSchedulesNoSupplier",
+        "TestPropertyBuyerChargeImpliesPositiveSupplierLiability",
+        "TestRealtimeClearingHigherAskWithNoFailuresBeatsCheaperThatNeedsDoubleExecution",
+        "TestRealtimeClearingRankingInputsRecordEveryTerm",
+        "TestRealtimeClearingReceiptRecordsEveryRankingInput",
+        "TestRealtimeClearingSameCostClassKeepsWarmthTiebreak",
+        "TestRealtimeClearingSelfDeclaredHOTDoesNotBeatCheaperVerifiedCost",
+        "TestRealtimeExactReuseSettlementNoSupplier",
+        "TestRealtimeOfferBeatsPutsCostAboveWarmth",
+        "TestRealtimeReusePricingDecisionBindsZeroPhysicalExactAuthority",
+        "TestRealtimeReusePricingDecisionRefusesTamperCurrencyCeilingAndClass",
+        "TestRealtimeStreamContractVerificationSettlementAndReceipt",
+        "TestRealtimeVerifiedOutcomeCostUsesOnlyMeasuredTerms",
+        "TestReuseHitAlwaysBillsAtLeastOneMicroUSD",
+        "TestReuseHitMicroUSDConservation",
+        "TestReuseHitWithNoTokensBillsNothing",
+        "TestReuseWiringNonDeterministicNeverCached",
+        "TestReuseWiringTenantIsolation",
+        "TestServiceLeaseClearingRanksByTotalSupplierPlusResidency",
+        "TestStoreExactResultAliasPopulatesCache"
+      ],
+      "source_target": "control/realtime_store.go"
+    },
+    {
+      "authority_domain": "supplier_liability",
+      "class": "DB",
+      "description": "accrual adds instead of carrying the remainder",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 35,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestAccrualConservesEveryMicroUSD",
+        "TestAccrualConservesMoneyUnderConcurrentClaims",
+        "TestAccrualHasNoDriftOverALongRun",
+        "TestAccrualIsIdempotentPerEntry",
+        "TestSubCentCreditsAccrueAndEventuallyPay",
+        "TestSupplierAccrualUsesConfiguredZeroDecimalMinorUnit",
+        "TestWholeCentCreditPaysImmediately"
+      ],
+      "source_target": "control/supplier_accrual.go"
+    },
+    {
+      "authority_domain": "supplier_liability",
+      "class": "DB",
+      "description": "accrual rounds up instead of flooring cents",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 36,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestAccrualConservesEveryMicroUSD",
+        "TestAccrualConservesMoneyUnderConcurrentClaims",
+        "TestAccrualHasNoDriftOverALongRun",
+        "TestAccrualIsIdempotentPerEntry",
+        "TestSubCentCreditsAccrueAndEventuallyPay",
+        "TestSupplierAccrualUsesConfiguredZeroDecimalMinorUnit",
+        "TestWholeCentCreditPaysImmediately"
+      ],
+      "source_target": "control/supplier_accrual.go"
+    },
+    {
+      "authority_domain": "supplier_liability",
+      "class": "DB",
+      "description": "supplier accrual lock removed",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 37,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestAccrualConservesEveryMicroUSD",
+        "TestAccrualConservesMoneyUnderConcurrentClaims",
+        "TestAccrualHasNoDriftOverALongRun",
+        "TestAccrualIsIdempotentPerEntry",
+        "TestSubCentCreditsAccrueAndEventuallyPay",
+        "TestSupplierAccrualUsesConfiguredZeroDecimalMinorUnit",
+        "TestWholeCentCreditPaysImmediately"
+      ],
+      "source_target": "control/supplier_accrual.go"
+    },
+    {
+      "authority_domain": "pricing",
+      "class": "PURE",
+      "description": "reused input counted as physical work",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 38,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestBillingInvariantsHoldForRandomClassMixes",
+        "TestMoneyInvariantsHoldUnderRandomOperationOrderings",
+        "TestPhysicalAndDeliveredAreSeparate",
+        "TestPriceAccountingChargesEachClassCorrectly",
+        "TestReusedTokensAreDiscountedButNotFree",
+        "TestTokenAccountingRoundTrips",
+        "TestUnknownClassIsRefused",
+        "TestWithoutReusePhysicalEqualsDelivered"
+      ],
+      "source_target": "control/billing_classes.go"
+    },
+    {
+      "authority_domain": "pricing",
+      "class": "PURE",
+      "description": "reused tokens billed at the full rate",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 39,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestBillingInvariantsHoldForRandomClassMixes",
+        "TestMoneyInvariantsHoldUnderRandomOperationOrderings",
+        "TestPhysicalAndDeliveredAreSeparate",
+        "TestPriceAccountingChargesEachClassCorrectly",
+        "TestReusedTokensAreDiscountedButNotFree",
+        "TestTokenAccountingRoundTrips",
+        "TestUnknownClassIsRefused",
+        "TestWithoutReusePhysicalEqualsDelivered"
+      ],
+      "source_target": "control/billing_classes.go"
+    },
+    {
+      "authority_domain": "admission",
+      "class": "PURE",
+      "description": "token budget ignored",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 40,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestBatchingPolicyIsReachedFromArrivalBatcher",
+        "TestBudgetIsTokensNotRequests",
+        "TestBudgetValidationRefusesImpossibleDeadlines",
+        "TestInteractiveBudgetIsTighterThanBatch",
+        "TestOversizedCandidateIsAdmittedAlone",
+        "TestSelectBatchDoesNotMutateCallerSlice",
+        "TestWarmPrefixDoesNotConsumeBudget"
+      ],
+      "source_target": "control/batch_policy.go"
+    },
+    {
+      "authority_domain": "prefix_locality",
+      "class": "DB",
+      "description": "prefix warmth ignores its TTL",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 41,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestCacheValueDecaysWithAge",
+        "TestCacheValueIsDrivenByReuseNotDepth",
+        "TestCacheValueRejectsDegenerateInput",
+        "TestClaimSQLWarmPrefixIsPreferenceNotFilter",
+        "TestColdCheapWorkerNotDisplacedByWarmExpensive",
+        "TestColdPrefixJobIsStillClaimed",
+        "TestCompletionMarksPrefixChainWarm",
+        "TestDeeperWarmPrefixPreferredWithinSameCostClass",
+        "TestDeepestWarmPrefixReportsReusableTokens",
+        "TestEnforcePrefixRoutingStateBudgetsCoversEveryWorker",
+        "TestEvictionKeepsTheValuableNodes",
+        "TestInvalidPrefixIDsAreDroppedNotTrusted",
+        "TestNoPerPrefixWarmthOracleInProductionSurfaces",
+        "TestNormalisePrefixIDPrefersValidSuppliedThenHashes",
+        "TestPrefixChainIsTokenIdentityNotTextSimilarity",
+        "TestPrefixChainMatchesAtSharedDepthNotOnlyExact",
+        "TestPrefixIDIsStableDomainSeparatedAndShaped",
+        "TestPrefixTokensFromBytesAreStableAndChainable",
+        "TestPrefixWarmthIsRecordedAndScoped",
+        "TestStaleWarmthStopsInfluencingRouting"
+      ],
+      "source_target": "control/prefix_routing.go"
+    },
+    {
+      "authority_domain": "reuse_authority",
+      "class": "PURE",
+      "description": "non-deterministic requests become cacheable",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 42,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestBareCacheablePayloadStillHashes",
+        "TestBatchReuseIdentityBindsRuntimeAuthorityNotJustRequestShape",
+        "TestEveryOutputAffectingFieldChangesIdentity",
+        "TestExactCacheRefusesTenantScopedReferences",
+        "TestExactResultRoundTripAndMissIsNotAGuess",
+        "TestGenerationFieldsOutsideIdentityRefuseCacheability",
+        "TestIdentityFieldsCannotBeConfused",
+        "TestIdentityVersionBumpMissesOldRows",
+        "TestOnlyDeterministicRequestsAreCacheable",
+        "TestProfileSHA256ChangesDurableIdentity",
+        "TestStopSequencesDoNotCollideOnIdentity",
+        "TestUnknownGenerationFieldIsNotCacheable"
+      ],
+      "source_target": "control/exact_reuse.go"
+    },
+    {
+      "authority_domain": "reuse_authority",
+      "class": "PURE",
+      "description": "tenant-scoped references accepted",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 43,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestBareCacheablePayloadStillHashes",
+        "TestBatchReuseIdentityBindsRuntimeAuthorityNotJustRequestShape",
+        "TestEveryOutputAffectingFieldChangesIdentity",
+        "TestExactCacheRefusesTenantScopedReferences",
+        "TestExactResultRoundTripAndMissIsNotAGuess",
+        "TestGenerationFieldsOutsideIdentityRefuseCacheability",
+        "TestIdentityFieldsCannotBeConfused",
+        "TestIdentityVersionBumpMissesOldRows",
+        "TestOnlyDeterministicRequestsAreCacheable",
+        "TestProfileSHA256ChangesDurableIdentity",
+        "TestStopSequencesDoNotCollideOnIdentity",
+        "TestUnknownGenerationFieldIsNotCacheable"
+      ],
+      "source_target": "control/exact_reuse.go"
+    },
+    {
+      "authority_domain": "workload_admission",
+      "class": "PURE",
+      "description": "supplier reputation omitted from workload binding",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 44,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestBatchExactReuseIsDisabledForCurrentAndHistoricalDecisions",
+        "TestClaimUsesFrozenRuntimeCandidate",
+        "TestFrozenWorkloadDecisionSurvivesAuthorityHistoryWithoutAcceptingBindingTamper",
+        "TestJobClaimProjectionRejectsFrozenWorkloadMismatch",
+        "TestNormalizeWorkloadRejectsCrossLaneAndInvalidPolicyFields",
+        "TestPlacementRequirementRejectsEveryClaimAuthorityMutation",
+        "TestQuoteSupplyRequirementsMatchClaimTimeHardFilters",
+        "TestQuoteUsesStrictSharedNormalizerBeforeStoreAccess",
+        "TestWorkloadBindingCoversEveryExecutionAssumption",
+        "TestWorkloadDecisionDigestBindsDerivedAuthority",
+        "TestWorkloadDecisionIsServerClassifiedAndRevisionPinned",
+        "TestWorkloadDecisionRejectsTampering",
+        "TestWorkloadInputShapeFailsBeforeExecution"
+      ],
+      "source_target": "control/workload_classification.go"
+    },
+    {
+      "authority_domain": "workload_admission",
+      "class": "PURE",
+      "description": "input commitment omitted from workload binding",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 45,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestBatchExactReuseIsDisabledForCurrentAndHistoricalDecisions",
+        "TestClaimUsesFrozenRuntimeCandidate",
+        "TestFrozenWorkloadDecisionSurvivesAuthorityHistoryWithoutAcceptingBindingTamper",
+        "TestJobClaimProjectionRejectsFrozenWorkloadMismatch",
+        "TestNormalizeWorkloadRejectsCrossLaneAndInvalidPolicyFields",
+        "TestPlacementRequirementRejectsEveryClaimAuthorityMutation",
+        "TestQuoteSupplyRequirementsMatchClaimTimeHardFilters",
+        "TestQuoteUsesStrictSharedNormalizerBeforeStoreAccess",
+        "TestWorkloadBindingCoversEveryExecutionAssumption",
+        "TestWorkloadDecisionDigestBindsDerivedAuthority",
+        "TestWorkloadDecisionIsServerClassifiedAndRevisionPinned",
+        "TestWorkloadDecisionRejectsTampering",
+        "TestWorkloadInputShapeFailsBeforeExecution"
+      ],
+      "source_target": "control/workload_classification.go"
+    },
+    {
+      "authority_domain": "quote_admission",
+      "class": "DB",
+      "description": "quote supply ignores buyer data residency",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 46,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestApplyMemoryFloorRisk",
+        "TestAssessRiskMalformedLowersConfidenceAndWarns",
+        "TestAssessRiskSupplyDrivesOOMAndConfidence",
+        "TestBatchExactReuseIsDisabledForCurrentAndHistoricalDecisions",
+        "TestClaimUsesFrozenRuntimeCandidate",
+        "TestDeriveQuoteSLAHonestDegradation",
+        "TestEstimateTokensFixesMultiByteUndercounting",
+        "TestEstimateTokensUnchangedForASCII",
+        "TestFrozenWorkloadDecisionSurvivesAuthorityHistoryWithoutAcceptingBindingTamper",
+        "TestInsertQuoteRejectsCurrencyMismatchBeforeDatabaseWrite",
+        "TestJobClaimProjectionRejectsFrozenWorkloadMismatch",
+        "TestNormalizeWorkloadRejectsCrossLaneAndInvalidPolicyFields",
+        "TestPerTaskSecsFromP90FallbackAndConversion",
+        "TestPlacementRequirementRejectsEveryClaimAuthorityMutation",
+        "TestProjectCriticalPathUsesDependenciesNotStepOrder",
+        "TestQuoteCompiledProjectRefusesAggregateBuyerCeiling",
+        "TestQuoteCompiledProjectRefusesDisplayedMaximumThatDiffersFromReservation",
+        "TestQuoteCompiledProjectRefusesSymlinkedArtifactParent",
+        "TestQuoteCompiledProjectRefusesTamperedPricingDecision",
+        "TestQuoteCompiledProjectUsesLivePricingDecisionAndNanosCeiling",
+        "TestQuoteCurrencyIsVisibleImmutableAndBoundAtSubmission",
+        "TestQuoteIDToUUIDRoundTrip",
+        "TestQuoteSupplyRequirementsMatchClaimTimeHardFilters",
+        "TestQuoteUsesStrictSharedNormalizerBeforeStoreAccess",
+        "TestQuoteWithoutHoneypotReportsVerificationUnavailableBeforePricing",
+        "TestSLABindingValidation",
+        "TestSLAGuaranteeIsBuiltOnConservativeNotP50",
+        "TestSLAGuaranteedSecsFormula",
+        "TestSLAPremiumMath",
+        "TestSLARefundAmount",
+        "TestSLASpanMissed",
+        "TestScanJSONLCountsAndFields",
+        "TestScanJSONLEmpty",
+        "TestScanJSONLFindsFirstMalformedLine",
+        "TestScanJSONLNoStringFieldNoRecommendation",
+        "TestScanJSONLRecommendsLongestStringField",
+        "TestServiceTierSemanticsDoNotPromiseCapacity",
+        "TestSustainedBatchETASecs",
+        "TestWorkloadBindingCoversEveryExecutionAssumption",
+        "TestWorkloadDecisionDigestBindsDerivedAuthority",
+        "TestWorkloadDecisionIsServerClassifiedAndRevisionPinned",
+        "TestWorkloadDecisionRejectsTampering",
+        "TestWorkloadInputShapeFailsBeforeExecution"
+      ],
+      "source_target": "control/quote.go"
+    },
+    {
+      "authority_domain": "reuse_settlement",
+      "class": "DB",
+      "description": "exact reuse omits frozen workload authority",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 47,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestBatchReuseIdentityBindsRuntimeAuthorityNotJustRequestShape",
+        "TestCacheHitBillsReuseClassAndSchedulesNoSupplier",
+        "TestClaimTaskRollsBackWhenParentTerminalizesDuringClaim",
+        "TestCompleteParentTasksAreNeitherClaimedNorExplainedAsEligible",
+        "TestCompleteTaskTxConcurrentCompletesYieldOneSuccessEffect",
+        "TestCompleteTaskTxFailClosedWrongWorkerAttemptAndTerminal",
+        "TestCompleteTaskTxHappyPathMovesTaskTerminal",
+        "TestConcurrentDynamicTaskInsertIsIdempotent",
+        "TestConcurrentTerminalDetachCompleteAndFailConvergesWithoutDeadlock",
+        "TestConcurrentTerminalDetachPassesAreIdempotent",
+        "TestConcurrentTerminalFailureAndDynamicInsertHasNoReserveLeak",
+        "TestConcurrentTerminalFailuresReleaseBothLeasesWithoutDeadlock",
+        "TestDetachTerminalResidualIgnoresPendingButPreservesVerificationEvidence",
+        "TestDetachUnfinishedTasksForTerminalJobMappingsAndIdempotency",
+        "TestDynamicTaskInsertEconomicGatesAreAtomic",
+        "TestDynamicTaskInsertMissingReservePreservesRejectAndReplay",
+        "TestDynamicTaskInsertReplaySurvivesTerminalParent",
+        "TestDynamicTaskInsertsFenceTerminalParentsWithoutReserveMutation",
+        "TestFailTaskAndSettleJobReleasesLeaseAndHonorsPending",
+        "TestFailTaskTxReleasesRunningOwnerAndFencesForeignIdentity",
+        "TestFailTaskTxTerminalPendingVerificationIsAtomicAndRetryable",
+        "TestFailTaskTxTerminalReleasesLeaseAndSettlesOnce",
+        "TestFinalizeJobTxActualUSDAndSLAPremiumIdempotent",
+        "TestFinalizeJobTxRechecksAfterConcurrentTiebreakInsert",
+        "TestFinalizeJobTxRejectsNonCompleteTerminalStates",
+        "TestLegacyJobPricingAuthorityRemainsExplicitlyUnverifiable",
+        "TestPlannedAndUnplannedTiebreakInsertionConvergeWithoutDeadlock",
+        "TestProjectOrderPublicAPIIsIdempotentAndBuyerScoped",
+        "TestProjectOrderReservationIsServerSideAndFixedPoint",
+        "TestPropertyBuyerChargeImpliesPositiveSupplierLiability",
+        "TestQuoteJobSchedulerReceiptPreserveExactPricingAuthority",
+        "TestRealtimeExactReuseSettlementNoSupplier",
+        "TestReuseHitMicroUSDConservation",
+        "TestReuseWiringNonDeterministicNeverCached",
+        "TestReuseWiringTenantIsolation",
+        "TestStaleReaperPendingVerificationDoesNotStarveLaterJobs",
+        "TestStaleRecoveryFencesTerminalParentAtSelectionAndMutation",
+        "TestStartTaskClaimedToRunningAndRejectsOtherWorker",
+        "TestStartTaskDynamicTiebreakHistoryAndReplayFences",
+        "TestStoreExactResultAliasPopulatesCache",
+        "TestSubmitExactReuseBatchJobFreezesWorkloadDecision",
+        "TestSubmitJobTxCommitsJobTasksAndPlanWithoutLedger",
+        "TestSubmitJobTxFailsClosed",
+        "TestTerminalTaskDetachJanitorRepairsRetainedResidual",
+        "TestWorkerFailVerificationPendingWireIsRetryableAndAtomic"
+      ],
+      "source_target": "control/exact_reuse_batch.go"
+    },
+    {
+      "authority_domain": "reuse_settlement",
+      "class": "DB",
+      "description": "exact reuse hashes request shape but not runtime authority",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 48,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestBatchReuseIdentityBindsRuntimeAuthorityNotJustRequestShape",
+        "TestCacheHitBillsReuseClassAndSchedulesNoSupplier",
+        "TestClaimTaskRollsBackWhenParentTerminalizesDuringClaim",
+        "TestCompleteParentTasksAreNeitherClaimedNorExplainedAsEligible",
+        "TestCompleteTaskTxConcurrentCompletesYieldOneSuccessEffect",
+        "TestCompleteTaskTxFailClosedWrongWorkerAttemptAndTerminal",
+        "TestCompleteTaskTxHappyPathMovesTaskTerminal",
+        "TestConcurrentDynamicTaskInsertIsIdempotent",
+        "TestConcurrentTerminalDetachCompleteAndFailConvergesWithoutDeadlock",
+        "TestConcurrentTerminalDetachPassesAreIdempotent",
+        "TestConcurrentTerminalFailureAndDynamicInsertHasNoReserveLeak",
+        "TestConcurrentTerminalFailuresReleaseBothLeasesWithoutDeadlock",
+        "TestDetachTerminalResidualIgnoresPendingButPreservesVerificationEvidence",
+        "TestDetachUnfinishedTasksForTerminalJobMappingsAndIdempotency",
+        "TestDynamicTaskInsertEconomicGatesAreAtomic",
+        "TestDynamicTaskInsertMissingReservePreservesRejectAndReplay",
+        "TestDynamicTaskInsertReplaySurvivesTerminalParent",
+        "TestDynamicTaskInsertsFenceTerminalParentsWithoutReserveMutation",
+        "TestFailTaskAndSettleJobReleasesLeaseAndHonorsPending",
+        "TestFailTaskTxReleasesRunningOwnerAndFencesForeignIdentity",
+        "TestFailTaskTxTerminalPendingVerificationIsAtomicAndRetryable",
+        "TestFailTaskTxTerminalReleasesLeaseAndSettlesOnce",
+        "TestFinalizeJobTxActualUSDAndSLAPremiumIdempotent",
+        "TestFinalizeJobTxRechecksAfterConcurrentTiebreakInsert",
+        "TestFinalizeJobTxRejectsNonCompleteTerminalStates",
+        "TestLegacyJobPricingAuthorityRemainsExplicitlyUnverifiable",
+        "TestPlannedAndUnplannedTiebreakInsertionConvergeWithoutDeadlock",
+        "TestProjectOrderPublicAPIIsIdempotentAndBuyerScoped",
+        "TestProjectOrderReservationIsServerSideAndFixedPoint",
+        "TestPropertyBuyerChargeImpliesPositiveSupplierLiability",
+        "TestQuoteJobSchedulerReceiptPreserveExactPricingAuthority",
+        "TestRealtimeExactReuseSettlementNoSupplier",
+        "TestReuseHitMicroUSDConservation",
+        "TestReuseWiringNonDeterministicNeverCached",
+        "TestReuseWiringTenantIsolation",
+        "TestStaleReaperPendingVerificationDoesNotStarveLaterJobs",
+        "TestStaleRecoveryFencesTerminalParentAtSelectionAndMutation",
+        "TestStartTaskClaimedToRunningAndRejectsOtherWorker",
+        "TestStartTaskDynamicTiebreakHistoryAndReplayFences",
+        "TestStoreExactResultAliasPopulatesCache",
+        "TestSubmitExactReuseBatchJobFreezesWorkloadDecision",
+        "TestSubmitJobTxCommitsJobTasksAndPlanWithoutLedger",
+        "TestSubmitJobTxFailsClosed",
+        "TestTerminalTaskDetachJanitorRepairsRetainedResidual",
+        "TestWorkerFailVerificationPendingWireIsRetryableAndAtomic"
+      ],
+      "source_target": "control/exact_reuse_batch.go"
+    },
+    {
+      "authority_domain": "runtime_admission",
+      "class": "DB",
+      "description": "claim ignores frozen runtime candidates",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 49,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestBatchExactReuseIsDisabledForCurrentAndHistoricalDecisions",
+        "TestClaimTasksTxDefersToACheaperAskingWorker",
+        "TestClaimUsesFrozenRuntimeCandidate",
+        "TestFrozenWorkloadDecisionSurvivesAuthorityHistoryWithoutAcceptingBindingTamper",
+        "TestJobClaimProjectionRejectsFrozenWorkloadMismatch",
+        "TestNormalizeWorkloadRejectsCrossLaneAndInvalidPolicyFields",
+        "TestPlacementRequirementRejectsEveryClaimAuthorityMutation",
+        "TestPrefixAffinityBreaksTiesWithinSameCostClass",
+        "TestPrefixAffinityCostRankGateIsLoadBearing",
+        "TestPrefixAffinityIsRefinementOfWarmModelNotCompetitor",
+        "TestPrefixAffinityNeverPromotesHigherAskWithinClass",
+        "TestPrefixAffinityNeverPromotesMoreExpensiveCostClass",
+        "TestQuoteSupplyRequirementsMatchClaimTimeHardFilters",
+        "TestQuoteUsesStrictSharedNormalizerBeforeStoreAccess",
+        "TestWorkloadBindingCoversEveryExecutionAssumption",
+        "TestWorkloadDecisionDigestBindsDerivedAuthority",
+        "TestWorkloadDecisionIsServerClassifiedAndRevisionPinned",
+        "TestWorkloadDecisionRejectsTampering",
+        "TestWorkloadInputShapeFailsBeforeExecution"
+      ],
+      "source_target": "control/scheduler.go"
+    },
+    {
+      "authority_domain": "quote_compute",
+      "class": "PURE",
+      "description": "bound quote recomputes split from the live planner",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 50,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestBoundQuoteRefusesDifferentMeasuredDepthProfile",
+        "TestBoundQuoteSplitNeverConsultsLivePlanner",
+        "TestComputePlanDigestBindsEveryExecutionField",
+        "TestComputePlanKeepsUnflooredEstimateUnderMinBillableSettlementFloor",
+        "TestComputePlanRejectsGeometryPlacementAndEconomicTampering",
+        "TestComputePlanStillRejectsTrueMoneyDisagreement",
+        "TestExactReusePlanBindsOriginWithoutInventingPhysicalWork",
+        "TestFrozenComputePlanRejectsTaskClassTotalTampering",
+        "TestHistoricalV1ComputePlanRemainsValidUnderOldTokenRule",
+        "TestProjectCriticalPathUsesDependenciesNotStepOrder",
+        "TestQuoteCompiledProjectRefusesAggregateBuyerCeiling",
+        "TestQuoteCompiledProjectRefusesDisplayedMaximumThatDiffersFromReservation",
+        "TestQuoteCompiledProjectRefusesSymlinkedArtifactParent",
+        "TestQuoteCompiledProjectRefusesTamperedPricingDecision",
+        "TestQuoteCompiledProjectUsesLivePricingDecisionAndNanosCeiling",
+        "TestQuoteTimeFromETABandsIsExplicitAndNeverLetsThePlannerBoundFallBelowP50",
+        "TestSettlementBaseFromComputeEstimateMatchesBuildEconomicPlanFloor",
+        "TestV4ComputePlanRejectsDepthProfileAndSettlementAuthorityTampering",
+        "TestV4ComputePlanSeparatesPlanningDepthFromSettlementUnits"
+      ],
+      "source_target": "control/compute_plan.go"
+    },
+    {
+      "authority_domain": "quote_compute",
+      "class": "PURE",
+      "description": "compute plan accepts tampered task totals",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 51,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestBoundQuoteRefusesDifferentMeasuredDepthProfile",
+        "TestBoundQuoteSplitNeverConsultsLivePlanner",
+        "TestComputePlanDigestBindsEveryExecutionField",
+        "TestComputePlanKeepsUnflooredEstimateUnderMinBillableSettlementFloor",
+        "TestComputePlanRejectsGeometryPlacementAndEconomicTampering",
+        "TestComputePlanStillRejectsTrueMoneyDisagreement",
+        "TestExactReusePlanBindsOriginWithoutInventingPhysicalWork",
+        "TestFrozenComputePlanRejectsTaskClassTotalTampering",
+        "TestHistoricalV1ComputePlanRemainsValidUnderOldTokenRule",
+        "TestProjectCriticalPathUsesDependenciesNotStepOrder",
+        "TestQuoteCompiledProjectRefusesAggregateBuyerCeiling",
+        "TestQuoteCompiledProjectRefusesDisplayedMaximumThatDiffersFromReservation",
+        "TestQuoteCompiledProjectRefusesSymlinkedArtifactParent",
+        "TestQuoteCompiledProjectRefusesTamperedPricingDecision",
+        "TestQuoteCompiledProjectUsesLivePricingDecisionAndNanosCeiling",
+        "TestQuoteTimeFromETABandsIsExplicitAndNeverLetsThePlannerBoundFallBelowP50",
+        "TestSettlementBaseFromComputeEstimateMatchesBuildEconomicPlanFloor",
+        "TestV4ComputePlanRejectsDepthProfileAndSettlementAuthorityTampering",
+        "TestV4ComputePlanSeparatesPlanningDepthFromSettlementUnits"
+      ],
+      "source_target": "control/compute_plan.go"
+    },
+    {
+      "authority_domain": "job_money",
+      "class": "DB",
+      "description": "job persistence ignores bound quote compute authority",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 52,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestCatalogueAnchoredValidationRequiresStore",
+        "TestClaimTaskRollsBackWhenParentTerminalizesDuringClaim",
+        "TestCompleteParentTasksAreNeitherClaimedNorExplainedAsEligible",
+        "TestCompleteTaskTxConcurrentCompletesYieldOneSuccessEffect",
+        "TestCompleteTaskTxFailClosedWrongWorkerAttemptAndTerminal",
+        "TestCompleteTaskTxHappyPathMovesTaskTerminal",
+        "TestConcurrentDynamicTaskInsertIsIdempotent",
+        "TestConcurrentTerminalDetachCompleteAndFailConvergesWithoutDeadlock",
+        "TestConcurrentTerminalDetachPassesAreIdempotent",
+        "TestConcurrentTerminalFailureAndDynamicInsertHasNoReserveLeak",
+        "TestConcurrentTerminalFailuresReleaseBothLeasesWithoutDeadlock",
+        "TestDetachTerminalResidualIgnoresPendingButPreservesVerificationEvidence",
+        "TestDetachUnfinishedTasksForTerminalJobMappingsAndIdempotency",
+        "TestDynamicTaskInsertEconomicGatesAreAtomic",
+        "TestDynamicTaskInsertMissingReservePreservesRejectAndReplay",
+        "TestDynamicTaskInsertReplaySurvivesTerminalParent",
+        "TestDynamicTaskInsertsFenceTerminalParentsWithoutReserveMutation",
+        "TestFailTaskAndSettleJobReleasesLeaseAndHonorsPending",
+        "TestFailTaskTxReleasesRunningOwnerAndFencesForeignIdentity",
+        "TestFailTaskTxTerminalPendingVerificationIsAtomicAndRetryable",
+        "TestFailTaskTxTerminalReleasesLeaseAndSettlesOnce",
+        "TestFinalizeJobTxActualUSDAndSLAPremiumIdempotent",
+        "TestFinalizeJobTxRechecksAfterConcurrentTiebreakInsert",
+        "TestFinalizeJobTxRejectsNonCompleteTerminalStates",
+        "TestLegacyJobPricingAuthorityRemainsExplicitlyUnverifiable",
+        "TestPlannedAndUnplannedTiebreakInsertionConvergeWithoutDeadlock",
+        "TestProjectOrderPublicAPIIsIdempotentAndBuyerScoped",
+        "TestProjectOrderReservationIsServerSideAndFixedPoint",
+        "TestQuoteJobSchedulerReceiptPreserveExactPricingAuthority",
+        "TestStaleReaperPendingVerificationDoesNotStarveLaterJobs",
+        "TestStaleRecoveryFencesTerminalParentAtSelectionAndMutation",
+        "TestStartTaskClaimedToRunningAndRejectsOtherWorker",
+        "TestStartTaskDynamicTiebreakHistoryAndReplayFences",
+        "TestStoreAnchoredPricingFailsClosedOnUnresolvableSchedule",
+        "TestStoreAnchoredPricingRejectsRewrittenCatalogueFields",
+        "TestStoreAnchoredPricingSurvivesLegitimateReprice",
+        "TestSubmitExactReuseBatchJobFreezesWorkloadDecision",
+        "TestSubmitJobTxCommitsJobTasksAndPlanWithoutLedger",
+        "TestSubmitJobTxFailsClosed",
+        "TestTerminalTaskDetachJanitorRepairsRetainedResidual",
+        "TestWorkerFailVerificationPendingWireIsRetryableAndAtomic"
+      ],
+      "source_target": "control/store_jobs.go"
+    },
+    {
+      "authority_domain": "reuse_settlement",
+      "class": "DB",
+      "description": "exact reuse ignores origin quote compute authority",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 53,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestBatchReuseIdentityBindsRuntimeAuthorityNotJustRequestShape",
+        "TestCacheHitBillsReuseClassAndSchedulesNoSupplier",
+        "TestClaimTaskRollsBackWhenParentTerminalizesDuringClaim",
+        "TestCompleteParentTasksAreNeitherClaimedNorExplainedAsEligible",
+        "TestCompleteTaskTxConcurrentCompletesYieldOneSuccessEffect",
+        "TestCompleteTaskTxFailClosedWrongWorkerAttemptAndTerminal",
+        "TestCompleteTaskTxHappyPathMovesTaskTerminal",
+        "TestConcurrentDynamicTaskInsertIsIdempotent",
+        "TestConcurrentTerminalDetachCompleteAndFailConvergesWithoutDeadlock",
+        "TestConcurrentTerminalDetachPassesAreIdempotent",
+        "TestConcurrentTerminalFailureAndDynamicInsertHasNoReserveLeak",
+        "TestConcurrentTerminalFailuresReleaseBothLeasesWithoutDeadlock",
+        "TestDetachTerminalResidualIgnoresPendingButPreservesVerificationEvidence",
+        "TestDetachUnfinishedTasksForTerminalJobMappingsAndIdempotency",
+        "TestDynamicTaskInsertEconomicGatesAreAtomic",
+        "TestDynamicTaskInsertMissingReservePreservesRejectAndReplay",
+        "TestDynamicTaskInsertReplaySurvivesTerminalParent",
+        "TestDynamicTaskInsertsFenceTerminalParentsWithoutReserveMutation",
+        "TestFailTaskAndSettleJobReleasesLeaseAndHonorsPending",
+        "TestFailTaskTxReleasesRunningOwnerAndFencesForeignIdentity",
+        "TestFailTaskTxTerminalPendingVerificationIsAtomicAndRetryable",
+        "TestFailTaskTxTerminalReleasesLeaseAndSettlesOnce",
+        "TestFinalizeJobTxActualUSDAndSLAPremiumIdempotent",
+        "TestFinalizeJobTxRechecksAfterConcurrentTiebreakInsert",
+        "TestFinalizeJobTxRejectsNonCompleteTerminalStates",
+        "TestLegacyJobPricingAuthorityRemainsExplicitlyUnverifiable",
+        "TestPlannedAndUnplannedTiebreakInsertionConvergeWithoutDeadlock",
+        "TestProjectOrderPublicAPIIsIdempotentAndBuyerScoped",
+        "TestProjectOrderReservationIsServerSideAndFixedPoint",
+        "TestPropertyBuyerChargeImpliesPositiveSupplierLiability",
+        "TestQuoteJobSchedulerReceiptPreserveExactPricingAuthority",
+        "TestRealtimeExactReuseSettlementNoSupplier",
+        "TestReuseHitMicroUSDConservation",
+        "TestReuseWiringNonDeterministicNeverCached",
+        "TestReuseWiringTenantIsolation",
+        "TestStaleReaperPendingVerificationDoesNotStarveLaterJobs",
+        "TestStaleRecoveryFencesTerminalParentAtSelectionAndMutation",
+        "TestStartTaskClaimedToRunningAndRejectsOtherWorker",
+        "TestStartTaskDynamicTiebreakHistoryAndReplayFences",
+        "TestStoreExactResultAliasPopulatesCache",
+        "TestSubmitExactReuseBatchJobFreezesWorkloadDecision",
+        "TestSubmitJobTxCommitsJobTasksAndPlanWithoutLedger",
+        "TestSubmitJobTxFailsClosed",
+        "TestTerminalTaskDetachJanitorRepairsRetainedResidual",
+        "TestWorkerFailVerificationPendingWireIsRetryableAndAtomic"
+      ],
+      "source_target": "control/exact_reuse_batch.go"
+    },
+    {
+      "authority_domain": "runtime_placement",
+      "class": "PURE",
+      "description": "frozen multi-GPU placement accepts a different degree",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 54,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestFrozenRealtimePlacementValidatorRefusesDegreeMutation",
+        "TestFrozenRealtimePlacementValidatorRefusesExecutionModeMutation",
+        "TestRealtimeMultiGPUPlacementActivatesAdmissionPlanner",
+        "TestRealtimePlacementDigestDetectsTampering",
+        "TestRealtimePlacementRefusesConfiguredDegreeThatIsNotFrozenMinimum",
+        "TestRealtimePlacementRefusesUnknownOrUnprovenMultiGPUShapes",
+        "TestRealtimeSingleGPUPlacementFreezesDeclaredTopology",
+        "TestVLLMProfileValidationRequiresPlacementAuthorityForTPGreaterThanOne"
+      ],
+      "source_target": "control/realtime_placement.go"
+    },
+    {
+      "authority_domain": "runtime_placement",
+      "class": "PURE",
+      "description": "realtime placement digest mismatch is ignored",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 55,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestFrozenRealtimePlacementValidatorRefusesDegreeMutation",
+        "TestFrozenRealtimePlacementValidatorRefusesExecutionModeMutation",
+        "TestRealtimeMultiGPUPlacementActivatesAdmissionPlanner",
+        "TestRealtimePlacementDigestDetectsTampering",
+        "TestRealtimePlacementRefusesConfiguredDegreeThatIsNotFrozenMinimum",
+        "TestRealtimePlacementRefusesUnknownOrUnprovenMultiGPUShapes",
+        "TestRealtimeSingleGPUPlacementFreezesDeclaredTopology",
+        "TestVLLMProfileValidationRequiresPlacementAuthorityForTPGreaterThanOne"
+      ],
+      "source_target": "control/realtime_placement.go"
+    },
+    {
+      "authority_domain": "realtime_settlement",
+      "class": "DB",
+      "description": "contract persistence drops selected placement authority",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 56,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestAttachRealtimeReusePricingRefusesPersistedAuthorityDrift",
+        "TestCacheHitBillsReuseClassAndSchedulesNoSupplier",
+        "TestPropertyBuyerChargeImpliesPositiveSupplierLiability",
+        "TestRealtimeClearingHigherAskWithNoFailuresBeatsCheaperThatNeedsDoubleExecution",
+        "TestRealtimeClearingRankingInputsRecordEveryTerm",
+        "TestRealtimeClearingReceiptRecordsEveryRankingInput",
+        "TestRealtimeClearingSameCostClassKeepsWarmthTiebreak",
+        "TestRealtimeClearingSelfDeclaredHOTDoesNotBeatCheaperVerifiedCost",
+        "TestRealtimeExactReuseSettlementNoSupplier",
+        "TestRealtimeOfferBeatsPutsCostAboveWarmth",
+        "TestRealtimeReusePricingDecisionBindsZeroPhysicalExactAuthority",
+        "TestRealtimeReusePricingDecisionRefusesTamperCurrencyCeilingAndClass",
+        "TestRealtimeStreamContractVerificationSettlementAndReceipt",
+        "TestRealtimeVerifiedOutcomeCostUsesOnlyMeasuredTerms",
+        "TestReuseHitAlwaysBillsAtLeastOneMicroUSD",
+        "TestReuseHitMicroUSDConservation",
+        "TestReuseHitWithNoTokensBillsNothing",
+        "TestReuseWiringNonDeterministicNeverCached",
+        "TestReuseWiringTenantIsolation",
+        "TestServiceLeaseClearingRanksByTotalSupplierPlusResidency",
+        "TestStoreExactResultAliasPopulatesCache"
+      ],
+      "source_target": "control/realtime_store.go"
+    },
+    {
+      "authority_domain": "payment_activation",
+      "class": "PURE",
+      "description": "production credential silently arms LIVE payments",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 57,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestExpiredLiveWindowAllowsOnlyBoundedRecovery",
+        "TestLiveActivationBindsCandidateWindowCapsAndApprovals",
+        "TestLiveActivationSigningLeadIsBounded",
+        "TestLiveActivationTamperAndWeakApprovalFailClosed",
+        "TestLiveCredentialWithoutActivationMakesZeroNetworkCalls",
+        "TestLiveModeRejectsInlineStripeKey",
+        "TestLiveModeRequiresPermissionRestrictedHMACKeyFile",
+        "TestLiveModeRequiresPermissionRestrictedStripeKeyFile",
+        "TestProductionDefaultsToSealedAndCredentialCannotArmIt",
+        "TestSealedModeStructurallyRefusesProviderNetwork",
+        "TestTestModeRequiresTestCredential"
+      ],
+      "source_target": "control/payment_authority.go"
+    },
+    {
+      "authority_domain": "payment_activation",
+      "class": "PURE",
+      "description": "SEALED provider boundary is bypassed",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 58,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestExpiredLiveWindowAllowsOnlyBoundedRecovery",
+        "TestLiveActivationBindsCandidateWindowCapsAndApprovals",
+        "TestLiveActivationSigningLeadIsBounded",
+        "TestLiveActivationTamperAndWeakApprovalFailClosed",
+        "TestLiveCredentialWithoutActivationMakesZeroNetworkCalls",
+        "TestLiveModeRejectsInlineStripeKey",
+        "TestLiveModeRequiresPermissionRestrictedHMACKeyFile",
+        "TestLiveModeRequiresPermissionRestrictedStripeKeyFile",
+        "TestProductionDefaultsToSealedAndCredentialCannotArmIt",
+        "TestSealedModeStructurallyRefusesProviderNetwork",
+        "TestTestModeRequiresTestCredential"
+      ],
+      "source_target": "control/payment_authority.go"
+    },
+    {
+      "authority_domain": "payment_activation",
+      "class": "PURE",
+      "description": "LIVE activation ignores candidate binding",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 59,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestExpiredLiveWindowAllowsOnlyBoundedRecovery",
+        "TestLiveActivationBindsCandidateWindowCapsAndApprovals",
+        "TestLiveActivationSigningLeadIsBounded",
+        "TestLiveActivationTamperAndWeakApprovalFailClosed",
+        "TestLiveCredentialWithoutActivationMakesZeroNetworkCalls",
+        "TestLiveModeRejectsInlineStripeKey",
+        "TestLiveModeRequiresPermissionRestrictedHMACKeyFile",
+        "TestLiveModeRequiresPermissionRestrictedStripeKeyFile",
+        "TestProductionDefaultsToSealedAndCredentialCannotArmIt",
+        "TestSealedModeStructurallyRefusesProviderNetwork",
+        "TestTestModeRequiresTestCredential"
+      ],
+      "source_target": "control/payment_authority.go"
+    },
+    {
+      "authority_domain": "payment_activation",
+      "class": "PURE",
+      "description": "LIVE per-operation cap is ignored",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 60,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestExpiredLiveWindowAllowsOnlyBoundedRecovery",
+        "TestLiveActivationBindsCandidateWindowCapsAndApprovals",
+        "TestLiveActivationSigningLeadIsBounded",
+        "TestLiveActivationTamperAndWeakApprovalFailClosed",
+        "TestLiveCredentialWithoutActivationMakesZeroNetworkCalls",
+        "TestLiveModeRejectsInlineStripeKey",
+        "TestLiveModeRequiresPermissionRestrictedHMACKeyFile",
+        "TestLiveModeRequiresPermissionRestrictedStripeKeyFile",
+        "TestProductionDefaultsToSealedAndCredentialCannotArmIt",
+        "TestSealedModeStructurallyRefusesProviderNetwork",
+        "TestTestModeRequiresTestCredential"
+      ],
+      "source_target": "control/payment_authority.go"
+    },
+    {
+      "authority_domain": "payment_activation",
+      "class": "PURE",
+      "description": "LIVE recovery cannot remain operationally ready",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 61,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestExpiredLiveWindowAllowsOnlyBoundedRecovery",
+        "TestLiveActivationBindsCandidateWindowCapsAndApprovals",
+        "TestLiveActivationSigningLeadIsBounded",
+        "TestLiveActivationTamperAndWeakApprovalFailClosed",
+        "TestLiveCredentialWithoutActivationMakesZeroNetworkCalls",
+        "TestLiveModeRejectsInlineStripeKey",
+        "TestLiveModeRequiresPermissionRestrictedHMACKeyFile",
+        "TestLiveModeRequiresPermissionRestrictedStripeKeyFile",
+        "TestProductionDefaultsToSealedAndCredentialCannotArmIt",
+        "TestSealedModeStructurallyRefusesProviderNetwork",
+        "TestTestModeRequiresTestCredential"
+      ],
+      "source_target": "control/payment_authority.go"
+    },
+    {
+      "authority_domain": "payment_activation",
+      "class": "PURE",
+      "description": "LIVE Stripe key can remain environment-inline",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 62,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestExpiredLiveWindowAllowsOnlyBoundedRecovery",
+        "TestLiveActivationBindsCandidateWindowCapsAndApprovals",
+        "TestLiveActivationSigningLeadIsBounded",
+        "TestLiveActivationTamperAndWeakApprovalFailClosed",
+        "TestLiveCredentialWithoutActivationMakesZeroNetworkCalls",
+        "TestLiveModeRejectsInlineStripeKey",
+        "TestLiveModeRequiresPermissionRestrictedHMACKeyFile",
+        "TestLiveModeRequiresPermissionRestrictedStripeKeyFile",
+        "TestProductionDefaultsToSealedAndCredentialCannotArmIt",
+        "TestSealedModeStructurallyRefusesProviderNetwork",
+        "TestTestModeRequiresTestCredential"
+      ],
+      "source_target": "control/payment_authority.go"
+    },
+    {
+      "authority_domain": "stripe_authority",
+      "class": "PURE",
+      "description": "Stripe API version pin is deleted",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 63,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestDeploymentAcceptanceRequiresReadyStripeContract",
+        "TestEveryStripeOperatorScriptPinsSameVersion",
+        "TestSignedStripeWebhookRejectsContractDriftBeforeEffect",
+        "TestStripeEventContractBindsVersionAndLivemode",
+        "TestStripeGetUsesPinnedContract",
+        "TestStripeProviderSourcesCannotBypassPinnedTransport",
+        "TestStripeTransportPinsVersionImmediatelyBeforeIO"
+      ],
+      "source_target": "control/stripe_api_contract.go"
+    },
+    {
+      "authority_domain": "stripe_authority",
+      "class": "PURE",
+      "description": "signed Stripe webhook ignores API version",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 64,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestDeploymentAcceptanceRequiresReadyStripeContract",
+        "TestEveryStripeOperatorScriptPinsSameVersion",
+        "TestSignedStripeWebhookRejectsContractDriftBeforeEffect",
+        "TestStripeEventContractBindsVersionAndLivemode",
+        "TestStripeGetUsesPinnedContract",
+        "TestStripeProviderSourcesCannotBypassPinnedTransport",
+        "TestStripeTransportPinsVersionImmediatelyBeforeIO"
+      ],
+      "source_target": "control/stripe_api_contract.go"
+    },
+    {
+      "authority_domain": "stripe_authority",
+      "class": "PURE",
+      "description": "signed Stripe webhook ignores livemode",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 65,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestDeploymentAcceptanceRequiresReadyStripeContract",
+        "TestEveryStripeOperatorScriptPinsSameVersion",
+        "TestSignedStripeWebhookRejectsContractDriftBeforeEffect",
+        "TestStripeEventContractBindsVersionAndLivemode",
+        "TestStripeGetUsesPinnedContract",
+        "TestStripeProviderSourcesCannotBypassPinnedTransport",
+        "TestStripeTransportPinsVersionImmediatelyBeforeIO"
+      ],
+      "source_target": "control/stripe_api_contract.go"
+    },
+    {
+      "authority_domain": "stripe_money",
+      "class": "DB",
+      "description": "Stripe billing bypasses the pinned transport",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 66,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestBillingCustomerCanonicalSchema",
+        "TestChargePaymentIntentRequiresExactTerminalCashFact",
+        "TestChargePaymentIntentResponseLossKeepsIdempotencyKey",
+        "TestLedgerAmountDomainWideIntegration",
+        "TestMoneyDomainRejectsOversizeValues",
+        "TestMoneyUSDDomainBounds",
+        "TestNoRawLedgerInsertsOutsideWriter",
+        "TestReversalCASTerminalIntegration",
+        "TestReversalPayoutPauseAndResumeIntegration",
+        "TestRoundUSDUnifiesHistoricalHelpers",
+        "TestSimulatorPayoutReversalIdempotent",
+        "TestStripeChargeRefundHTTPShape",
+        "TestStripePaymentIntentFeeCashBindsCurrencyAndExactMinorUnits",
+        "TestStripeTransferReversalHTTPIdempotentShape",
+        "TestStripeWebhookRetriesSavedCardDatabaseFailures",
+        "TestValidateBillingPMUpdateCount",
+        "TestVerifyStripeSig",
+        "TestVerifyStripeSigRejectsReplayOutsideTolerance"
+      ],
+      "source_target": "control/billing.go"
+    },
+    {
+      "authority_domain": "payout",
+      "class": "DB",
+      "description": "Stripe payout bypasses the pinned transport",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 67,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestAuthorizePayoutSubsidyWithinBalanceRefuseBeyondIdempotent",
+        "TestFinalizePayoutTerminalStatesAndSecondIsNoOp",
+        "TestLedgerAmountDomainWideIntegration",
+        "TestManualExportPayout",
+        "TestManualExportPayoutWritesCurrencyBoundMinorUnits",
+        "TestMarkPayoutRefusesReleasedWithoutRef",
+        "TestMoneyDomainRejectsOversizeValues",
+        "TestMoneyUSDDomainBounds",
+        "TestNoRawLedgerInsertsOutsideWriter",
+        "TestPayoutReleaseAtEnforcesServerFloor",
+        "TestReservePayoutFundingConcurrentDoesNotOversubscribe",
+        "TestReservePayoutFundingIdempotentDoesNotDoubleReserve",
+        "TestReservePayoutFundingUnderfundingFailsClosed",
+        "TestResolveDisputeBlocksPayoutTerminalControlsNoDoubleRefund",
+        "TestReversalCASTerminalIntegration",
+        "TestReversalPayoutPauseAndResumeIntegration",
+        "TestRoundUSDUnifiesHistoricalHelpers",
+        "TestSimulatorPayoutReversalIdempotent",
+        "TestSplitFrozenChargeDoesNotLeakBuyerSafetyFeeToSupplier",
+        "TestSplitSupplierLiabilityMicrosFloorsCashAndCarriesExactly",
+        "TestStripeChargeRefundHTTPShape",
+        "TestStripeIdempotencyKey",
+        "TestStripeTransferReversalHTTPIdempotentShape",
+        "TestWorkerEarningsMatchesLedgerRows"
+      ],
+      "source_target": "control/payment.go"
+    },
+    {
+      "authority_domain": "runtime_economics",
+      "class": "PURE",
+      "description": "supplier entitlement stops cancelling unitsPerSec",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 68,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestCellEconomicsProjectionBindsAllNamedTerms",
+        "TestCellEconomicsProjectionMatchesMeasuredVO",
+        "TestCellEconomicsReliabilityCanBreakATie",
+        "TestCellEconomicsStillTiesWithoutBreakingCancellation",
+        "TestCensusUnitsPerSecCancels",
+        "TestProjectionIsNotAPricingDecision",
+        "TestProviderCostDefectIsNotSilent",
+        "TestSettledPricingDecisionMoneyDoesNotMoveUnderReprojection",
+        "TestWriteCellEconomicsCensusReceipt"
+      ],
+      "source_target": "control/runtime_cell_economics.go"
+    },
+    {
+      "authority_domain": "runtime_economics",
+      "class": "PURE",
+      "description": "throughput re-enters the expanded entitlement form",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 69,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestCellEconomicsProjectionBindsAllNamedTerms",
+        "TestCellEconomicsProjectionMatchesMeasuredVO",
+        "TestCellEconomicsReliabilityCanBreakATie",
+        "TestCellEconomicsStillTiesWithoutBreakingCancellation",
+        "TestCensusUnitsPerSecCancels",
+        "TestProjectionIsNotAPricingDecision",
+        "TestProviderCostDefectIsNotSilent",
+        "TestSettledPricingDecisionMoneyDoesNotMoveUnderReprojection",
+        "TestWriteCellEconomicsCensusReceipt"
+      ],
+      "source_target": "control/runtime_cell_economics.go"
+    },
+    {
+      "authority_domain": "runtime_selection",
+      "class": "PURE",
+      "description": "a cost tie is reported as a cost win",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 70,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestShadowSelectionBreaksTiesTowardWhatAdmissionChose",
+        "TestShadowSelectionConsidersTheProvenCellAdmissionCannotRoute",
+        "TestShadowSelectionIsRecordedAndImmutable",
+        "TestShadowSelectionRecordsWhyACellWasExcluded"
+      ],
+      "source_target": "control/runtime_shadow_selection.go"
+    },
+    {
+      "authority_domain": "runtime_selection",
+      "class": "PURE",
+      "description": "a true tie manufactures a winner",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 71,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestShadowSelectionBreaksTiesTowardWhatAdmissionChose",
+        "TestShadowSelectionConsidersTheProvenCellAdmissionCannotRoute",
+        "TestShadowSelectionIsRecordedAndImmutable",
+        "TestShadowSelectionRecordsWhyACellWasExcluded"
+      ],
+      "source_target": "control/runtime_shadow_selection.go"
+    },
+    {
+      "authority_domain": "runtime_selection",
+      "class": "PURE",
+      "description": "latency noise floor stops guarding the ratio band",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 72,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestShadowSelectionBreaksTiesTowardWhatAdmissionChose",
+        "TestShadowSelectionConsidersTheProvenCellAdmissionCannotRoute",
+        "TestShadowSelectionIsRecordedAndImmutable",
+        "TestShadowSelectionRecordsWhyACellWasExcluded"
+      ],
+      "source_target": "control/runtime_shadow_selection.go"
+    },
+    {
+      "authority_domain": "evidence_authority",
+      "class": "PURE",
+      "description": "an unbound actual is allowed to rule on a prior claim",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 73,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestDecideMeasuredShadowNamesThroughputOnCostTie",
+        "TestDecideMeasuredShadowRecordsTrueTie",
+        "TestDecideMeasuredShadowRefusesAWinnerOnAProportionallyTinyGap",
+        "TestDecideMeasuredShadowRefusesAWinnerOnAnAbsolutelyTinyGap",
+        "TestDecideMeasuredShadowStrictCostWin",
+        "TestEconomicSelectorTwoCases",
+        "TestGovernedComparisonNoPriorKeepsLadderPrediction",
+        "TestGovernedComparisonWillNotRuleOnPriorFromUnboundActuals",
+        "TestRankedByMeasuredCostDoesNotClaimCostWinOnTie",
+        "TestWriteEconomicSelectorProofReceipt",
+        "TestWriteGovernedComparisonReceipt"
+      ],
+      "source_target": "control/runtime_governed_comparison.go"
+    },
+    {
+      "authority_domain": "evidence_authority",
+      "class": "PURE",
+      "description": "provenance takes the strongest input instead of the weakest",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 74,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestDecideMeasuredShadowNamesThroughputOnCostTie",
+        "TestDecideMeasuredShadowRecordsTrueTie",
+        "TestDecideMeasuredShadowRefusesAWinnerOnAProportionallyTinyGap",
+        "TestDecideMeasuredShadowRefusesAWinnerOnAnAbsolutelyTinyGap",
+        "TestDecideMeasuredShadowStrictCostWin",
+        "TestEconomicSelectorTwoCases",
+        "TestGovernedComparisonNoPriorKeepsLadderPrediction",
+        "TestGovernedComparisonWillNotRuleOnPriorFromUnboundActuals",
+        "TestRankedByMeasuredCostDoesNotClaimCostWinOnTie",
+        "TestWriteEconomicSelectorProofReceipt",
+        "TestWriteGovernedComparisonReceipt"
+      ],
+      "source_target": "control/runtime_governed_comparison.go"
+    },
+    {
+      "authority_domain": "runtime_economics",
+      "class": "PURE",
+      "description": "frozen per-unit cost is taken from the raw accumulator",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 75,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestCombinedCostRefusesToReportHalfATotal",
+        "TestFrozenRuntimeCellCostSumRefusesUnknownAsZero",
+        "TestFrozenRuntimeCellDigestCoversEveryTerm",
+        "TestFrozenRuntimeCellEconomicsIsBoundAtAdmission",
+        "TestFrozenRuntimeCellEconomicsSurvivesBenchmarkRevalidation",
+        "TestFrozenRuntimeCellIsDeterministicAcrossBuilds",
+        "TestFrozenRuntimeCellPerUnitDividesThePublishedTotal",
+        "TestLegacyPricingDecisionWithoutFrozenCellStillReplays"
+      ],
+      "source_target": "control/runtime_cell_admission_binding.go"
+    },
+    {
+      "authority_domain": "runtime_economics",
+      "class": "PURE",
+      "description": "half a combined cost is reported as the whole cost",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 76,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestCombinedCostRefusesToReportHalfATotal",
+        "TestFrozenRuntimeCellCostSumRefusesUnknownAsZero",
+        "TestFrozenRuntimeCellDigestCoversEveryTerm",
+        "TestFrozenRuntimeCellEconomicsIsBoundAtAdmission",
+        "TestFrozenRuntimeCellEconomicsSurvivesBenchmarkRevalidation",
+        "TestFrozenRuntimeCellIsDeterministicAcrossBuilds",
+        "TestFrozenRuntimeCellPerUnitDividesThePublishedTotal",
+        "TestLegacyPricingDecisionWithoutFrozenCellStillReplays"
+      ],
+      "source_target": "control/runtime_cell_admission_binding.go"
+    },
+    {
+      "authority_domain": "runtime_economics",
+      "class": "PURE",
+      "description": "true net is published while a category is unknown",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 77,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestCombinedCostRefusesToReportHalfATotal",
+        "TestFrozenRuntimeCellCostSumRefusesUnknownAsZero",
+        "TestFrozenRuntimeCellDigestCoversEveryTerm",
+        "TestFrozenRuntimeCellEconomicsIsBoundAtAdmission",
+        "TestFrozenRuntimeCellEconomicsSurvivesBenchmarkRevalidation",
+        "TestFrozenRuntimeCellIsDeterministicAcrossBuilds",
+        "TestFrozenRuntimeCellPerUnitDividesThePublishedTotal",
+        "TestLegacyPricingDecisionWithoutFrozenCellStillReplays"
+      ],
+      "source_target": "control/runtime_cell_admission_binding.go"
+    },
+    {
+      "authority_domain": "runtime_economics",
+      "class": "PURE",
+      "description": "a partial cost sum calls itself complete",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 78,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestCombinedCostRefusesToReportHalfATotal",
+        "TestFrozenRuntimeCellCostSumRefusesUnknownAsZero",
+        "TestFrozenRuntimeCellDigestCoversEveryTerm",
+        "TestFrozenRuntimeCellEconomicsIsBoundAtAdmission",
+        "TestFrozenRuntimeCellEconomicsSurvivesBenchmarkRevalidation",
+        "TestFrozenRuntimeCellIsDeterministicAcrossBuilds",
+        "TestFrozenRuntimeCellPerUnitDividesThePublishedTotal",
+        "TestLegacyPricingDecisionWithoutFrozenCellStillReplays"
+      ],
+      "source_target": "control/runtime_cell_admission_binding.go"
+    },
+    {
+      "authority_domain": "runtime_economics",
+      "class": "PURE",
+      "description": "the block stops naming its own unknown terms",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 79,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestCombinedCostRefusesToReportHalfATotal",
+        "TestFrozenRuntimeCellCostSumRefusesUnknownAsZero",
+        "TestFrozenRuntimeCellDigestCoversEveryTerm",
+        "TestFrozenRuntimeCellEconomicsIsBoundAtAdmission",
+        "TestFrozenRuntimeCellEconomicsSurvivesBenchmarkRevalidation",
+        "TestFrozenRuntimeCellIsDeterministicAcrossBuilds",
+        "TestFrozenRuntimeCellPerUnitDividesThePublishedTotal",
+        "TestLegacyPricingDecisionWithoutFrozenCellStillReplays"
+      ],
+      "source_target": "control/runtime_cell_admission_binding.go"
+    },
+    {
+      "authority_domain": "pricing",
+      "class": "PURE",
+      "description": "a legacy decision is retro-fitted with a frozen cell block",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 80,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestAttachRealtimeContractPricingRefusesDigestAndLegacyAuthorityDrift",
+        "TestAttachRealtimeReusePricingRefusesPersistedAuthorityDrift",
+        "TestBoundQuoteCatalogueSelectionNeverReadsCurrentModelPrice",
+        "TestCatalogueAnchoredValidationRequiresStore",
+        "TestDistributedPricingDecisionUsesExplicitUnknownCostStates",
+        "TestExactReusePricingHasNoPhysicalSupplierOrPlacement",
+        "TestFixedPointPricingConservesAndRefusesFalseTrueNet",
+        "TestMediaRenderingPricingUsesDeclaredPixelsNotSceneBytes",
+        "TestPricingDecisionDigestBindsEveryEconomicAuthorityFamily",
+        "TestPricingDecisionRejectsArbitraryPositiveSupplierAdmissionRate",
+        "TestQuoteFrozenSupplierRateSurvivesTheRevalidationBoundary",
+        "TestRealtimePricingDecisionBindsExactCompositeAuthority",
+        "TestRealtimePricingDecisionRefusesCurrencyMismatchAndZeroFloor",
+        "TestRealtimePricingDecisionRefusesTamperingAndCeilingBreach",
+        "TestRealtimeReusePricingDecisionBindsZeroPhysicalExactAuthority",
+        "TestRealtimeReusePricingDecisionRefusesTamperCurrencyCeilingAndClass",
+        "TestStoreAnchoredPricingFailsClosedOnUnresolvableSchedule",
+        "TestStoreAnchoredPricingRejectsRewrittenCatalogueFields",
+        "TestStoreAnchoredPricingSurvivesLegitimateReprice",
+        "TestStoredPricingDecisionCannotCertifyItsOwnSupplierRate",
+        "TestV4PricingBillableUnitsUseFrozenSettlementAuthority"
+      ],
+      "source_target": "control/pricing_decision.go"
+    },
+    {
+      "authority_domain": "runtime_economics",
+      "class": "PURE",
+      "description": "an ASSUMED term is allowed to rule on money",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 81,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestCostTieBreaksWhenAGovernedTermDiffers",
+        "TestCostTieDoesNotSwallowAGovernedProviderDifference",
+        "TestCostTieNamesTheAuthorityAndTheMargin",
+        "TestCostTieRefusesWithoutTwoMeasuredCells",
+        "TestCostTieReportsBlockedTermsWithTheirReason",
+        "TestWeakerKnowledgeTakesTheLessAuthoritativeSide"
+      ],
+      "source_target": "control/runtime_cost_tie_authority.go"
+    },
+    {
+      "authority_domain": "runtime_economics",
+      "class": "PURE",
+      "description": "a comparison takes the stronger knowledge instead of the weaker",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 82,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestCostTieBreaksWhenAGovernedTermDiffers",
+        "TestCostTieDoesNotSwallowAGovernedProviderDifference",
+        "TestCostTieNamesTheAuthorityAndTheMargin",
+        "TestCostTieRefusesWithoutTwoMeasuredCells",
+        "TestCostTieReportsBlockedTermsWithTheirReason",
+        "TestWeakerKnowledgeTakesTheLessAuthoritativeSide"
+      ],
+      "source_target": "control/runtime_cost_tie_authority.go"
+    },
+    {
+      "authority_domain": "runtime_economics",
+      "class": "PURE",
+      "description": "a real cost difference is still reported as a forced tie",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 83,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestCostTieBreaksWhenAGovernedTermDiffers",
+        "TestCostTieDoesNotSwallowAGovernedProviderDifference",
+        "TestCostTieNamesTheAuthorityAndTheMargin",
+        "TestCostTieRefusesWithoutTwoMeasuredCells",
+        "TestCostTieReportsBlockedTermsWithTheirReason",
+        "TestWeakerKnowledgeTakesTheLessAuthoritativeSide"
+      ],
+      "source_target": "control/runtime_cost_tie_authority.go"
+    },
+    {
+      "authority_domain": "runtime_economics",
+      "class": "PURE",
+      "description": "a governed term that differs is swallowed by the tie verdict",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 84,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestCostTieBreaksWhenAGovernedTermDiffers",
+        "TestCostTieDoesNotSwallowAGovernedProviderDifference",
+        "TestCostTieNamesTheAuthorityAndTheMargin",
+        "TestCostTieRefusesWithoutTwoMeasuredCells",
+        "TestCostTieReportsBlockedTermsWithTheirReason",
+        "TestWeakerKnowledgeTakesTheLessAuthoritativeSide"
+      ],
+      "source_target": "control/runtime_cost_tie_authority.go"
+    }
+  ],
+  "version": 1
+}

@@ -27,8 +27,13 @@ MERC_MUTATION_LIST_DETAIL="${MERC_MUTATION_LIST_DETAIL:-0}"
 MERC_MUTATION_CASE_IDS="${MERC_MUTATION_CASE_IDS:-}"
 MERC_MUTATION_DB_PREFIX="${MERC_MUTATION_DB_PREFIX:-merc_mutation}"
 MERC_MUTATION_TEST_STRATEGY="${MERC_MUTATION_TEST_STRATEGY:-full}"
+MERC_MUTATION_DB_TEMPLATE="${MERC_MUTATION_DB_TEMPLATE:-}"
+MERC_MUTATION_TIMINGS_FILE="${MERC_MUTATION_TIMINGS_FILE:-}"
+MERC_MUTATION_GLOBAL_UNIT_PREFLIGHT="${MERC_MUTATION_GLOBAL_UNIT_PREFLIGHT:-0}"
 MUTATION_LOCK=""
 BACKUP=""
+MUTATION_OBSERVATION=""
+MUTATION_PATHWAY=""
 
 case "$MERC_MUTATION_TEST_STRATEGY" in
   full|contracts|adaptive) ;;
@@ -111,7 +116,7 @@ run_unit_tests() {
   return 1
 }
 
-run_contract_tests() {
+contract_selector() {
   local source="$1"
   local selector
   selector="$(python3 scripts/mutation-test-contracts.py --root . --source "$source" --selector)" || return 2
@@ -119,12 +124,66 @@ run_contract_tests() {
     echo "mutation-test: contract selector is empty for control/$source" >&2
     return 2
   }
+  printf '%s\n' "$selector"
+}
+
+observe_contract_log() {
+  local source="$1" log="$2" status="$3"
+  local -a arguments
+  local test_name
+  arguments=(--log "$log" --exit-code "$status")
+  while IFS= read -r test_name; do
+    [ -n "$test_name" ] || continue
+    arguments+=(--expected "$test_name")
+  done < <(python3 scripts/mutation-test-contracts.py --root . --source "$source")
+  if ! MUTATION_OBSERVATION="$(python3 scripts/mutation-contract-observer.py "${arguments[@]}")"; then
+    echo "mutation-test: contract execution is infrastructure, not a mutation catch: $MUTATION_OBSERVATION" >&2
+    cat "$log" >&2 || true
+    return 2
+  fi
+  return 0
+}
+
+run_unit_contract_tests() {
+  local source="$1" label="$2" selector log status
+  selector="$(contract_selector "$source")" || return 2
+  log="${BACKUP:-${TMPDIR:-/tmp}}/mutation-contract-${label}-${source%.go}-unit.json"
+  (
+    cd "$CONTROL" &&
+      env -u MERC_TEST_DATABASE_URL MERC_ALLOW_SKIPPING_DB_TESTS=1 \
+        go test -json -count=1 -timeout=2m -run "$selector" .
+  ) >"$log" 2>&1
+  status=$?
+  observe_contract_log "$source" "$log" "$status"
+}
+
+run_db_contract_tests() {
+  local source="$1" label="$2" selector log status
+  selector="$(contract_selector "$source")" || return 2
+  log="${BACKUP:-${TMPDIR:-/tmp}}/mutation-contract-${label}-${source%.go}-db.json"
   # Contract tests are bounded independently of the full-package default. The
   # clean-source preflight and the mutant both execute this exact selector, so a
   # missing or renamed test can never silently count as caught.
   MERC_ISOLATED_TEST_DB_PREFIX="$MERC_MUTATION_DB_PREFIX" \
+    MERC_ISOLATED_TEST_DB_TEMPLATE="$MERC_MUTATION_DB_TEMPLATE" \
     bash scripts/with-isolated-test-db.sh \
-    bash -c 'cd "$1" && go test -count=1 -timeout=2m -run "$2" .' _ "$CONTROL" "$selector"
+    bash -c 'cd "$1" && go test -json -count=1 -timeout=2m -run "$2" .' _ "$CONTROL" "$selector" \
+    >"$log" 2>&1
+  status=$?
+  observe_contract_log "$source" "$log" "$status"
+}
+
+run_contract_tests() {
+  local source="$1"
+  run_db_contract_tests "$source" "contract" || return $?
+  case "$MUTATION_OBSERVATION" in
+    caught:*) return 10 ;;
+    pass:*) return 0 ;;
+    *)
+      echo "mutation-test: database contract did not execute a declared invariant for control/$source: $MUTATION_OBSERVATION" >&2
+      return 2
+      ;;
+  esac
 }
 
 run_mutation_tests() {
@@ -135,26 +194,53 @@ run_mutation_tests() {
       return $?
       ;;
     adaptive)
-      # The unit suite catches most arithmetic/authority defects in seconds.
-      # A pass is deliberately not a pass for the mutant: it must also pass the
-      # source-specific database contract, where it should be caught.
-      if ! run_unit_tests "mutant"; then
-        return 1
-      fi
-      run_contract_tests "$source"
-      return $?
+      # Run the exact source contract without a database first. This is not a
+      # weaker suite: a clean preflight proves the same named invariants run;
+      # a pass or deliberate DB skip must still fail the isolated DB contract.
+      # That avoids charging every mutation for unrelated package tests.
+      run_unit_contract_tests "$source" "mutant" || return $?
+      case "$MUTATION_OBSERVATION" in
+        caught:*)
+          MUTATION_PATHWAY="PURE"
+          return 10
+          ;;
+        pass:*|skipped:*)
+          run_contract_tests "$source"
+          case "$?" in
+            10) MUTATION_PATHWAY="DB"; return 10 ;;
+            0) MUTATION_PATHWAY="DB"; return 0 ;;
+            *) return 2 ;;
+          esac
+          ;;
+        *)
+          echo "mutation-test: unexpected unit contract observation for control/$source: $MUTATION_OBSERVATION" >&2
+          return 2
+          ;;
+      esac
       ;;
   esac
   if [ "$MERC_MUTATION_UNIT_ONLY" = "1" ]; then
-    run_unit_tests
+    if run_unit_tests; then
+      MUTATION_PATHWAY="UNIT_FULL"
+      return 0
+    fi
+    MUTATION_PATHWAY="UNIT_FULL"
+    return 10
   else
     # Every injected defect gets a clean database. Several money-path tests
     # correctly query platform-wide state; reusing one database across mutants
     # lets fixture residue hide a new row behind a LIMIT and makes a mutation
     # result describe the previous mutant's database rather than this source.
     MERC_ISOLATED_TEST_DB_PREFIX="$MERC_MUTATION_DB_PREFIX" \
+      MERC_ISOLATED_TEST_DB_TEMPLATE="$MERC_MUTATION_DB_TEMPLATE" \
       bash scripts/with-isolated-test-db.sh \
       bash -c 'cd "$1" && go test -count=1 ./... >/dev/null 2>&1' _ "$CONTROL"
+    if [ "$?" -eq 0 ]; then
+      MUTATION_PATHWAY="FULL"
+      return 0
+    fi
+    MUTATION_PATHWAY="FULL"
+    return 10
   fi
 }
 
@@ -165,7 +251,7 @@ preflight_mutation_strategy() {
       return 0
       ;;
     adaptive)
-      if ! run_unit_tests "baseline"; then
+      if [ "$MERC_MUTATION_GLOBAL_UNIT_PREFLIGHT" = "1" ] && ! run_unit_tests "baseline"; then
         echo "mutation-test: clean unit-suite preflight failed" >&2
         return 1
       fi
@@ -186,7 +272,18 @@ preflight_mutation_strategy() {
       *"|$source|"*) continue ;;
     esac
     checked_sources="${checked_sources}${source}|"
-    if ! run_contract_tests "$source"; then
+    if ! run_unit_contract_tests "$source" "baseline"; then
+      echo "mutation-test: clean unit contract preflight failed for control/$source" >&2
+      return 1
+    fi
+    case "$MUTATION_OBSERVATION" in
+      pass:*|skipped:*) ;;
+      *)
+        echo "mutation-test: clean unit contract did not establish a valid baseline for control/$source: $MUTATION_OBSERVATION" >&2
+        return 1
+        ;;
+    esac
+    if ! run_db_contract_tests "$source" "baseline" || [[ "$MUTATION_OBSERVATION" != pass:* ]]; then
       echo "mutation-test: clean contract preflight failed for control/$source" >&2
       return 1
     fi
@@ -338,6 +435,38 @@ case_is_selected() {
   esac
 }
 
+mutation_clock() {
+  python3 - <<'PY'
+import time
+print(f"{time.monotonic():.6f}")
+PY
+}
+
+record_mutation_timing() {
+  local case_id="$1" source="$2" description="$3" result="$4" pathway="$5" started="$6" finished="$7"
+  [ -n "$MERC_MUTATION_TIMINGS_FILE" ] || return 0
+  python3 - "$MERC_MUTATION_TIMINGS_FILE" "$case_id" "$source" "$description" "$result" "$pathway" "$started" "$finished" <<'PY'
+import json
+import os
+import sys
+
+path, case_id, source, description, result, pathway, started, finished = sys.argv[1:]
+start = float(started)
+end = float(finished)
+record = {
+    "case_id": int(case_id),
+    "source": source,
+    "description": description,
+    "result": result,
+    "pathway": pathway or "UNKNOWN",
+    "duration_seconds": round(max(0.0, end - start), 6),
+    "candidate": os.popen("git rev-parse HEAD").read().strip(),
+}
+with open(path, "a", encoding="utf-8") as handle:
+    handle.write(json.dumps(record, sort_keys=True, separators=(",", ":")) + "\n")
+PY
+}
+
 if ! preflight_mutation_strategy; then
   exit 2
 fi
@@ -353,6 +482,8 @@ declare -a SURVIVORS=()
 # itself. Stale patterns now fail the run.
 stale=0
 declare -a STALE=()
+infrastructure=0
+declare -a INFRASTRUCTURE=()
 case_index=0
 selected_cases=0
 
@@ -375,32 +506,56 @@ for entry in "${MUTATIONS[@]}"; do
 
   src="$CONTROL/$file"
   [ -f "$src" ] || {
+    case_started="$(mutation_clock)"
     printf '%-58s %s\n' "$desc" "STALE (missing $file)"
     stale=$((stale+1)); STALE+=("$desc — control/$file no longer exists")
+    record_mutation_timing "$case_index" "$file" "$desc" "stale" "NONE" "$case_started" "$(mutation_clock)"
     continue
   }
 
+  case_started="$(mutation_clock)"
+  MUTATION_PATHWAY=""
   cp "$src" "$BACKUP/${file//\//__}.bak"
   sed -i '' "$expr" "$src" 2>/dev/null || sed -i "$expr" "$src" 2>/dev/null
 
   if ! cmp -s "$src" "$BACKUP/${file//\//__}.bak"; then
     # Build first: a mutation that does not compile is not a useful test.
     if ! (cd "$CONTROL" && go build ./... >/dev/null 2>&1); then
-      printf '%-58s %s\n' "$desc" "skip (does not compile)"
-    elif run_mutation_tests "$file"; then
-      printf '%-58s %s\n' "$desc" "SURVIVED"
-      survived=$((survived+1))
-      SURVIVORS+=("$desc")
+      printf '%-58s %s\n' "$desc" "INFRASTRUCTURE (mutation does not compile)"
+      infrastructure=$((infrastructure+1))
+      INFRASTRUCTURE+=("$desc — injected source does not compile")
+      result="infrastructure"
     else
-      printf '%-58s %s\n' "$desc" "caught"
-      caught=$((caught+1))
+      run_mutation_tests "$file"
+      mutation_status=$?
+      case "$mutation_status" in
+        0)
+          printf '%-58s %s\n' "$desc" "SURVIVED"
+          survived=$((survived+1))
+          SURVIVORS+=("$desc")
+          result="survived"
+          ;;
+        10)
+          printf '%-58s %s\n' "$desc" "caught"
+          caught=$((caught+1))
+          result="caught"
+          ;;
+        *)
+          printf '%-58s %s\n' "$desc" "INFRASTRUCTURE (contract did not prove a legitimate catch)"
+          infrastructure=$((infrastructure+1))
+          INFRASTRUCTURE+=("$desc — contract execution failed closed")
+          result="infrastructure"
+          ;;
+      esac
     fi
   else
     printf '%-58s %s\n' "$desc" "STALE (pattern did not apply)"
     stale=$((stale+1)); STALE+=("$desc — sed pattern no longer matches control/$file")
+    result="stale"
   fi
 
   cp "$BACKUP/${file//\//__}.bak" "$src"
+  record_mutation_timing "$case_index" "$file" "$desc" "$result" "$MUTATION_PATHWAY" "$case_started" "$(mutation_clock)"
 done
 
 if [ -n "$MERC_MUTATION_CASE_IDS" ]; then
@@ -412,7 +567,7 @@ if [ -n "$MERC_MUTATION_CASE_IDS" ]; then
 fi
 
 echo
-echo "mutation-test: $caught caught, $survived survived, $stale stale"
+echo "mutation-test: $caught caught, $survived survived, $stale stale, $infrastructure infrastructure"
 status=0
 if [ "$survived" -gt 0 ]; then
   echo "surviving mutations are gaps in the suite:"
@@ -422,6 +577,11 @@ fi
 if [ "$stale" -gt 0 ]; then
   echo "stale mutations tested nothing and must be repointed at the current source:"
   for s in "${STALE[@]}"; do echo "  - $s"; done
+  status=1
+fi
+if [ "$infrastructure" -gt 0 ]; then
+  echo "mutation infrastructure failures are neither catches nor survivors:"
+  for failure in "${INFRASTRUCTURE[@]}"; do echo "  - $failure"; done
   status=1
 fi
 exit "$status"

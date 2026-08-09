@@ -9,19 +9,21 @@
 # campaign useful wall-clock parallelism without letting concurrent tests share
 # source bytes, database state, or one server's WAL lock.
 #
-# The default deliberately preserves interactive headroom on a 28-core
-# development host: up to 6 one-runtime workers, a 25-minute mutation budget,
-# and explicit invariant-test contracts. The run fails rather than quietly
-# reducing coverage when any worker, mutation, restoration proof, or budget
-# fails. Adjust only through explicit environment variables:
+# The runner is designed for a frozen candidate worktree, not a developer's
+# active tree. It keeps four cores free on the 28-core development host and
+# uses up to nine single-runtime workers, a 15-minute certification ceiling,
+# source-specific observed contracts, and immutable shared Go caches. The run
+# fails rather than quietly reducing coverage when any worker, mutation,
+# restoration proof, or budget fails. Adjust only through explicit variables:
 #
-#   MERC_MUTATION_WORKERS=6               # 1..32; default min(6, CPUs-4)
-#   MERC_MUTATION_WALLCLOCK_SECONDS=1500  # default 25 minutes
+#   MERC_MUTATION_WORKERS=9               # 1..32; default min(9, CPUs-4)
+#   MERC_MUTATION_WALLCLOCK_SECONDS=900   # default 15-minute certification ceiling
 #   MERC_MUTATION_POSTGRES_PORT_BASE=0     # 0 finds an unused local range
 #   MERC_MUTATION_TEST_STRATEGY=adaptive   # adaptive (default), contracts, or full
 #   MERC_MUTATION_GOMAXPROCS=1             # per-worker runtime CPU ceiling
 #   MERC_MUTATION_PARALLEL_CASE_IDS=1,25   # optional calibrated subset
 #   MERC_MUTATION_KEEP_WORKDIR=1          # retain failed shard logs/worktrees
+#   MERC_MUTATION_TIMINGS_OUT=/tmp/run.json # external, validated timing record
 #
 #   bash scripts/mutation-test-parallel.sh --plan
 #   bash scripts/mutation-test-parallel.sh
@@ -55,15 +57,16 @@ fi
 default_workers=$((cpu_count - 4))
 if [ "$default_workers" -lt 1 ]; then
   default_workers=1
-elif [ "$default_workers" -gt 6 ]; then
-  default_workers=6
+elif [ "$default_workers" -gt 9 ]; then
+  default_workers=9
 fi
 workers="${MERC_MUTATION_WORKERS:-$default_workers}"
-budget_seconds="${MERC_MUTATION_WALLCLOCK_SECONDS:-1500}"
+budget_seconds="${MERC_MUTATION_WALLCLOCK_SECONDS:-900}"
 postgres_port_base="${MERC_MUTATION_POSTGRES_PORT_BASE:-0}"
 test_strategy="${MERC_MUTATION_TEST_STRATEGY:-adaptive}"
 go_max_procs="${MERC_MUTATION_GOMAXPROCS:-1}"
 parallel_case_ids="${MERC_MUTATION_PARALLEL_CASE_IDS:-}"
+timings_out="${MERC_MUTATION_TIMINGS_OUT:-}"
 if ! [[ "$workers" =~ ^[1-9][0-9]*$ ]] || [ "$workers" -gt 32 ]; then
   echo "MERC_MUTATION_WORKERS must be an integer from 1 through 32" >&2
   exit 2
@@ -89,6 +92,25 @@ if ! [[ "$go_max_procs" =~ ^[1-9][0-9]*$ ]]; then
 fi
 if [ -n "$parallel_case_ids" ] && ! [[ "$parallel_case_ids" =~ ^[1-9][0-9]*(,[1-9][0-9]*)*$ ]]; then
   echo "MERC_MUTATION_PARALLEL_CASE_IDS must be comma-separated positive case IDs" >&2
+  exit 2
+fi
+if [ -n "$timings_out" ] && [ ! -d "$(dirname "$timings_out")" ]; then
+  echo "MERC_MUTATION_TIMINGS_OUT parent directory does not exist" >&2
+  exit 2
+fi
+if [ -n "$timings_out" ] && ! python3 - "$ROOT" "$timings_out" <<'PY'
+from pathlib import Path
+import sys
+
+root = Path(sys.argv[1]).resolve()
+target = Path(sys.argv[2]).resolve()
+try:
+    target.relative_to(root)
+except ValueError:
+    raise SystemExit(0)
+raise SystemExit("MERC_MUTATION_TIMINGS_OUT must be outside the frozen candidate tree")
+PY
+then
   exit 2
 fi
 
@@ -141,21 +163,67 @@ if [ "$workers" -gt "$case_count" ]; then
   workers="$case_count"
 fi
 
+if [ ! -f scripts/mutation-manifest.json ]; then
+  echo "parallel mutation test requires scripts/mutation-manifest.json" >&2
+  exit 2
+fi
+python3 scripts/mutation-manifest.py --root . --validate >/dev/null
+
+# First-fit decreasing on measured p90s keeps a slow database contract from
+# being stranded at the end of one shard. On the first calibrated run every
+# unknown weight is identical, so this still produces a complete deterministic
+# plan without inventing performance data.
+case_weight_json="$(python3 - "${case_ids[@]}" <<'PY'
+import json
+import subprocess
+import sys
+
+selected = [int(value) for value in sys.argv[1:]]
+result = subprocess.run(
+    ["python3", "scripts/mutation-manifest.py", "--root", ".", "--weights"],
+    text=True, capture_output=True, check=False,
+)
+if result.returncode:
+    raise SystemExit(result.stderr)
+weights = {}
+for line in result.stdout.splitlines():
+    case_id, weight = line.split("\t")
+    weights[int(case_id)] = float(weight)
+if set(selected) - set(weights):
+    raise SystemExit("mutation manifest did not provide every selected weight")
+print(json.dumps([[case_id, weights[case_id]] for case_id in selected], separators=(",", ":")))
+PY
+)"
+
+declare -a worker_shards=()
+declare -a worker_loads=()
+while IFS=$'\t' read -r planned_worker planned_ids planned_load; do
+  worker_shards[$((planned_worker - 1))]="$planned_ids"
+  worker_loads[$((planned_worker - 1))]="$planned_load"
+done < <(python3 - "$workers" "$case_weight_json" <<'PY'
+import json
+import sys
+
+workers = int(sys.argv[1])
+items = [(int(case_id), float(weight)) for case_id, weight in json.loads(sys.argv[2])]
+bins = [([], 0.0) for _ in range(workers)]
+for case_id, weight in sorted(items, key=lambda value: (-value[1], value[0])):
+    target = min(range(workers), key=lambda index: (bins[index][1], index))
+    bins[target][0].append(case_id)
+    bins[target] = (bins[target][0], bins[target][1] + weight)
+for index, (cases, load) in enumerate(bins, 1):
+    print(f"{index}\t{','.join(str(case_id) for case_id in sorted(cases))}\t{load:.6f}")
+PY
+)
+
 print_plan() {
-  local worker index separator ids
-  printf 'parallel-mutation-test: candidate=%s cases=%s workers=%s budget=%ss db=isolated-clusters strategy=%s gomaxprocs=%s\n' \
+  local worker ids
+  printf 'parallel-mutation-test: candidate=%s cases=%s workers=%s budget=%ss db=isolated-clusters strategy=%s gomaxprocs=%s sharding=weighted-p90\n' \
     "$(git rev-parse HEAD)" "$case_count" "$workers" "$budget_seconds" "$test_strategy" "$go_max_procs"
   worker=1
   while [ "$worker" -le "$workers" ]; do
-    index=$((worker - 1))
-    ids=""
-    separator=""
-    while [ "$index" -lt "$case_count" ]; do
-      ids="${ids}${separator}${case_ids[$index]}"
-      separator=,
-      index=$((index + workers))
-    done
-    printf '  worker %02d: %s\n' "$worker" "$ids"
+    ids="${worker_shards[$((worker - 1))]}"
+    printf '  worker %02d: %s (p90_load=%ss)\n' "$worker" "$ids" "${worker_loads[$((worker - 1))]}"
     worker=$((worker + 1))
   done
 }
@@ -178,6 +246,7 @@ if [ -n "$(git status --porcelain)" ]; then
   echo "parallel mutation test requires a clean frozen candidate" >&2
   exit 2
 fi
+started="$(date +%s)"
 # The detached worktrees below begin with Git LFS pointer text. Verify the
 # candidate's hydrated corpus independently before fan-out, then require each
 # worker to materialize those same local objects. This is intentionally local:
@@ -203,6 +272,8 @@ declare -a worker_pids=()
 declare -a worker_logs=()
 declare -a cluster_dirs=()
 declare -a cluster_ports=()
+declare -a template_names=()
+declare -a worker_timing_files=()
 run_ok=0
 
 cleanup() {
@@ -294,15 +365,23 @@ trap on_signal INT TERM
 
 print_plan
 
+# This is a candidate-level baseline, not one duplicate run per worker. The
+# workers then prove their own exact named contracts against clean source.
+if ! (
+  cd "$ROOT/control" &&
+    env -u MERC_TEST_DATABASE_URL MERC_ALLOW_SKIPPING_DB_TESTS=1 \
+      go test -count=1 -timeout=2m ./...
+) >"$run_root/candidate-unit-baseline.log" 2>&1; then
+  echo "parallel-mutation-test: candidate unit baseline failed" >&2
+  cat "$run_root/candidate-unit-baseline.log" >&2 || true
+  exit 1
+fi
+
 cluster_port_base="$(find_cluster_port_base)"
 
 for ((worker = 1; worker <= workers; worker++)); do
   shard_file="$run_root/shard-$worker.ids"
-  index=$((worker - 1))
-  while [ "$index" -lt "$case_count" ]; do
-    printf '%s\n' "${case_ids[$index]}" >>"$shard_file"
-    index=$((index + workers))
-  done
+  printf '%s\n' "${worker_shards[$((worker - 1))]}" | tr ',' '\n' >"$shard_file"
   worktree="$run_root/worker-$worker"
   git worktree add --detach "$worktree" "$candidate" >/dev/null
   worktrees+=("$worktree")
@@ -341,7 +420,39 @@ for ((worker = 1; worker <= workers; worker++)); do
     --maintenance-db=postgres cx
 done
 
-started="$(date +%s)"
+# Each worker builds one schema-only template from its exact detached source.
+# Every database contract still clones that template into a new database, so
+# mutations never share data, connections, WAL state, or a migrated test DB.
+prepare_template() {
+  local worker="$1" worktree port template template_url
+  worktree="${worktrees[$((worker - 1))]}"
+  port="${cluster_ports[$((worker - 1))]}"
+  template="merc_mutation_template_w${worker}"
+  template_url="postgres://cx@127.0.0.1:${port}/${template}?sslmode=disable"
+  createdb --host=127.0.0.1 --port="$port" --username=cx \
+    --maintenance-db=postgres "$template"
+  (
+    cd "$worktree/control" &&
+      MERC_TEST_DATABASE_URL="$template_url" MERC_MUTATION_TEMPLATE_DB=1 \
+        GOMAXPROCS="$go_max_procs" \
+        go test -count=1 -timeout=2m -run '^TestMutationTemplateSchema$' .
+  ) >"$run_root/template-$worker.log" 2>&1
+}
+
+declare -a template_pids=()
+for ((worker = 1; worker <= workers; worker++)); do
+  prepare_template "$worker" &
+  template_pids+=("$!")
+  template_names[$((worker - 1))]="merc_mutation_template_w${worker}"
+done
+for ((worker = 1; worker <= workers; worker++)); do
+  if ! wait "${template_pids[$((worker - 1))]}"; then
+    echo "parallel-mutation-test: worker $worker could not prepare its schema template" >&2
+    cat "$run_root/template-$worker.log" >&2 || true
+    exit 1
+  fi
+done
+
 for ((worker = 1; worker <= workers; worker++)); do
   worktree="${worktrees[$((worker - 1))]}"
   port="${cluster_ports[$((worker - 1))]}"
@@ -349,11 +460,15 @@ for ((worker = 1; worker <= workers; worker++)); do
   shard_ids="$(paste -sd, "$shard_file")"
   log="$run_root/worker-$worker.log"
   worker_logs+=("$log")
+  timing_file="$run_root/worker-$worker.timings.jsonl"
+  worker_timing_files+=("$timing_file")
   (
     cd "$worktree"
     export MERC_TEST_DATABASE_URL="postgres://cx@127.0.0.1:${port}/cx?sslmode=disable"
     export MERC_MUTATION_CASE_IDS="$shard_ids"
     export MERC_MUTATION_DB_PREFIX="merc_mutation_w${worker}"
+    export MERC_MUTATION_DB_TEMPLATE="${template_names[$((worker - 1))]}"
+    export MERC_MUTATION_TIMINGS_FILE="$timing_file"
     export MERC_MUTATION_TEST_STRATEGY="$test_strategy"
     export GOMAXPROCS="$go_max_procs"
     exec bash scripts/mutation-test.sh
@@ -375,7 +490,7 @@ for ((worker = 1; worker <= workers; worker++)); do
   worktree="${worktrees[$((worker - 1))]}"
   expected="$(wc -l <"$run_root/shard-$worker.ids" | tr -d ' ')"
   summary="$(grep '^mutation-test:' "${worker_logs[$((worker - 1))]}" | tail -n 1 || true)"
-  caught="$(printf '%s\n' "$summary" | sed -n 's/^mutation-test: \([0-9][0-9]*\) caught, 0 survived, 0 stale$/\1/p')"
+  caught="$(printf '%s\n' "$summary" | sed -n 's/^mutation-test: \([0-9][0-9]*\) caught, 0 survived, 0 stale, 0 infrastructure$/\1/p')"
   if [ "$caught" != "$expected" ]; then
     echo "parallel-mutation-test: worker $worker summary mismatch (expected $expected): $summary" >&2
     failed=1
@@ -404,6 +519,66 @@ if [ "$failed" -ne 0 ]; then
   exit 1
 fi
 
+# A timing report is certification input, not candidate evidence. It is written
+# outside the frozen tree only after every worker has proven one legitimate
+# catch per assigned mutation and restored its exact source bytes.
+timing_report="$run_root/mutation-timings.json"
+python3 - "$candidate" "$case_count" "$workers" "$elapsed" "$run_root" "$timing_report" "$timings_out" <<'PY'
+import json
+import os
+import sys
+from pathlib import Path
+
+candidate, case_count, workers, elapsed, run_root, internal, requested = sys.argv[1:]
+case_count = int(case_count)
+workers = int(workers)
+elapsed = int(elapsed)
+root = Path(run_root)
+expected = set()
+for worker in range(1, workers + 1):
+    expected.update(int(value) for value in (root / f"shard-{worker}.ids").read_text().split() if value)
+records = []
+seen = set()
+for worker in range(1, workers + 1):
+    path = root / f"worker-{worker}.timings.jsonl"
+    if not path.is_file():
+        raise SystemExit(f"missing worker timing file: {path}")
+    for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise SystemExit(f"invalid timing record {path}:{line_number}: {exc}") from exc
+        case_id = record.get("case_id")
+        if case_id not in expected or case_id in seen:
+            raise SystemExit(f"timing report has a missing or duplicate mutation case: {case_id!r}")
+        if record.get("candidate") != candidate or record.get("result") != "caught" or record.get("pathway") not in {"PURE", "DB"}:
+            raise SystemExit(f"timing report has a non-certifying mutation record: {case_id!r}")
+        duration = record.get("duration_seconds")
+        if not isinstance(duration, (int, float)) or duration < 0:
+            raise SystemExit(f"timing report has an invalid duration: {case_id!r}")
+        seen.add(case_id)
+        records.append(record)
+if expected != seen or len(expected) != case_count:
+    raise SystemExit(f"timing report coverage mismatch: expected={len(expected)} seen={len(seen)}")
+report = {
+    "version": 1,
+    "candidate": candidate,
+    "workers": workers,
+    "elapsed_seconds": elapsed,
+    "mutations": sorted(records, key=lambda item: item["case_id"]),
+}
+payload = json.dumps(report, indent=2, sort_keys=True) + "\n"
+Path(internal).write_text(payload, encoding="utf-8")
+if requested:
+    target = Path(requested).resolve()
+    temporary = target.with_name(target.name + ".tmp")
+    temporary.write_text(payload, encoding="utf-8")
+    os.replace(temporary, target)
+PY
+
 printf 'parallel-mutation-test: PASS %s caught, 0 survived, 0 stale; %s workers; %ss (budget %ss)\n' \
   "$case_count" "$workers" "$elapsed" "$budget_seconds"
+if [ -n "$timings_out" ]; then
+  printf 'parallel-mutation-test: timing report %s\n' "$timings_out"
+fi
 run_ok=1
