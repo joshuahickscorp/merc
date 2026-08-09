@@ -1056,6 +1056,107 @@ because evidence binding or per-object digests exist.
 12. **Rollback:** Disable the affected locality class if stale hits, isolation
     failure, false savings, or worse absolute outcome latency appears.
 
+### Step 15 shape note — amended 2026-08-09 after reconnaissance
+
+Every claim below was re-verified against `codex/network-v2` at `ed1549ca`.
+
+**Batch cache-aware routing already exists. Treating Step 15 as "expand
+two-worker locality into routing" rebuilds a second scheduler over soft belief.**
+Production `ClaimTasksTx` already ranks on believed prefix depth and model warm
+**below** cost/ask: `cheaper_class_online ASC, cheaper_ask_online ASC, …,
+warm_prefix_depth DESC, warm_for_task DESC` (`control/scheduler.go:1093-1102`).
+Prefix depth is computed from `worker_prefix_state` joined to `job_prefix_chain`
+with a 90s TTL (`:758-786`, `last_seen_warm > now() - interval '90 seconds'` at
+`:779`). Model warm is a 60s `EXISTS` on `worker_model_state` (`:751-755`). The
+pure twin is `RankByCostThenPrefixAffinity` (`control/prefix_placement.go:56`);
+wiring tests pin cost-before-prefix and forbid warm-as-hard-filter
+(`control/prefix_placement_test.go`, `control/prefix_routing_wiring_test.go`).
+
+**Locality is a belief, not a mirror of the engine.**
+`control/prefix_routing.go:49-53` states `worker_prefix_state` is a *model* of
+residency: Merc cannot see the engine KV. Tables exist
+(`control/schema.sql:3364` `worker_prefix_state`, `:3444` `job_prefix_chain`;
+model table at `:1689`). Warmth is written **after** durable commit:
+`completeTaskTx` → `observeAndMarkPrefixForCommit` → optional
+`CorrectPrefixBeliefFromObservation` then `markWorkerWarmForJob`
+(`control/store_tasks.go:516-517`; path `control/prefix_routing_path.go:144-166`,
+`:87-94`). TTL is `prefixWarmTTL = 90s` (`control/prefix_routing.go:104`);
+stale rows are swept at 20×TTL (`:203`). Model residency is heartbeat-written
+(`control/store_workers.go:515-554`).
+
+**Stale `worker_prefix_state` can change the winner inside a cost class without
+appearing on any receipt.** `warm_prefix_depth` is ORDER BY only; it flips which
+eligible worker wins when cost/ask tie. Claim `RETURNING` deliberately does **not**
+expose prefix warmth to the worker client (`control/prefix_routing_wiring_test.go:434-442`;
+production `RETURNING` at `control/scheduler.go:1125`). No batch placement or
+settlement field freezes "I chose worker W because believed depth D at freshness
+T." Because warmth is post-commit, concurrent claimants can pile onto a stale warm
+row until observation correction or TTL. Realtime freezes **offer-declared**
+warmth on the selected rank
+(`RealtimeClearingRankingInputs.Warmth` at `control/realtime_clearing.go:56-74`;
+receipt `control/realtime_store.go:258-279`) — that is a different warmth channel,
+not `worker_prefix_state`.
+
+**The two-worker bound receipt is same-host process placement, not network
+supremacy.** `evidence/perf/prefix-two-worker-latest.json` labels "two workers
+(same host)" and lists `not_exercised`: two suppliers on two machines, cross-supplier
+cache-aware routing, multi-region, paid cloud. Re-proving KV reuse on one Mac does
+not complete a multi-supplier locality claim. Programme ledger status
+`PARTIAL_PHYSICAL` ("two-worker prefix proof; other residency classes absent") is
+the honest ceiling of what that receipt authorizes.
+
+**What is already done (do not re-author):**
+
+- Prefix belief + claim ORDER BY + observation correction + cost-before-warmth
+  tests.
+- Model warm tiebreak via `worker_model_state` / `warm_for_task`.
+- Bound physical cold/warm prefix measurements on this host class (two-worker +
+  single-worker metal evidence under `evidence/perf/`).
+
+**What is genuinely ABSENT (name absences; do not invent tables):**
+
+- PlacementDecision / accepted receipt field that records locality belief, depth,
+  freshness (`last_seen_warm` age or epoch), and whether affinity moved the winner.
+- Governed Capability residency epoch for locality (Step 6 ambition; not live).
+- Control-plane residency / routing substrate for **adapter, dataset, render
+  asset, container layer, compiled kernel, preprocessing**. Render assembly
+  **explicitly refuses** asset locality
+  (`control/render_assembly_receipts.go:70`, `:186`). LoRA evaluation is
+  non-executable for adapter deployment
+  (`control/lora_evaluation_receipts.go:19`).
+- Production money path attributing batch prefix hits as `prefix_reused_input`:
+  the billing class exists (`control/billing_classes.go:23`) and
+  `RecordTokenAccounting` exists (`:126-127`), but **no non-test production
+  caller** writes it.
+- Realtime prefix-trie routing (absent; offer warmth only).
+
+**"Canonical placement consumes governed locality for all implemented residency
+classes" is misleading as written.** Implemented for batch routing today: **prefix
+belief + model warm**. Everything else named in the step objective is absent or
+agent-local. Feeding non-existent classes into Capability/PlacementDecision would
+mint empty authorities — the Step 9-class defect.
+
+**Work that remains real:**
+
+1. When affinity moves the winner inside a cost class, freeze on the accepted
+   placement/claim path: worker id, believed depth and/or model-warm bit,
+   freshness (`last_seen_warm` age or equivalent), and observation-correction
+   status. **Required proof, not optional polish:** "when affinity moves the
+   winner, the receipt shows the freshness it believed." Without that, soft
+   belief is an invisible second scheduler.
+2. Keep cost outranking warmth (already tested); stale/forged warmth must not
+   cross cost class.
+3. Treat other residency classes as **named absences** until a real writer
+   exists. Do not scaffold adapter/dataset/render/container/kernel/preprocess
+   tables for this step.
+4. Do not promote the two-worker receipt into a multi-supplier or network claim.
+
+**Completion, restated:** Batch placement either records locality belief when it
+decided, or refuses to claim "cache-aware" on the receipt. Cost-before-warmth
+holds. Other residency classes remain named absences. Status language: PARTIAL —
+batch prefix/model routing live; belief accountability open; multi-class governed
+locality absent.
+
 ### Step 16 — Make one canonical Workload graph survive compile to receipt
 
 1. **Objective:** Version a single Workload graph that retains dependencies,
@@ -1432,6 +1533,94 @@ twin.
 12. **Rollback:** Withdraw a policy if replay corpus integrity, regret, quality,
     or rollback resolution fails.
 
+### Step 21 shape note — amended 2026-08-09 after reconnaissance
+
+Every claim below was re-verified against `codex/network-v2` at `ed1549ca`.
+
+**Faithful new-policy replay of network decisions requires state that was never
+captured. The step's first obligation is capture (or honest refusal of Mode B),
+not a replay engine over missing inputs.**
+
+What a faithful counterfactual would need and **does not have**:
+
+| Missing substrate | Why it blocks faithful replay |
+|---|---|
+| Full live fleet / claim eligibility at batch claim time | Batch is pull + `SKIP LOCKED`; worker choice is claim-time SQL (`ClaimTasksTx`). No snapshot freezes who was online, asks, cheaper-class deferral, warmth depth, etc. at claim. |
+| Full realtime/service **offer book** at clear | `RealtimeMarketClearingReceipt` freezes selected rank signals + `candidate_count` and selected-offer ranking inputs (`control/realtime_store.go:249-279`, `control/realtime_clearing.go:56-74`) — **not** every candidate's full ranking vector. "Would rank-2 have won under new policy?" cannot be re-derived from the receipt alone. |
+| Coherent network epochs / candidate index | Steps 18–20 product surfaces ABSENT; no epoch identity to pin snapshots to. |
+| Accepted atomic Market→Runtime→Placement→Topology chain | Step 11 chain root ABSENT; there is no single "selected chain" digest. |
+| Matched incumbent/challenger **execution** pair + shared input/cohort digest | Required for causal outcome counterfactuals and for any promotion gate v4 would accept. |
+| Common EvidenceEnvelope root | Step 14 ABSENT (ledger / recon). |
+| Region-health / "failed region healthy" authority | **ABSENT** in control Go (no target to snapshot). |
+| Per-phase duration decomposition | Queue/startup/transfer actuals still absent. |
+
+Reconciliation already records this ceiling:
+`historical_network_replay: ABSENT_BATCH_CELL_REGRET_ONLY`
+(`evidence/state/network-v2-reconciliation.json`).
+
+**What already exists (extend; do not rebuild as a second history authority):**
+
+- **`runtime_shadow_selections`** — immutable batch cell-plane shadow
+  (`control/schema.sql:6300+`; rewrite refused by
+  `cx_refuse_shadow_selection_rewrite` at `:6464-6474`). Writer
+  `Store.RecordShadowSelection` (`control/runtime_shadow_selection.go:532`);
+  policy `eligibility-and-measured-supplier-liability-v3` (`:54`). Caller is
+  **post-commit** on submit: errors logged and dropped; shadow **cannot veto**
+  admission (`control/api.go:1676-1710` — "a selector that could refuse a submit
+  would be a router, and this one is not allowed to route"). Captures considered/
+  excluded cells, routed vs shadow cell, basis, topology plan, execution mode.
+  Ordinary admission freezes a **singleton** cell; multi-candidate scoring is
+  over the directed set, shadow-only — regret on ordinary traffic is often
+  identically zero by construction for routed vs considered singleton.
+- **`SelectorLiabilityRegret` / `SelectorLiabilityRegretForScope`** — query over
+  shadow rows + windowed measured supplier-liability proxies
+  (`control/runtime_cell_cost.go:1097-1154+`); admin GET at `:1282-1332`. **Not**
+  a second table; **not** total-cost regret; platform components named unknown.
+- **Duration and plan predicted-vs-actual** — `eta_calibration`
+  (`control/schema.sql:1714+`; writers e.g. `control/store.go:1733`);
+  `plan_actuals` (`schema.sql:5133+`; `control/plan_actuals.go`). Duration is
+  **owned by `eta_calibration`**; recording it again on plan_actuals is refused
+  because it would create two learners over one quantity
+  (`control/plan_actuals.go:14-38`). `plan_actuals` is observation-only — money/
+  admission paths do not read it (`:22-25`).
+- **Lane accepted freezes** — `jobs.workload_decision` / `pricing_decision` (and
+  digests); realtime/service `market_clearing` + pricing/placement freezes.
+  Historical performance/catalogue snapshot validation on accepted jobs is
+  "replay accepted freeze," **not** re-rank under a new policy binary.
+- **`runtime_cell_promotion_evaluations`** — append-only evaluation receipts.
+  Gate `cell-promotion-gate-v4` always hits
+  `promotionMatchedPairAuthorityRefusal`
+  (`control/runtime_cell_promotion.go:41`, `:78`, refuse at `:321`).
+
+**Promotion as Step 21 completion is struck — same class as Step 8.** "Every
+selector promotion requires historical replay…" is **unreachable** while gate v4
+refuses every promotion for missing matched-pair authority, and while
+narrow-scope evidence cannot authorize global lifecycle (Step 8 note). Promotion
+coverage remains a separate obligation. Instant rollback of a never-promoted
+policy is not a completion criterion.
+
+**Duplication traps:** a new "decision snapshot corpus" that re-stores
+predictions, cell consideration, duration actuals, or liability totals as
+canonical writers would fork authority already owned by shadow / eta_calibration /
+plan_actuals / SelectorLiabilityRegret / lane receipts.
+
+**Replay modes, stated honestly:**
+
+- **Mode A (available now):** re-score stored cell consideration sets under named
+  `selection_policy` / matrix / `policy_revision`; report liability and duration
+  regret from existing queries; preserve immutability; handle missing-actual the
+  way SelectorLiabilityRegret already scores unrelated/unmeasured counts.
+- **Mode B (blocked without new capture):** new-policy worker or full order-book
+  ranking. **Refuse** with the named missing fields above. Do not invent fleet/
+  book/epoch facts. If product needs Mode B, the **first** serial work is
+  append-only claim-time eligibility snapshots (batch) and full offer-book freezes
+  (push markets) — capture before replay.
+
+**Completion, restated:** Corpus immutability preserved; Mode A reports from
+existing authorities without a second history writer; Mode B refuses rather than
+fabricating; **promotion is not a completion criterion of this step**. Status:
+PARTIAL — batch cell regret exists; network snapshot replay does not.
+
 ### Step 22 — Extend mutation contracts into network decisions
 
 1. **Objective:** Add a manifest mapping each network fault to the cheapest
@@ -1457,6 +1646,76 @@ twin.
     gaps, duplicates, stale results, or restoration faults within budgets.
 12. **Rollback:** Remove/quarantine any mutant whose failure is setup, timeout,
     unrelated red, or resource exhaustion rather than the invariant.
+
+### Step 22 shape note — amended 2026-08-09 after reconnaissance
+
+Every claim below was re-verified against `codex/network-v2` at `ed1549ca`.
+
+**Most of the Bible's network fault list has no mutation target, because the
+authority it would attack does not exist yet.** A catalogue claiming 100% of that
+list would be claiming coverage of absent authorities. Ledger `ABSENT` — "no
+manifest for decision faults" — is true for a dedicated **network-fault
+catalogue**; it is **false** if read as "no mutants touch anything
+network-adjacent."
+
+**Mutation infrastructure today:** `scripts/mutation-manifest.json` holds **104**
+mutants (ids 1–104). Runner is `scripts/mutation-test.sh` + contracts/preflight.
+Domains covered are production-adjacent money, pricing, realtime settlement,
+currency, admission, economics, true-net, prefix locality (1), runtime admission
+(1), runtime selection (3), etc. — **not** a network-decision fault catalogue.
+
+**Live adjacent mutants (do not re-count as completing the Bible list):**
+
+| Id | Domain | Target | What it hits |
+|---:|---|---|---|
+| 41 | `prefix_locality` | `control/prefix_routing.go` | prefix warmth ignores TTL |
+| 49 | `runtime_admission` | `control/scheduler.go` | claim ignores frozen runtime candidates (**only** scheduler mutant — not cheapest-worker ORDER BY) |
+| 70–72 | `runtime_selection` | `control/runtime_shadow_selection.go` | shadow cost-tie / manufactured winner / latency noise floor honesty |
+| 46 | `quote_admission` | `control/quote.go` | quote supply ignores buyer data residency (claim-time residency has **no** dedicated mutant) |
+| 20, 23, 94–99, 103–104 | currency / pricing / reuse | various | change-currency family already dense |
+
+**No mutant today on:** market-clearing ranker (`control/realtime_clearing.go` —
+grep of manifest has no `realtime_clearing` / `topology_planner` targets),
+topology planner, batch cheapest-class / warmth-over-cost claim ORDER BY
+economics, network epochs, candidate index, Digital Twin, EvidenceEnvelope,
+region-health, promotion gate as a network-fault class.
+
+**Bible network faults — register-now vs defer (authorities named):**
+
+| Fault | Status | Target / wait |
+|---|---|---|
+| Drop cheapest eligible worker | **Could exist — no mutant** | Live claim SQL cheapest-sufficient-class / ask rank (`control/scheduler.go` ORDER BY at `:1093+`). |
+| Forge warm-cache state | **Partial** (id 41 TTL only) | Not every forge path (self-declared realtime warmth, host cache lies). |
+| Reverse supplier ranking | **Could exist — no mutant** | Live `realtimeOfferBeats` / verified-outcome cost (`control/realtime_clearing.go`). |
+| Erase region restriction | **Partial** (id 46 quote) | Claim-time `data_country` / residency filters lack a dedicated mutant. |
+| Inflate throughput / stale benchmark as current | **Related economics mutants, not exact product-ranking mutant** | Stale-benchmark refusal exists as tests; no manifest mutant that makes stale benchmark current authority. |
+| Remove deadline | **Could exist — no mutant** | Deadlines exist on jobs/realtime paths; no "remove deadline" mutant. |
+| Duplicate supplier identity | **No exact mutant** | Money paths refuse duplicate payables; enrollment identity forge is a different surface. |
+| Hide provider failure / drop reliability penalty | **Could exist — no mutant** | Verified-outcome cost multipliers and liability path exist; no dedicated "zero failure rate in ranking" mutant. |
+| Change currency | **Mutants exist** | Dense currency_authority / pricing / realtime mismatch coverage — do **not** re-badge as new network coverage without new decision wiring. |
+| Make failed region healthy | **No target — ABSENT authority** | Control has no region-health / failed-region surface. Inventing a mutant invents an authority. |
+| Coherent-epoch corruption, twin-only faults, full decision-chain envelope truncation, candidate-index poisoning | **No target** | Wait on Steps 11 / 14 / 17–20 (and Step 18 epoch product) before registration. |
+
+**Fault registration rule for this step:**
+
+1. **Register now** only faults with a live `source_target` and a red invariant
+   under the mutant for the **intended reason** (cheapest-worker claim discipline,
+   reverse clearing rank, hide failure / drop reliability, forge warmth beyond
+   existing TTL coverage, claim-time region erase, stale benchmark-as-current,
+   remove deadline on paths that enforce it).
+2. **Defer with named ABSENT target** every fault whose authority does not exist
+   yet — list the authority each waits on; do not stub targets.
+3. **Do not** mark Step 22 complete because currency/money mutants exist.
+4. **Do not optimize the mutation runner.** Its performance target is already
+   exceeded; re-optimizing wall-time is **out of scope**. Completion is coverage
+   of registered network faults with zero false catches / infrastructure scored
+   as caught — the oracle bar already built — not runner speed.
+
+**"100% registered network faults" completion, restated:** 100% of faults
+**registered against live targets** are caught for the intended reason; the
+catalogue **explicitly lists deferred faults with no target** rather than
+claiming 100% of the Bible list. Status: ABSENT as network-fault catalogue;
+PARTIAL adjacent mutants exist.
 
 ### Step 23 — Close corrected direct-engine boundary parity
 
@@ -1537,6 +1796,85 @@ twin.
     savings; inapplicable caches remain explicitly inapplicable.
 12. **Rollback:** Disable a class on false equivalence, isolation/money defect,
     or negative absolute outcome.
+
+### Step 25 shape note — amended 2026-08-09 after reconnaissance
+
+Every claim below was re-verified against `codex/network-v2` at `ed1549ca`.
+
+**Step 25 reads as "add more caches." Three core mechanisms are already
+production; two named expansions are closed non-applicable; most asset classes
+are ABSENT. Scaffolding empty cache classes would invent authority.**
+
+Distinguish sharply **MEASURED** vs merely **WIRED** vs **ABSENT** /
+**DOES_NOT_APPLY**. Never invent a latency number; unmeasured is UNMEASURED.
+
+**Already production (maintain only — do not reimplement as a "work-elimination
+framework"):**
+
+| Class | Authority | What is proven |
+|---|---|---|
+| Exact-result reuse | `control/exact_reuse.go` (`RequestIdentity` incl. adapter string at `:54-62`); realtime tries cache before schedule (`control/realtime.go:925-955`); `SettleRealtimeExactReuse` (`control/realtime_store.go:1393-1396`) with `ClassExactResultReuse` (`control/billing_classes.go:25`), no supplier credit, PricingDecision authority | **MEASURED** on money/receipt path (public-path reuse proofs under `evidence/reuse/`). Control-plane money and isolation — not a multi-tenant GPU throughput proof. |
+| In-flight coalescing | `control/inflight_coalescing.go` (`ClaimInflightExecution` at `:73-80`); wired after exact-cache miss (`control/realtime.go` coalesce path); followers settle `ClassCoalescedDelivery` (`billing_classes.go:31`) | **MEASURED** leader election, money, isolation; 128→1 is money-path + double-upstream proof, not fleet GPU multi-tenant physics. Streaming excluded (SSE). Cross-tenant never merges. |
+| Prefix / KV | Routing preference at control plane (`warm_prefix_depth` in `ClaimTasksTx`); engine physical savings in bound evidence | Work elimination at the **engine**; routing at control plane. Does **not** skip scheduling a supplier for batch; does **not** write `prefix_reused_input` on settlement today. Physical cold/warm **MEASURED** on Metal evidence; belief hit rate measured on claim path. |
+| Tool/schema identity cache | `control/realtime_identity_cache.go` | **WIRED_MEASURED** (hit ~0.4 µs / miss ~12 µs on host microbench per `docs/RUNTIME_AND_PERF.md` and five-cache audit). Avoids re-canonicalising identity only — not model work. |
+
+**Closed non-applicable (bound audit — do not build empty caches):**
+
+- Control-plane **tokenization** cache — **DOES_NOT_APPLY** (`docs/RUNTIME_AND_PERF.md:798`;
+  `evidence/perf/five-cache-architecture-audit.json` status `DOES_NOT_APPLY`).
+  No model tokenizer on the control plane; `estimateTokens` is a byte heuristic.
+- **Image/audio preprocessing** caches — **DOES_NOT_APPLY**
+  (`docs/RUNTIME_AND_PERF.md:799`; same audit). Image gen 503; media rendering is
+  closed-scene byte-exact work; exact full-result reuse is the correct shape
+  where applicable, not a preprocess tier.
+
+**Wired but UNMEASURED as a cold-vs-warm load receipt:**
+
+- **Model-weight residency** — agent disk pin + `ModelPool` (`agent/src/models.rs`,
+  `agent/src/pool.rs`); control plane sees heartbeat `worker_model_state`
+  (`control/store_workers.go:515-554`; claim `warm_for_task` 60s). Five-cache
+  audit status **`WIRED_UNMEASURED`**: substrate exists; bound saving =
+  cold_path_ms − warm_path_ms for the same governed model id is **not** a sealed
+  receipt. Do not fork ModelPool; measure or leave UNMEASURED.
+
+**Mostly ABSENT as work-elimination classes (not near-term under this step):**
+
+- **Adapters** — string on `RequestIdentity` only (`exact_reuse.go:62`); no
+  residency/routing; LoRA evaluation **non-executable** for adapter deployment
+  (`control/lora_evaluation_receipts.go:19`).
+- **Datasets** — project pin digests at compile; no locality-aware placement or
+  transfer-elimination authority.
+- **Render assets** — assembly receipt **refuses** asset locality
+  (`control/render_assembly_receipts.go:70`, `:186`).
+- **Container layers** — no control-plane cache authority.
+- **Compiled kernels** — engine-internal only; no Merc authority.
+- **Preprocessed inputs** — absent as a class (full-result reuse is the intended
+  shape where identity permits).
+
+The step must **not** present these absent classes as near-term deliverables.
+They wait on real substrate (often Step 26 workload prerequisites), not on a
+generic cache framework.
+
+**Receipt gap that is real (optional next, not a second elimination surface):**
+`prefix_reused_input` is billing **vocabulary** (`control/billing_classes.go:23`)
+with `RecordTokenAccounting` (`:126-127`) and **no non-test production caller**.
+Ordinary batch jobs do not settle prefix savings through that class. Wiring
+observation → token class (or an explicit "unattributed engine hit") is honest
+attribution work; inventing a parallel savings ledger would duplicate
+token-accounting authority.
+
+**Duplication hazards:** reimplementing exact reuse settlement, inflight
+coalescing, billing token classes, realtime identity cache, or prefix belief as a
+"Step 25 work-elimination framework" creates parallel money or identity
+authorities — the programme's most expensive defect class.
+
+**Completion, restated:** Every **enabled** class has one production caller and
+one receipt path (already true for exact reuse and coalescing; prefix routing
+done, money attribution optional). Every **inapplicable** class has a bound
+refusal (`DOES_NOT_APPLY`), not a stub table. Every **absent** class is named
+absent until substrate exists — not scheduled as expansion theatre. Status:
+maintain wired elimination; close receipt gaps where engine already reports
+savings; refuse empty cache classes.
 
 ### Step 26 — Expand governed workload classes only where prerequisites hold
 
