@@ -508,6 +508,32 @@ MUTATIONS=(
 "runtime_cost_tie_authority.go|a comparison takes the stronger knowledge instead of the weaker|s#if rank(a) <= rank(b) {#if rank(a) >= rank(b) {#"
 "runtime_cost_tie_authority.go|a real cost difference is still reported as a forced tie|s#case !out.Tied:#case false:#"
 "runtime_cost_tie_authority.go|a governed term that differs is swallowed by the tie verdict|s#case out.LargestGovernedShare > 0:#case false:#"
+
+# --- Step 5 pricing/money authority (true net, currency, risk reserve) ---
+# The tranche that closed contribution settlement, realtime FX authority, risk
+# reserve causality, prepaid currency buckets, and cost-schedule FX identity.
+# Without these the suite still proves older money paths and says nothing about
+# the authority that now decides true net, converted ceilings, and reserve finality.
+"contribution_settlement.go|final contribution settlement ignores open blockers|/totalRefunds := facts.BuyerRefundNanos + facts.SLARefundNanos/,/trueNet := total.Nanos/ s#if len(out.Blockers) == 0 {#if true {#"
+"contribution_settlement.go|unknown contribution component may carry AmountNanos|/func unknownSettlementComponent/,/^}/ { s#return ContributionSettlementComponent{#zero := int64(0); return ContributionSettlementComponent{#; s#Status: contributionComponentUnknown, Source: source, Basis: basis,#Status: contributionComponentUnknown, AmountNanos: \&zero, Source: source, Basis: basis,#; }"
+"contribution_settlement.go|non-final contribution settlement publishes accepted true net|s#out.AcceptedKnownCostContributionNanos = pricing.FixedPoint.KnownCostContributionNanos#out.AcceptedKnownCostContributionNanos = pricing.FixedPoint.KnownCostContributionNanos; out.TrueNetNanos = pricing.FixedPoint.TrueNetContributionNanos#"
+"contribution_settlement.go|contribution settlement revalidation digests SettlementSHA256|/want := out.SettlementSHA256/,/got, err := canonicalDigest/ s#out.SettlementSHA256 = \"\"##"
+"contribution_settlement.go|contribution settlement digest drops Currency from the key|/func sealContributionSettlement/,/out.SettlementSHA256 = digest/ s#out.SettlementSHA256 = \"\"#out.SettlementSHA256 = \"\"; out.Key.Currency = \"\"#"
+"contribution_settlement.go|observed output rebate is subtracted twice from true net|s#supplierNet, processor, control, storage, egress, provider, facts.SubsidyNanos,#supplierNet, processor, control, storage, egress, provider, facts.SubsidyNanos, facts.ObservedOutputRebateNanos,#"
+"contribution_settlement.go|platform subsidy is added rather than deducted|s#supplierNet, processor, control, storage, egress, provider, facts.SubsidyNanos,#supplierNet, processor, control, storage, egress, provider, -facts.SubsidyNanos,#"
+"contribution_settlement.go|SLA refund is counted outside buyer net as well as inside|s#supplierNet, processor, control, storage, egress, provider, facts.SubsidyNanos,#supplierNet, processor, control, storage, egress, provider, facts.SubsidyNanos, facts.SLARefundNanos,#"
+"contribution_settlement.go|caller-supplied transfer cost clears contribution blockers|/settleUnboundTransferCost := func/,/out.StorageCost = settleUnboundTransferCost/ s#if component.Status == pricingCostNotApplicable {#if true {#"
+"realtime_currency_authority.go|realtime FX conversion always rounds down|s#mulDiv(referenceNanos, fx.ReferenceToSettlementNanos, realtimeFXRateScale, roundUp)#mulDiv(referenceNanos, fx.ReferenceToSettlementNanos, realtimeFXRateScale, false)#"
+"realtime_currency_authority.go|realtime FX conversion always rounds up|s#mulDiv(referenceNanos, fx.ReferenceToSettlementNanos, realtimeFXRateScale, roundUp)#mulDiv(referenceNanos, fx.ReferenceToSettlementNanos, realtimeFXRateScale, true)#"
+"realtime_currency_authority.go|realtime cross-currency FX may claim identity|s#} else if strings.HasPrefix(a.FXRevision, \"identity-\") {#} else if false \&\& strings.HasPrefix(a.FXRevision, \"identity-\") {#"
+"realtime_currency_authority.go|realtime ingress accepts a drifted frozen FX authority|s#if !zeroRealtimeFXAuthority(frozen) \&\& !reflect.DeepEqual(frozen, current) {#if false \&\& !zeroRealtimeFXAuthority(frozen) \&\& !reflect.DeepEqual(frozen, current) {#"
+"realtime_currency_authority.go|USD ceiling parser accepts more than nine fractional digits|s#strings.Contains(fractionRaw, \".\") || len(fractionRaw) > 9#strings.Contains(fractionRaw, \".\") || len(fractionRaw) > 18#"
+"realtime_currency_authority.go|realtime FX rate conversion drops collapsed-positive-rate check|s#if converted.Nanos <= 0 {#if false \&\& converted.Nanos <= 0 {#"
+"risk_reserve_ledger.go|risk reserve release ignores unconsumed causal refunds|s#if unconsumed {#if false \&\& unconsumed {#"
+"risk_reserve_ledger.go|risk reserve consumption proceeds without a causal refund|s#if len(causes) == 0 {#if false \&\& len(causes) == 0 {#"
+"risk_reserve_ledger.go|risk reserve filing-window comparison is inverted|s#if !now.After(reserve.ReleaseEligibleAt) {#if now.After(reserve.ReleaseEligibleAt) {#"
+"store_prepaid.go|prepaid balance lookup drops the currency predicate|s#WHERE buyer_id=\$1 AND currency=\$2), 0)#WHERE buyer_id=\$1), 0)#"
+"cost_schedule.go|same-currency cost FX authority skips exact-identity requirement|s#return errors.New(\"same-currency cost FX authority is not exact identity\")#return nil#"
 )
 
 if [ "$MERC_MUTATION_LIST" = "1" ]; then

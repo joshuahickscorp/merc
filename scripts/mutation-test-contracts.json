@@ -18,6 +18,13 @@
       "compute_plan_test.go",
       "project_quote_test.go"
     ],
+    "contribution_settlement.go": [
+      "contribution_settlement_test.go"
+    ],
+    "cost_schedule.go": [
+      "cost_schedule_currency_test.go",
+      "pricing_decision_catalogue_anchor_test.go"
+    ],
     "exact_reuse.go": [
       "exact_reuse_test.go",
       "exact_reuse_authority_test.go",
@@ -64,8 +71,17 @@
       "realtime_pricing_decision_test.go",
       "realtime_reuse_pricing_decision_test.go"
     ],
+    "realtime_currency_authority.go": [
+      "realtime_currency_authority_test.go",
+      "realtime_currency_integration_test.go",
+      "realtime_pricing_decision_test.go",
+      "money_nanos_test.go"
+    ],
     "realtime_placement.go": [
       "realtime_placement_test.go"
+    ],
+    "risk_reserve_ledger.go": [
+      "risk_reserve_lifecycle_test.go"
     ],
     "realtime_pricing_decision.go": [
       "realtime_pricing_decision_test.go"
@@ -107,6 +123,9 @@
       "job_task_money_integration_test.go",
       "project_order_test.go",
       "pricing_decision_catalogue_anchor_test.go"
+    ],
+    "store_prepaid.go": [
+      "prepaid_currency_authority_test.go"
     ],
     "stripe_api_contract.go": [
       "stripe_api_contract_test.go"

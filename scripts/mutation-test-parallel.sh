@@ -5,7 +5,7 @@
 # must own that tree.  This orchestrator keeps the candidate tree read-only:
 # every shard receives a detached worktree at the same exact commit and every
 # shard receives its own temporary PostgreSQL cluster. Every mutant still gets
-# a fresh disposable database inside that cluster. That gives the full 84-case
+# a fresh disposable database inside that cluster. That gives the full 104-case
 # campaign useful wall-clock parallelism without letting concurrent tests share
 # source bytes, database state, or one server's WAL lock.
 #

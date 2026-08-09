@@ -290,6 +290,33 @@ func TestRiskReserveCleanSweepReleasesOnce(t *testing.T) {
 	}
 }
 
+// TestRiskReserveReleaseRefusesUnconsumedCausalRefund is the single-threaded
+// form of the release/consume race. A durable refund that has not yet consumed
+// the reserve must block release; otherwise the refund has nowhere to draw from
+// and the buyer loses the causal recovery path.
+func TestRiskReserveReleaseRefusesUnconsumedCausalRefund(t *testing.T) {
+	f := seedRiskReserveFixture(t, riskReserveFixtureOptions{
+		terminalAt: time.Now().UTC().Add(-8 * 24 * time.Hour),
+	})
+	_, err := insertLedgerEntryIfAbsentByRefTx(f.ctx, f.pool, ledgerInsert{
+		Kind: KindSLARefund, BuyerID: &f.buyerID,
+		AmountMicros: 1_000_000, Currency: "usd",
+		PayoutStatus: PayoutReleased, PayoutRef: slaRefundRef(f.jobID),
+	})
+	mustf(t, err, "seed unconsumed causal refund: %v")
+
+	err = f.store.ReleaseRiskReserveAfterDisputeWindow(f.ctx, f.jobID, time.Now().UTC())
+	if !errors.Is(err, ErrRiskReserveReleaseBlocked) {
+		t.Fatalf("release with unconsumed refund err=%v, want ErrRiskReserveReleaseBlocked", err)
+	}
+	got, err := f.store.RiskReserveSnapshot(f.ctx, f.jobID)
+	mustf(t, err, "load blocked release reserve: %v")
+	assertRiskReserveConserves(t, got)
+	if got.HeldNanos != got.AccruedNanos || got.ReleasedNanos != 0 || got.ConsumedNanos != 0 {
+		t.Fatalf("blocked release still moved reserve: %+v", got)
+	}
+}
+
 func TestRiskReserveConcurrentReleaseConsumeAndDuplicateCalls(t *testing.T) {
 	f := seedRiskReserveFixture(t, riskReserveFixtureOptions{
 		terminalAt: time.Now().UTC().Add(-8 * 24 * time.Hour),
