@@ -939,6 +939,22 @@ mark the step reconciled documentation rather than implement a type.
 **Settlement tail and time-to-payable budgets remain UNMEASURED** as new Step 13
 gates unless measured under existing authorities.
 
+**Correction, 2026-08-09, after an adversarial audit of these notes.** The
+paragraph above says the remaining work is real "if product still requires it" and
+that the step may end as "reconciled documentation rather than implement a type".
+**That is goal shrinkage and it is withdrawn.** The step body's completion
+criterion at item 11 still reads: every liability transition is authorized by one
+accepted SettlementPlan and 100% reconciles. Striking the *pre-execution true net*
+binding is honest, because the forecast/settlement split makes it unreachable by
+construction. Turning the refund/dispute/payout state-machine identity into a
+product preference is not — it converts a programme completion criterion into an
+optional extra, which is exactly what the governing contract forbids.
+
+So items (a), (b) and (c) above are **required**, not conditional. What is struck
+is only the pre-execution true-net binding. If the census finds no lifecycle gap,
+that finding must be *evidenced*, not assumed, and the step closes on the
+evidence — not on a decision that nobody asked for the work.
+
 **Completion, restated:** 100% nano reconciliation under **existing** authorities;
 zero second fixed-point tables; no true-net promotion from forecast. Status
 language: PARTIAL — amounts canonical for batch; lifecycle plan object absent;
@@ -1870,11 +1886,26 @@ authorities — the programme's most expensive defect class.
 
 **Completion, restated:** Every **enabled** class has one production caller and
 one receipt path (already true for exact reuse and coalescing; prefix routing
-done, money attribution optional). Every **inapplicable** class has a bound
+done, money attribution **OPEN — see the correction below**). Every **inapplicable** class has a bound
 refusal (`DOES_NOT_APPLY`), not a stub table. Every **absent** class is named
 absent until substrate exists — not scheduled as expansion theatre. Status:
 maintain wired elimination; close receipt gaps where engine already reports
 savings; refuse empty cache classes.
+
+**Correction, 2026-08-09, after an adversarial audit of these notes.** Calling
+prefix money attribution "optional" is goal shrinkage and it is withdrawn. The
+step body's completion criterion at item 11 reads: each **enabled** class has
+production callers **and receipt-backed savings**. Prefix is enabled — it is live
+production routing (`control/scheduler.go:1099-1108`) — so its savings must be
+receipt-backed like every other enabled class. `ClassPrefixReusedInput`
+(`control/billing_classes.go:23`) exists and `RecordTokenAccounting` has no
+non-test caller, which means the savings are currently **unattributed**. That is an
+open obligation, not an optional extra.
+
+The honest options are to wire the attribution, or to disable the class and record
+prefix as routing-only with no claimed savings. What is not available is keeping
+the routing benefit while leaving the money attribution permanently optional —
+that would let the programme claim a work-elimination class it cannot evidence.
 
 ### Step 26 — Expand governed workload classes only where prerequisites hold
 
