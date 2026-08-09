@@ -24,6 +24,11 @@ import (
 // its subject actually requires.
 func openIsolatedTestStore(t *testing.T) (context.Context, *Store, *pgxpool.Pool) {
 	t.Helper()
+	// Migrate/loadActivationAtStartup adopts a process-wide activation snapshot.
+	// Restore the caller's snapshot so one DB test cannot quarantine later pure
+	// unit tests that read currentActivation().
+	previousActivation := activeRuntimeActivation.Load()
+	t.Cleanup(func() { activeRuntimeActivation.Store(previousActivation) })
 	base := requireTestDatabase(t)
 
 	parsed, err := url.Parse(base)

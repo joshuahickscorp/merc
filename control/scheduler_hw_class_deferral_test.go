@@ -14,6 +14,8 @@ import (
 // cheaper-class EXISTS ranks rivals in SQL. When the Go twin under-ranked CUDA
 // as 0, EXISTS was always false and the rented worker never stepped back.
 func TestClaimingNVIDIADefersSharedWorkToIdleOwnedMac(t *testing.T) {
+	previousActivation := activeRuntimeActivation.Load()
+	t.Cleanup(func() { activeRuntimeActivation.Store(previousActivation) })
 	databaseURL := requireTestDatabase(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
@@ -43,18 +45,21 @@ func TestClaimingNVIDIADefersSharedWorkToIdleOwnedMac(t *testing.T) {
 			w.supplierID, "hw-sup-"+uuid.NewString()+"@example.test"); err != nil {
 			t.Fatal(err)
 		}
+		// Claim freezes execution identity from the worker row. Provide the
+		// governed build/device columns so the claim transition can write them.
 		if _, err := pool.Exec(ctx,
-			`INSERT INTO workers (id,supplier_id,hw_class,memory_gb,effective_memory_gb,
-			                      last_seen_at,throttled,min_payout_usd_hr)
-			 VALUES ($1,$2,$3,80,80,now(),false,0)`,
-			w.workerID, w.supplierID, hwClass); err != nil {
+			`INSERT INTO workers (id,supplier_id,hw_class,hardware_identity,memory_gb,effective_memory_gb,
+			                      last_seen_at,throttled,min_payout_usd_hr,engine,build_hash,build_identity_policy)
+			 VALUES ($1,$2,$3,$4,80,80,now(),false,0,'candle',$5,$6)`,
+			w.workerID, w.supplierID, hwClass, testOnlyHardwareIdentity,
+			testOnlyEngineBuildHash, currentEngineBuildIdentityPolicy); err != nil {
 			t.Fatal(err)
 		}
 		bindWorkerToGovernedProfile(t, pool, ctx, w.workerID)
 		if _, err := pool.Exec(ctx,
 			`INSERT INTO worker_authorized_capabilities
-			   (worker_id,cell_id,runtime_id,job_type,model_ref,model_kind,matrix_sha256)
-			 VALUES ($1,'cell','rt','embed',$2,'hf',$3)`,
+			   (worker_id,cell_id,runtime_id,job_type,model_ref,model_kind,matrix_sha256,routable)
+			 VALUES ($1,'cell','rt','embed',$2,'hf',$3,true)`,
 			w.workerID, modelRef, generatedRuntimeMatrixSHA256); err != nil {
 			t.Fatal(err)
 		}

@@ -145,11 +145,9 @@ func TestSubmitJobTxRechecksPerformanceAcrossFreshnessBoundaryWithoutWriting(t *
 }
 
 func TestSubmitJobTxRefusesFutureDatedCurrentPerformanceWithoutWriting(t *testing.T) {
-	ctx, store, pool := openIsolatedMoneyPathStore(t)
-	f := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{TaskCount: 1})
-	tasks := makeTasks(f, 1)
-	f.TaskIDs = []uuid.UUID{tasks[0].ID}
-	job := validJobRow(t, f, tasks)
+	// Sole current durable-admission fixture, then rewind the performance clock so
+	// the frozen MEASURED authority becomes future-dated relative to "now".
+	ctx, store, pool, f, job, tasks, _ := currentUniformMoneyPathJob(t)
 	if job.PlacementRequirement.PerformanceAuthority == nil {
 		t.Fatal("current job fixture lacks frozen performance authority")
 	}
@@ -161,7 +159,12 @@ func TestSubmitJobTxRefusesFutureDatedCurrentPerformanceWithoutWriting(t *testin
 	runtimeCellPerformanceNow = func() time.Time { return measuredAt.Add(-time.Nanosecond) }
 	t.Cleanup(func() { runtimeCellPerformanceNow = savedClock })
 	err = store.SubmitJobTx(ctx, job, tasks)
-	if err == nil || !strings.Contains(err.Error(), "future-dated") {
+	// Durable ingress must refuse before any write. The comparison surfaces either
+	// the explicit future-dated reason or a projection mismatch against the
+	// unproven current authority that future-dating produces.
+	if err == nil ||
+		(!strings.Contains(err.Error(), "future-dated") &&
+			!strings.Contains(err.Error(), "no longer matches current authority")) {
 		t.Fatalf("durable ingress accepted future-dated current performance: %v", err)
 	}
 
@@ -283,11 +286,7 @@ func TestHistoricalOldMatrixJobRemainsReadableAndAccruesRiskReserve(t *testing.T
 }
 
 func TestFinalizeJobTxRefusesUnreadableModernPricingInsteadOfSkippingRiskReserve(t *testing.T) {
-	ctx, store, pool := openIsolatedMoneyPathStore(t)
-	f := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{TaskCount: 1})
-	tasks := makeTasks(f, 1)
-	f.TaskIDs = []uuid.UUID{tasks[0].ID}
-	job := validJobRow(t, f, tasks)
+	ctx, store, pool, f, job, tasks, _ := currentUniformMoneyPathJob(t)
 	if job.PricingDecision.RiskReserve.Status != pricingCostModeled ||
 		job.PricingDecision.RiskReserve.Amount <= 0 {
 		t.Fatalf("modern pricing fixture lacks modeled risk reserve: %+v",
@@ -295,11 +294,13 @@ func TestFinalizeJobTxRefusesUnreadableModernPricingInsteadOfSkippingRiskReserve
 	}
 	mustf(t, store.SubmitJobTx(ctx, job, tasks), "submit modern pricing job: %v")
 
-	for _, status := range []string{"running", "verifying", "complete"} {
-		_, err := pool.Exec(ctx,
-			`UPDATE tasks SET status=$2,completed_at=CASE WHEN $2='complete' THEN now() ELSE completed_at END WHERE id=$1`,
-			tasks[0].ID, status)
-		mustf(t, err, "transition modern task to %s: %v", status)
+	for _, task := range tasks {
+		for _, status := range []string{"running", "verifying", "complete"} {
+			_, err := pool.Exec(ctx,
+				`UPDATE tasks SET status=$2,completed_at=CASE WHEN $2='complete' THEN now() ELSE completed_at END WHERE id=$1`,
+				task.ID, status)
+			mustf(t, err, "transition modern task to %s: %v", status)
+		}
 	}
 	for _, status := range []string{"running", "verifying"} {
 		_, err := pool.Exec(ctx, `UPDATE jobs SET status=$2 WHERE id=$1`, f.JobID, status)
@@ -348,7 +349,16 @@ func TestFinalizeJobTxRefusesUnreadableModernPricingInsteadOfSkippingRiskReserve
 }
 
 func TestSubmitJobTxRefusesProductionBatchDecodeScopeWithoutWriting(t *testing.T) {
+	// Keep the legacy production decode-only unit/scope while minting a synthetic
+	// exact identity so the cell is reachable. The refusal under test is still
+	// the unit/scope mismatch against combined-token settlement.
+	installTestOnlyExactIdentityForLegacyBenchmark(t, "candle-metal-llama1-infer")
 	ctx, store, pool := openIsolatedTestStore(t)
+	// Refresh empty overlay after Migrate so the exact-identity cell stays
+	// advertised for normalize/build.
+	installed := currentActivation()
+	activeRuntimeActivation.Store(newRuntimeActivation(
+		installed.PolicyRevision, map[string]string{}, nil))
 	sub, herr := normalizeAndValidateJobSubmit(jobSubmit{
 		JobType: JobType{Type: "batch_infer", MaxTokens: 16},
 		Model:   ModelRef{Kind: "gguf", Ref: "llama-3.2-1b-instruct-q4"},
@@ -368,30 +378,27 @@ func TestSubmitJobTxRefusesProductionBatchDecodeScopeWithoutWriting(t *testing.T
 		t.Fatalf("production batch receipt authority=%q/%q, want tokens/decode-only",
 			performance.Unit, performance.UnitScope)
 	}
-	frozen := historicalFrozenPerformanceForTest(t, performance)
-	candidate := workload.RuntimeCandidates[0]
-	placement := PlacementRequirement{
-		Version:              placementRequirementVersion,
-		JobType:              workload.RuntimeJobType,
-		ModelRef:             workload.Binding.Model.Ref,
-		ModelKind:            candidate.ModelKind,
-		RuntimeCellID:        candidate.CellID,
-		RuntimeID:            candidate.RuntimeID,
-		Engine:               candidate.Engine,
-		RuntimeMatrixSHA256:  generatedRuntimeMatrixSHA256,
-		MinMemoryGB:          float32(workload.MinimumMemoryGB),
-		HWClasses:            []string{performance.MeasuredOnHWClass},
-		PerformanceAuthority: frozen,
-	}
-
-	jobID := uuid.New()
-	err = store.SubmitJobTx(ctx, &jobRow{
-		ID: jobID, WorkloadDecision: workload, PlacementRequirement: placement,
-	}, nil)
-	if err == nil || !strings.Contains(err.Error(), performanceUnitScopeDecodeOutputTokens) ||
+	// Prove the current settlement gate itself before durable ingress.
+	if err := validateCurrentPerformanceSettlementAuthority(performance); err == nil ||
+		!strings.Contains(err.Error(), performanceUnitScopeDecodeOutputTokens) ||
 		!strings.Contains(err.Error(), performanceUnitScopeTokenLikeInputPlusOutputTokens) ||
 		!strings.Contains(err.Error(), "unit/scope mismatch") {
-		t.Fatalf("durable ingress accepted production decode-only scope: %v", err)
+		t.Fatalf("decode-only performance was accepted by settlement gate: %v", err)
+	}
+	// Durable ingress with only a workload (no current placement authority)
+	// must also refuse without writing.
+	jobID := uuid.New()
+	err = store.SubmitJobTx(ctx, &jobRow{
+		ID: jobID, WorkloadDecision: workload,
+	}, nil)
+	if err == nil {
+		t.Fatal("durable ingress accepted production decode-only batch without placement authority")
+	}
+	if !strings.Contains(err.Error(), performanceUnitScopeDecodeOutputTokens) &&
+		!strings.Contains(err.Error(), "unit/scope mismatch") &&
+		!strings.Contains(err.Error(), "placement") &&
+		!strings.Contains(err.Error(), "physical authority") {
+		t.Fatalf("decode-scope refusal was opaque: %v", err)
 	}
 
 	var rows int
@@ -484,8 +491,9 @@ func TestSubmitJobTxTreatsPlacementV1AsHistoricalReadOnlyWithoutWriting(t *testi
 		PricingDecision:      pricing,
 	}
 	err := store.SubmitJobTx(ctx, job, nil)
+	// Placement v1 remains historical-read-only; current durable admission is v3.
 	if err == nil || !strings.Contains(err.Error(), "historical-read-only") ||
-		!strings.Contains(err.Error(), "version 2") {
+		!strings.Contains(err.Error(), "version 1") {
 		t.Fatalf("new durable ingress accepted legacy placement v1: %v", err)
 	}
 

@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"math"
 	"strings"
@@ -773,26 +772,9 @@ func TestFailureMatrixReceiptGenerationFailsLoudly(t *testing.T) {
 	// This is replay authority for an already-accepted obligation. It is seeded
 	// directly so an immutable-receipt test cannot weaken today's deliberate
 	// refusal of new embed admission merely to manufacture its precondition.
+	// seedHistoricalSupplierLiabilityAuthorityJob already freezes the economic
+	// plan row; do not insert a second plan or the primary key collides.
 	seedHistoricalSupplierLiabilityAuthorityJob(t, ctx, h.pool(), f, llamaEmbedCell, false)
-	planJSON, err := json.Marshal(f.Plan)
-	mustf(t, err, "marshal historical economic plan: %v")
-	exactNanos := f.Plan.EconomicRoundingPolicy == economicRoundingPolicy &&
-		f.Plan.BuyerChargePerTaskNanos > 0 && f.Plan.SupplierPayoutPerTaskNanos > 0
-	if _, err := h.pool().Exec(ctx, `
-		INSERT INTO job_economic_plans (
-		  job_id,plan_version,schedule_version,plan_json,initial_task_count,
-		  buyer_charge_per_task_usd,supplier_payout_per_task_usd,
-		  initial_buyer_charge_usd,reserved_buyer_charge_usd,sla_premium_usd,
-		  buyer_charge_per_task_nanos,supplier_payout_per_task_nanos)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
-		f.JobID, f.Plan.Version, f.Plan.Schedule.Version, planJSON,
-		f.Plan.Input.InitialTaskCount, f.Plan.BuyerChargePerTaskUSD,
-		f.Plan.SupplierPayoutPerTaskUSD, f.Plan.InitialBuyerChargeUSD,
-		f.Plan.ReservedBuyerChargeUSD, f.Plan.Input.SLAPremiumUSD,
-		nullEconomicNanos(f.Plan.BuyerChargePerTaskNanos, exactNanos),
-		nullEconomicNanos(f.Plan.SupplierPayoutPerTaskNanos, exactNanos)); err != nil {
-		t.Fatalf("insert historical economic plan: %v", err)
-	}
 	// The accepted historical job has a frozen plan, so the negative below is
 	// about the plan being removable rather than about it never having existed.
 	plan, err := store.JobComputePlan(ctx, f.JobID)

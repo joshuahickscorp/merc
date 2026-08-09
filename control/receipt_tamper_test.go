@@ -72,6 +72,9 @@ func TestReceiptAuthorityRefusesEveryTamper(t *testing.T) {
 // The binding digest must move when the request does, or two different buyer
 // requests could share one authority.
 func TestReceiptBindingDigestTracksTheRequest(t *testing.T) {
+	// Directed reachability for both embed cells under the current document;
+	// TEST_ONLY publication keeps candle advertised without inventing conversion.
+	installBoundCataloguePublicationAuthorityForTest(t)
 	a, err := buildWorkloadDecisionDirected(
 		embedSubmit(), strings.Repeat("1", 64), llamaEmbedCell)
 	must(t, err)

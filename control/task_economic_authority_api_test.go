@@ -15,7 +15,21 @@ import (
 func TestQuoteRefusesUnevenTaskEconomicsWith503AndZeroWrites(t *testing.T) {
 	strangerDeploymentInputs(t)
 	installSettlementCurrencyForTest(t, "usd")
-	ctx, store, _ := currentPhysicalCatalogueFixture(t)
+	// Isolated DB so zero-writes is meaningful. TEST_ONLY publication + combined
+	// token keep the request advertised so the uniform task-economics gate is the
+	// refusal under test.
+	installBoundCataloguePublicationAuthorityForTest(t)
+	installTestOnlyCombinedTokenAuthority(t)
+	pinBoardClockForPublication(t)
+	ctx, store, pool := openIsolatedTestStore(t)
+	installed := currentActivation()
+	activeRuntimeActivation.Store(newRuntimeActivation(
+		installed.PolicyRevision, map[string]string{}, nil))
+	schedule, err := BuildCataloguePriceSchedule()
+	mustf(t, err, "build uneven-quote catalogue: %v")
+	if _, err := store.ApplyRepricing(ctx, schedule); err != nil {
+		t.Fatalf("publish uneven-quote catalogue: %v", err)
+	}
 	body := testOnlyBatchPublicRequest(strangerBatchCorpus, 1)
 	body["params"] = map[string]any{"split_size": 1} // three primaries, each paid differently in reality
 	raw, err := json.Marshal(body)
@@ -31,7 +45,7 @@ func TestQuoteRefusesUnevenTaskEconomicsWith503AndZeroWrites(t *testing.T) {
 		t.Fatalf("uneven quote status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 	var rows int
-	must(t, store.pool.QueryRow(ctx, `SELECT count(*) FROM quotes`).Scan(&rows))
+	must(t, pool.QueryRow(ctx, `SELECT count(*) FROM quotes`).Scan(&rows))
 	if rows != 0 {
 		t.Fatalf("uneven quote wrote %d quote rows", rows)
 	}

@@ -22,6 +22,8 @@ import (
 // to break.
 func freshMigratedDatabase(t *testing.T) (*Store, *pgxpool.Pool, context.Context) {
 	t.Helper()
+	previousActivation := activeRuntimeActivation.Load()
+	t.Cleanup(func() { activeRuntimeActivation.Store(previousActivation) })
 	adminURL := requireTestDatabase(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	t.Cleanup(cancel)
@@ -388,6 +390,11 @@ func TestSyncAllowsLifecycleMovementWithoutARevisionBump(t *testing.T) {
 // ACTIVE but a cell's receipt does not bind — that is the quarantine, not
 // registry corruption. What this test forbids is free assertion of either flag.
 func TestRoutabilityCannotBeAssertedIndependently(t *testing.T) {
+	// Install explicit TEST_ONLY publication authority before Migrate so
+	// candle_metal seeds as ACTIVE/routable (profile) while media cells remain
+	// lifecycle-present and non-routable. Checked-in production evidence alone
+	// honestly quarantines the whole profile and would leave nothing to check.
+	installBoundCataloguePublicationAuthorityForTest(t)
 	_, pool, ctx := freshMigratedDatabase(t)
 
 	if _, err := pool.Exec(ctx,
@@ -399,9 +406,9 @@ func TestRoutabilityCannotBeAssertedIndependently(t *testing.T) {
 		t.Fatal("an ACTIVE profile was marked non-routable")
 	}
 
-	// Cell routable tracks bindable authority, profile routable does not. The
-	// three candle cells whose receipts do not bind (llama1, ffmpeg, scene-render)
-	// are non-routable under an ACTIVE profile — that disagreement is intended.
+	// Cell routable tracks bindable authority, profile routable does not. Under
+	// the TEST_ONLY publication seam the media cells stay CANARY/non-routable
+	// under the ACTIVE candle profile — that disagreement is intended.
 	var unboundUnderRoutableProfile int
 	if err := pool.QueryRow(ctx, `
 		SELECT COUNT(*) FROM runtime_profile_models m
@@ -437,8 +444,8 @@ func TestRoutabilityCannotBeAssertedIndependently(t *testing.T) {
 
 	// Only one routable profile may own a cell id. Promoting a challenger onto an
 	// occupied cell must collide at the database, not just in the document.
-	// Use a cell that is actually routable in the document (bindable embed) so
-	// the unique-routable-cell constraint is the thing under test, not authority.
+	// Use a cell that is actually routable under the TEST_ONLY document so the
+	// unique-routable-cell constraint is the thing under test, not authority.
 	if _, err := pool.Exec(ctx,
 		`UPDATE runtime_profile_models
 		    SET lifecycle='ACTIVE', routable=true,
@@ -458,6 +465,10 @@ func TestRoutabilityCannotBeAssertedIndependently(t *testing.T) {
 // these was previously either unchecked or checked only against the flat
 // projection, which knows nothing about device counts.
 func TestWorkerProfileValidationRefusesEveryUnsatisfiedClaim(t *testing.T) {
+	// Profile validation reads the activation-resolved profile. Production
+	// evidence honestly quarantines candle_metal; install TEST_ONLY authority so
+	// the document ACTIVE profile is reachable for the claim checks under test.
+	installBoundCataloguePublicationAuthorityForTest(t)
 	candle, ok := runtimeProfileByID("candle_metal")
 	if !ok {
 		t.Fatal("candle_metal is not registered")
@@ -546,6 +557,7 @@ func TestWorkerProfileValidationRefusesEveryUnsatisfiedClaim(t *testing.T) {
 // The device-count range was pure documentation before this: declared in the
 // authority, checked for well-formedness, never compared to a worker.
 func TestDeviceCountIsAnAdmissionConstraintNotADeclaration(t *testing.T) {
+	installBoundCataloguePublicationAuthorityForTest(t)
 	candle, _ := runtimeProfileByID("candle_metal")
 	if candle.Hardware.DeviceCount.Maximum != 1 {
 		t.Fatalf("candle_metal admits up to %d devices; this test assumes 1",
@@ -581,6 +593,9 @@ func TestDeviceCountIsAnAdmissionConstraintNotADeclaration(t *testing.T) {
 // end-to-end version: a worker whose capability does not satisfy its profile
 // must not reach the workers table at all.
 func TestUpsertWorkerEnforcesTheGovernedProfile(t *testing.T) {
+	// TEST_ONLY publication authority before Migrate so candle embed is directed
+	// and a valid worker can project at least one activated cell.
+	installBoundCataloguePublicationAuthorityForTest(t)
 	store, pool, ctx := freshMigratedDatabase(t)
 	supplierID := uuid.New()
 	if _, err := pool.Exec(ctx,
@@ -591,11 +606,19 @@ func TestUpsertWorkerEnforcesTheGovernedProfile(t *testing.T) {
 
 	good := WorkerCapability{
 		WorkerID: uuid.New(), SupplierID: supplierID,
-		Engine: "candle", HWClass: "apple_silicon_ultra", MemoryGB: 96,
-		BuildHash: "0123456789abcdef", HardwareIdentity: "TEST_ONLY Apple M3 Ultra",
-		AgentVersion: "1", OSVersion: "macOS",
+		// Exact physical identity must match the TEST_ONLY publication cell
+		// (apple_silicon_pro / feedface… / publication hardware).
+		Engine: "candle", HWClass: "apple_silicon_pro", MemoryGB: 96,
+		BuildHash: testOnlyPublicationBuildHash, BuildIdentityPolicy: currentEngineBuildIdentityPolicy,
+		HardwareIdentity: testOnlyPublicationHardware,
+		AgentVersion:     "1", OSVersion: "macOS",
 		SupportedJobs:   []string{"embed"},
 		SupportedModels: []string{"all-minilm-l6-v2"},
+		Benchmarks: []BenchResult{{
+			JobType: "embed", ModelID: "all-minilm-l6-v2", EPS: 3000, ThermalOK: true,
+			Unit: "token_like_input_units", UnitScope: performanceUnitScopeTokenLikeInputGeometry,
+			MeasuredUnix: uint64(runtimeCellPerformanceNow().Unix()),
+		}},
 	}
 	mustf(t, store.UpsertWorker(ctx, good), "a valid worker was refused: %v")
 	var stored string
@@ -634,6 +657,9 @@ func TestUpsertWorkerEnforcesTheGovernedProfile(t *testing.T) {
 // not be DISPATCHABLE without a complete governed identity — so it is enforced
 // where dispatch authority is granted rather than where a row is created.
 func TestDispatchRequiresGovernedProfileIdentityNotRowCreation(t *testing.T) {
+	// TEST_ONLY publication before Migrate so candle remains a routable profile
+	// for governedProfileIdentity; production evidence alone quarantines it.
+	installBoundCataloguePublicationAuthorityForTest(t)
 	_, pool, ctx := freshMigratedDatabase(t)
 
 	// The placeholder path must still work: an enrolling worker has no profile.

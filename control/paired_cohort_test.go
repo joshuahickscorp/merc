@@ -154,6 +154,12 @@ func pairedCohortGeometryFixture(
 // every ordinary test run so the harness cannot silently return to the old
 // one-record/$0.20 fixture.
 func TestPairedCohortFreezesCanonicalMiniLMUnitsEconomicsAndGeometry(t *testing.T) {
+	// Directed cells must remain nameable under an exact-identity wrapper that
+	// preserves the historical completed_embedding_records unit. Do not install
+	// publication authority here: that mints matching token-like embed throughput
+	// and would make the historical cohort falsely current-admissible.
+	installTestOnlyExactIdentityForLegacyBenchmark(t, candleEmbedCell)
+	installTestOnlyExactIdentityForLegacyBenchmark(t, llamaEmbedCell)
 	corpus := pairedCohortCorpus()
 	if len(corpus) != cohortCorpusBytes {
 		t.Fatalf("paired-cohort corpus bytes=%d, want frozen regression geometry %d",

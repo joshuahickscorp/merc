@@ -150,6 +150,11 @@ func TestEstimateReportsRejectionsRatherThanOmittingThem(t *testing.T) {
 // A cell whose own floor is lower must not be able to admit a worker the frozen
 // decision already excluded.
 func TestEstimateHonoursTheFrozenPlacementFloorOverTheCellFloor(t *testing.T) {
+	// Adapter.Estimate resolves cells through the activation projection.
+	// Production evidence honestly quarantines candle_metal; TEST_ONLY
+	// publication authority restores a reachable ACTIVE profile for the floor
+	// comparison under test.
+	installBoundCataloguePublicationAuthorityForTest(t)
 	candle, _ := runtimeProfileByID("candle_metal")
 	adapter, err := AdapterForProfile(candle)
 	must(t, err)

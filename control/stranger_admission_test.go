@@ -49,12 +49,12 @@ const strangerCorpus = `{"id":"0","text":"A verifiable compute network settles e
 {"id":"2","text":"The cheapest verified outcome is not the cheapest attempt."}
 `
 
-// A stranger-facing API must refuse before writing when no current benchmark
-// measures the same semantic unit the job settles. The historical sub-micro
-// fixed-point arithmetic remains covered below; it cannot authorize a live
-// embed admission by treating completed embeddings as token-like input units.
-// Exercise both settlement currencies so FX cannot hide or bypass the unit
-// mismatch.
+// A stranger-facing API must refuse before writing when production has no
+// scope-compatible, currently advertised embed lane. Checked-in evidence is
+// correctly unbindable (zero routable production authority). Do not install
+// TEST_ONLY publication authority here — that seam can mint a token-like embed
+// lane and would turn this into a false-green admission. Exercise both
+// settlement currencies so FX cannot hide the refusal.
 func TestAStrangerSubmissionRefusesWithoutScopeCompatiblePerformanceAuthority(t *testing.T) {
 	for _, settlement := range []string{"usd", "cad"} {
 		t.Run(settlement, func(t *testing.T) {
@@ -65,18 +65,11 @@ func TestAStrangerSubmissionRefusesWithoutScopeCompatiblePerformanceAuthority(t 
 
 func strangerAdmissionUnderCurrency(t *testing.T, settlement string) {
 	t.Helper()
-	installBoundCataloguePublicationAuthorityForTest(t)
 	strangerDeploymentInputs(t)
 	installSettlementCurrencyForTest(t, settlement)
 
 	artifacts := newArtifactHarness(t)
 	ctx, store, pool := openIsolatedTestStore(t)
-
-	schedule, err := BuildCataloguePriceSchedule()
-	mustf(t, err, "build catalogue price schedule: %v")
-	if _, err := store.ApplyRepricing(ctx, schedule); err != nil {
-		t.Fatalf("publish catalogue price schedule: %v", err)
-	}
 	// Merc refuses work it cannot verify, correctly. seedDemo installs the governed
 	// embed honeypot and the input object the verifier fetches.
 	mustf(t, seedDemo(ctx, pool, artifacts.storage), "seed the verification floor: %v")
@@ -97,6 +90,7 @@ func strangerAdmissionUnderCurrency(t *testing.T, settlement string) {
 		t.Fatalf("signup issued no sandbox key: %s", signup.body)
 	}
 
+	const singleRecordCorpus = `{"id":"0","text":"A stranger should not have to understand GPUs."}` + "\n"
 	const ceiling = 1.00
 	var jobsBefore int
 	mustf(t, pool.QueryRow(ctx, `SELECT count(*) FROM jobs`).Scan(&jobsBefore),
@@ -107,21 +101,24 @@ func strangerAdmissionUnderCurrency(t *testing.T, settlement string) {
 		"job_type": map[string]any{"type": "embed"},
 		"model":    map[string]any{"kind": "hf", "ref": "all-minilm-l6-v2"},
 		"tier":     "batch",
-		"input":    strangerCorpus,
+		"input":    singleRecordCorpus,
 		"max_usd":  ceiling,
+		"verification": map[string]any{
+			"redundancy_frac": 1.0,
+			"honeypot_frac":   0.0,
+		},
 	})
-	if submit.status != http.StatusServiceUnavailable {
-		t.Fatalf("scope-incompatible embed submission returned HTTP %d, want 503: %s",
+	// Production has no advertised embed cell: honest buyer ingress is 400 with
+	// zero durable side effects. A 2xx would mean zero-routable-authority broke.
+	if submit.status == http.StatusOK || submit.status == http.StatusAccepted ||
+		submit.status == http.StatusCreated {
+		t.Fatalf("production-zero-authority embed was admitted HTTP %d: %s",
 			submit.status, submit.body)
 	}
-	for _, want := range []string{
-		performanceUnitScopeCompletedEmbeddingRecords,
-		performanceUnitScopeTokenLikeInputGeometry,
-		"no frozen unit conversion authority",
-	} {
-		if !strings.Contains(submit.body, want) {
-			t.Fatalf("scope refusal omits %q: %s", want, submit.body)
-		}
+	if !strings.Contains(submit.body, "not advertised") &&
+		!strings.Contains(submit.body, "unavailable") {
+		t.Fatalf("refusal does not name missing advertised authority: HTTP %d body=%s",
+			submit.status, submit.body)
 	}
 	var jobsAfter int
 	mustf(t, pool.QueryRow(ctx, `SELECT count(*) FROM jobs`).Scan(&jobsAfter),

@@ -133,8 +133,15 @@ func persistHistoricalV3PhysicalV1CatalogueSchedule(
 func currentPhysicalCatalogueFixture(t *testing.T) (context.Context, *Store, CataloguePriceSchedule) {
 	t.Helper()
 	installBoundCataloguePublicationAuthorityForTest(t)
+	installTestOnlyCombinedTokenAuthority(t)
 	pinBoardClockForPublication(t)
 	ctx, store, _ := openAdminMutationTestStore(t)
+	// Shared-DB Migrate reloads activation from the process DB and may reinstall
+	// the honest production quarantine overlay. Refresh an empty overlay so the
+	// TEST_ONLY publication cells remain advertised for the schedule/quote path.
+	installed := currentActivation()
+	activeRuntimeActivation.Store(newRuntimeActivation(
+		installed.PolicyRevision, map[string]string{}, nil))
 	schedule, err := BuildCataloguePriceSchedule()
 	mustf(t, err, "build physical catalogue schedule: %v")
 	if _, err := store.ApplyRepricing(ctx, schedule); err != nil {
@@ -416,7 +423,20 @@ func TestSubmitJobTxRechecksCurrentCatalogueAtDurableIngressWithZeroWrites(t *te
 func TestWithdrawnPersistedCatalogueReturnsQuoteServiceUnavailableWithZeroWrites(t *testing.T) {
 	strangerDeploymentInputs(t)
 	installSettlementCurrencyForTest(t, "usd")
-	ctx, store, schedule := currentPhysicalCatalogueFixture(t)
+	// Isolated DB so zero-writes is meaningful under suite load. Withdraw the
+	// synthetic publication throughput receipt after the schedule is applied.
+	installBoundCataloguePublicationAuthorityForTest(t)
+	installTestOnlyCombinedTokenAuthority(t)
+	pinBoardClockForPublication(t)
+	ctx, store, pool := openIsolatedTestStore(t)
+	installed := currentActivation()
+	activeRuntimeActivation.Store(newRuntimeActivation(
+		installed.PolicyRevision, map[string]string{}, nil))
+	schedule, err := BuildCataloguePriceSchedule()
+	mustf(t, err, "build withdrawn-catalogue schedule: %v")
+	if _, err := store.ApplyRepricing(ctx, schedule); err != nil {
+		t.Fatalf("apply withdrawn-catalogue schedule: %v", err)
+	}
 	result := schedule.Results[0]
 	path, _, _ := strings.Cut(result.PhysicalAuthority.Throughput.Citation, "#")
 	raw, err := os.ReadFile(path)
@@ -439,7 +459,7 @@ func TestWithdrawnPersistedCatalogueReturnsQuoteServiceUnavailableWithZeroWrites
 			recorder.Code, recorder.Body.String())
 	}
 	var rows int
-	must(t, store.pool.QueryRow(ctx, `SELECT count(*) FROM quotes`).Scan(&rows))
+	must(t, pool.QueryRow(ctx, `SELECT count(*) FROM quotes`).Scan(&rows))
 	if rows != 0 {
 		t.Fatalf("withdrawn current catalogue wrote %d quotes", rows)
 	}

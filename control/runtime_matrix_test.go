@@ -78,6 +78,11 @@ func TestAdvertisedWorkerRequiresExactBenchmarkedBuildAndDevice(t *testing.T) {
 }
 
 func TestWorkerRuntimeProjectionRejectsHostileTelemetryAndIdentity(t *testing.T) {
+	// Pin document activation so suite-order quarantine overlays cannot empty the
+	// directed set and turn every shape refusal into a zero-cell refusal.
+	previous := activeRuntimeActivation.Load()
+	t.Cleanup(func() { activeRuntimeActivation.Store(previous) })
+	activeRuntimeActivation.Store(documentActivation())
 	cases := []struct {
 		name    string
 		mutate  func(*WorkerCapability)
@@ -261,6 +266,9 @@ func TestNormalizeAdvertisedRuntimeModelRefOwnsBuyerIngressKind(t *testing.T) {
 }
 
 func TestWorkerRegistrationConsumesProductionRuntimeProjection(t *testing.T) {
+	previous := activeRuntimeActivation.Load()
+	t.Cleanup(func() { activeRuntimeActivation.Store(previous) })
+	activeRuntimeActivation.Store(documentActivation())
 	valid := productionMetalCapability()
 	mustf(t, validateWorkerRuntimeProjection(valid), "valid production Metal worker rejected: %v")
 	projected, err := projectWorkerRuntimeCapabilities(valid)
@@ -341,6 +349,9 @@ func TestWorkerRegistrationConsumesProductionRuntimeProjection(t *testing.T) {
 }
 
 func TestWorkerRegistrationProjectsBuiltinMediaCell(t *testing.T) {
+	previous := activeRuntimeActivation.Load()
+	t.Cleanup(func() { activeRuntimeActivation.Store(previous) })
+	activeRuntimeActivation.Store(documentActivation())
 	cap := productionMetalCapability()
 	cap.SupportedJobs = []string{"media_transcode"}
 	cap.SupportedModels = []string{"ffmpeg-transcode-v1"}

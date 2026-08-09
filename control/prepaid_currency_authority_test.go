@@ -114,7 +114,8 @@ func TestFreeCreditUSDDoesNotFundCADRealtime(t *testing.T) {
 	}
 	tx, err := pool.Begin(ctx)
 	must(t, err)
-	err = evaluateRealtimeBuyerFunding(ctx, tx, buyerID, 1)
+	const needOneMajorNanos int64 = NanosPerMajorUnit // $1 exact
+	err = evaluateRealtimeBuyerFunding(ctx, tx, buyerID, needOneMajorNanos)
 	_ = tx.Rollback(ctx)
 	// Still a refusal, but a buyer holding 100 USD of credit under CAD settlement
 	// is not empty, and telling them to top up would send them to buy money they
@@ -133,7 +134,7 @@ func TestFreeCreditUSDDoesNotFundCADRealtime(t *testing.T) {
 	must(t, store.SeedPrepaidBalance(ctx, buyerID, 2_000_000, "cad-cash-"+uuid.NewString()))
 	tx, err = pool.Begin(ctx)
 	must(t, err)
-	err = evaluateRealtimeBuyerFunding(ctx, tx, buyerID, 1)
+	err = evaluateRealtimeBuyerFunding(ctx, tx, buyerID, needOneMajorNanos)
 	_ = tx.Rollback(ctx)
 	if err != nil {
 		t.Fatalf("collected CAD prepaid cash did not fund CAD realtime request: %v", err)

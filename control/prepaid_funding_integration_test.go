@@ -14,17 +14,42 @@ import (
 // property the old soft balance check could not: two concurrent submissions
 // cannot both reserve the same collected balance.
 func TestPrepaidFundingAdmissionSerializesReservations(t *testing.T) {
-	ctx, store, pool := openIsolatedMoneyPathStore(t)
-	f := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{TaskCount: 1})
-	firstTasks := makeTasks(f, 1)
-	first := validJobRow(t, f, firstTasks)
+	// Two concurrent current admissions against one prepaid balance. Each job
+	// uses the sole current durable-admission fixture.
+	ctx, store, pool, f, first, firstTasks, _ := currentUniformMoneyPathJob(t)
 	first.PrepaidRequired = true
 
 	secondFixture := f
 	secondFixture.JobID = uuid.New()
-	secondFixture.TaskIDs = []uuid.UUID{uuid.New()}
-	secondTasks := makeTasks(secondFixture, 1)
+	secondFixture.TaskIDs = []uuid.UUID{uuid.New(), uuid.New()}
+	secondTasks := makeTasks(secondFixture, 2)
+	// Rebuild a second job against the same published catalogue / TEST_ONLY
+	// authority already installed by currentUniformMoneyPathJob.
 	second := validJobRow(t, secondFixture, secondTasks)
+	// Reload catalogue authority so currency/share match the published schedule.
+	authority, err := store.LoadCataloguePriceAuthority(ctx, second.ModelRef)
+	mustf(t, err, "load second prepaid catalogue authority: %v")
+	economicInput := second.EconomicPlan.Input
+	economicInput.SupplierShare = authority.SupplierShare
+	economicSchedule := second.EconomicPlan.Schedule
+	economicSchedule.Currency = authority.SettlementCurrency
+	economic := BuildEconomicPlan(economicInput, economicSchedule)
+	if !economic.Executable {
+		t.Fatalf("second prepaid economic plan blocked: %s", economic.BlockReason)
+	}
+	placement := placementForPricingFixture(t, second.WorkloadDecision, authority)
+	pricing, err := newDistributedPricingDecision(
+		second.WorkloadDecision, second.ComputePlan, placement, economic,
+		authority, second.WorkloadDecision.Binding.Tier, "",
+	)
+	mustf(t, err, "rebuild second prepaid pricing: %v")
+	second.EconomicPlan = economic
+	second.EstimatedUSD = economic.InitialBuyerChargeUSD
+	second.PlacementRequirement = placement
+	second.PricingDecision = pricing
+	second.HWClasses = append([]string(nil), placement.HWClasses...)
+	second.MinMemoryGB = placement.MinMemoryGB
+	second.OfferedRateUsdHr = placement.OfferedRateUsdHr
 	second.PrepaidRequired = true
 
 	reserve := usdToMicros(first.EconomicPlan.ReservedBuyerChargeUSD)
@@ -225,10 +250,9 @@ func TestPrepaidFundingSLAPremiumAndCollectionNet(t *testing.T) {
 }
 
 func TestDeferredSubmissionDoesNotRequirePrepaidReservation(t *testing.T) {
-	ctx, store, pool := openIsolatedMoneyPathStore(t)
-	f := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{TaskCount: 1})
-	tasks := makeTasks(f, 1)
-	job := validJobRow(t, f, tasks)
+	// Deferred (non-prepaid) admission still needs the current durable-admission
+	// fixture; prepaid balance itself remains optional.
+	ctx, store, pool, f, job, tasks, _ := currentUniformMoneyPathJob(t)
 	// The zero-value authority represents a deferred/legacy job. No balance row
 	// exists and submission remains accepted, preserving rollback behaviour.
 	mustf(t, store.SubmitJobTx(ctx, job, tasks), "deferred submit without prepaid balance: %v")

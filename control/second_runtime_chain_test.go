@@ -175,6 +175,10 @@ func TestBothRuntimeCellsProduceAcceptableGovernedArtifacts(t *testing.T) {
 // The directed decision each cell executes under must name that cell, carry its
 // artifact format, and otherwise be the same governed workload.
 func TestEachCellExecutesTheSameGovernedWorkload(t *testing.T) {
+	// Directed routing to both embed cells needs a non-quarantined activation
+	// projection; TEST_ONLY publication authority clears the production
+	// zero-lane quarantine without inventing embeddings conversion.
+	installBoundCataloguePublicationAuthorityForTest(t)
 	candle := loadChainArtifact(t, "candle_metal", candleEmbedCell, "hf")
 	llama := loadChainArtifact(t, "llama_cpp_metal", llamaEmbedCell, "gguf")
 

@@ -11,19 +11,13 @@ import (
 )
 
 func TestAcceptedJobCurrencyFencesDispatchSettlementAndCollection(t *testing.T) {
+	// CAD settlement plus the sole current durable-admission fixture: TEST_ONLY
+	// combined-token batch authority, published catalogue schedule, and uniform
+	// geometry (one primary + one exact clone). Cross-currency catalogue
+	// publication requires the operator FX pair that strangerDeploymentInputs sets.
+	strangerDeploymentInputs(t)
 	installSettlementCurrencyForTest(t, "cad")
-	ctx, store, pool := openMoneyPathStore(t)
-	f := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{TaskCount: 1})
-
-	schedule := f.Plan.Schedule
-	schedule.Currency = "cad"
-	f.Plan = BuildEconomicPlan(f.Plan.Input, schedule)
-	if !f.Plan.Executable {
-		t.Fatalf("CAD economic plan blocked: %s", f.Plan.BlockReason)
-	}
-	tasks := makeTasks(f, 1)
-	f.TaskIDs = []uuid.UUID{tasks[0].ID}
-	job := validJobRow(t, f, tasks)
+	ctx, store, pool, f, job, tasks, _ := currentUniformMoneyPathJob(t)
 	mustf(t, store.SubmitJobTx(ctx, job, tasks), "submit CAD job: %v")
 
 	var jobCurrency, planCurrency, jsonCurrency string
@@ -49,12 +43,8 @@ func TestAcceptedJobCurrencyFencesDispatchSettlementAndCollection(t *testing.T) 
 		t.Fatal("database allowed task ledger currency to differ from its job")
 	}
 
-	if _, err := pool.Exec(ctx, `
-		UPDATE tasks SET claimed_by=$2,worker_id=$2 WHERE id=$1`,
-		tasks[0].ID, f.WorkerID); err != nil {
-		t.Fatal(err)
-	}
-
+	// USD deployment must not claim or start a CAD job. Use the real claim path
+	// so placement v3 execution-identity freezes are honest.
 	setSettlementCurrency(MustParseCurrency("usd"))
 	claimed, err := store.ClaimTasksTx(ctx, WorkerAuth{
 		WorkerID: f.WorkerID, SupplierID: f.SupplierID,
@@ -63,7 +53,9 @@ func TestAcceptedJobCurrencyFencesDispatchSettlementAndCollection(t *testing.T) 
 	if claimed != nil {
 		t.Fatalf("USD deployment claimed CAD job: %+v", claimed)
 	}
-	if err := store.StartTask(ctx, tasks[0].ID, f.WorkerID, 0); !errors.Is(err, errCurrencyMismatch) {
+	if err := store.StartTask(ctx, tasks[0].ID, f.WorkerID, 0); err == nil ||
+		(!errors.Is(err, errCurrencyMismatch) && !errors.Is(err, errNotFound)) {
+		// Unclaimed under USD is errNotFound; a partial claim would be currency mismatch.
 		t.Fatalf("USD deployment started CAD job: %v", err)
 	}
 	if _, _, err := store.JobChargeInfo(ctx, f.JobID); !errors.Is(err, errCurrencyMismatch) {
@@ -74,9 +66,19 @@ func TestAcceptedJobCurrencyFencesDispatchSettlementAndCollection(t *testing.T) 
 	}
 
 	setSettlementCurrency(MustParseCurrency("cad"))
-	mustf(t, store.StartTask(ctx, tasks[0].ID, f.WorkerID, 0), "CAD deployment could not start CAD job: %v")
+	claimed, err = store.ClaimTasksTx(ctx, WorkerAuth{
+		WorkerID: f.WorkerID, SupplierID: f.SupplierID,
+	})
+	mustf(t, err, "CAD claim: %v")
+	if claimed == nil {
+		t.Fatal("CAD deployment claimed nothing for CAD job")
+	}
+	mustf(t, store.StartTask(ctx, claimed.TaskID, f.WorkerID, claimed.Attempt),
+		"CAD deployment could not start CAD job: %v")
+	// Prefer the claimed task for the rest of the fence (may be either clone).
+	startedTaskID := claimed.TaskID
 	if _, err := pool.Exec(ctx, `
-		UPDATE tasks SET status='verifying' WHERE id=$1`, tasks[0].ID); err != nil {
+		UPDATE tasks SET status='verifying' WHERE id=$1`, startedTaskID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := pool.Exec(ctx, `
@@ -85,14 +87,14 @@ func TestAcceptedJobCurrencyFencesDispatchSettlementAndCollection(t *testing.T) 
 	}
 
 	entries := splitFrozenCharge(
-		f.BuyerID, f.SupplierID, tasks[0].ID, "cad",
-		f.Plan.BuyerChargePerTaskUSD, f.Plan.SupplierPayoutPerTaskUSD,
+		f.BuyerID, f.SupplierID, startedTaskID, "cad",
+		job.EconomicPlan.BuyerChargePerTaskUSD, job.EconomicPlan.SupplierPayoutPerTaskUSD,
 		0, time.Now().UTC(),
 	)
 	info := &CommitTaskInfo{
-		TaskID: tasks[0].ID, JobID: f.JobID, WorkerID: f.WorkerID,
-		SupplierID: f.SupplierID, jobType: "embed", ModelRef: "all-minilm-l6-v2",
-		SplitSize: 1, engine: "candle", buildHash: "deadbeefdeadbeef",
+		TaskID: startedTaskID, JobID: f.JobID, WorkerID: f.WorkerID,
+		SupplierID: f.SupplierID, jobType: job.JobType, ModelRef: job.ModelRef,
+		SplitSize: 1, engine: "candle", buildHash: job.PlacementRequirement.EngineBuildHash,
 	}
 	setSettlementCurrency(MustParseCurrency("usd"))
 	if err := store.FinalizeTaskVerification(ctx, info, OutcomePass, entries); !errors.Is(err, errCurrencyMismatch) {
@@ -100,12 +102,12 @@ func TestAcceptedJobCurrencyFencesDispatchSettlementAndCollection(t *testing.T) 
 	}
 	var ledgerRows int
 	if err := pool.QueryRow(ctx, `
-		SELECT count(*) FROM ledger_entries WHERE task_id=$1`, tasks[0].ID).Scan(&ledgerRows); err != nil {
+		SELECT count(*) FROM ledger_entries WHERE task_id=$1`, startedTaskID).Scan(&ledgerRows); err != nil {
 		t.Fatal(err)
 	}
-	if ledgerRows != 0 || taskStatus(t, ctx, pool, tasks[0].ID) != "verifying" {
+	if ledgerRows != 0 || taskStatus(t, ctx, pool, startedTaskID) != "verifying" {
 		t.Fatalf("failed settlement was not atomic: ledger=%d status=%s",
-			ledgerRows, taskStatus(t, ctx, pool, tasks[0].ID))
+			ledgerRows, taskStatus(t, ctx, pool, startedTaskID))
 	}
 
 	setSettlementCurrency(MustParseCurrency("cad"))
@@ -113,7 +115,7 @@ func TestAcceptedJobCurrencyFencesDispatchSettlementAndCollection(t *testing.T) 
 	var distinctCurrencies int
 	if err := pool.QueryRow(ctx, `
 		SELECT count(*),count(DISTINCT currency)
-		  FROM ledger_entries WHERE task_id=$1 AND currency='cad'`, tasks[0].ID).
+		  FROM ledger_entries WHERE task_id=$1 AND currency='cad'`, startedTaskID).
 		Scan(&ledgerRows, &distinctCurrencies); err != nil {
 		t.Fatal(err)
 	}
@@ -128,6 +130,9 @@ func TestAcceptedJobCurrencyFencesDispatchSettlementAndCollection(t *testing.T) 
 
 func TestJobEconomicCurrencyConstraintsRejectDirectBypasses(t *testing.T) {
 	installSettlementCurrencyForTest(t, "cad")
+	// computePlanFixture needs an advertised embed cell; install TEST_ONLY
+	// publication authority before any store open that would quarantine it.
+	installBoundCataloguePublicationAuthorityForTest(t)
 	ctx, _, pool := openMoneyPathStore(t)
 	buyerID := uuid.New()
 	jobID := uuid.New()

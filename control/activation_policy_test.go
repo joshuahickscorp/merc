@@ -126,6 +126,25 @@ func withActivationRestored(t *testing.T) {
 func openActivationStore(t *testing.T) (context.Context, *Store, *pgxpool.Pool) {
 	t.Helper()
 	withActivationRestored(t)
+	// Checked-in production evidence is correctly unbindable. Activation-policy
+	// mechanics tests that need an initially-advertised document ACTIVE cell
+	// install explicit TEST_ONLY publication authority before Migrate so the
+	// registry seeds ACTIVE+routable instead of honest QUARANTINED.
+	installBoundCataloguePublicationAuthorityForTest(t)
+	return openIsolatedTestStore(t)
+}
+
+// openActivationStoreWithoutPublication is for the tests that resolve benchmark
+// identity for two cells and require them to share hardware. The publication
+// authority above pins its cell to apple_silicon_pro while the other TEST_ONLY
+// identity is an M3 Ultra, so installing it would make a matched-hardware
+// comparison impossible — and that guard is Step 4's rule that an Ultra
+// measurement may not stand in for another class. These tests want the honest
+// unpublished registry, which is also what they had before the publication seam
+// existed.
+func openActivationStoreWithoutPublication(t *testing.T) (context.Context, *Store, *pgxpool.Pool) {
+	t.Helper()
+	withActivationRestored(t)
 	return openIsolatedTestStore(t)
 }
 
@@ -212,7 +231,7 @@ func TestNarrowPromotionReceiptCannotWriteGlobalActivationPolicy(t *testing.T) {
 	// evidence/ is relabelled and production remains non-routable.
 	installTestOnlyExactIdentityForLegacyBenchmark(t, candleEmbedCell)
 	installTestOnlyExactIdentityForLegacyBenchmark(t, llamaEmbedCell)
-	ctx, store, pool := openActivationStore(t)
+	ctx, store, pool := openActivationStoreWithoutPublication(t)
 
 	profile, ok := runtimeProfileByID("llama_cpp_metal")
 	if !ok {
@@ -311,8 +330,14 @@ func TestPromotingOutOfDraftNeedsNoNewAgentBuild(t *testing.T) {
 
 	cuda := WorkerCapability{
 		HWClass: "nvidia_24gb", Engine: "vllm", MemoryGB: 24,
-		SupportedJobs:   []string{"batch_infer"},
-		SupportedModels: []string{"llama-3.2-1b-instruct-q4"},
+		// Shape validation requires a 16-char build hash before activation is
+		// considered; the refusal under test is the DRAFT lifecycle, not the
+		// build-hash shape gate.
+		BuildHash:           "0123456789abcdef",
+		BuildIdentityPolicy: currentEngineBuildIdentityPolicy,
+		HardwareIdentity:    testOnlyHardwareIdentity,
+		SupportedJobs:       []string{"batch_infer"},
+		SupportedModels:     []string{"llama-3.2-1b-instruct-q4"},
 	}
 	// Declaring a DRAFT cell is legitimate — the host really can serve it. What
 	// it cannot do yet is be authorized for anything.
@@ -476,7 +501,10 @@ func TestReplicaRefreshAndCommitGuardRefuseStaleNewAdmission(t *testing.T) {
 	capability := WorkerCapability{
 		WorkerID: workerID, SupplierID: uuid.New(),
 		HWClass: "apple_silicon_max", Engine: "llama_cpp", MemoryGB: 64,
-		SupportedJobs: []string{"embed"}, SupportedModels: []string{"all-minilm-l6-v2"},
+		// Shape validation must pass so the admission epoch guard is the refusal.
+		BuildHash: "0123456789abcdef", BuildIdentityPolicy: currentEngineBuildIdentityPolicy,
+		HardwareIdentity: testOnlyHardwareIdentity,
+		SupportedJobs:    []string{"embed"}, SupportedModels: []string{"all-minilm-l6-v2"},
 		activationPolicyRevision: stale.PolicyRevision,
 	}
 	err = replica.UpsertWorker(ctx, capability)

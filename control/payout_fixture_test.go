@@ -39,6 +39,8 @@ type payoutFixtureOpts struct {
 
 func openPayoutTestStore(t *testing.T) (context.Context, *Store, *pgxpool.Pool) {
 	t.Helper()
+	previousActivation := activeRuntimeActivation.Load()
+	t.Cleanup(func() { activeRuntimeActivation.Store(previousActivation) })
 	databaseURL := requireTestDatabase(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	t.Cleanup(cancel)

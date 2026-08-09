@@ -3,18 +3,13 @@ package main
 import (
 	"strings"
 	"testing"
-
-	"github.com/google/uuid"
 )
 
 // The placement decision has to survive the round trip, and a mode with no reason
 // has to be refused by the database rather than by a convention.
 func TestRecordedShadowSelectionCarriesItsExecutionMode(t *testing.T) {
-	ctx, store, pool := openIsolatedMoneyPathStore(t)
-	f := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{TaskCount: 1})
-	tasks := makeTasks(f, 1)
-	f.TaskIDs = []uuid.UUID{tasks[0].ID}
-	job := validJobRowDirected(t, f, tasks, candleEmbedCell)
+	// Successful current admission uses the sole durable-admission fixture.
+	ctx, store, pool, f, job, tasks, _ := currentUniformMoneyPathJob(t)
 	mustf(t, store.SubmitJobTx(ctx, job, tasks), "submit: %v")
 
 	shadow, err := planShadowSelection(job.WorkloadDecision)

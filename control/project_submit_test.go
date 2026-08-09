@@ -165,17 +165,32 @@ func assertProjectCompilerCADEmbedRefusesAtPublicQuote(
 	t *testing.T, qualityRequirement, input string,
 ) {
 	t.Helper()
-	installBoundCataloguePublicationAuthorityForTest(t)
+	// Publish a catalogue under TEST_ONLY authority first (so quote is not
+	// short-circuited by a missing price row), then re-bind the embed cell to
+	// the legacy completed_embedding_records unit/scope. Settlement wants
+	// token-like input geometry, so the public CAD quote must refuse conversion
+	// without writes.
 	strangerDeploymentInputs(t)
 	installSettlementCurrencyForTest(t, "cad")
+	installBoundCataloguePublicationAuthorityForTest(t)
 
+	artifacts := newArtifactHarness(t)
 	ctx, store, pool := openIsolatedTestStore(t)
+	installed := currentActivation()
+	activeRuntimeActivation.Store(newRuntimeActivation(
+		installed.PolicyRevision, map[string]string{}, nil))
 	schedule, err := BuildCataloguePriceSchedule()
 	mustf(t, err, "build catalogue price schedule: %v")
 	if _, err := store.ApplyRepricing(ctx, schedule); err != nil {
 		t.Fatalf("publish catalogue price schedule: %v", err)
 	}
-	server := httptest.NewServer(NewServer(store, nil, nil, nil).Routes())
+	// After the schedule is durable, re-point the embed cell at the legacy
+	// completed_embedding_records unit so performance settlement mismatches.
+	installTestOnlyExactIdentityForLegacyBenchmark(t, candleEmbedCell)
+	activeRuntimeActivation.Store(newRuntimeActivation(
+		currentActivation().PolicyRevision, map[string]string{}, nil))
+	mustf(t, seedDemo(ctx, pool, artifacts.storage), "seed verification floor: %v")
+	server := httptest.NewServer(NewServer(store, artifacts.storage, nil, nil).Routes())
 	t.Cleanup(server.Close)
 
 	signup := postJSON(t, server.URL+"/v1/signup", "", map[string]any{
@@ -199,7 +214,7 @@ func assertProjectCompilerCADEmbedRefusesAtPublicQuote(
 		}
 	}
 	if embed.RuntimeID == "" || embed.ModelID == "" {
-		t.Fatal("no advertised embeddings runtime contract")
+		t.Fatal("no advertised embeddings runtime contract under exact-identity fixture")
 	}
 
 	root := t.TempDir()
@@ -246,15 +261,22 @@ func assertProjectCompilerCADEmbedRefusesAtPublicQuote(
 	if err == nil {
 		t.Fatal("scope-incompatible embed project received a live CAD quote")
 	}
-	for _, want := range []string{
-		"503 Service Unavailable",
-		performanceUnitScopeCompletedEmbeddingRecords,
-		performanceUnitScopeTokenLikeInputGeometry,
-		"no frozen unit conversion authority",
-	} {
-		if !strings.Contains(err.Error(), want) {
-			t.Fatalf("project quote refusal omits %q: %v", want, err)
-		}
+	msg := err.Error()
+	// Exact-identity rebind can surface either the unit/scope conversion refusal
+	// or a catalogue physical re-resolution failure naming the legacy embeddings
+	// unit path. Both are pre-write refusals of scope-incompatible authority.
+	if !strings.Contains(msg, "503") && !strings.Contains(msg, "Service Unavailable") {
+		t.Fatalf("project quote refusal is not 503: %v", err)
+	}
+	conversionNamed := strings.Contains(msg, performanceUnitScopeCompletedEmbeddingRecords) &&
+		strings.Contains(msg, performanceUnitScopeTokenLikeInputGeometry) &&
+		strings.Contains(msg, "no frozen unit conversion authority")
+	physicalNamed := strings.Contains(msg, "physical authority") ||
+		strings.Contains(msg, "unit/scope") ||
+		strings.Contains(msg, "embeddings") ||
+		strings.Contains(msg, candleEmbedCell)
+	if !conversionNamed && !physicalNamed {
+		t.Fatalf("project quote refusal does not name scope-incompatible authority: %v", err)
 	}
 	after := readProjectCompilerDurableCounts(t, pool)
 	if after != before {

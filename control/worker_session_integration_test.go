@@ -9,7 +9,13 @@ import (
 )
 
 func TestWorkerRegistrationPersistsProcessSessionTransitions(t *testing.T) {
+	// TEST_ONLY publication before store open so enrolment projects activated
+	// cells; match the synthetic exact physical identity on the worker.
+	installBoundCataloguePublicationAuthorityForTest(t)
 	ctx, store, pool := openAdminMutationTestStore(t)
+	installed := currentActivation()
+	activeRuntimeActivation.Store(newRuntimeActivation(
+		installed.PolicyRevision, map[string]string{}, nil))
 	buyerID := uuid.New()
 	supplierID := uuid.New()
 	workerID := uuid.New()
@@ -53,7 +59,18 @@ func TestWorkerRegistrationPersistsProcessSessionTransitions(t *testing.T) {
 	capability.WorkerID = workerID
 	capability.SupplierID = supplierID
 	capability.AgentVersion = "0.1.0"
-	capability.BuildHash = "0123456789abcdef"
+	capability.HWClass = "apple_silicon_pro"
+	capability.BuildHash = testOnlyPublicationBuildHash
+	capability.BuildIdentityPolicy = currentEngineBuildIdentityPolicy
+	capability.HardwareIdentity = testOnlyPublicationHardware
+	capability.Benchmarks = []BenchResult{
+		{JobType: "embed", ModelID: "all-minilm-l6-v2", EPS: 3000, ThermalOK: true,
+			Unit: "token_like_input_units", UnitScope: performanceUnitScopeTokenLikeInputGeometry,
+			MeasuredUnix: uint64(runtimeCellPerformanceNow().Unix())},
+		{JobType: "batch_infer", ModelID: "llama-3.2-1b-instruct-q4", TPS: 200, ThermalOK: true,
+			Unit: "tokens", UnitScope: performanceUnitScopeTokenLikeInputPlusOutputTokens,
+			MeasuredUnix: uint64(runtimeCellPerformanceNow().Unix())},
+	}
 	capability.AgentSessionID = &firstSession
 	mustf(t, store.UpsertWorker(ctx, capability), "first registration: %v")
 

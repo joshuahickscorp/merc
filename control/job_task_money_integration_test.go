@@ -330,13 +330,20 @@ func buildTestEconomicPlan(t *testing.T, tasks int, slaPremium float64) Economic
 	if tasks <= 0 {
 		tasks = 1
 	}
+	// Honour the process settlement currency so CAD money-path fixtures do not
+	// build a USD economic schedule that then fails cost-FX validation against
+	// a CAD process currency.
+	schedule := testEconomicSchedule()
+	if code := SettlementCurrencyCode(); code != "" {
+		schedule.Currency = code
+	}
 	plan := BuildEconomicPlan(EconomicPlanInput{
 		BaseComputeUSD:   0.20 * float64(tasks),
 		InitialTaskCount: tasks,
 		ExtraTaskReserve: economicExtraTaskReserve(tasks),
 		SupplierShare:    0.97,
 		SLAPremiumUSD:    slaPremium,
-	}, testEconomicSchedule())
+	}, schedule)
 	if !plan.Executable {
 		t.Fatalf("test economic plan blocked: %s", plan.BlockReason)
 	}

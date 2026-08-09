@@ -9,11 +9,9 @@ import (
 )
 
 func TestPlacementSnapshotAndClaimSharePayoutAndRuntimeEligibility(t *testing.T) {
-	ctx, store, pool := openMoneyPathStore(t)
-	fixture := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{TaskCount: 1})
-	tasks := makeTasks(fixture, 1)
-	fixture.TaskIDs = []uuid.UUID{tasks[0].ID}
-	job := validJobRow(t, fixture, tasks)
+	// Sole current durable-admission shape: published catalogue + TEST_ONLY
+	// combined-token batch authority + uniform geometry.
+	ctx, store, pool, fixture, job, tasks, _ := currentUniformMoneyPathJob(t)
 
 	candidate := job.WorkloadDecision.RuntimeCandidates[0]
 	placement := job.PlacementRequirement
@@ -30,15 +28,16 @@ func TestPlacementSnapshotAndClaimSharePayoutAndRuntimeEligibility(t *testing.T)
 		if _, err := pool.Exec(ctx, `
 			UPDATE workers
 			   SET min_payout_usd_hr=$3,engine=$2,last_seen_at=now(),throttled=false,
-			       hw_class=$4,build_hash=$5,hardware_identity=$6
+			       hw_class=$4,build_hash=$5,build_identity_policy=$6,hardware_identity=$7
 			 WHERE id=$1`,
 			workerID, candidate.Engine, unaffordableFloor, placement.HWClasses[0],
-			placement.EngineBuildHash, placement.HardwareIdentity); err != nil {
+			placement.EngineBuildHash, placement.EngineBuildIdentityPolicy,
+			placement.HardwareIdentity); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := pool.Exec(ctx, `
 			UPDATE worker_authorized_capabilities
-			   SET cell_id=$2,runtime_id=$3,model_kind=$4,matrix_sha256=$5
+			   SET cell_id=$2,runtime_id=$3,model_kind=$4,matrix_sha256=$5,routable=true
 			 WHERE worker_id=$1 AND job_type=$6 AND model_ref=$7`,
 			workerID, candidate.CellID, candidate.RuntimeID, job.WorkloadDecision.Binding.Model.Kind,
 			generatedRuntimeMatrixSHA256, job.JobType, job.ModelRef); err != nil {
@@ -61,17 +60,18 @@ func TestPlacementSnapshotAndClaimSharePayoutAndRuntimeEligibility(t *testing.T)
 		if _, err := pool.Exec(ctx, `
 			INSERT INTO workers (
 			  id,supplier_id,hw_class,memory_gb,effective_memory_gb,last_seen_at,
-			  throttled,min_payout_usd_hr,engine,build_hash,hardware_identity
-			) VALUES ($1,$2,$5,64,64,now(),false,$4,$3,$6,$7)`,
+			  throttled,min_payout_usd_hr,engine,build_hash,build_identity_policy,hardware_identity
+			) VALUES ($1,$2,$5,64,64,now(),false,$4,$3,$6,$7,$8)`,
 			workerID, supplierID, candidate.Engine, unaffordableFloor,
-			placement.HWClasses[0], placement.EngineBuildHash, placement.HardwareIdentity); err != nil {
+			placement.HWClasses[0], placement.EngineBuildHash,
+			placement.EngineBuildIdentityPolicy, placement.HardwareIdentity); err != nil {
 			t.Fatal(err)
 		}
 		bindWorkerToGovernedProfile(t, pool, ctx, workerID)
 		if _, err := pool.Exec(ctx, `
 			INSERT INTO worker_authorized_capabilities (
-			  worker_id,cell_id,runtime_id,job_type,model_ref,model_kind,matrix_sha256
-			) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+			  worker_id,cell_id,runtime_id,job_type,model_ref,model_kind,matrix_sha256,routable
+			) VALUES ($1,$2,$3,$4,$5,$6,$7,true)`,
 			workerID, candidate.CellID, candidate.RuntimeID, job.JobType, job.ModelRef,
 			job.WorkloadDecision.Binding.Model.Kind, generatedRuntimeMatrixSHA256); err != nil {
 			t.Fatal(err)
@@ -93,10 +93,11 @@ func TestPlacementSnapshotAndClaimSharePayoutAndRuntimeEligibility(t *testing.T)
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO workers (
 		  id,supplier_id,hw_class,memory_gb,effective_memory_gb,last_seen_at,
-		  throttled,min_payout_usd_hr,engine,build_hash,hardware_identity
-		) VALUES ($1,$2,$4,64,64,now(),false,0,$3,$5,$6)`,
+		  throttled,min_payout_usd_hr,engine,build_hash,build_identity_policy,hardware_identity
+		) VALUES ($1,$2,$4,64,64,now(),false,0,$3,$5,$6,$7)`,
 		decoyWorkerID, decoySupplierID, candidate.Engine, placement.HWClasses[0],
-		placement.EngineBuildHash, placement.HardwareIdentity); err != nil {
+		placement.EngineBuildHash, placement.EngineBuildIdentityPolicy,
+		placement.HardwareIdentity); err != nil {
 		t.Fatal(err)
 	}
 	bindWorkerToGovernedProfile(t, pool, ctx, decoyWorkerID)

@@ -299,15 +299,18 @@ func installBoundCataloguePublicationAuthorityWithMutationsForTest(
 		powerPath+"#"+testOnlyPowerReceiptFragment,
 		fmt.Sprintf("%x", powerDigest),
 	)
+	// Activation caches resolved advertised/directed projections. Store startup
+	// honestly quarantines the checked-in zero-lane document; preserving that
+	// overlay would keep these explicitly synthetic publication cells
+	// quarantined as well. Give the TEST_ONLY document an empty lifecycle
+	// overlay at the same revision (or documentActivation when none was loaded),
+	// then restore the exact prior pointer at cleanup — matching
+	// installTestOnlyCombinedTokenAuthority. Production-path quarantine tests
+	// never call this helper.
 	if previousActivation == nil {
 		activeRuntimeActivation.Store(documentActivation())
 	} else {
-		overlay := make(map[string]string, len(previousActivation.lifecycle))
-		for key, value := range previousActivation.lifecycle {
-			overlay[key] = value
-		}
 		activeRuntimeActivation.Store(newRuntimeActivation(
-			previousActivation.PolicyRevision, overlay,
-			append([]string(nil), previousActivation.Stale...)))
+			previousActivation.PolicyRevision, map[string]string{}, nil))
 	}
 }

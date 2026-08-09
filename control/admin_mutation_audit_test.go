@@ -114,6 +114,8 @@ func TestAdminActionBodyIsStrictAndBounded(t *testing.T) {
 
 func openAdminMutationTestStore(t *testing.T) (context.Context, *Store, *pgxpool.Pool) {
 	t.Helper()
+	previousActivation := activeRuntimeActivation.Load()
+	t.Cleanup(func() { activeRuntimeActivation.Store(previousActivation) })
 	databaseURL := requireTestDatabase(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	t.Cleanup(cancel)

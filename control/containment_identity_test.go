@@ -71,7 +71,16 @@ func TestSeatbeltProfileIsDenyDefaultWithoutWildcardEgress(t *testing.T) {
 // ── Test 2 helpers live in the agent package; control plane checks capability record ──
 
 func TestUnsandboxedCapabilityIsRecordedOnRegister(t *testing.T) {
+	// Enrolment projects against directed cells. Production evidence is correctly
+	// unbindable for ordinary routing, but document lifecycle still leaves embed
+	// directed-reachable. Install TEST_ONLY publication before Migrate, then
+	// re-clear the activation overlay after the shared-DB load so suite order
+	// cannot leave the cell quarantined.
+	installBoundCataloguePublicationAuthorityForTest(t)
 	ctx, store, pool := openPayoutTestStore(t)
+	installed := currentActivation()
+	activeRuntimeActivation.Store(newRuntimeActivation(
+		installed.PolicyRevision, map[string]string{}, nil))
 	supplierID, workerID := uuid.New(), uuid.New()
 	if _, err := pool.Exec(ctx, `INSERT INTO suppliers (id,email,status) VALUES ($1,$2,'active')`,
 		supplierID, "unsandbox-"+uuid.NewString()+"@corp.example"); err != nil {
@@ -399,6 +408,7 @@ func TestUncorroboratedBenchmarkRatePolicy(t *testing.T) {
 func TestUnpeeredBenchmarkKeepsClaimedRate(t *testing.T) {
 	// Isolated DB: residual fleet benchmarks for all-minilm would look like peers
 	// and turn this unpeered case into a dispute on a shared database.
+	installBoundCataloguePublicationAuthorityForTest(t)
 	ctx, store, pool := openIsolatedTestStore(t)
 	supplierID, workerID := uuid.New(), uuid.New()
 	if _, err := pool.Exec(ctx, `INSERT INTO suppliers (id,email,status) VALUES ($1,$2,'active')`,
@@ -408,9 +418,13 @@ func TestUnpeeredBenchmarkKeepsClaimedRate(t *testing.T) {
 	registerContainmentCleanup(t, pool, []uuid.UUID{workerID}, nil)
 	cap := testWorkerCapability(workerID, supplierID)
 	// Self-report with no peer in the cell class: unpeered, not disputed.
+	// Rate must clear the TEST_ONLY publication floor while remaining far above
+	// any honest peer the disputed case will introduce.
 	cap.Benchmarks = []BenchResult{{
 		ModelID: "all-minilm-l6-v2", JobType: "embed",
 		EPS: 9999, TPS: 0, ThermalOK: true, P99MS: 10,
+		Unit: "token_like_input_units", UnitScope: performanceUnitScopeTokenLikeInputGeometry,
+		MeasuredUnix: uint64(runtimeCellPerformanceNow().Unix()),
 	}}
 	mustf(t, store.UpsertWorker(ctx, cap), "upsert: %v")
 	var tps float32
@@ -431,6 +445,7 @@ func TestUnpeeredBenchmarkKeepsClaimedRate(t *testing.T) {
 
 func TestDisputedBenchmarkIsNotRoutableAtClaimedRate(t *testing.T) {
 	// Isolated so the only peer is the one this test seeds.
+	installBoundCataloguePublicationAuthorityForTest(t)
 	ctx, store, pool := openIsolatedTestStore(t)
 	// Honest peer at ~100 eps.
 	peerSupplier, peerWorker := uuid.New(), uuid.New()
@@ -446,9 +461,12 @@ func TestDisputedBenchmarkIsNotRoutableAtClaimedRate(t *testing.T) {
 	}
 	registerContainmentCleanup(t, pool, []uuid.UUID{peerWorker, workerID}, nil)
 	peerCap := testWorkerCapability(peerWorker, peerSupplier)
+	// Honest peer above the TEST_ONLY floor (~1377) but far from the inflated claim.
 	peerCap.Benchmarks = []BenchResult{{
 		ModelID: "all-minilm-l6-v2", JobType: "embed",
-		EPS: 100, TPS: 0, ThermalOK: true, P99MS: 10,
+		EPS: 2000, TPS: 0, ThermalOK: true, P99MS: 10,
+		Unit: "token_like_input_units", UnitScope: performanceUnitScopeTokenLikeInputGeometry,
+		MeasuredUnix: uint64(runtimeCellPerformanceNow().Unix()),
 	}}
 	mustf(t, store.UpsertWorker(ctx, peerCap), "peer upsert: %v")
 
@@ -456,6 +474,8 @@ func TestDisputedBenchmarkIsNotRoutableAtClaimedRate(t *testing.T) {
 	cap.Benchmarks = []BenchResult{{
 		ModelID: "all-minilm-l6-v2", JobType: "embed",
 		EPS: 9999, TPS: 0, ThermalOK: true, P99MS: 10,
+		Unit: "token_like_input_units", UnitScope: performanceUnitScopeTokenLikeInputGeometry,
+		MeasuredUnix: uint64(runtimeCellPerformanceNow().Unix()),
 	}}
 	mustf(t, store.UpsertWorker(ctx, cap), "upsert: %v")
 	var tps float32
@@ -521,23 +541,29 @@ func registerContainmentCleanup(t *testing.T, pool *pgxpool.Pool, workerIDs, job
 }
 
 func testWorkerCapability(workerID, supplierID uuid.UUID) WorkerCapability {
+	// Exact physical identity matches installBoundCataloguePublicationAuthorityForTest
+	// so enrolment projection can bind when that TEST_ONLY seam is installed.
 	return WorkerCapability{
-		WorkerID:         workerID,
-		SupplierID:       supplierID,
-		HWClass:          "apple_silicon_max",
-		Engine:           "candle",
-		BuildHash:        "0123456789abcdef",
-		HardwareIdentity: "TEST_ONLY Apple M3 Max",
-		MemoryGB:         64,
-		MemoryBwGbps:     400,
-		GPUCount:         1,
-		MemoryGBPerGPU:   64,
-		SupportedJobs:    []string{"embed"},
-		SupportedModels:  []string{"all-minilm-l6-v2"},
-		MinPayoutUsdHr:   0,
+		WorkerID:            workerID,
+		SupplierID:          supplierID,
+		HWClass:             "apple_silicon_pro",
+		Engine:              "candle",
+		BuildHash:           testOnlyPublicationBuildHash,
+		BuildIdentityPolicy: currentEngineBuildIdentityPolicy,
+		HardwareIdentity:    testOnlyPublicationHardware,
+		MemoryGB:            64,
+		MemoryBwGbps:        400,
+		GPUCount:            1,
+		MemoryGBPerGPU:      64,
+		SupportedJobs:       []string{"embed"},
+		SupportedModels:     []string{"all-minilm-l6-v2"},
+		MinPayoutUsdHr:      0,
 		Benchmarks: []BenchResult{{
 			ModelID: "all-minilm-l6-v2", JobType: "embed",
-			EPS: 100, ThermalOK: true, P99MS: 20,
+			// Above the TEST_ONLY publication conservative floor (~1377).
+			EPS: 3000, ThermalOK: true, P99MS: 20,
+			Unit: "token_like_input_units", UnitScope: performanceUnitScopeTokenLikeInputGeometry,
+			MeasuredUnix: uint64(runtimeCellPerformanceNow().Unix()),
 		}},
 		AgentVersion: "test",
 		OSVersion:    "test",
