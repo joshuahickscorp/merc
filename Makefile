@@ -306,7 +306,9 @@ mutation-test:
 # Every candidate mutation in isolated worktrees/databases. The default is an
 # audited adaptive strategy: an observed source contract first, then an exact
 # fresh database clone for any unit survivor. It leaves the candidate source
-# tree untouched and enforces the 15-minute full-candidate ceiling.
+# tree untouched; the normal `mutation-full` gate enforces the calibrated
+# sub-five-minute candidate budget, while this standalone target retains its
+# explicit environment-configurable ceiling.
 mutation-test-parallel:
 	bash scripts/mutation-test-parallel.sh
 

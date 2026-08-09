@@ -11,7 +11,7 @@ usage: bash scripts/mutation-gate.sh fast|authority|full|deep
 
 fast       changed source targets only; hard budget 120 seconds
 authority  every mutation in the changed money/evidence/runtime authority domain; hard budget 300 seconds
-full       all 84 mutations exactly once; hard budget 900 seconds
+full       all 84 mutations exactly once; hard budget 299 seconds by default
 deep       full-suite mutation redundancy for an isolated nightly/release candidate
 
 Set MERC_MUTATION_BASE=<commit> to select a diff base for fast/authority.
@@ -102,8 +102,11 @@ case "$mode" in
     default_workers=6
     ;;
   full)
-    budget=900
-    default_workers=9
+    # Measured full-campaign SLO: this remains overrideable for a deliberately
+    # smaller host, but the normal calibrated path must fail rather than drift
+    # past five minutes unnoticed.
+    budget="${MERC_MUTATION_WALLCLOCK_SECONDS:-299}"
+    default_workers=14
     ;;
   deep)
     [ "${MERC_MUTATION_DEEP_ACK:-}" = "1" ] || {
