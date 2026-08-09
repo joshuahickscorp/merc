@@ -26,7 +26,8 @@
     "exact_reuse_batch.go": [
       "exact_reuse_authority_test.go",
       "reuse_money_wiring_test.go",
-      "project_order_test.go"
+      "project_order_test.go",
+      "job_task_money_integration_test.go"
     ],
     "money_nanos.go": [
       "money_nanos_test.go"
@@ -52,7 +53,8 @@
     "quote.go": [
       "quote_test.go",
       "quote_currency_integration_test.go",
-      "project_quote_test.go"
+      "project_quote_test.go",
+      "workload_classification_test.go"
     ],
     "realtime.go": [
       "realtime_test.go",
@@ -71,7 +73,9 @@
     "realtime_store.go": [
       "realtime_integration_test.go",
       "realtime_clearing_test.go",
-      "realtime_reuse_pricing_decision_test.go"
+      "realtime_reuse_pricing_decision_test.go",
+      "reuse_money_wiring_test.go",
+      "reuse_underflow_test.go"
     ],
     "runtime_cell_admission_binding.go": [
       "runtime_cell_admission_binding_test.go"
@@ -90,7 +94,8 @@
     ],
     "scheduler.go": [
       "scheduler_ask_claim_integration_test.go",
-      "prefix_placement_test.go"
+      "prefix_placement_test.go",
+      "workload_classification_test.go"
     ],
     "store_jobs.go": [
       "job_task_money_integration_test.go",

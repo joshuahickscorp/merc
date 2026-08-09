@@ -20,6 +20,7 @@
 #   MERC_MUTATION_POSTGRES_PORT_BASE=0     # 0 finds an unused local range
 #   MERC_MUTATION_TEST_STRATEGY=adaptive   # adaptive (default), contracts, or full
 #   MERC_MUTATION_GOMAXPROCS=1             # per-worker runtime CPU ceiling
+#   MERC_MUTATION_PARALLEL_CASE_IDS=1,25   # optional calibrated subset
 #   MERC_MUTATION_KEEP_WORKDIR=1          # retain failed shard logs/worktrees
 #
 #   bash scripts/mutation-test-parallel.sh --plan
@@ -62,6 +63,7 @@ budget_seconds="${MERC_MUTATION_WALLCLOCK_SECONDS:-1500}"
 postgres_port_base="${MERC_MUTATION_POSTGRES_PORT_BASE:-0}"
 test_strategy="${MERC_MUTATION_TEST_STRATEGY:-adaptive}"
 go_max_procs="${MERC_MUTATION_GOMAXPROCS:-1}"
+parallel_case_ids="${MERC_MUTATION_PARALLEL_CASE_IDS:-}"
 if ! [[ "$workers" =~ ^[1-9][0-9]*$ ]] || [ "$workers" -gt 32 ]; then
   echo "MERC_MUTATION_WORKERS must be an integer from 1 through 32" >&2
   exit 2
@@ -85,6 +87,10 @@ if ! [[ "$go_max_procs" =~ ^[1-9][0-9]*$ ]]; then
   echo "MERC_MUTATION_GOMAXPROCS must be a positive integer" >&2
   exit 2
 fi
+if [ -n "$parallel_case_ids" ] && ! [[ "$parallel_case_ids" =~ ^[1-9][0-9]*(,[1-9][0-9]*)*$ ]]; then
+  echo "MERC_MUTATION_PARALLEL_CASE_IDS must be comma-separated positive case IDs" >&2
+  exit 2
+fi
 
 declare -a case_ids=()
 declare -a case_descriptions=()
@@ -100,6 +106,31 @@ while IFS=$'\t' read -r case_id description; do
   case_ids+=("$case_id")
   case_descriptions+=("$description")
 done < <(MERC_MUTATION_LIST=1 bash scripts/mutation-test.sh)
+
+if [ -n "$parallel_case_ids" ]; then
+  duplicate_ids="$(printf '%s\n' "$parallel_case_ids" | tr ',' '\n' | sort | uniq -d)"
+  if [ -n "$duplicate_ids" ]; then
+    echo "MERC_MUTATION_PARALLEL_CASE_IDS contains duplicate case IDs: $duplicate_ids" >&2
+    exit 2
+  fi
+  requested_count="$(printf '%s\n' "$parallel_case_ids" | tr ',' '\n' | wc -l | tr -d ' ')"
+  declare -a selected_case_ids=()
+  declare -a selected_case_descriptions=()
+  for index in "${!case_ids[@]}"; do
+    case ",$parallel_case_ids," in
+      *",${case_ids[$index]},"*)
+        selected_case_ids+=("${case_ids[$index]}")
+        selected_case_descriptions+=("${case_descriptions[$index]}")
+        ;;
+    esac
+  done
+  if [ "${#selected_case_ids[@]}" -ne "$requested_count" ]; then
+    echo "MERC_MUTATION_PARALLEL_CASE_IDS names an unknown case" >&2
+    exit 2
+  fi
+  case_ids=("${selected_case_ids[@]}")
+  case_descriptions=("${selected_case_descriptions[@]}")
+fi
 
 case_count="${#case_ids[@]}"
 if [ "$case_count" -eq 0 ]; then

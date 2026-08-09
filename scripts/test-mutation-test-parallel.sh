@@ -30,4 +30,21 @@ if MERC_MUTATION_WORKERS=33 bash scripts/mutation-test-parallel.sh --plan >/dev/
   exit 1
 fi
 
+subset="$(MERC_MUTATION_PARALLEL_CASE_IDS=1,25,49 MERC_MUTATION_WORKERS=16 \
+  bash scripts/mutation-test-parallel.sh --plan)"
+subset_header="$(printf '%s\n' "$subset" | sed -n '1p')"
+printf '%s\n' "$subset_header" | grep -Eq 'cases=3 workers=3 ' || {
+  echo "parallel mutation subset did not preserve exactly its requested cases" >&2
+  exit 1
+}
+subset_ids="$(printf '%s\n' "$subset" | sed -n 's/^  worker [0-9][0-9]: //p' | tr ',' '\n' | sort -n | tr '\n' ',')"
+[ "$subset_ids" = "1,25,49," ] || {
+  echo "parallel mutation subset contains the wrong cases: $subset_ids" >&2
+  exit 1
+}
+if MERC_MUTATION_PARALLEL_CASE_IDS=85 bash scripts/mutation-test-parallel.sh --plan >/dev/null 2>&1; then
+  echo "parallel mutation runner accepted an unknown subset case" >&2
+  exit 1
+fi
+
 echo "test-mutation-test-parallel: PASS all 84 cases are uniquely sharded"
