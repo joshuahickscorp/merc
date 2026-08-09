@@ -562,11 +562,24 @@ func TestQuoteSupplyRequirementsMatchClaimTimeHardFilters(t *testing.T) {
 func TestClaimUsesFrozenRuntimeCandidate(t *testing.T) {
 	// Isolated: a shared queue hands unrelated jobs to both workers and masks
 	// the frozen-candidate filter under test.
-	ctx, store, pool := openIsolatedTestStore(t)
-	fixture := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{TaskCount: 1})
-
-	tasks := makeTasks(fixture, 1)
-	job := validJobRow(t, fixture, tasks)
+	// The checked-in batch receipt is intentionally SUPERSEDED. Build this
+	// scheduler-mechanics fixture through the scoped TEST_ONLY current
+	// catalogue/placement authority instead of reviving that receipt.
+	ctx, store, job, tasks, _ := currentUniformCatalogueIngressFixture(t)
+	pool := store.pool
+	var workerID, supplierID, otherWorkerID, otherSupplierID uuid.UUID
+	must(t, pool.QueryRow(ctx, `
+		SELECT w.id,s.id FROM workers w JOIN suppliers s ON s.id=w.supplier_id
+		 WHERE s.email LIKE 'money-sup-%' LIMIT 1`).Scan(&workerID, &supplierID))
+	must(t, pool.QueryRow(ctx, `
+		SELECT w.id,s.id FROM workers w JOIN suppliers s ON s.id=w.supplier_id
+		 WHERE s.email LIKE 'money-other-%' LIMIT 1`).Scan(&otherWorkerID, &otherSupplierID))
+	mustf(t, store.UpsertWorker(ctx,
+		currentIdentityWorkerCapability(workerID, supplierID, job.PlacementRequirement, job)),
+		"register frozen-cell worker: %v")
+	mustf(t, store.UpsertWorker(ctx,
+		currentIdentityWorkerCapability(otherWorkerID, otherSupplierID, job.PlacementRequirement, job)),
+		"register comparison worker: %v")
 	// Only the primary worker is registered for the exact cell/runtime frozen by
 	// the server decision. The second worker advertises the same job, model and
 	// current matrix digest but a different cell/runtime, so a model-only claim
@@ -578,9 +591,9 @@ func TestClaimUsesFrozenRuntimeCandidate(t *testing.T) {
 		cellID   string
 		runtime  string
 	}{
-		{fixture.WorkerID, job.PlacementRequirement.RuntimeCellID,
+		{workerID, job.PlacementRequirement.RuntimeCellID,
 			job.PlacementRequirement.RuntimeID},
-		{fixture.OtherWorkerID, "test-only-wrong-cell", "test-only-wrong-runtime"},
+		{otherWorkerID, "test-only-wrong-cell", "test-only-wrong-runtime"},
 	} {
 		if _, err := pool.Exec(ctx, `
 			UPDATE worker_authorized_capabilities
@@ -599,20 +612,20 @@ func TestClaimUsesFrozenRuntimeCandidate(t *testing.T) {
 	mustf(t, store.SubmitJobTx(ctx, job, tasks), "submit frozen-runtime job: %v")
 
 	wrong, err := store.ClaimTasksTx(ctx, WorkerAuth{
-		WorkerID: fixture.OtherWorkerID, SupplierID: fixture.OtherSupplierID,
+		WorkerID: otherWorkerID, SupplierID: otherSupplierID,
 	})
 	mustf(t, err, "wrong-cell claim: %v")
 	// Shared DBs may have other claimable jobs; only THIS fixture job must be
 	// refused to the wrong-cell worker.
-	if wrong != nil && wrong.JobID == fixture.JobID {
+	if wrong != nil && wrong.JobID == job.ID {
 		t.Fatalf("worker outside frozen runtime candidate claimed fixture task %s", wrong.TaskID)
 	}
 
 	right, err := store.ClaimTasksTx(ctx, WorkerAuth{
-		WorkerID: fixture.WorkerID, SupplierID: fixture.SupplierID,
+		WorkerID: workerID, SupplierID: supplierID,
 	})
 	mustf(t, err, "frozen-cell claim: %v")
-	if right == nil || right.JobID != fixture.JobID {
+	if right == nil || right.JobID != job.ID {
 		t.Fatalf("worker on frozen runtime candidate did not receive job: %+v", right)
 	}
 }
