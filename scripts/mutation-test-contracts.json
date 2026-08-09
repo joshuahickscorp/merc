@@ -48,8 +48,10 @@
     "pricing_decision.go": [
       "pricing_decision_test.go",
       "pricing_decision_catalogue_anchor_test.go",
+      "pricing_authority_reconciliation_test.go",
       "realtime_pricing_decision_test.go",
-      "realtime_reuse_pricing_decision_test.go"
+      "realtime_reuse_pricing_decision_test.go",
+      "runtime_cell_admission_binding_test.go"
     ],
     "quote.go": [
       "quote_test.go",
@@ -72,6 +74,7 @@
       "realtime_reuse_pricing_decision_test.go"
     ],
     "realtime_store.go": [
+      "contract_binding_shape_test.go",
       "realtime_integration_test.go",
       "realtime_clearing_test.go",
       "realtime_reuse_pricing_decision_test.go",
@@ -91,7 +94,8 @@
       "runtime_governed_comparison_test.go"
     ],
     "runtime_shadow_selection.go": [
-      "runtime_shadow_selection_test.go"
+      "runtime_shadow_selection_test.go",
+      "runtime_governed_comparison_test.go"
     ],
     "scheduler.go": [
       "scheduler_ask_claim_integration_test.go",
