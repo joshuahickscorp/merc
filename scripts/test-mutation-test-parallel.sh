@@ -58,6 +58,6 @@ rg --fixed-strings 'candidate_baseline_pid' scripts/mutation-test-parallel.sh >/
 rg --fixed-strings 'mutation-preflight-cache.py' scripts/mutation-test-parallel.sh >/dev/null
 rg --fixed-strings 'MERC_MUTATION_PREFLIGHT_CACHE' scripts/mutation-test-parallel.sh >/dev/null
 rg --fixed-strings 'preflight-db.json' scripts/mutation-test-parallel.sh >/dev/null
-rg --fixed-strings 'default_workers=14' scripts/mutation-test-parallel.sh >/dev/null
+rg --fixed-strings 'default_workers=16' scripts/mutation-test-parallel.sh >/dev/null
 
 echo "test-mutation-test-parallel: PASS all 84 cases are uniquely sharded"

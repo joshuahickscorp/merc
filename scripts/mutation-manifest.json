@@ -5,19 +5,20 @@
       "class": "PURE",
       "description": "pricing divides before scaling to nanos",
       "historical": {
-        "p50_seconds": 21.567566,
-        "p90_seconds": 23.321479,
+        "p50_seconds": 21.627322,
+        "p90_seconds": 25.137732,
         "samples_seconds": [
           20.90676,
           21.50781,
           21.627322,
           21.30714,
           22.023085,
-          24.619874
+          24.619874,
+          25.914518
         ]
       },
       "id": 1,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestBothTaskFloorDerivationsAgree",
         "TestBuyerGrossIsNotQuantisedToMicrosBeforeTheSupplierShare",
@@ -49,19 +50,20 @@
       "class": "PURE",
       "description": "pricing compares amounts with mismatched currencies",
       "historical": {
-        "p50_seconds": 21.669657,
-        "p90_seconds": 22.896966,
+        "p50_seconds": 21.708563,
+        "p90_seconds": 24.835523,
         "samples_seconds": [
           21.21999,
           21.630752,
           21.708563,
           21.45661,
           23.872957,
-          21.920974
+          21.920974,
+          26.279371
         ]
       },
       "id": 2,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestBothTaskFloorDerivationsAgree",
         "TestBuyerGrossIsNotQuantisedToMicrosBeforeTheSupplierShare",
@@ -93,19 +95,20 @@
       "class": "PURE",
       "description": "pricing ceilings fractional work units to integers",
       "historical": {
-        "p50_seconds": 21.478686,
-        "p90_seconds": 24.09142,
+        "p50_seconds": 21.508036,
+        "p90_seconds": 24.362564,
         "samples_seconds": [
           21.172469,
           21.410968,
           21.508036,
           21.449335,
           23.449201,
-          24.733639
+          24.733639,
+          24.11518
         ]
       },
       "id": 3,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestAttachRealtimeContractPricingRefusesDigestAndLegacyAuthorityDrift",
         "TestAttachRealtimeReusePricingRefusesPersistedAuthorityDrift",
@@ -149,19 +152,20 @@
       "class": "PURE",
       "description": "pricing quantises buyer gross to micros before supplier share",
       "historical": {
-        "p50_seconds": 21.381619,
-        "p90_seconds": 23.119987,
+        "p50_seconds": 21.458249,
+        "p90_seconds": 25.397446,
         "samples_seconds": [
           21.17428,
           21.256018,
           21.458249,
           21.676724,
           21.30499,
-          24.56325
+          24.56325,
+          26.648741
         ]
       },
       "id": 4,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestBothTaskFloorDerivationsAgree",
         "TestBuyerGrossIsNotQuantisedToMicrosBeforeTheSupplierShare",
@@ -193,19 +197,20 @@
       "class": "PURE",
       "description": "supplier floor uses reference price while entitlement uses settlement authority",
       "historical": {
-        "p50_seconds": 21.454344,
-        "p90_seconds": 21.983899,
+        "p50_seconds": 21.485639,
+        "p90_seconds": 24.427755,
         "samples_seconds": [
           21.048663,
           21.423048,
           21.374087,
           21.652867,
           21.485639,
-          22.314932
+          22.314932,
+          27.596989
         ]
       },
       "id": 5,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestAttachRealtimeContractPricingRefusesDigestAndLegacyAuthorityDrift",
         "TestAttachRealtimeReusePricingRefusesPersistedAuthorityDrift",
@@ -249,19 +254,20 @@
       "class": "PURE",
       "description": "catalogue and compute plan use divergent billable units",
       "historical": {
-        "p50_seconds": 21.66678,
-        "p90_seconds": 23.344335,
+        "p50_seconds": 21.687916,
+        "p90_seconds": 25.792118,
         "samples_seconds": [
           20.929664,
           21.121175,
           21.645644,
           21.687916,
           22.099983,
-          24.588686
+          24.588686,
+          27.597266
         ]
       },
       "id": 6,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestAttachRealtimeContractPricingRefusesDigestAndLegacyAuthorityDrift",
         "TestAttachRealtimeReusePricingRefusesPersistedAuthorityDrift",
@@ -305,19 +311,20 @@
       "class": "PURE",
       "description": "exact supplier floor is silently zeroed",
       "historical": {
-        "p50_seconds": 21.725669,
-        "p90_seconds": 24.187644,
+        "p50_seconds": 21.745675,
+        "p90_seconds": 25.433014,
         "samples_seconds": [
           21.087396,
           21.745675,
           21.705663,
           21.291999,
           23.990726,
-          24.384562
+          24.384562,
+          27.005692
         ]
       },
       "id": 7,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestAttachRealtimeContractPricingRefusesDigestAndLegacyAuthorityDrift",
         "TestAttachRealtimeReusePricingRefusesPersistedAuthorityDrift",
@@ -361,19 +368,20 @@
       "class": "PURE",
       "description": "buyer gross rounds upward beyond its ceiling",
       "historical": {
-        "p50_seconds": 21.66291,
-        "p90_seconds": 24.252951,
+        "p50_seconds": 21.745208,
+        "p90_seconds": 25.303188,
         "samples_seconds": [
           21.047233,
           21.745208,
           21.580612,
           21.225348,
           24.104955,
-          24.400947
+          24.400947,
+          26.656549
         ]
       },
       "id": 8,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestBothTaskFloorDerivationsAgree",
         "TestBuyerGrossIsNotQuantisedToMicrosBeforeTheSupplierShare",
@@ -405,19 +413,20 @@
       "class": "PURE",
       "description": "supplier entitlement rounds downward below its floor",
       "historical": {
-        "p50_seconds": 21.596967,
-        "p90_seconds": 22.038041,
+        "p50_seconds": 21.604157,
+        "p90_seconds": 24.227875,
         "samples_seconds": [
           21.565153,
           21.589777,
           21.486445,
           21.604157,
           21.887038,
-          22.189044
+          22.189044,
+          27.286121
         ]
       },
       "id": 9,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestBothTaskFloorDerivationsAgree",
         "TestBuyerGrossIsNotQuantisedToMicrosBeforeTheSupplierShare",
@@ -449,19 +458,20 @@
       "class": "PURE",
       "description": "realtime pricing divides the rate before multiplying tokens",
       "historical": {
-        "p50_seconds": 21.661009,
-        "p90_seconds": 24.318027,
+        "p50_seconds": 21.716049,
+        "p90_seconds": 24.283887,
         "samples_seconds": [
           20.949177,
           21.335828,
           21.605969,
           21.716049,
           24.147325,
-          24.488729
+          24.488729,
+          22.309557
         ]
       },
       "id": 10,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestBothTaskFloorDerivationsAgree",
         "TestBuyerGrossIsNotQuantisedToMicrosBeforeTheSupplierShare",
@@ -493,19 +503,20 @@
       "class": "PURE",
       "description": "realtime input is quantised to micros before token classes combine",
       "historical": {
-        "p50_seconds": 21.617367,
-        "p90_seconds": 23.442646,
+        "p50_seconds": 21.709065,
+        "p90_seconds": 25.242419,
         "samples_seconds": [
           20.872205,
           21.525669,
           21.709065,
           21.470549,
           22.664833,
-          24.220459
+          24.220459,
+          26.775359
         ]
       },
       "id": 11,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestBothTaskFloorDerivationsAgree",
         "TestBuyerGrossIsNotQuantisedToMicrosBeforeTheSupplierShare",
@@ -537,19 +548,20 @@
       "class": "PURE",
       "description": "realtime buyer charge rounds in the supplier direction",
       "historical": {
-        "p50_seconds": 21.527363,
-        "p90_seconds": 23.237797,
+        "p50_seconds": 21.560509,
+        "p90_seconds": 23.286737,
         "samples_seconds": [
           20.811665,
           21.262343,
           21.560509,
           21.494216,
           22.020414,
-          24.45518
+          24.45518,
+          22.507775
         ]
       },
       "id": 12,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestBothTaskFloorDerivationsAgree",
         "TestBuyerGrossIsNotQuantisedToMicrosBeforeTheSupplierShare",
@@ -581,19 +593,20 @@
       "class": "PURE",
       "description": "realtime supplier entitlement rounds in the buyer direction",
       "historical": {
-        "p50_seconds": 21.476414,
-        "p90_seconds": 23.566457,
+        "p50_seconds": 21.563812,
+        "p90_seconds": 23.492621,
         "samples_seconds": [
           21.175601,
           20.855294,
           21.389017,
           21.563812,
           23.935638,
-          23.197276
+          23.197276,
+          23.123745
         ]
       },
       "id": 13,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestBothTaskFloorDerivationsAgree",
         "TestBuyerGrossIsNotQuantisedToMicrosBeforeTheSupplierShare",
@@ -625,19 +638,20 @@
       "class": "PURE",
       "description": "realtime reuse rounds full price to micros before retained share",
       "historical": {
-        "p50_seconds": 21.881723,
-        "p90_seconds": 23.275983,
+        "p50_seconds": 21.958985,
+        "p90_seconds": 25.482856,
         "samples_seconds": [
           21.804462,
           21.958985,
           21.116683,
           21.456071,
           24.046342,
-          22.505625
+          22.505625,
+          27.637627
         ]
       },
       "id": 14,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestBothTaskFloorDerivationsAgree",
         "TestBuyerGrossIsNotQuantisedToMicrosBeforeTheSupplierShare",
@@ -669,19 +683,20 @@
       "class": "PURE",
       "description": "realtime reuse silently removes retained-share discount",
       "historical": {
-        "p50_seconds": 21.474826,
-        "p90_seconds": 23.314507,
+        "p50_seconds": 21.566413,
+        "p90_seconds": 25.51081,
         "samples_seconds": [
           21.344951,
           21.566413,
           21.3322,
           21.383239,
           22.28155,
-          24.347464
+          24.347464,
+          27.25583
         ]
       },
       "id": 15,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestBothTaskFloorDerivationsAgree",
         "TestBuyerGrossIsNotQuantisedToMicrosBeforeTheSupplierShare",
@@ -713,19 +728,20 @@
       "class": "PURE",
       "description": "realtime reuse silently removes minimum delivery charge",
       "historical": {
-        "p50_seconds": 21.403165,
-        "p90_seconds": 21.922176,
+        "p50_seconds": 21.498561,
+        "p90_seconds": 22.547659,
         "samples_seconds": [
           21.286052,
           21.498561,
           21.307769,
           21.644076,
           22.200276,
-          21.158437
+          21.158437,
+          23.068734
         ]
       },
       "id": 16,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestBothTaskFloorDerivationsAgree",
         "TestBuyerGrossIsNotQuantisedToMicrosBeforeTheSupplierShare",
@@ -757,19 +773,20 @@
       "class": "PURE",
       "description": "realtime supplier offer accepts a zero floor",
       "historical": {
-        "p50_seconds": 21.542837,
-        "p90_seconds": 23.033752,
+        "p50_seconds": 21.555494,
+        "p90_seconds": 23.392562,
         "samples_seconds": [
           21.121112,
           21.389775,
           21.555494,
           21.53018,
           21.573882,
-          24.493621
+          24.493621,
+          22.658523
         ]
       },
       "id": 17,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestAttachRealtimeContractPricingRefusesDigestAndLegacyAuthorityDrift",
         "TestAttachRealtimeReusePricingRefusesPersistedAuthorityDrift",
@@ -797,19 +814,20 @@
       "class": "PURE",
       "description": "realtime supplier offer accepts a sub-nano contribution spread",
       "historical": {
-        "p50_seconds": 21.542146,
-        "p90_seconds": 23.131569,
+        "p50_seconds": 21.612239,
+        "p90_seconds": 25.457157,
         "samples_seconds": [
           20.976471,
           21.612239,
           21.081887,
           21.729383,
           21.472052,
-          24.533756
+          24.533756,
+          26.842258
         ]
       },
       "id": 18,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestAttachRealtimeContractPricingRefusesDigestAndLegacyAuthorityDrift",
         "TestAttachRealtimeReusePricingRefusesPersistedAuthorityDrift",
@@ -837,19 +855,20 @@
       "class": "PURE",
       "description": "realtime pricing accepts a divergent embedded profile",
       "historical": {
-        "p50_seconds": 21.323833,
-        "p90_seconds": 21.896613,
+        "p50_seconds": 21.382325,
+        "p90_seconds": 22.390488,
         "samples_seconds": [
           20.792453,
           21.382325,
           20.909243,
           21.265341,
           21.774949,
-          22.018277
+          22.018277,
+          22.948804
         ]
       },
       "id": 19,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestAttachRealtimeContractPricingRefusesDigestAndLegacyAuthorityDrift",
         "TestRealtimePricingDecisionBindsExactCompositeAuthority",
@@ -863,19 +882,20 @@
       "class": "PURE",
       "description": "realtime pricing accepts a currency mismatch",
       "historical": {
-        "p50_seconds": 21.472464,
-        "p90_seconds": 22.243899,
+        "p50_seconds": 21.516835,
+        "p90_seconds": 22.353938,
         "samples_seconds": [
           21.078416,
           21.516835,
           21.324853,
           21.643042,
           21.428093,
-          22.844756
+          22.844756,
+          22.026726
         ]
       },
       "id": 20,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestAttachRealtimeContractPricingRefusesDigestAndLegacyAuthorityDrift",
         "TestRealtimePricingDecisionBindsExactCompositeAuthority",
@@ -889,19 +909,20 @@
       "class": "PURE",
       "description": "realtime pricing ignores the buyer ceiling",
       "historical": {
-        "p50_seconds": 21.500691,
-        "p90_seconds": 23.021222,
+        "p50_seconds": 21.664156,
+        "p90_seconds": 24.166276,
         "samples_seconds": [
           20.92713,
           21.200455,
           21.337226,
           21.664156,
           21.82548,
-          24.216964
+          24.216964,
+          24.132484
         ]
       },
       "id": 21,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestAttachRealtimeContractPricingRefusesDigestAndLegacyAuthorityDrift",
         "TestRealtimePricingDecisionBindsExactCompositeAuthority",
@@ -915,19 +936,20 @@
       "class": "PURE",
       "description": "realtime reuse accepts a divergent embedded profile",
       "historical": {
-        "p50_seconds": 21.39648,
-        "p90_seconds": 22.811236,
+        "p50_seconds": 21.555427,
+        "p90_seconds": 23.173168,
         "samples_seconds": [
           21.186358,
           20.952686,
           21.237532,
           21.555427,
           22.432603,
-          23.189868
+          23.189868,
+          23.162035
         ]
       },
       "id": 22,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestAttachRealtimeReusePricingRefusesPersistedAuthorityDrift",
         "TestRealtimeReusePricingDecisionBindsZeroPhysicalExactAuthority",
@@ -940,19 +962,20 @@
       "class": "PURE",
       "description": "realtime reuse accepts a currency mismatch",
       "historical": {
-        "p50_seconds": 21.291353,
-        "p90_seconds": 23.07998,
+        "p50_seconds": 21.34629,
+        "p90_seconds": 24.395779,
         "samples_seconds": [
           20.738462,
           21.236417,
           21.524734,
           20.989894,
           21.34629,
-          24.635226
+          24.635226,
+          24.236148
         ]
       },
       "id": 23,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestAttachRealtimeReusePricingRefusesPersistedAuthorityDrift",
         "TestRealtimeReusePricingDecisionBindsZeroPhysicalExactAuthority",
@@ -965,19 +988,20 @@
       "class": "PURE",
       "description": "realtime reuse ignores the buyer ceiling",
       "historical": {
-        "p50_seconds": 21.493871,
-        "p90_seconds": 22.819831,
+        "p50_seconds": 21.520615,
+        "p90_seconds": 22.652844,
         "samples_seconds": [
           20.940635,
           21.467128,
           21.290758,
           21.551797,
           21.520615,
-          24.087865
+          24.087865,
+          21.696164
         ]
       },
       "id": 24,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestAttachRealtimeReusePricingRefusesPersistedAuthorityDrift",
         "TestRealtimeReusePricingDecisionBindsZeroPhysicalExactAuthority",
@@ -990,19 +1014,20 @@
       "class": "DB",
       "description": "physical contract persistence drops PricingDecision authority",
       "historical": {
-        "p50_seconds": 28.05892,
-        "p90_seconds": 29.119642,
+        "p50_seconds": 28.109132,
+        "p90_seconds": 29.364862,
         "samples_seconds": [
           27.329093,
           28.109132,
           27.740372,
           28.008707,
           28.531144,
-          29.708139
+          29.708139,
+          29.136011
         ]
       },
       "id": 25,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestAttachRealtimeContractPricingRefusesDigestAndLegacyAuthorityDrift",
         "TestAttachRealtimeReusePricingRefusesPersistedAuthorityDrift",
@@ -1038,19 +1063,20 @@
       "class": "DB",
       "description": "reuse contract persistence drops PricingDecision authority",
       "historical": {
-        "p50_seconds": 28.571575,
-        "p90_seconds": 28.917945,
+        "p50_seconds": 28.630071,
+        "p90_seconds": 29.095804,
         "samples_seconds": [
           27.504655,
           28.513078,
           28.007528,
           28.630071,
           28.680923,
-          29.154966
+          29.154966,
+          29.056362
         ]
       },
       "id": 26,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestAttachRealtimeContractPricingRefusesDigestAndLegacyAuthorityDrift",
         "TestAttachRealtimeReusePricingRefusesPersistedAuthorityDrift",
@@ -1086,19 +1112,20 @@
       "class": "PURE",
       "description": "persisted realtime PricingDecision digest mismatch is ignored",
       "historical": {
-        "p50_seconds": 21.43803,
-        "p90_seconds": 21.747629,
+        "p50_seconds": 21.439636,
+        "p90_seconds": 21.874468,
         "samples_seconds": [
           21.439636,
           21.196978,
           21.436424,
           21.654689,
           21.399586,
-          21.840568
+          21.840568,
+          21.925319
         ]
       },
       "id": 27,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestAttachRealtimeContractPricingRefusesDigestAndLegacyAuthorityDrift",
         "TestAttachRealtimeReusePricingRefusesPersistedAuthorityDrift",
@@ -1134,19 +1161,20 @@
       "class": "PURE",
       "description": "legacy supplier projection may diverge from PricingDecision",
       "historical": {
-        "p50_seconds": 21.407048,
-        "p90_seconds": 21.787786,
+        "p50_seconds": 21.456225,
+        "p90_seconds": 24.207853,
         "samples_seconds": [
           21.010805,
           21.357871,
           21.294795,
           21.456225,
           21.911277,
-          21.664295
+          21.664295,
+          27.652716
         ]
       },
       "id": 28,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestAttachRealtimeContractPricingRefusesDigestAndLegacyAuthorityDrift",
         "TestAttachRealtimeReusePricingRefusesPersistedAuthorityDrift",
@@ -1182,19 +1210,20 @@
       "class": "PURE",
       "description": "persisted reuse delivered tokens may diverge from PricingDecision",
       "historical": {
-        "p50_seconds": 21.319109,
-        "p90_seconds": 22.086438,
+        "p50_seconds": 21.38779,
+        "p90_seconds": 23.324436,
         "samples_seconds": [
           20.633367,
           21.250429,
           21.145928,
           21.475572,
           21.38779,
-          22.697305
+          22.697305,
+          24.265132
         ]
       },
       "id": 29,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestAttachRealtimeContractPricingRefusesDigestAndLegacyAuthorityDrift",
         "TestAttachRealtimeReusePricingRefusesPersistedAuthorityDrift",
@@ -1230,19 +1259,20 @@
       "class": "DB",
       "description": "reuse settlement invents a supplier nano liability",
       "historical": {
-        "p50_seconds": 29.293899,
-        "p90_seconds": 30.553474,
+        "p50_seconds": 29.333587,
+        "p90_seconds": 31.422298,
         "samples_seconds": [
           26.999874,
           29.333587,
           27.996266,
           29.441328,
           29.254211,
-          31.66562
+          31.66562,
+          31.260084
         ]
       },
       "id": 30,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestAttachRealtimeContractPricingRefusesDigestAndLegacyAuthorityDrift",
         "TestAttachRealtimeReusePricingRefusesPersistedAuthorityDrift",
@@ -1278,19 +1308,20 @@
       "class": "DB",
       "description": "reuse idempotency accepts a different request digest",
       "historical": {
-        "p50_seconds": 28.145766,
-        "p90_seconds": 31.093278,
+        "p50_seconds": 28.211136,
+        "p90_seconds": 30.718552,
         "samples_seconds": [
           27.560535,
           28.080396,
           27.762021,
           28.211136,
           29.219648,
-          32.966908
+          32.966908,
+          28.538651
         ]
       },
       "id": 31,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestAttachRealtimeContractPricingRefusesDigestAndLegacyAuthorityDrift",
         "TestAttachRealtimeReusePricingRefusesPersistedAuthorityDrift",
@@ -1326,19 +1357,20 @@
       "class": "DB",
       "description": "reuse idempotency replay is bypassed",
       "historical": {
-        "p50_seconds": 28.429399,
-        "p90_seconds": 30.398588,
+        "p50_seconds": 28.844005,
+        "p90_seconds": 31.866341,
         "samples_seconds": [
           27.423602,
           28.014794,
           27.944305,
           28.844005,
           29.418299,
-          31.378877
+          31.378877,
+          32.597538
         ]
       },
       "id": 32,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestAttachRealtimeContractPricingRefusesDigestAndLegacyAuthorityDrift",
         "TestAttachRealtimeReusePricingRefusesPersistedAuthorityDrift",
@@ -1374,19 +1406,20 @@
       "class": "DB",
       "description": "verified usage may exceed frozen PricingDecision bounds",
       "historical": {
-        "p50_seconds": 27.938682,
-        "p90_seconds": 28.458141,
+        "p50_seconds": 27.948194,
+        "p90_seconds": 29.142652,
         "samples_seconds": [
           27.279951,
           27.92917,
           27.677052,
           27.955356,
           27.948194,
-          28.960927
+          28.960927,
+          29.415239
         ]
       },
       "id": 33,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestAttachRealtimeContractPricingRefusesDigestAndLegacyAuthorityDrift",
         "TestAttachRealtimeReusePricingRefusesPersistedAuthorityDrift",
@@ -1422,19 +1455,20 @@
       "class": "DB",
       "description": "settlement substitutes buyer authority for supplier floor",
       "historical": {
-        "p50_seconds": 28.026187,
-        "p90_seconds": 28.628513,
+        "p50_seconds": 28.032951,
+        "p90_seconds": 28.755328,
         "samples_seconds": [
           26.9648,
           28.032951,
           27.719586,
           28.019424,
           28.33524,
-          28.921787
+          28.921787,
+          28.644356
         ]
       },
       "id": 34,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestAttachRealtimeContractPricingRefusesDigestAndLegacyAuthorityDrift",
         "TestAttachRealtimeReusePricingRefusesPersistedAuthorityDrift",
@@ -1470,19 +1504,20 @@
       "class": "DB",
       "description": "accrual adds instead of carrying the remainder",
       "historical": {
-        "p50_seconds": 25.07694,
-        "p90_seconds": 25.676965,
+        "p50_seconds": 25.17353,
+        "p90_seconds": 26.798732,
         "samples_seconds": [
           24.341039,
           25.17353,
           24.401062,
           25.376171,
           24.980349,
-          25.977758
+          25.977758,
+          28.030194
         ]
       },
       "id": 35,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestAccrualConservesEveryMicroUSD",
         "TestAccrualConservesMoneyUnderConcurrentClaims",
@@ -1499,19 +1534,20 @@
       "class": "DB",
       "description": "accrual rounds up instead of flooring cents",
       "historical": {
-        "p50_seconds": 25.011565,
-        "p90_seconds": 25.63333,
+        "p50_seconds": 25.024995,
+        "p90_seconds": 25.526198,
         "samples_seconds": [
           24.288939,
           24.998136,
           25.024995,
           25.097671,
           24.74329,
-          26.168989
+          26.168989,
+          25.06008
         ]
       },
       "id": 36,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestAccrualConservesEveryMicroUSD",
         "TestAccrualConservesMoneyUnderConcurrentClaims",
@@ -1528,19 +1564,20 @@
       "class": "DB",
       "description": "supplier accrual lock removed",
       "historical": {
-        "p50_seconds": 25.074997,
-        "p90_seconds": 26.042325,
+        "p50_seconds": 25.366575,
+        "p90_seconds": 27.451401,
         "samples_seconds": [
           23.901144,
           24.783418,
           24.75185,
           25.830395,
           25.366575,
-          26.254255
+          26.254255,
+          29.24712
         ]
       },
       "id": 37,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestAccrualConservesEveryMicroUSD",
         "TestAccrualConservesMoneyUnderConcurrentClaims",
@@ -1557,19 +1594,20 @@
       "class": "PURE",
       "description": "reused input counted as physical work",
       "historical": {
-        "p50_seconds": 21.519853,
-        "p90_seconds": 21.829691,
+        "p50_seconds": 21.639781,
+        "p90_seconds": 22.665309,
         "samples_seconds": [
           20.791393,
           21.639781,
           21.132546,
           21.399925,
           21.809122,
-          21.85026
+          21.85026,
+          23.887882
         ]
       },
       "id": 38,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestBillingInvariantsHoldForRandomClassMixes",
         "TestMoneyInvariantsHoldUnderRandomOperationOrderings",
@@ -1587,19 +1625,20 @@
       "class": "PURE",
       "description": "reused tokens billed at the full rate",
       "historical": {
-        "p50_seconds": 21.620228,
-        "p90_seconds": 22.261867,
+        "p50_seconds": 21.678177,
+        "p90_seconds": 22.190655,
         "samples_seconds": [
           21.124005,
           21.905808,
           21.678177,
           21.562279,
           21.270141,
-          22.617925
+          22.617925,
+          21.821967
         ]
       },
       "id": 39,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestBillingInvariantsHoldForRandomClassMixes",
         "TestMoneyInvariantsHoldUnderRandomOperationOrderings",
@@ -1617,19 +1656,20 @@
       "class": "PURE",
       "description": "token budget ignored",
       "historical": {
-        "p50_seconds": 22.333567,
-        "p90_seconds": 22.678265,
+        "p50_seconds": 22.388514,
+        "p90_seconds": 22.937986,
         "samples_seconds": [
           21.895713,
           22.388514,
           22.27862,
           22.276327,
           22.39508,
-          22.96145
+          22.96145,
+          22.922343
         ]
       },
       "id": 40,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestBatchingPolicyIsReachedFromArrivalBatcher",
         "TestBudgetIsTokensNotRequests",
@@ -1646,19 +1686,20 @@
       "class": "DB",
       "description": "prefix warmth ignores its TTL",
       "historical": {
-        "p50_seconds": 27.087152,
-        "p90_seconds": 27.801201,
+        "p50_seconds": 27.242182,
+        "p90_seconds": 28.858935,
         "samples_seconds": [
           26.107763,
           27.242182,
           26.253045,
           26.932122,
           27.288839,
-          28.313563
+          28.313563,
+          29.676994
         ]
       },
       "id": 41,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestCacheValueDecaysWithAge",
         "TestCacheValueIsDrivenByReuseNotDepth",
@@ -1688,19 +1729,20 @@
       "class": "PURE",
       "description": "non-deterministic requests become cacheable",
       "historical": {
-        "p50_seconds": 21.213968,
-        "p90_seconds": 21.867736,
+        "p50_seconds": 21.362051,
+        "p90_seconds": 21.820878,
         "samples_seconds": [
           20.950827,
           21.362051,
           21.047729,
           21.633445,
           21.065884,
-          22.102027
+          22.102027,
+          21.551812
         ]
       },
       "id": 42,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestBareCacheablePayloadStillHashes",
         "TestBatchReuseIdentityBindsRuntimeAuthorityNotJustRequestShape",
@@ -1722,19 +1764,20 @@
       "class": "DB",
       "description": "tenant-scoped references accepted",
       "historical": {
-        "p50_seconds": 23.997062,
-        "p90_seconds": 25.039722,
+        "p50_seconds": 24.039416,
+        "p90_seconds": 24.966464,
         "samples_seconds": [
           22.812952,
           23.482151,
           24.039416,
           23.954707,
           24.673432,
-          25.406012
+          25.406012,
+          24.57131
         ]
       },
       "id": 43,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestBareCacheablePayloadStillHashes",
         "TestBatchReuseIdentityBindsRuntimeAuthorityNotJustRequestShape",
@@ -1756,19 +1799,20 @@
       "class": "PURE",
       "description": "supplier reputation omitted from workload binding",
       "historical": {
-        "p50_seconds": 21.351944,
-        "p90_seconds": 22.402009,
+        "p50_seconds": 21.449605,
+        "p90_seconds": 22.367807,
         "samples_seconds": [
           21.148773,
           21.145621,
           21.254284,
           21.449605,
           22.231001,
-          22.573017
+          22.573017,
+          21.606457
         ]
       },
       "id": 44,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestBatchExactReuseIsDisabledForCurrentAndHistoricalDecisions",
         "TestClaimUsesFrozenRuntimeCandidate",
@@ -1791,19 +1835,20 @@
       "class": "PURE",
       "description": "input commitment omitted from workload binding",
       "historical": {
-        "p50_seconds": 21.679462,
-        "p90_seconds": 21.850852,
+        "p50_seconds": 21.605095,
+        "p90_seconds": 21.844163,
         "samples_seconds": [
           21.216103,
           21.817408,
           21.388604,
           21.56078,
           21.884295,
-          21.798144
+          21.798144,
+          21.605095
         ]
       },
       "id": 45,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestBatchExactReuseIsDisabledForCurrentAndHistoricalDecisions",
         "TestClaimUsesFrozenRuntimeCandidate",
@@ -1826,19 +1871,20 @@
       "class": "DB",
       "description": "quote supply ignores buyer data residency",
       "historical": {
-        "p50_seconds": 26.535048,
-        "p90_seconds": 27.057986,
+        "p50_seconds": 26.591618,
+        "p90_seconds": 27.212823,
         "samples_seconds": [
           25.653133,
           26.963641,
           26.268575,
           26.591618,
           26.478478,
-          27.152332
+          27.152332,
+          27.30356
         ]
       },
       "id": 46,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestApplyMemoryFloorRisk",
         "TestAssessRiskMalformedLowersConfidenceAndWarns",
@@ -1891,19 +1937,20 @@
       "class": "DB",
       "description": "exact reuse omits frozen workload authority",
       "historical": {
-        "p50_seconds": 67.848348,
-        "p90_seconds": 70.829002,
+        "p50_seconds": 67.911932,
+        "p90_seconds": 70.712534,
         "samples_seconds": [
           64.501015,
           71.411337,
           66.792352,
           67.784764,
           67.911932,
-          70.246666
+          70.246666,
+          69.174944
         ]
       },
       "id": 47,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestBatchReuseIdentityBindsRuntimeAuthorityNotJustRequestShape",
         "TestCacheHitBillsReuseClassAndSchedulesNoSupplier",
@@ -1958,19 +2005,20 @@
       "class": "PURE",
       "description": "exact reuse hashes request shape but not runtime authority",
       "historical": {
-        "p50_seconds": 21.687567,
-        "p90_seconds": 22.041286,
+        "p50_seconds": 21.879727,
+        "p90_seconds": 22.022566,
         "samples_seconds": [
           20.965944,
           21.28143,
           21.495407,
           22.134885,
           21.879727,
-          21.947687
+          21.947687,
+          21.921903
         ]
       },
       "id": 48,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestBatchReuseIdentityBindsRuntimeAuthorityNotJustRequestShape",
         "TestCacheHitBillsReuseClassAndSchedulesNoSupplier",
@@ -2025,19 +2073,20 @@
       "class": "DB",
       "description": "claim ignores frozen runtime candidates",
       "historical": {
-        "p50_seconds": 25.413013,
-        "p90_seconds": 26.931994,
+        "p50_seconds": 25.497441,
+        "p90_seconds": 26.828587,
         "samples_seconds": [
           24.625508,
           25.497441,
           24.738145,
           26.41496,
           25.328584,
-          27.449028
+          27.449028,
+          25.919251
         ]
       },
       "id": 49,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestBatchExactReuseIsDisabledForCurrentAndHistoricalDecisions",
         "TestClaimTasksTxDefersToACheaperAskingWorker",
@@ -2066,19 +2115,20 @@
       "class": "PURE",
       "description": "bound quote recomputes split from the live planner",
       "historical": {
-        "p50_seconds": 21.300027,
-        "p90_seconds": 22.023789,
+        "p50_seconds": 21.414993,
+        "p90_seconds": 22.079173,
         "samples_seconds": [
           20.936909,
           21.61831,
           21.185061,
           21.414993,
           21.137295,
-          22.429267
+          22.429267,
+          21.845777
         ]
       },
       "id": 50,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestBoundQuoteRefusesDifferentMeasuredDepthProfile",
         "TestBoundQuoteSplitNeverConsultsLivePlanner",
@@ -2107,19 +2157,20 @@
       "class": "PURE",
       "description": "compute plan accepts tampered task totals",
       "historical": {
-        "p50_seconds": 21.620648,
-        "p90_seconds": 22.132337,
+        "p50_seconds": 21.550299,
+        "p90_seconds": 22.115418,
         "samples_seconds": [
           21.212476,
           22.047738,
           21.406299,
           21.550299,
           21.690997,
-          22.216937
+          22.216937,
+          21.534062
         ]
       },
       "id": 51,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestBoundQuoteRefusesDifferentMeasuredDepthProfile",
         "TestBoundQuoteSplitNeverConsultsLivePlanner",
@@ -2148,19 +2199,20 @@
       "class": "DB",
       "description": "job persistence ignores bound quote compute authority",
       "historical": {
-        "p50_seconds": 68.347161,
-        "p90_seconds": 71.92423,
+        "p50_seconds": 68.9722,
+        "p90_seconds": 71.692636,
         "samples_seconds": [
           63.765369,
           70.766262,
           66.460962,
           67.722121,
           68.9722,
-          73.082198
+          73.082198,
+          69.197584
         ]
       },
       "id": 52,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestCatalogueAnchoredValidationRequiresStore",
         "TestClaimTaskRollsBackWhenParentTerminalizesDuringClaim",
@@ -2211,19 +2263,20 @@
       "class": "DB",
       "description": "exact reuse ignores origin quote compute authority",
       "historical": {
-        "p50_seconds": 67.329248,
-        "p90_seconds": 71.09978,
+        "p50_seconds": 67.467747,
+        "p90_seconds": 72.286695,
         "samples_seconds": [
           64.452598,
           71.893044,
           66.356722,
           67.190749,
           67.467747,
-          70.306515
+          70.306515,
+          72.877171
         ]
       },
       "id": 53,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestBatchReuseIdentityBindsRuntimeAuthorityNotJustRequestShape",
         "TestCacheHitBillsReuseClassAndSchedulesNoSupplier",
@@ -2278,19 +2331,20 @@
       "class": "PURE",
       "description": "frozen multi-GPU placement accepts a different degree",
       "historical": {
-        "p50_seconds": 21.422525,
-        "p90_seconds": 22.12043,
+        "p50_seconds": 21.481158,
+        "p90_seconds": 22.009694,
         "samples_seconds": [
           21.266784,
           21.363891,
           21.56675,
           21.481158,
           21.195787,
-          22.67411
+          22.67411,
+          21.501673
         ]
       },
       "id": 54,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestFrozenRealtimePlacementValidatorRefusesDegreeMutation",
         "TestFrozenRealtimePlacementValidatorRefusesExecutionModeMutation",
@@ -2308,19 +2362,20 @@
       "class": "PURE",
       "description": "realtime placement digest mismatch is ignored",
       "historical": {
-        "p50_seconds": 21.476163,
-        "p90_seconds": 22.454938,
+        "p50_seconds": 21.479653,
+        "p90_seconds": 22.367755,
         "samples_seconds": [
           20.936925,
           22.019022,
           21.472674,
           21.479653,
           21.069557,
-          22.890855
+          22.890855,
+          21.561997
         ]
       },
       "id": 55,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestFrozenRealtimePlacementValidatorRefusesDegreeMutation",
         "TestFrozenRealtimePlacementValidatorRefusesExecutionModeMutation",
@@ -2338,19 +2393,20 @@
       "class": "DB",
       "description": "contract persistence drops selected placement authority",
       "historical": {
-        "p50_seconds": 27.564035,
-        "p90_seconds": 29.239355,
+        "p50_seconds": 27.604388,
+        "p90_seconds": 29.087811,
         "samples_seconds": [
           27.285745,
           28.481639,
           27.523682,
           27.393399,
           27.604388,
-          29.99707
+          29.99707,
+          28.470236
         ]
       },
       "id": 56,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestAttachRealtimeContractPricingRefusesDigestAndLegacyAuthorityDrift",
         "TestAttachRealtimeReusePricingRefusesPersistedAuthorityDrift",
@@ -2386,19 +2442,20 @@
       "class": "PURE",
       "description": "production credential silently arms LIVE payments",
       "historical": {
-        "p50_seconds": 21.67783,
-        "p90_seconds": 22.011111,
+        "p50_seconds": 21.55511,
+        "p90_seconds": 21.976137,
         "samples_seconds": [
           21.048453,
           21.836243,
           21.55511,
           21.800549,
           20.90062,
-          22.185979
+          22.185979,
+          21.420378
         ]
       },
       "id": 57,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestExpiredLiveWindowAllowsOnlyBoundedRecovery",
         "TestLiveActivationBindsCandidateWindowCapsAndApprovals",
@@ -2419,19 +2476,20 @@
       "class": "PURE",
       "description": "SEALED provider boundary is bypassed",
       "historical": {
-        "p50_seconds": 21.384802,
-        "p90_seconds": 21.894392,
+        "p50_seconds": 21.420393,
+        "p90_seconds": 21.991709,
         "samples_seconds": [
           20.84424,
           21.984882,
           21.349211,
           21.420393,
           20.646903,
-          21.803902
+          21.803902,
+          22.00195
         ]
       },
       "id": 58,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestExpiredLiveWindowAllowsOnlyBoundedRecovery",
         "TestLiveActivationBindsCandidateWindowCapsAndApprovals",
@@ -2452,19 +2510,20 @@
       "class": "PURE",
       "description": "LIVE activation ignores candidate binding",
       "historical": {
-        "p50_seconds": 21.446098,
-        "p90_seconds": 22.126639,
+        "p50_seconds": 21.636846,
+        "p90_seconds": 22.060625,
         "samples_seconds": [
           20.704452,
           21.636846,
           21.25535,
           21.713658,
           21.109802,
-          22.539621
+          22.539621,
+          21.741294
         ]
       },
       "id": 59,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestExpiredLiveWindowAllowsOnlyBoundedRecovery",
         "TestLiveActivationBindsCandidateWindowCapsAndApprovals",
@@ -2485,19 +2544,20 @@
       "class": "PURE",
       "description": "LIVE per-operation cap is ignored",
       "historical": {
-        "p50_seconds": 21.438423,
-        "p90_seconds": 22.17285,
+        "p50_seconds": 21.416381,
+        "p90_seconds": 22.045612,
         "samples_seconds": [
           20.839119,
           21.536658,
           21.348556,
           21.528291,
           21.151288,
-          22.809042
+          22.809042,
+          21.416381
         ]
       },
       "id": 60,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestExpiredLiveWindowAllowsOnlyBoundedRecovery",
         "TestLiveActivationBindsCandidateWindowCapsAndApprovals",
@@ -2518,19 +2578,20 @@
       "class": "PURE",
       "description": "LIVE recovery cannot remain operationally ready",
       "historical": {
-        "p50_seconds": 21.295416,
-        "p90_seconds": 21.996387,
+        "p50_seconds": 21.508118,
+        "p90_seconds": 22.072196,
         "samples_seconds": [
           21.082714,
           21.031566,
           21.508118,
           21.647463,
           20.73485,
-          22.345312
+          22.345312,
+          21.890118
         ]
       },
       "id": 61,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestExpiredLiveWindowAllowsOnlyBoundedRecovery",
         "TestLiveActivationBindsCandidateWindowCapsAndApprovals",
@@ -2551,19 +2612,20 @@
       "class": "PURE",
       "description": "LIVE Stripe key can remain environment-inline",
       "historical": {
-        "p50_seconds": 21.334906,
-        "p90_seconds": 22.703728,
+        "p50_seconds": 21.564154,
+        "p90_seconds": 22.683669,
         "samples_seconds": [
           20.677052,
           22.804022,
           21.564154,
           20.906333,
           21.105659,
-          22.603434
+          22.603434,
+          21.786295
         ]
       },
       "id": 62,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestExpiredLiveWindowAllowsOnlyBoundedRecovery",
         "TestLiveActivationBindsCandidateWindowCapsAndApprovals",
@@ -2584,19 +2646,20 @@
       "class": "PURE",
       "description": "Stripe API version pin is deleted",
       "historical": {
-        "p50_seconds": 21.643728,
-        "p90_seconds": 21.969194,
+        "p50_seconds": 21.68757,
+        "p90_seconds": 21.983482,
         "samples_seconds": [
           20.897757,
           21.68757,
           21.709625,
           21.599886,
           21.401399,
-          22.228763
+          22.228763,
+          21.819962
         ]
       },
       "id": 63,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestDeploymentAcceptanceRequiresReadyStripeContract",
         "TestEveryStripeOperatorScriptPinsSameVersion",
@@ -2613,19 +2676,20 @@
       "class": "PURE",
       "description": "signed Stripe webhook ignores API version",
       "historical": {
-        "p50_seconds": 21.52236,
-        "p90_seconds": 21.845279,
+        "p50_seconds": 21.58255,
+        "p90_seconds": 22.001211,
         "samples_seconds": [
           20.98954,
           21.654408,
           21.46217,
           21.58255,
           21.103658,
-          22.03615
+          22.03615,
+          21.977919
         ]
       },
       "id": 64,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestDeploymentAcceptanceRequiresReadyStripeContract",
         "TestEveryStripeOperatorScriptPinsSameVersion",
@@ -2642,19 +2706,20 @@
       "class": "PURE",
       "description": "signed Stripe webhook ignores livemode",
       "historical": {
-        "p50_seconds": 21.224286,
-        "p90_seconds": 22.294024,
+        "p50_seconds": 21.154537,
+        "p90_seconds": 22.195849,
         "samples_seconds": [
           20.977785,
           21.80315,
           21.470786,
           20.974586,
           20.882002,
-          22.784897
+          22.784897,
+          21.154537
         ]
       },
       "id": 65,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestDeploymentAcceptanceRequiresReadyStripeContract",
         "TestEveryStripeOperatorScriptPinsSameVersion",
@@ -2671,19 +2736,20 @@
       "class": "PURE",
       "description": "Stripe billing bypasses the pinned transport",
       "historical": {
-        "p50_seconds": 21.190219,
-        "p90_seconds": 21.65392,
+        "p50_seconds": 21.280794,
+        "p90_seconds": 21.827216,
         "samples_seconds": [
           21.024709,
           21.305642,
           21.099644,
           21.280794,
           20.763377,
-          22.002197
+          22.002197,
+          21.710562
         ]
       },
       "id": 66,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestBillingCustomerCanonicalSchema",
         "TestChargePaymentIntentRequiresExactTerminalCashFact",
@@ -2711,19 +2777,20 @@
       "class": "PURE",
       "description": "Stripe payout bypasses the pinned transport",
       "historical": {
-        "p50_seconds": 21.656603,
-        "p90_seconds": 21.882943,
+        "p50_seconds": 21.528305,
+        "p90_seconds": 21.871335,
         "samples_seconds": [
           21.019986,
           21.528305,
           21.784901,
           21.824903,
           21.182444,
-          21.940983
+          21.940983,
+          21.398225
         ]
       },
       "id": 67,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestAuthorizePayoutSubsidyWithinBalanceRefuseBeyondIdempotent",
         "TestFinalizePayoutTerminalStatesAndSecondIsNoOp",
@@ -2757,19 +2824,20 @@
       "class": "PURE",
       "description": "supplier entitlement stops cancelling unitsPerSec",
       "historical": {
-        "p50_seconds": 21.065668,
-        "p90_seconds": 22.238495,
+        "p50_seconds": 21.187102,
+        "p90_seconds": 22.16114,
         "samples_seconds": [
           20.832941,
           20.944234,
           20.874475,
           21.851718,
           21.187102,
-          22.625273
+          22.625273,
+          21.332108
         ]
       },
       "id": 68,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestCellEconomicsProjectionBindsAllNamedTerms",
         "TestCellEconomicsProjectionMatchesMeasuredVO",
@@ -2788,19 +2856,20 @@
       "class": "PURE",
       "description": "throughput re-enters the expanded entitlement form",
       "historical": {
-        "p50_seconds": 21.383581,
-        "p90_seconds": 22.629646,
+        "p50_seconds": 21.443317,
+        "p90_seconds": 22.578012,
         "samples_seconds": [
           21.046627,
           22.887813,
           21.049164,
           21.569598,
           21.197565,
-          22.371478
+          22.371478,
+          21.443317
         ]
       },
       "id": 69,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestCellEconomicsProjectionBindsAllNamedTerms",
         "TestCellEconomicsProjectionMatchesMeasuredVO",
@@ -2819,19 +2888,20 @@
       "class": "PURE",
       "description": "a cost tie is reported as a cost win",
       "historical": {
-        "p50_seconds": 21.205173,
-        "p90_seconds": 22.31464,
+        "p50_seconds": 21.303105,
+        "p90_seconds": 22.233337,
         "samples_seconds": [
           20.913365,
           21.908126,
           21.398454,
           20.839672,
           21.011892,
-          22.721154
+          22.721154,
+          21.303105
         ]
       },
       "id": 70,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestDecideMeasuredShadowNamesThroughputOnCostTie",
         "TestDecideMeasuredShadowRecordsTrueTie",
@@ -2856,19 +2926,20 @@
       "class": "PURE",
       "description": "a true tie manufactures a winner",
       "historical": {
-        "p50_seconds": 21.130918,
-        "p90_seconds": 22.310036,
+        "p50_seconds": 21.160585,
+        "p90_seconds": 22.221287,
         "samples_seconds": [
           20.575785,
           21.866292,
           20.862692,
           21.101252,
           21.160585,
-          22.75378
+          22.75378,
+          21.736607
         ]
       },
       "id": 71,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestDecideMeasuredShadowNamesThroughputOnCostTie",
         "TestDecideMeasuredShadowRecordsTrueTie",
@@ -2893,19 +2964,20 @@
       "class": "PURE",
       "description": "latency noise floor stops guarding the ratio band",
       "historical": {
-        "p50_seconds": 21.502323,
-        "p90_seconds": 22.019127,
+        "p50_seconds": 21.363367,
+        "p90_seconds": 21.946907,
         "samples_seconds": [
           20.885085,
           21.641279,
           21.363367,
           21.658029,
           20.745795,
-          22.380225
+          22.380225,
+          21.272772
         ]
       },
       "id": 72,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestDecideMeasuredShadowNamesThroughputOnCostTie",
         "TestDecideMeasuredShadowRecordsTrueTie",
@@ -2930,19 +3002,20 @@
       "class": "PURE",
       "description": "an unbound actual is allowed to rule on a prior claim",
       "historical": {
-        "p50_seconds": 21.260562,
-        "p90_seconds": 22.044337,
+        "p50_seconds": 21.388512,
+        "p90_seconds": 21.965135,
         "samples_seconds": [
           20.817684,
           21.388512,
           21.132612,
           21.64833,
           20.542396,
-          22.440343
+          22.440343,
+          21.560365
         ]
       },
       "id": 73,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestDecideMeasuredShadowNamesThroughputOnCostTie",
         "TestDecideMeasuredShadowRecordsTrueTie",
@@ -2963,19 +3036,20 @@
       "class": "PURE",
       "description": "provenance takes the strongest input instead of the weakest",
       "historical": {
-        "p50_seconds": 21.437242,
-        "p90_seconds": 21.544837,
+        "p50_seconds": 21.414645,
+        "p90_seconds": 21.541841,
         "samples_seconds": [
           20.838507,
           21.559818,
           21.45984,
           21.414645,
           20.627563,
-          21.529857
+          21.529857,
+          20.851703
         ]
       },
       "id": 74,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestDecideMeasuredShadowNamesThroughputOnCostTie",
         "TestDecideMeasuredShadowRecordsTrueTie",
@@ -2996,19 +3070,20 @@
       "class": "PURE",
       "description": "frozen per-unit cost is taken from the raw accumulator",
       "historical": {
-        "p50_seconds": 21.237513,
-        "p90_seconds": 21.554845,
+        "p50_seconds": 21.274721,
+        "p90_seconds": 21.537748,
         "samples_seconds": [
           20.930344,
           21.459719,
           21.200305,
           20.833829,
           21.274721,
-          21.649972
+          21.649972,
+          21.462932
         ]
       },
       "id": 75,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestCombinedCostRefusesToReportHalfATotal",
         "TestFrozenRuntimeCellCostSumRefusesUnknownAsZero",
@@ -3026,19 +3101,20 @@
       "class": "PURE",
       "description": "half a combined cost is reported as the whole cost",
       "historical": {
-        "p50_seconds": 21.223396,
-        "p90_seconds": 22.197285,
+        "p50_seconds": 21.617032,
+        "p90_seconds": 22.091518,
         "samples_seconds": [
           20.82976,
           21.66845,
           20.517975,
           21.617032,
           20.544568,
-          22.726119
+          22.726119,
+          21.626412
         ]
       },
       "id": 76,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestCombinedCostRefusesToReportHalfATotal",
         "TestFrozenRuntimeCellCostSumRefusesUnknownAsZero",
@@ -3056,19 +3132,20 @@
       "class": "PURE",
       "description": "true net is published while a category is unknown",
       "historical": {
-        "p50_seconds": 21.382674,
-        "p90_seconds": 22.24365,
+        "p50_seconds": 21.216694,
+        "p90_seconds": 22.13967,
         "samples_seconds": [
           20.722803,
           21.548654,
           20.626773,
           21.723751,
           21.216694,
-          22.763549
+          22.763549,
+          21.028565
         ]
       },
       "id": 77,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestCombinedCostRefusesToReportHalfATotal",
         "TestFrozenRuntimeCellCostSumRefusesUnknownAsZero",
@@ -3086,19 +3163,20 @@
       "class": "PURE",
       "description": "a partial cost sum calls itself complete",
       "historical": {
-        "p50_seconds": 21.811141,
-        "p90_seconds": 21.961218,
+        "p50_seconds": 21.891296,
+        "p90_seconds": 21.988537,
         "samples_seconds": [
           20.729041,
           21.914393,
           21.730986,
           21.891296,
           20.865879,
-          22.008043
+          22.008043,
+          21.975533
         ]
       },
       "id": 78,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestCombinedCostRefusesToReportHalfATotal",
         "TestFrozenRuntimeCellCostSumRefusesUnknownAsZero",
@@ -3116,19 +3194,20 @@
       "class": "PURE",
       "description": "the block stops naming its own unknown terms",
       "historical": {
-        "p50_seconds": 21.208122,
-        "p90_seconds": 22.037627,
+        "p50_seconds": 21.193522,
+        "p90_seconds": 21.989666,
         "samples_seconds": [
           21.222721,
           21.797824,
           20.643552,
           20.596289,
           21.193522,
-          22.27743
+          22.27743,
+          20.770384
         ]
       },
       "id": 79,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestCombinedCostRefusesToReportHalfATotal",
         "TestFrozenRuntimeCellCostSumRefusesUnknownAsZero",
@@ -3146,19 +3225,20 @@
       "class": "PURE",
       "description": "a legacy decision is retro-fitted with a frozen cell block",
       "historical": {
-        "p50_seconds": 21.058423,
-        "p90_seconds": 21.384549,
+        "p50_seconds": 21.028094,
+        "p90_seconds": 21.377528,
         "samples_seconds": [
           21.088752,
           21.419654,
           21.349444,
           21.018386,
           20.486621,
-          21.028094
+          21.028094,
+          21.028036
         ]
       },
       "id": 80,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestAttachRealtimeContractPricingRefusesDigestAndLegacyAuthorityDrift",
         "TestAttachRealtimeReusePricingRefusesPersistedAuthorityDrift",
@@ -3202,19 +3282,20 @@
       "class": "PURE",
       "description": "an ASSUMED term is allowed to rule on money",
       "historical": {
-        "p50_seconds": 21.424176,
-        "p90_seconds": 22.238634,
+        "p50_seconds": 21.257447,
+        "p90_seconds": 22.177394,
         "samples_seconds": [
           20.924335,
           21.257447,
           21.590905,
           21.932432,
           20.58252,
-          22.544837
+          22.544837,
+          21.04657
         ]
       },
       "id": 81,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestCostTieBreaksWhenAGovernedTermDiffers",
         "TestCostTieDoesNotSwallowAGovernedProviderDifference",
@@ -3230,19 +3311,20 @@
       "class": "PURE",
       "description": "a comparison takes the stronger knowledge instead of the weaker",
       "historical": {
-        "p50_seconds": 21.289295,
-        "p90_seconds": 21.490668,
+        "p50_seconds": 21.268978,
+        "p90_seconds": 21.474442,
         "samples_seconds": [
           20.702099,
           21.5718,
           21.268978,
           21.309611,
           20.873532,
-          21.409536
+          21.409536,
+          21.084094
         ]
       },
       "id": 82,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestCostTieBreaksWhenAGovernedTermDiffers",
         "TestCostTieDoesNotSwallowAGovernedProviderDifference",
@@ -3258,19 +3340,20 @@
       "class": "PURE",
       "description": "a real cost difference is still reported as a forced tie",
       "historical": {
-        "p50_seconds": 21.173566,
-        "p90_seconds": 21.582759,
+        "p50_seconds": 21.231653,
+        "p90_seconds": 21.581877,
         "samples_seconds": [
           20.424705,
           21.390363,
           21.578348,
           20.95677,
           20.457458,
-          21.58717
+          21.58717,
+          21.231653
         ]
       },
       "id": 83,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestCostTieBreaksWhenAGovernedTermDiffers",
         "TestCostTieDoesNotSwallowAGovernedProviderDifference",
@@ -3286,19 +3369,20 @@
       "class": "PURE",
       "description": "a governed term that differs is swallowed by the tie verdict",
       "historical": {
-        "p50_seconds": 20.944375,
-        "p90_seconds": 21.19838,
+        "p50_seconds": 20.985831,
+        "p90_seconds": 21.192348,
         "samples_seconds": [
           20.841337,
           21.228543,
           20.005104,
           21.047414,
           20.224171,
-          21.168218
+          21.168218,
+          20.985831
         ]
       },
       "id": 84,
-      "last_validated_commit": "1c37a1611583f7dd7bd67bfeeab09c370b2de9b4",
+      "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestCostTieBreaksWhenAGovernedTermDiffers",
         "TestCostTieDoesNotSwallowAGovernedProviderDifference",

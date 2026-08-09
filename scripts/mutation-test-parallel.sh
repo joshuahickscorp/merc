@@ -11,12 +11,12 @@
 #
 # The runner is designed for a frozen candidate worktree, not a developer's
 # active tree. It keeps four cores free on the 28-core development host and
-# uses up to fourteen single-runtime workers, a 15-minute standalone ceiling,
+# uses up to sixteen single-runtime workers, a 15-minute standalone ceiling,
 # source-specific observed contracts, and immutable shared Go caches. The run
 # fails rather than quietly reducing coverage when any worker, mutation,
 # restoration proof, or budget fails. Adjust only through explicit variables:
 #
-#   MERC_MUTATION_WORKERS=14              # 1..32; default min(14, CPUs-4)
+#   MERC_MUTATION_WORKERS=16              # 1..32; default min(16, CPUs-4)
 #   MERC_MUTATION_WALLCLOCK_SECONDS=900   # default 15-minute certification ceiling
 #   MERC_MUTATION_POSTGRES_PORT_BASE=0     # 0 finds an unused local range
 #   MERC_MUTATION_TEST_STRATEGY=adaptive   # adaptive (default), contracts, or full
@@ -57,8 +57,8 @@ fi
 default_workers=$((cpu_count - 4))
 if [ "$default_workers" -lt 1 ]; then
   default_workers=1
-elif [ "$default_workers" -gt 14 ]; then
-  default_workers=14
+elif [ "$default_workers" -gt 16 ]; then
+  default_workers=16
 fi
 workers="${MERC_MUTATION_WORKERS:-$default_workers}"
 budget_seconds="${MERC_MUTATION_WALLCLOCK_SECONDS:-900}"
@@ -446,7 +446,7 @@ lfs_verify_pid=""
 
 # A seed cluster builds the one schema-only candidate template. The remaining
 # isolated clusters restore an exact pg_dump snapshot of that template instead
-# of independently re-running the same migration nine times. Every contract
+# of independently re-running the same migration for every worker. Every contract
 # still gets a fresh createdb clone in its own worker cluster.
 prepare_seed_template() {
   local worktree port template template_url

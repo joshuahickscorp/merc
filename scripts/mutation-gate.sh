@@ -106,7 +106,7 @@ case "$mode" in
     # smaller host, but the normal calibrated path must fail rather than drift
     # past five minutes unnoticed.
     budget="${MERC_MUTATION_WALLCLOCK_SECONDS:-299}"
-    default_workers=14
+    default_workers=16
     ;;
   deep)
     [ "${MERC_MUTATION_DEEP_ACK:-}" = "1" ] || {
