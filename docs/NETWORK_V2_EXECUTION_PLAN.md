@@ -381,10 +381,36 @@ facts Step 8 wants to freeze are currently owned by five different authorities:
 engine/cell freeze on `WorkloadDecision`; benchmark/build/hardware on
 `PlacementRequirement.PerformanceAuthority`; money on `PricingDecision.RuntimeCell`;
 the activation epoch, which is ephemeral at write; and the selection basis, which
-is a post-commit shadow row. Creating `RuntimeDecision` without duplicating
-authority means moving all five in one transaction. **The Step 11 dependency is
-therefore real and load-bearing, not nominal** — Step 8 should not land before the
-atomic decision-chain persistence Step 11 provides.
+is a post-commit shadow row.
+
+**Correction, 2026-08-09 — this note first claimed the full Step 11 chain was a
+load-bearing prerequisite for Step 8. That was wrong, and the error was mine.**
+Four of those five facts are *already* frozen atomically: `SubmitJobTx` writes
+`workload_decision`, `compute_plan`, `placement_requirement` and
+`pricing_decision` with all four digests in a single INSERT
+(`store_jobs.go:499-519`). Nothing needs moving for them.
+
+The one fact outside the transaction is the selection basis, and it is outside
+**deliberately**. `api.go:1676-1683` places shadow selection after commit and
+explains why: "a selector that could refuse a submit would be a router, and this
+one is not allowed to route." Dragging the shadow into the accept transaction to
+satisfy a wording would convert an observational selector into an admission
+authority — a larger architectural change than Step 8, and one nobody has asked
+for.
+
+The resolution is that these are two different things and the plan was conflating
+them. The **accepted** basis already exists inside the transaction: it is the
+lifecycle-ranked freeze `rankAndFreezeAdmissionCell` produced, carried on
+`WorkloadDecision`. The **shadow** is a post-commit observation of what a
+measured re-ranking would have chosen. So RuntimeDecision names the in-transaction
+freeze as the accepted basis, records honestly that the basis was a lifecycle
+ladder rather than a measurement, and leaves shadow observational and explicitly
+non-authoritative.
+
+Step 8 therefore does **not** block on Step 11. What it needs from Step 11 is
+narrower: the accepted RuntimeDecision must be written in the same transaction as
+the rest of the chain, which `SubmitJobTx` already demonstrates is achievable on
+the batch lane.
 
 **There is no production multi-engine tournament to select from.** Ordinary
 routability is empty under honest BIND; the advertised set is a singleton by
@@ -796,6 +822,57 @@ exactly as Step 7 uses `market_shape`.
     scale ceiling; simulation is never presented as fleet performance.
 12. **Rollback:** Withdraw a curve if binding, samples, host contention,
     correctness, or qualification is invalid.
+
+### Step 20 shape note — amended 2026-08-09 after reconnaissance
+
+**The production selector is SQL inside PostgreSQL, and that single fact
+invalidates the way this step was written.**
+
+Batch selection is `ClaimTasksTx` — one large CTE with fleet-relative `EXISTS`
+subqueries per eligible job. Realtime selection is the offer-claim CTE. Service
+lease selection is the ordered `FOR UPDATE` book walk. There is **no** extracted
+pure function `Select(epoch, request) -> decision` that a twin and production
+could both call. Any Go-side ranker that exists is a component, not the selector.
+
+Three consequences, and none of them are optional:
+
+**1. The scale targets are currently unmeasurable as qualified claims.** 1k ≤1 ms,
+10k ≤3 ms, 100k ≤10 ms, 1M ≤25 ms cannot be honestly reported until the
+measurement runs the SQL production runs. Benchmarking a Go matcher and labelling
+the result "candidate selection p95" would be the anti-gaming law against treating
+simulation as physical proof, committed in the most quotable place in the
+programme. The targets stay as targets and are marked UNMEASURED until a harness
+exists.
+
+**2. "1M workers" is not one number, because the three lanes do not scale on the
+same variable.** Batch claim cost grows with eligible jobs/tasks *and* with the
+fleet-relative `EXISTS` shape per eligible job, so total fleet size does bite.
+Realtime and service-lease cost grows with the **offer book for one runtime
+profile and model sha**, not with total fleet size — a parallel census confirmed
+their scans are already profile-scoped. So a million workers that publish no
+offers on the profile under test do not stress those lanes at all, and a curve
+that reports one number across all three lanes is measuring different things and
+averaging them. Each lane states its own scaling variable, or the curve is
+meaningless.
+
+**3. The harness must execute production's SQL, not a model of it.** The
+acceptable shapes are (a) a governed harness that materialises deterministic
+synthetic fleets in PostgreSQL and calls the same entry points production calls —
+`ClaimTasksTx`, the realtime authorize path, `CreateServiceLease` — with fixed
+build, config, seed and a locked planner shape; or (b) extraction of a decision
+core that production genuinely calls, after which the twin and production share
+it by construction. Option (b) is a larger change than Step 20 and must not be
+smuggled in as a measurement task.
+
+Under either shape the curve records the SQL text digest and the planner shape it
+ran against, because a curve measured on a different plan than production uses is
+not evidence about production.
+
+**Step 17's "Digital Twin on production decision functions" inherits all of this.**
+The twin is not blocked on being written; it is blocked on being written against
+the real entry points. A twin built on a Go stand-in would produce numbers that
+look like the Bible's targets and mean nothing, which is worse than having no
+twin.
 
 ### Step 21 — Persist historical decision snapshots and replay regret
 
