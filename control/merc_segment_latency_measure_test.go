@@ -831,9 +831,12 @@ func oneAuthorizeDecomposition(
 	}
 	seg["pricing"] = time.Since(t0)
 
-	// funding — late lock (production order).
+	// funding — late lock (production order). Exact nano ceiling, ceiled to micros.
 	t0 = time.Now()
-	if err := evaluateRealtimeBuyerFunding(ctx, tx, buyerID, maxUSD); err != nil {
+	if pricing.FixedPoint == nil {
+		return nil, fmt.Errorf("funding: pricing decision lacks fixed-point ceiling")
+	}
+	if err := evaluateRealtimeBuyerFunding(ctx, tx, buyerID, pricing.FixedPoint.AcceptedCeilingNanos); err != nil {
 		return nil, fmt.Errorf("funding: %w", err)
 	}
 	seg["funding"] = time.Since(t0)

@@ -442,8 +442,6 @@ func TestExecutionEnvelopeSpendCheaperThanFullFunding(t *testing.T) {
 		TTLSeconds:             3600,
 	})
 	must(t, err)
-	needUSD := microsToUSD(ceilNanosToMicros(needNanos))
-
 	start := time.Now()
 	for i := 0; i < serialN; i++ {
 		if _, err := store.SpendExecutionEnvelope(ctx, env.ID, buyerID, needNanos, 0,
@@ -457,7 +455,7 @@ func TestExecutionEnvelopeSpendCheaperThanFullFunding(t *testing.T) {
 	for i := 0; i < serialN; i++ {
 		tx, err := pool.Begin(ctx)
 		must(t, err)
-		if err := evaluateRealtimeBuyerFunding(ctx, tx, buyerID, needUSD); err != nil {
+		if err := evaluateRealtimeBuyerFunding(ctx, tx, buyerID, needNanos); err != nil {
 			tx.Rollback(ctx)
 			t.Fatal(err)
 		}
@@ -492,7 +490,7 @@ func TestExecutionEnvelopeSpendCheaperThanFullFunding(t *testing.T) {
 			}
 			// Hold the funding lock the way authorize does: check, then more
 			// work before commit, so serialization cost is visible.
-			if err := evaluateRealtimeBuyerFunding(ctx, tx, buyerID, needUSD); err != nil {
+			if err := evaluateRealtimeBuyerFunding(ctx, tx, buyerID, needNanos); err != nil {
 				tx.Rollback(ctx)
 				t.Errorf("funding: %v", err)
 				return

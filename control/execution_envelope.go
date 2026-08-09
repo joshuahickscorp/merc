@@ -155,8 +155,16 @@ func executionEnvelopeAuthorityDigest(a ExecutionEnvelopeAuthority) (string, err
 	return hex.EncodeToString(sum[:]), nil
 }
 
-// ceilNanosToMicros rounds a positive nano amount up to ledger micros so a
-// reservation never under-states the buyer's held liability.
+// ceilNanosToMicros converts an exact nano liability to the integer micros that
+// must be *held* against micros-granular available funds (balance_micros, free
+// credit). Direction is UP so a sub-micro remainder cannot erase a positive
+// hold — the platform absorbs one extra micro; the buyer must not under-fund.
+//
+// This is deliberately not LedgerMicrosFromNanos: that helper projects a
+// completed amount to the legacy ledger with to-nearest (half-up) rounding and
+// is correct for display/settlement presentation. Using it for a funding hold
+// under-holds remainders below half a micro (e.g. 1_000_050 nanos → 1000 micros
+// projected, but 1001 micros held).
 func ceilNanosToMicros(nanos int64) int64 {
 	if nanos <= 0 {
 		return 0
@@ -239,10 +247,10 @@ func (s *Store) CreateExecutionEnvelope(ctx context.Context, buyerID uuid.UUID, 
 	}
 	defer tx.Rollback(ctx)
 
-	// Full durable funding check, once. Cap is expressed in exact nanos; funding
-	// evaluation still compares integer micros, so convert with ceil.
-	needUSD := microsToUSD(ceilNanosToMicros(req.CapNanos))
-	if err := evaluateRealtimeBuyerFunding(ctx, tx, buyerID, needUSD); err != nil {
+	// Full durable funding check, once. Cap is exact nanos; evaluate ceilings
+	// to whole micros internally so both envelope and non-envelope holds share
+	// the same nano→micro direction.
+	if err := evaluateRealtimeBuyerFunding(ctx, tx, buyerID, req.CapNanos); err != nil {
 		return ExecutionEnvelope{}, err
 	}
 

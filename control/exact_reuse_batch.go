@@ -143,8 +143,9 @@ func (s *Store) SubmitExactReuseBatchJob(
 	}
 
 	// Fund gate (same shape as realtime): free credit + prepaid balance only.
-	// A saved card is a top-up rail, not admission funding.
-	if err := evaluateRealtimeBuyerFunding(ctx, tx, buyerID, buyerCharge); err != nil {
+	// A saved card is a top-up rail, not admission funding. Exact nanos so the
+	// hold ceils a sub-micro charge rather than trusting a float projection.
+	if err := evaluateRealtimeBuyerFunding(ctx, tx, buyerID, money.BuyerDebitNanos); err != nil {
 		return err
 	}
 

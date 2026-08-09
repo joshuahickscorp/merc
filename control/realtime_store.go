@@ -55,7 +55,9 @@ var (
 // evaluateRealtimeBuyerFunding locks the buyer row and requires already-settled
 // money (free-credit grant + materialised prepaid balance, net of charges,
 // prepaid debits, open batch estimates, and EXECUTING realtime ceilings) to
-// cover needUSD. A saved payment method is never treated as funding.
+// cover needNanos. Available funds are micros-granular (balance_micros, free
+// credit), so the exact nano need is ceiled to whole micros for the hold —
+// never projected to-nearest. A saved payment method is never treated as funding.
 //
 // Serialization is two-step on purpose: FOR UPDATE on the buyer row alone is
 // not enough under READ COMMITTED when the reservation itself is written to a
@@ -65,8 +67,8 @@ var (
 // ceiling. An advisory xact lock keyed on the buyer forces authorizers for the
 // same buyer to enter the check-and-reserve critical section one at a time for
 // the rest of the transaction (through the EXECUTING insert and commit).
-func evaluateRealtimeBuyerFunding(ctx context.Context, tx pgx.Tx, buyerID uuid.UUID, needUSD float64) error {
-	if needUSD < 0 {
+func evaluateRealtimeBuyerFunding(ctx context.Context, tx pgx.Tx, buyerID uuid.UUID, needNanos int64) error {
+	if needNanos < 0 {
 		return fmt.Errorf("realtime funding need must be non-negative")
 	}
 	currency := SettlementCurrencyCode()
@@ -111,13 +113,23 @@ func evaluateRealtimeBuyerFunding(ctx context.Context, tx pgx.Tx, buyerID uuid.U
 		       -- Requiring ACTIVE means an expired envelope's in-flight spends
 		       -- fall back to being held as ordinary realtime reservations, which
 		       -- is what ReleaseExpiredExecutionEnvelopes already claims happens.
-		       COALESCE((SELECT sum(c.maximum_price_usd) FROM execution_contracts c
+		       --
+		       -- Hold amount is ceil(accepted_ceiling_nanos → micros), matching
+		       -- the admission need. maximum_price_usd is the ledger *projection*
+		       -- (to-nearest) and must not under-count an open ceiling hold.
+		       COALESCE((SELECT SUM(
+		                   CASE
+		                     WHEN COALESCE((c.pricing_decision #>> '{fixed_point,accepted_ceiling_nanos}')::bigint, 0) > 0
+		                     THEN (( (c.pricing_decision #>> '{fixed_point,accepted_ceiling_nanos}')::bigint + 999) / 1000)
+		                     ELSE ROUND(c.maximum_price_usd * 1000000)::bigint
+		                   END)
+		                 FROM execution_contracts c
 		                 WHERE c.buyer_id=b.id AND c.currency=$2 AND c.state='EXECUTING'
 		                   AND NOT EXISTS (
 		                     SELECT 1 FROM execution_envelope_spends s
 		                       JOIN execution_envelopes e ON e.id = s.envelope_id
 		                      WHERE s.contract_id=c.id AND e.currency=$2 AND e.state='ACTIVE'
-		                   )),0)::float8,
+		                   )),0)::bigint,
 		       COALESCE((SELECT SUM(((e.cap_nanos - e.spent_nanos) + 999) / 1000)
 		                   FROM execution_envelopes e
 		                  WHERE e.buyer_id=b.id AND e.currency=$2 AND e.state='ACTIVE'),0)::bigint
@@ -128,27 +140,27 @@ func evaluateRealtimeBuyerFunding(ctx context.Context, tx pgx.Tx, buyerID uuid.U
 		return err
 	}
 	var (
-		freeCredit, freeCreditUSDRaw, spent, prepaidDebited, batchReserved, realtimeReserved float64
-		prepaidMicros, envelopeRemainingMicros                                               int64
-		hasPaymentMethod                                                                     bool
+		freeCredit, freeCreditUSDRaw, spent, prepaidDebited, batchReserved float64
+		prepaidMicros, realtimeReservedMicros, envelopeRemainingMicros     int64
+		hasPaymentMethod                                                   bool
 	)
 	err := br.QueryRow().Scan(&freeCredit, &freeCreditUSDRaw, &hasPaymentMethod, &prepaidMicros, &spent, &prepaidDebited,
-		&batchReserved, &realtimeReserved, &envelopeRemainingMicros)
+		&batchReserved, &realtimeReservedMicros, &envelopeRemainingMicros)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return errNotFound
 	}
 	if err != nil {
 		return err
 	}
-	// Compare in integer micros so a sub-cent ceiling cannot be over-admitted
-	// by float residual after several concurrent reservations.
-	needMicros := usdToMicros(needUSD)
+	// Hold ceiling: exact nanos round UP to whole micros. LedgerMicrosFromNanos
+	// (to-nearest) is wrong here — it under-holds sub-half-micro remainders.
+	needMicros := ceilNanosToMicros(needNanos)
 	if needMicros < 0 {
 		return fmt.Errorf("realtime funding need must be non-negative")
 	}
 	availableMicros := usdToMicros(freeCredit) + prepaidMicros -
 		usdToMicros(spent) + usdToMicros(prepaidDebited) -
-		usdToMicros(batchReserved) - usdToMicros(realtimeReserved) -
+		usdToMicros(batchReserved) - realtimeReservedMicros -
 		envelopeRemainingMicros
 	if availableMicros >= needMicros {
 		return nil
@@ -958,7 +970,13 @@ func (s *Store) AuthorizeRealtimeContract(ctx context.Context, auth RealtimeCont
 	} else {
 		// Legacy per-request path: buyer funding *before* offer claim.
 		// A saved payment method is a top-up rail only — never admission funding.
-		if err := evaluateRealtimeBuyerFunding(ctx, tx, auth.BuyerID, settlementMaximumProjection); err != nil {
+		// Same exact nano ceiling the envelope path holds (realtimeAuthNeedNanos),
+		// not the to-nearest micro projection of settlementMaximumProjection.
+		needNanos, nerr := realtimeAuthNeedNanos(auth)
+		if nerr != nil {
+			return RealtimeContract{}, false, nerr
+		}
+		if err := evaluateRealtimeBuyerFunding(ctx, tx, auth.BuyerID, needNanos); err != nil {
 			return RealtimeContract{}, false, err
 		}
 	}
@@ -1491,8 +1509,9 @@ func (s *Store) SettleRealtimeExactReuse(
 
 	// Same fund gate as live authorization, against the reuse charge (not the
 	// full-rate maximum) so a cache hit cannot fail for want of capacity money
-	// that physical execution would have reserved.
-	if err := evaluateRealtimeBuyerFunding(ctx, tx, auth.BuyerID, buyerCharge); err != nil {
+	// that physical execution would have reserved. Exact nanos, ceiled to
+	// micros inside evaluateRealtimeBuyerFunding.
+	if err := evaluateRealtimeBuyerFunding(ctx, tx, auth.BuyerID, money.BuyerDebitNanos); err != nil {
 		return RealtimeContract{}, RealtimeSettlement{}, err
 	}
 
