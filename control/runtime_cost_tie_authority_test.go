@@ -141,6 +141,27 @@ func TestCostTieDoesNotSwallowAGovernedProviderDifference(t *testing.T) {
 	}
 }
 
+// A real difference in the ranking supplier-liability authority is not a tie
+// merely because every secondary platform-cost term happens to match. This is
+// the first branch in ExplainCostTie: the later governed-term explanation must
+// never mask or overwrite it.
+func TestCostTieBreaksWhenAGovernedTermDiffers(t *testing.T) {
+	slow, fast, cat := tieFixture(t)
+	fast.SupplierLiabilityUSDPerVerifiedUnit = slow.SupplierLiabilityUSDPerVerifiedUnit * 1.2
+
+	got := ExplainCostTie(slow, fast, cat)
+	if got.Tied {
+		t.Fatalf("different measured supplier liabilities were reported as tied: %+v", got)
+	}
+	if got.Verdict != costTieNotTied {
+		t.Fatalf("verdict = %q, want %q for different measured supplier liabilities",
+			got.Verdict, costTieNotTied)
+	}
+	if got.RankingSupplierLiabilityUSDPerUnitA == got.RankingSupplierLiabilityUSDPerUnitB {
+		t.Fatalf("receipt erased the governed ranking difference: %+v", got)
+	}
+}
+
 func TestCostTieRefusesProxyAndTermCurrencyMismatch(t *testing.T) {
 	slow, fast, cat := tieFixture(t)
 
