@@ -2022,6 +2022,20 @@ prefix as routing-only with no claimed savings. What is not available is keeping
 the routing benefit while leaving the money attribution permanently optional —
 that would let the programme claim a work-elimination class it cannot evidence.
 
+**Resolved 2026-08-09: prefix routing claims NO savings, and the second option is
+taken for now.** Wiring the attribution is not a one-line change — the engine's
+`usage.prompt_tokens_details.cached_tokens` signal is read only by the gateway
+parity harness and CLI, which are bench tooling; the production realtime path never
+parses it. So attribution requires first capturing the engine's cache report in
+production, which is real work and is not smuggled in here.
+
+Until it is captured: prefix locality is live production routing (the claim
+ORDER BY ranks `warm_prefix_depth` and `warm_for_task` below the cost-class terms
+at `control/scheduler.go:1093-1108`) and it claims **no** work-elimination savings.
+`TestPrefixReuseClaimsNoSavingsUntilItIsAttributed` fails the moment
+`ClassPrefixReusedInput` is attributed anywhere in production, so the claim and the
+code cannot drift apart in either direction.
+
 ### Step 26 — Expand governed workload classes only where prerequisites hold
 
 1. **Objective:** Carry rendering, media, image/video generation, evaluation,
