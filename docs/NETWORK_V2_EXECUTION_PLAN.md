@@ -353,6 +353,60 @@ prevent.
 12. **Rollback:** Restore last activation revision and accepted runtime builder
     if any invalid selection, quality failure, or promotion-gate bypass occurs.
 
+### Step 8 shape note — amended 2026-08-09 after reconnaissance
+
+Every claim below was re-verified against `codex/network-v2` at `c9c69668`, not
+carried over from the scout report.
+
+**Promotion is refused by construction, on two independent grounds. Step 8 cannot
+complete on "promotion and instant rollback".** Gate v4 refuses *every* promotion
+because no durable matched incumbent/challenger execution-pair authority exists:
+`promotionMatchedPairAuthorityRefusal` in `control/runtime_cell_promotion.go`
+states that shadow consideration plus independently aggregated jobs is not
+matched-pair evidence. Separately — and this one survives even if matched pairs
+are built — `control/activation_policy.go:1326-1333` refuses because
+`CellPromotionEvidence` covers one exact scope (job type, model, tier, hardware
+class, hardware identity, latency class) while cell lifecycle is **global across
+traffic scopes**, and no global-coverage authority exists. Two different missing
+authorities, so building one does not unblock the other.
+
+Consequently the promotion criterion is **struck from Step 8** and becomes its own
+obligation: a promotion coverage model (matched-pair execution authority plus a
+rule mapping narrow evidence to global lifecycle, or a narrowing of lifecycle to
+match evidence scope). Step 8 keeps the part that is reachable: freeze the runtime
+choice as accepted authority and make every physical execution cite it.
+
+**There is no single object to rename, so this is a transactional re-home.** The
+facts Step 8 wants to freeze are currently owned by five different authorities:
+engine/cell freeze on `WorkloadDecision`; benchmark/build/hardware on
+`PlacementRequirement.PerformanceAuthority`; money on `PricingDecision.RuntimeCell`;
+the activation epoch, which is ephemeral at write; and the selection basis, which
+is a post-commit shadow row. Creating `RuntimeDecision` without duplicating
+authority means moving all five in one transaction. **The Step 11 dependency is
+therefore real and load-bearing, not nominal** — Step 8 should not land before the
+atomic decision-chain persistence Step 11 provides.
+
+**There is no production multi-engine tournament to select from.** Ordinary
+routability is empty under honest BIND; the advertised set is a singleton by
+design. Step 8 must record the singleton's identity honestly and must not describe
+itself as choosing between engines. A tournament is a later step's work, and it
+needs supply that does not exist yet.
+
+**One factual correction to the step text.** Point 3 says Step 8 replaces
+authoritative use of "the first `WorkloadRuntimeCandidate`". Production does not
+take the first candidate: `rankAndFreezeAdmissionCell`
+(`control/workload_classification.go:258-293`) freezes a lifecycle-**ranked**
+singleton, promoting `chooseShadowCell` onto the freeze path. The replacement
+target is that ranked freeze, and the ranking it applies is part of what
+RuntimeDecision must record.
+
+**Completion, restated:** every physical execution cites an immutable accepted
+RuntimeDecision naming engine, cell, model/artifact, precision/quality, hardware
+class, runtime revision, benchmark authority and activation revision; shadow code
+cannot become money authority; and the decision states plainly when its selection
+basis was a lifecycle ladder rather than a measurement. Promotion and rollback
+move to the promotion-coverage obligation.
+
 ### Step 9 — Canonicalize PlacementDecision
 
 1. **Objective:** Make PlacementDecision bind narrowing stages, coherent
@@ -381,6 +435,71 @@ prevent.
     compatibility projections.
 12. **Rollback:** Revert if reservation atomicity, locality freshness, hard
     contract filtering, or claim throughput regresses.
+
+### Step 9 shape note — amended 2026-08-09 after reconnaissance
+
+Every claim below was re-verified against `codex/network-v2` at `c9c69668`.
+
+**Four things own the word "placement", and the one Step 9 most needs has no
+object at all.** `PlacementDecision` (`control/execution_mode.go:103`) is supply
+*mode*. `PlacementRequirement` (`control/quote.go:363`) is *eligibility*.
+`RealtimePlacementPlan` (`control/realtime_placement.go:24`) is a *host topology*
+plan. The actual worker choice exists only as claim / authorize / lease SQL and is
+not represented by any type. So promoting the mode object to canonical captures
+none of the worker assignment, and the claim path never validates a frozen worker
+set. Step 9's real work is binding the fourth meaning, not renaming the first.
+
+**"The selected worker belongs to a frozen candidate set and epoch" is struck for
+batch,** for the same reason it was struck in Step 7: batch is a pull market over
+`SKIP LOCKED`, so the candidate epoch is the live queue × fleet at poll time and
+there is no epoch object to bind. Batch binds a claim-time eligibility snapshot
+recording what was true when the worker pulled. Realtime and service lease can
+carry a genuine frozen candidate set; batch may not pretend to.
+
+**Correction to the earlier reconnaissance: predicted-vs-actual is NOT absent, and
+Step 9 must not build a second one.** The scout reported no predicted-vs-actual
+surface anywhere. That is wrong, and building on it would have created exactly the
+duplicate authority this programme forbids. What exists at HEAD:
+
+- `jobs.eta_secs` (predicted completion at submit) and `jobs.eta_secs_raw` (the
+  uncalibrated p50 kept only as the learner's denominator), `schema.sql:773-778`;
+- `quotes.eta_p50_secs` / `eta_p90_secs` and their raw counterparts,
+  `schema.sql:1312-1323`;
+- `eta_calibration(predicted_secs, realized_secs)` scoped by job type, tier,
+  model_ref and input depth band, `schema.sql:1714-1735`, written by
+  `control/plan_actuals.go`;
+- `SelectorLiabilityRegret` (`control/runtime_cell_cost.go:1105`), a working cost
+  regret surface with exact-pair scoping, exposed at
+  `GET /admin/runtime/selector/regret`.
+
+So a calibrated total-duration predictor and a cost-regret surface already exist.
+**What is genuinely absent is the decomposition:** `schema.sql` contains no
+queue-wait, startup, or cold-start column anywhere. Predicted-vs-actual therefore
+resolves to total duration only, and the addendum's per-phase regret (queue,
+startup, execution, transfer) has no substrate.
+
+Step 9's regret work is consequently *decomposition plus placement-plane binding*,
+and it must follow the pattern `runtime_cell_cost.go` already established rather
+than inventing a parallel one:
+
+1. derive from facts the execution and money paths already persist — a query, not
+   a new writer and not a second table, because copies drift;
+2. scope exactly and refuse to aggregate across incomparable scopes;
+3. name unknown components `unknown_*` rather than defaulting them to zero,
+   because a zero reads as a measurement and is not one;
+4. require a sample floor before a measurement is treated as measured, and fall
+   back to the declared ladder below it.
+
+**Locality is soft belief and must be recorded as such.** Stale
+`worker_prefix_state` can change the winner inside a cost class without appearing
+on any receipt, and correction is post-serve. A PlacementDecision that records a
+locality-driven choice must record the freshness of the state it believed.
+
+**Fallback has no single existing pattern to promote.** Realtime keeps an
+immutable worker; service lease keeps the lease and takes a new worker; batch
+requeues or hedges. A single canonical `fallback` field would flatten three
+different lane semantics into one that fits none. Use a per-lane discriminator,
+exactly as Step 7 uses `market_shape`.
 
 ### Step 10 — Canonicalize TopologyDecision
 
