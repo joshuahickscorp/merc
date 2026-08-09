@@ -64,6 +64,13 @@ func openIsolatedMoneyPathStore(t *testing.T) (context.Context, *Store, *pgxpool
 
 func TestSubmitExactReuseBatchJobFreezesWorkloadDecision(t *testing.T) {
 	ctx, store, pool := openMoneyPathStore(t)
+	// The checked-in embed receipt is intentionally not current-bindable. This
+	// direct-store exact-reuse mechanics test needs one scoped exact embed
+	// authority after Store startup; it must not revive the production receipt.
+	installBoundCataloguePublicationAuthorityForTest(t)
+	installed := currentActivation()
+	activeRuntimeActivation.Store(newRuntimeActivation(
+		installed.PolicyRevision, map[string]string{}, nil))
 	f := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{
 		TaskCount: 1,
 	})
@@ -376,10 +383,10 @@ func seedMoneyPathFixture(t *testing.T, ctx context.Context, store *Store, pool 
 			t.Fatalf("insert supplier: %v", err)
 		}
 		if _, err := pool.Exec(ctx, `
-			INSERT INTO workers (id,supplier_id,hw_class,memory_gb,effective_memory_gb,
-			                     last_seen_at,throttled,min_payout_usd_hr,engine,build_hash)
-			VALUES ($1,$2,'apple_silicon_max',64,64,now(),false,0.10,'candle','deadbeefdeadbeef')`,
-			workerID, supplierID); err != nil {
+			INSERT INTO workers (id,supplier_id,hw_class,hardware_identity,memory_gb,effective_memory_gb,
+			                     last_seen_at,throttled,min_payout_usd_hr,engine,build_hash,build_identity_policy)
+			VALUES ($1,$2,'apple_silicon_max',$3,64,64,now(),false,0.10,'candle','deadbeefdeadbeef',$4)`,
+			workerID, supplierID, testOnlyHardwareIdentity, currentEngineBuildIdentityPolicy); err != nil {
 			t.Fatalf("insert worker: %v", err)
 		}
 		bindWorkerToGovernedProfile(t, pool, ctx, workerID)
@@ -499,28 +506,31 @@ func seedMoneyPathJob(t *testing.T, ctx context.Context, pool *pgxpool.Pool, f m
 	for i, taskID := range f.TaskIDs {
 		resultKey := taskAttemptResultKey(f.JobID, taskID, 0)
 		var claimedBy, workerID, execWorker, execSupplier any
-		var execHW, execEngine, execBuild any
+		var execHW, execHardware, execEngine, execBuild, execBuildPolicy any
 		if opts.ClaimWorker {
 			claimedBy = f.WorkerID
 			workerID = f.WorkerID
 			execWorker = f.WorkerID
 			execSupplier = f.SupplierID
 			execHW = "apple_silicon_max"
+			execHardware = testOnlyHardwareIdentity
 			execEngine = "candle"
 			execBuild = "deadbeefdeadbeef"
+			execBuildPolicy = currentEngineBuildIdentityPolicy
 		}
 		if _, err := pool.Exec(ctx, `
 			INSERT INTO tasks
 			  (id,job_id,status,input_ref,result_key,chunk_index,retry_count,
 			   claimed_by,worker_id,execution_worker_id,execution_supplier_id,
-			   execution_hw_class,execution_engine,execution_build_hash,
+			   execution_hw_class,execution_hardware_identity,execution_engine,execution_build_hash,
+			   execution_build_identity_policy,
 			   economic_buyer_charge_usd,economic_supplier_payout_usd,
 			   economic_buyer_charge_nanos,economic_supplier_payout_nanos)
 			VALUES ($1,$2,$3,'money/input',$4,$5,0,
-			        $6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
+			        $6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
 			taskID, f.JobID, opts.TaskStatus, resultKey, i,
 			claimedBy, workerID, execWorker, execSupplier,
-			execHW, execEngine, execBuild,
+			execHW, execHardware, execEngine, execBuild, execBuildPolicy,
 			f.Plan.BuyerChargePerTaskUSD, f.Plan.SupplierPayoutPerTaskUSD,
 			nullEconomicNanos(f.Plan.BuyerChargePerTaskNanos, exactNanos),
 			nullEconomicNanos(f.Plan.SupplierPayoutPerTaskNanos, exactNanos)); err != nil {
@@ -660,12 +670,92 @@ func validJobRowClasses(
 		SLAPremiumUSD:        economicPlan.Input.SLAPremiumUSD,
 		EconomicInputRecords: int64(inputRecords),
 		EconomicInputBytes:   inputBytes,
+		EconomicInputSource:  economicInputSourceSubmitStream,
 		EconomicPlan:         economicPlan,
 		WorkloadDecision:     workload,
 		ComputePlan:          computePlan,
 		PlacementRequirement: placement,
 		PricingDecision:      pricing,
 	}
+}
+
+// currentUniformMoneyPathJob builds the sole current distributed-money test
+// shape through the same publication and durable catalogue pointer used by
+// production: one primary plus one exact redundancy clone. Hand-built
+// catalogue digests remain useful for historical/pure tests, but they must not
+// masquerade as current admission authority.
+func currentUniformMoneyPathJob(t *testing.T) (
+	context.Context, *Store, *pgxpool.Pool, moneyPathFixture, *jobRow, []taskRow, CataloguePriceSchedule,
+) {
+	t.Helper()
+	previousActivation := activeRuntimeActivation.Load()
+	t.Cleanup(func() { activeRuntimeActivation.Store(previousActivation) })
+	ctx, store, pool := openIsolatedMoneyPathStore(t)
+	installBoundCataloguePublicationAuthorityForTest(t)
+	installTestOnlyCombinedTokenAuthority(t)
+	installed := currentActivation()
+	activeRuntimeActivation.Store(newRuntimeActivation(
+		installed.PolicyRevision, map[string]string{}, nil))
+	pinBoardClockForPublication(t)
+
+	schedule, err := BuildCataloguePriceSchedule()
+	mustf(t, err, "build current money-path catalogue schedule: %v")
+	if _, err := store.ApplyRepricing(ctx, schedule); err != nil {
+		t.Fatalf("apply current money-path catalogue schedule: %v", err)
+	}
+
+	fixture := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{TaskCount: 2})
+	tasks := makeTasks(fixture, 2)
+	fixture.TaskIDs = []uuid.UUID{tasks[0].ID, tasks[1].ID}
+	unseeded := fixture
+	unseeded.ctx, unseeded.pool = nil, nil
+	job := validJobRow(t, unseeded, tasks)
+	authority, err := store.LoadCataloguePriceAuthority(ctx, job.ModelRef)
+	mustf(t, err, "load current money-path catalogue authority: %v")
+	economicInput := job.EconomicPlan.Input
+	economicInput.SupplierShare = authority.SupplierShare
+	economicSchedule := job.EconomicPlan.Schedule
+	economicSchedule.Currency = authority.SettlementCurrency
+	economic := BuildEconomicPlan(economicInput, economicSchedule)
+	if !economic.Executable {
+		t.Fatalf("rebuild current money-path economics: %s", economic.BlockReason)
+	}
+	mustf(t, ValidateComputePlanEconomicSnapshot(
+		job.ComputePlan, job.WorkloadDecision, economic,
+	), "rebuild current money-path compute/economic authority: %v")
+	placement := placementForPricingFixture(t, job.WorkloadDecision, authority)
+	pricing, err := newDistributedPricingDecision(
+		job.WorkloadDecision, job.ComputePlan, placement, economic,
+		authority, job.WorkloadDecision.Binding.Tier, "",
+	)
+	mustf(t, err, "rebuild current money-path pricing decision: %v")
+	job.EconomicPlan = economic
+	job.EstimatedUSD = economic.InitialBuyerChargeUSD
+	job.SLAPremiumUSD = economic.Input.SLAPremiumUSD
+	job.PlacementRequirement = placement
+	job.PricingDecision = pricing
+	job.HWClasses = append([]string(nil), placement.HWClasses...)
+	job.MinMemoryGB = placement.MinMemoryGB
+	job.OfferedRateUsdHr = placement.OfferedRateUsdHr
+	job.EconomicInputSource = economicInputSourceSubmitStream
+	for _, identity := range [][2]uuid.UUID{
+		{fixture.WorkerID, fixture.SupplierID},
+		{fixture.OtherWorkerID, fixture.OtherSupplierID},
+	} {
+		capability := currentIdentityWorkerCapability(
+			identity[0], identity[1], placement, job)
+		mustf(t, store.UpsertWorker(ctx, capability),
+			"register current money-path worker: %v")
+	}
+	if job.ComputePlan.PrimaryTasks != 1 || job.ComputePlan.RedundancyTasks != 1 ||
+		job.ComputePlan.HoneypotTasks != 0 || len(tasks) != 2 ||
+		!tasks[1].IsRedundancy || tasks[1].InputRef != tasks[0].InputRef ||
+		tasks[1].InputSHA256 != tasks[0].InputSHA256 ||
+		tasks[1].ChunkIndex != tasks[0].ChunkIndex {
+		t.Fatalf("current money-path fixture is not one primary plus one exact clone: plan=%+v tasks=%+v",
+			job.ComputePlan, tasks)
+	}
+	return ctx, store, pool, fixture, job, tasks, schedule
 }
 
 func makeTasks(f moneyPathFixture, n int) []taskRow {
@@ -722,12 +812,7 @@ func commitFor(f moneyPathFixture, taskID uuid.UUID, attempt int16) TaskCommit {
 // --- SubmitJobTx ---
 
 func TestSubmitJobTxCommitsJobTasksAndPlanWithoutLedger(t *testing.T) {
-	ctx, store, pool := openMoneyPathStore(t)
-	f := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{TaskCount: 2})
-	tasks := makeTasks(f, 2)
-	// Align fixture task ids with the ones we submit so cleanup finds them.
-	f.TaskIDs = []uuid.UUID{tasks[0].ID, tasks[1].ID}
-	job := validJobRow(t, f, tasks)
+	ctx, store, pool, f, job, tasks, _ := currentUniformMoneyPathJob(t)
 
 	mustf(t, store.SubmitJobTx(ctx, job, tasks), "SubmitJobTx: %v")
 
@@ -826,11 +911,7 @@ func TestLegacyJobPricingAuthorityRemainsExplicitlyUnverifiable(t *testing.T) {
 }
 
 func TestQuoteJobSchedulerReceiptPreserveExactPricingAuthority(t *testing.T) {
-	ctx, store, pool := openMoneyPathStore(t)
-	f := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{TaskCount: 1})
-	tasks := makeTasks(f, 1)
-	f.TaskIDs = []uuid.UUID{tasks[0].ID}
-	job := validJobRow(t, f, tasks)
+	ctx, store, pool, f, job, tasks, _ := currentUniformMoneyPathJob(t)
 	if len(job.PlacementRequirement.HWClasses) != 1 {
 		t.Fatalf("fixture placement binds %d hardware classes, want one",
 			len(job.PlacementRequirement.HWClasses))
@@ -939,7 +1020,9 @@ func TestQuoteJobSchedulerReceiptPreserveExactPricingAuthority(t *testing.T) {
 		WorkerID: f.WorkerID, SupplierID: f.SupplierID,
 	})
 	mustf(t, err, "claim quote-bound task: %v")
-	if claimed == nil || claimed.TaskID != tasks[0].ID ||
+	claimedExpectedTask := claimed != nil &&
+		(claimed.TaskID == tasks[0].ID || claimed.TaskID == tasks[1].ID)
+	if !claimedExpectedTask ||
 		claimed.OfferedRateUsdHr != job.PlacementRequirement.OfferedRateUsdHr {
 		t.Fatalf("scheduler did not consume frozen placement authority: %+v", claimed)
 	}
@@ -1001,33 +1084,21 @@ func TestSubmitJobTxFailsClosed(t *testing.T) {
 	for _, c := range cases {
 		c := c
 		t.Run(c.name, func(t *testing.T) {
-			ctx, store, pool := openMoneyPathStore(t)
-			f := seedMoneyPathFixture(t, ctx, store, pool, c.seed)
-			var job *jobRow
-			var tasks []taskRow
+			ctx, store, pool, f, job, tasks, _ := currentUniformMoneyPathJob(t)
 			switch c.name {
 			case "plan_task_count_mismatch":
-				tasks = makeTasks(f, 1) // plan expects 2
-				f.TaskIDs = []uuid.UUID{tasks[0].ID}
-				job = validJobRow(t, f, tasks)
+				tasks = tasks[:1] // frozen current plan expects 2
 				job.TaskCount = 1
-				job.EconomicPlan = f.Plan // InitialTaskCount still 2
 			case "bound_quote_compute_mismatch":
-				tasks = makeTasks(f, 1)
-				f.TaskIDs = []uuid.UUID{tasks[0].ID}
-				job = validJobRow(t, f, tasks)
 				job.QuoteID = uuid.New()
 				if _, err := pool.Exec(ctx, `
-					INSERT INTO quotes (id,buyer_id,job_type,compute_plan_sha256)
-					VALUES ($1,$2,$3,$4)`,
+					INSERT INTO quotes (id,buyer_id,job_type,compute_plan_sha256,expires_at)
+					VALUES ($1,$2,$3,$4,now()+interval '1 hour')`,
 					job.QuoteID, f.BuyerID, job.JobType, strings.Repeat("f", 64),
 				); err != nil {
 					t.Fatalf("seed mismatched quote compute authority: %v", err)
 				}
 			case "bound_quote_offered_rate_mismatch":
-				tasks = makeTasks(f, 1)
-				f.TaskIDs = []uuid.UUID{tasks[0].ID}
-				job = validJobRow(t, f, tasks)
 				job.QuoteID = uuid.New()
 				computeSHA256, err := computePlanDigest(job.ComputePlan)
 				must(t, err)
@@ -1041,32 +1112,31 @@ func TestSubmitJobTxFailsClosed(t *testing.T) {
 				must(t, err)
 				if _, err := pool.Exec(ctx, `
 					INSERT INTO quotes (
-					  id,buyer_id,job_type,model_ref,compute_plan_sha256,quote_json
-					) VALUES ($1,$2,$3,$4,$5,$6)`,
+					  id,buyer_id,job_type,model_ref,compute_plan_sha256,quote_json,expires_at
+					) VALUES ($1,$2,$3,$4,$5,$6,now()+interval '1 hour')`,
 					job.QuoteID, f.BuyerID, job.JobType, job.ModelRef, computeSHA256, quoteJSON,
 				); err != nil {
 					t.Fatalf("seed rate-mismatched quote authority: %v", err)
 				}
 			case "firm_quote_mismatch":
-				plan := BuildEconomicPlan(EconomicPlanInput{
-					BaseComputeUSD: 0.20, InitialTaskCount: 1, ExtraTaskReserve: 1,
-					SupplierShare: 0.97, FirmQuoteMaxUSD: 5.0,
-				}, testEconomicSchedule())
+				input := job.EconomicPlan.Input
+				input.FirmQuoteMaxUSD = 5.0
+				plan := BuildEconomicPlan(input, job.EconomicPlan.Schedule)
 				if !plan.Executable {
 					t.Fatalf("firm plan blocked: %s", plan.BlockReason)
 				}
-				f.Plan = plan
-				tasks = makeTasks(f, 1)
-				f.TaskIDs = []uuid.UUID{tasks[0].ID}
-				job = validJobRow(t, f, tasks)
+				pricing, err := newDistributedPricingDecision(
+					job.WorkloadDecision, job.ComputePlan, job.PlacementRequirement,
+					plan, job.PricingDecision.Catalogue,
+					job.WorkloadDecision.Binding.Tier, "",
+				)
+				must(t, err)
 				job.FirmQuote = true
 				job.FirmQuoteMaxUSD = 9.99 // desync from plan.Input.FirmQuoteMaxUSD
 				job.EconomicPlan = plan
+				job.PricingDecision = pricing
 				job.EstimatedUSD = plan.InitialBuyerChargeUSD
 			case "sla_premium_mismatch":
-				tasks = makeTasks(f, 1)
-				f.TaskIDs = []uuid.UUID{tasks[0].ID}
-				job = validJobRow(t, f, tasks)
 				job.SLAPremiumUSD = 0.99 // desync from plan.Input.SLAPremiumUSD
 			default:
 				t.Fatalf("unknown case %q", c.name)
@@ -1354,9 +1424,12 @@ func TestStartTaskDynamicTiebreakHistoryAndReplayFences(t *testing.T) {
 			   SET status='running',started_at=now(),worker_id=$2,
 			       execution_worker_id=$2,execution_supplier_id=$3,
 			       execution_hw_class='apple_silicon_max',
-			       execution_engine='candle',execution_build_hash='deadbeefdeadbeef'
+			       execution_hardware_identity=$4,
+			       execution_engine='candle',execution_build_hash='deadbeefdeadbeef',
+			       execution_build_identity_policy=$5
 			 WHERE id=$1 AND status='queued' AND claimed_by=$2`,
-			taskID, workerID, supplierID)
+			taskID, workerID, supplierID, testOnlyHardwareIdentity,
+			currentEngineBuildIdentityPolicy)
 		mustf(t, err, "build hostile running tiebreak: %v")
 		if ct.RowsAffected() != 1 {
 			t.Fatalf("hostile running transition changed %d rows, want 1", ct.RowsAffected())
@@ -3174,28 +3247,16 @@ func TestConcurrentDynamicTaskInsertIsIdempotent(t *testing.T) {
 }
 
 func TestPlannedAndUnplannedTiebreakInsertionConvergeWithoutDeadlock(t *testing.T) {
-	ctx, store, pool := openMoneyPathStore(t)
-	f := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{
-		TaskCount: 1,
-	})
-	tasks := makeTasks(f, 1)
-	job := validJobRow(t, f, tasks)
+	ctx, store, pool, f, job, tasks, _ := currentUniformMoneyPathJob(t)
 	mustf(t, store.SubmitJobTx(ctx, job, tasks), "submit frozen-authority fixture: %v")
-	primaryTaskID := tasks[0].ID
-	if _, err := pool.Exec(ctx,
-		`UPDATE jobs SET status='running' WHERE id=$1`, f.JobID); err != nil {
-		t.Fatal(err)
+	claimed, err := store.ClaimTasksTx(ctx, WorkerAuth{
+		WorkerID: f.WorkerID, SupplierID: f.SupplierID,
+	})
+	mustf(t, err, "claim exact primary for planned apply: %v")
+	if claimed == nil || claimed.TaskID != tasks[0].ID {
+		t.Fatalf("claimed task=%+v, want exact primary %s", claimed, tasks[0].ID)
 	}
-	if _, err := pool.Exec(ctx, `
-		UPDATE tasks
-		   SET status='running', claimed_by=$2, claimed_at=now(), started_at=now(),
-		       worker_id=$2, execution_worker_id=$2, execution_supplier_id=$3,
-		       execution_hw_class='apple_silicon_max',
-		       execution_engine='candle', execution_build_hash='deadbeefdeadbeef'
-		 WHERE id=$1`,
-		primaryTaskID, f.WorkerID, f.SupplierID); err != nil {
-		t.Fatal(err)
-	}
+	primaryTaskID := claimed.TaskID
 	info, err := store.CompleteTaskTx(
 		ctx, primaryTaskID, f.WorkerID, commitFor(f, primaryTaskID, 0),
 	)
@@ -3290,7 +3351,7 @@ func TestPlannedAndUnplannedTiebreakInsertionConvergeWithoutDeadlock(t *testing.
 		t, ctx, pool, f.JobID, primaryTaskID, info.ChunkIndex,
 	)
 	if snap.ConsumedTasks != 1 || snap.HedgeRows != 0 ||
-		snap.TiebreakRows != 1 || snap.TaskCount != 2 {
+		snap.TiebreakRows != 1 || snap.TaskCount != 3 {
 		t.Fatalf("planned/unplanned convergence = %+v", snap)
 	}
 	var durableID uuid.UUID

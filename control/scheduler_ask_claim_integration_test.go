@@ -46,7 +46,7 @@ func TestClaimTasksTxDefersToACheaperAskingWorker(t *testing.T) {
 			w.workerID, w.supplierID, ask); err != nil {
 			t.Fatal(err)
 		}
-		bindWorkerToGovernedProfile(t, pool, ctx, w.workerID)
+		bindLegacyTestWorkerExactExecutionIdentity(t, pool, ctx, w.workerID)
 		if _, err := pool.Exec(ctx,
 			`INSERT INTO worker_authorized_capabilities
 			   (worker_id,cell_id,runtime_id,job_type,model_ref,model_kind,matrix_sha256)

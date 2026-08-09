@@ -364,62 +364,7 @@ func currentUniformCatalogueIngressFixture(t *testing.T) (
 	context.Context, *Store, *jobRow, []taskRow, CataloguePriceSchedule,
 ) {
 	t.Helper()
-	previousActivation := activeRuntimeActivation.Load()
-	t.Cleanup(func() { activeRuntimeActivation.Store(previousActivation) })
-	ctx, store, pool := openIsolatedMoneyPathStore(t)
-	installBoundCataloguePublicationAuthorityForTest(t)
-	installTestOnlyCombinedTokenAuthority(t)
-	installed := currentActivation()
-	activeRuntimeActivation.Store(newRuntimeActivation(
-		installed.PolicyRevision, map[string]string{}, nil))
-	pinBoardClockForPublication(t)
-
-	schedule, err := BuildCataloguePriceSchedule()
-	mustf(t, err, "build current uniform catalogue schedule: %v")
-	if _, err := store.ApplyRepricing(ctx, schedule); err != nil {
-		t.Fatalf("apply current uniform catalogue schedule: %v", err)
-	}
-
-	fixture := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{TaskCount: 2})
-	tasks := makeTasks(fixture, 2)
-	fixture.TaskIDs = []uuid.UUID{tasks[0].ID, tasks[1].ID}
-	unseeded := fixture
-	unseeded.ctx, unseeded.pool = nil, nil
-	job := validJobRow(t, unseeded, tasks)
-	authority, err := store.LoadCataloguePriceAuthority(ctx, job.ModelRef)
-	mustf(t, err, "load current uniform catalogue authority: %v")
-	economicInput := job.EconomicPlan.Input
-	economicInput.SupplierShare = authority.SupplierShare
-	economic := BuildEconomicPlan(economicInput, job.EconomicPlan.Schedule)
-	if !economic.Executable {
-		t.Fatalf("rebuild current uniform economics: %s", economic.BlockReason)
-	}
-	mustf(t, ValidateComputePlanEconomicSnapshot(
-		job.ComputePlan, job.WorkloadDecision, economic,
-	), "rebuild current uniform compute/economic authority: %v")
-	placement := placementForPricingFixture(t, job.WorkloadDecision, authority)
-	pricing, err := newDistributedPricingDecision(
-		job.WorkloadDecision, job.ComputePlan, placement, economic,
-		authority, job.WorkloadDecision.Binding.Tier, "",
-	)
-	mustf(t, err, "rebuild current uniform pricing decision: %v")
-	job.EconomicPlan = economic
-	job.EstimatedUSD = economic.InitialBuyerChargeUSD
-	job.SLAPremiumUSD = economic.Input.SLAPremiumUSD
-	job.PlacementRequirement = placement
-	job.PricingDecision = pricing
-	job.HWClasses = append([]string(nil), placement.HWClasses...)
-	job.MinMemoryGB = placement.MinMemoryGB
-	job.OfferedRateUsdHr = placement.OfferedRateUsdHr
-	job.EconomicInputSource = economicInputSourceSubmitStream
-	if job.ComputePlan.PrimaryTasks != 1 || job.ComputePlan.RedundancyTasks != 1 ||
-		job.ComputePlan.HoneypotTasks != 0 || len(tasks) != 2 ||
-		!tasks[1].IsRedundancy || tasks[1].InputRef != tasks[0].InputRef ||
-		tasks[1].InputSHA256 != tasks[0].InputSHA256 ||
-		tasks[1].ChunkIndex != tasks[0].ChunkIndex {
-		t.Fatalf("current ingress fixture is not one primary plus one exact clone: plan=%+v tasks=%+v",
-			job.ComputePlan, tasks)
-	}
+	ctx, store, _, _, job, tasks, schedule := currentUniformMoneyPathJob(t)
 	return ctx, store, job, tasks, schedule
 }
 

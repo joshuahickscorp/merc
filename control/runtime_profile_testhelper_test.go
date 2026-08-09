@@ -44,3 +44,25 @@ func bindWorkerToGovernedProfile(t *testing.T, pool *pgxpool.Pool, ctx context.C
 		t.Fatalf("bind worker %s to governed profile: %v", workerID, err)
 	}
 }
+
+// bindLegacyTestWorkerExactExecutionIdentity upgrades a direct-SQL legacy
+// worker fixture to the complete execution tuple the task-identity trigger
+// requires on a queued->running claim. It preserves any test-specific values
+// already supplied and fills only fields the old fixture omitted.
+func bindLegacyTestWorkerExactExecutionIdentity(
+	t *testing.T, pool *pgxpool.Pool, ctx context.Context, workerID uuid.UUID,
+) {
+	t.Helper()
+	bindWorkerToGovernedProfile(t, pool, ctx, workerID)
+	if _, err := pool.Exec(ctx, `
+		UPDATE workers
+		   SET engine=COALESCE(NULLIF(engine,''),'candle'),
+		       build_hash=COALESCE(NULLIF(build_hash,''),$2),
+		       build_identity_policy=COALESCE(NULLIF(build_identity_policy,''),$3),
+		       hardware_identity=COALESCE(NULLIF(hardware_identity,''),$4)
+		 WHERE id=$1`, workerID, testOnlyEngineBuildHash,
+		currentEngineBuildIdentityPolicy, testOnlyHardwareIdentity,
+	); err != nil {
+		t.Fatalf("bind worker %s to exact legacy execution identity: %v", workerID, err)
+	}
+}

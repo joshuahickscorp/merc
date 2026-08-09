@@ -27,10 +27,18 @@ func storeAnchoredDistributedFixture(t *testing.T) (
 	CataloguePriceAuthority,
 ) {
 	t.Helper()
+	// Store startup projects the honestly empty checked-in authority into the
+	// activation cache. Install the scoped TEST_ONLY publication authority only
+	// after that startup boundary, then rebuild the same revision without the
+	// production quarantine. Installing it before startup lets the persisted
+	// zero-lane policy overwrite the fixture.
+	ctx, store, pool := openAdminMutationTestStore(t)
 	installBoundCataloguePublicationAuthorityForTest(t)
 	installTestOnlyCombinedTokenAuthority(t)
+	installed := currentActivation()
+	activeRuntimeActivation.Store(newRuntimeActivation(
+		installed.PolicyRevision, map[string]string{}, nil))
 	pinBoardClockForPublication(t)
-	ctx, store, pool := openAdminMutationTestStore(t)
 
 	schedule, err := BuildCataloguePriceSchedule()
 	mustf(t, err, "build catalogue schedule: %v")

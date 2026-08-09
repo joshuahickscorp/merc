@@ -81,22 +81,25 @@ func TestProjectOrderPublicAPIIsIdempotentAndBuyerScoped(t *testing.T) {
 // leaves no job behind on either duplicate-step or budget refusal.
 func TestProjectOrderReservationIsServerSideAndFixedPoint(t *testing.T) {
 	installSettlementCurrencyForTest(t, "usd")
-	ctx, store, pool := openIsolatedMoneyPathStore(t)
-	f := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{TaskCount: 1})
-	tasks := makeTasks(f, 1)
-	f.TaskIDs = []uuid.UUID{tasks[0].ID}
-	schedule := testEconomicSchedule()
+	ctx, store, pool, f, job, tasks, _ := currentUniformMoneyPathJob(t)
+	schedule := job.EconomicPlan.Schedule
 	schedule.MinChargeBatchUSD = 5
 	schedule.ControlPlanePerTaskUSD = 0
 	schedule.ControlPlanePerBatchUSD = 0.01
 	schedule.ControlPlaneAllocationPolicy = controlPlaneAllocationChargeBatchV1
-	f.Plan = BuildEconomicPlan(EconomicPlanInput{
-		BaseComputeUSD: 0.20, InitialTaskCount: 1, ExtraTaskReserve: 1, SupplierShare: 0.97,
-	}, schedule)
-	if !f.Plan.Executable {
-		t.Fatalf("fixed-point fixture plan refused: %s", f.Plan.BlockReason)
+	plan := BuildEconomicPlan(job.EconomicPlan.Input, schedule)
+	if !plan.Executable {
+		t.Fatalf("fixed-point fixture plan refused: %s", plan.BlockReason)
 	}
-	job := validJobRow(t, f, tasks)
+	pricing, err := newDistributedPricingDecision(
+		job.WorkloadDecision, job.ComputePlan, job.PlacementRequirement,
+		plan, job.PricingDecision.Catalogue,
+		job.WorkloadDecision.Binding.Tier, "",
+	)
+	must(t, err)
+	job.EconomicPlan = plan
+	job.PricingDecision = pricing
+	job.EstimatedUSD = plan.InitialBuyerChargeUSD
 
 	quoteID := uuid.New()
 	quote := Quote{
@@ -153,9 +156,12 @@ func TestProjectOrderReservationIsServerSideAndFixedPoint(t *testing.T) {
 
 	duplicate := *job
 	duplicate.ID = uuid.New()
-	duplicateTasks := makeTasks(f, 1)
-	duplicateTasks[0].ID = uuid.New()
-	duplicateTasks[0].JobID = duplicate.ID
+	duplicateTasks := append([]taskRow(nil), tasks...)
+	for i := range duplicateTasks {
+		duplicateTasks[i].ID = uuid.New()
+		duplicateTasks[i].JobID = duplicate.ID
+		duplicateTasks[i].ResultKey = taskAttemptResultKey(duplicate.ID, duplicateTasks[i].ID, 0)
+	}
 	if err := store.SubmitJobTx(ctx, &duplicate, duplicateTasks); !errors.Is(err, errProjectStepReserved) {
 		t.Fatalf("second accepted job for one project step: %v", err)
 	}
@@ -173,9 +179,12 @@ func TestProjectOrderReservationIsServerSideAndFixedPoint(t *testing.T) {
 	over.ID = uuid.New()
 	over.ProjectOrderID = underfundedID
 	over.ProjectStepID = "embed"
-	overTasks := makeTasks(f, 1)
-	overTasks[0].ID = uuid.New()
-	overTasks[0].JobID = over.ID
+	overTasks := append([]taskRow(nil), tasks...)
+	for i := range overTasks {
+		overTasks[i].ID = uuid.New()
+		overTasks[i].JobID = over.ID
+		overTasks[i].ResultKey = taskAttemptResultKey(over.ID, overTasks[i].ID, 0)
+	}
 	if err := store.SubmitJobTx(ctx, &over, overTasks); !errors.Is(err, errProjectBudget) {
 		t.Fatalf("over-ceiling project job was accepted: %v", err)
 	}

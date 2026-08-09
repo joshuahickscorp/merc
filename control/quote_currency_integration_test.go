@@ -12,26 +12,12 @@ import (
 
 func TestQuoteCurrencyIsVisibleImmutableAndBoundAtSubmission(t *testing.T) {
 	installSettlementCurrencyForTest(t, "cad")
-	ctx, store, pool := openIsolatedTestStore(t)
-	buyerID := uuid.New()
-	if _, err := pool.Exec(ctx, `INSERT INTO buyers (id,email,password_hash)
-		VALUES ($1,$2,'x')`, buyerID, "quote-currency-"+buyerID.String()+"@test"); err != nil {
-		t.Fatal(err)
-	}
-
-	workload, compute, economic := pricingComputePlanFixture(t)
-	schedule := economic.Schedule
-	schedule.Currency = "cad"
-	economic = BuildEconomicPlan(economic.Input, schedule)
-	mustf(t, ValidateComputePlanEconomicSnapshot(compute, workload, economic), "CAD economic fixture: %v")
-	authority := catalogueAuthorityFixtureInStore(
-		t, ctx, pool, workload, "cad", economic.Input.SupplierShare,
-	)
-	placement := placementForPricingFixture(t, workload, authority)
-	pricing, err := newDistributedPricingDecision(
-		workload, compute, placement, economic, authority, workload.Binding.Tier, "",
-	)
-	mustf(t, err, "build CAD pricing fixture: %v")
+	t.Setenv("MERC_PRICE_REFERENCE_TO_SETTLEMENT_RATE", "1.35")
+	t.Setenv("MERC_PRICE_FX_REVISION", "TEST_ONLY quote-currency-cad-v1")
+	ctx, store, pool, fixture, job, _, _ := currentUniformMoneyPathJob(t)
+	buyerID := fixture.BuyerID
+	workload, compute, economic := job.WorkloadDecision, job.ComputePlan, job.EconomicPlan
+	placement, pricing := job.PlacementRequirement, job.PricingDecision
 
 	quoteID := uuid.New()
 	quote := Quote{

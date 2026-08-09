@@ -17,6 +17,9 @@ import (
 func TestShadowSelectionConsidersTheProvenCellAdmissionCannotRoute(t *testing.T) {
 	withActivationRestored(t)
 	installBoundCataloguePublicationAuthorityForTest(t)
+	installed := currentActivation()
+	activeRuntimeActivation.Store(newRuntimeActivation(
+		installed.PolicyRevision, map[string]string{}, nil))
 
 	decision, err := buildWorkloadDecision(jobSubmit{
 		JobType:     JobType{Type: "embed"},
@@ -77,6 +80,9 @@ func TestShadowSelectionConsidersTheProvenCellAdmissionCannotRoute(t *testing.T)
 func TestShadowSelectionRecordsWhyACellWasExcluded(t *testing.T) {
 	withActivationRestored(t)
 	installBoundCataloguePublicationAuthorityForTest(t)
+	installed := currentActivation()
+	activeRuntimeActivation.Store(newRuntimeActivation(
+		installed.PolicyRevision, map[string]string{}, nil))
 
 	// Ordinary admission freezes the bindable embed singleton. Shadow selection
 	// then scores the directed set, where llama.cpp's embed cell is reachable
