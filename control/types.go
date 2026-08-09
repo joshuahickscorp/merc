@@ -195,10 +195,12 @@ type WorkerCapability struct {
 	Benchmarks      []BenchResult `json:"benchmarks"`
 	AgentVersion    string        `json:"agent_version"`
 	OSVersion       string        `json:"os_version"`
-	// Sandboxed is true when the agent is running under the macOS seatbelt
-	// profile. UnsandboxedOptIn is true when the operator set
-	// MERC_ALLOW_UNSANDBOXED=1 — the control plane records both so private work
-	// can be refused to uncontained workers.
+	// Sandboxed is true when the agent is running under platform-enforced
+	// containment (macOS seatbelt today). UnsandboxedOptIn is true when the
+	// operator set MERC_ALLOW_UNSANDBOXED=1. Both gate claim eligibility:
+	// ordinary buyer work requires sandboxed=true and unsandboxed_opt_in=false;
+	// directed work (workload_decision.directed_cell_id) is the named permit
+	// for uncontained supply; opt-in remains an absolute exclusion.
 	Sandboxed        bool `json:"sandboxed"`
 	UnsandboxedOptIn bool `json:"unsandboxed_opt_in"`
 	// activationPolicyRevision is server-side admission context. It is never

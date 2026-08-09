@@ -563,9 +563,10 @@ func claimTaskSQL(claimedByPredicate, shapeOrderExpr string) string {
 	         AND w2.last_seen_at > now() - interval '60 seconds'
 	         AND s2.status = 'active'
 	         AND NOT COALESCE(w2.throttled, false)
-	         -- A worker that opted out of the seatbelt cannot take buyer work;
-	         -- do not count it as a cheaper class that "could take" this task.
-	         AND NOT COALESCE(w2.unsandboxed_opt_in, false)
+	         -- Containment: only count peers the claim path would actually
+	         -- dispatch. Ordinary work needs sandboxed=true; directed work is
+	         -- the named uncontained permit; opt-in is an absolute exclusion.
+`+workerJobContainmentSQL("w2", "j")+`
 	         AND (`+hwClassCostRankSQL("w2.hw_class")+`) < $3
 	         AND COALESCE(j.min_memory_gb,0) <= COALESCE(w2.effective_memory_gb, w2.memory_gb, 0)
 	         AND (j.hw_classes IS NULL OR w2.hw_class = ANY(j.hw_classes))
@@ -650,7 +651,7 @@ func claimTaskSQL(claimedByPredicate, shapeOrderExpr string) string {
 	         AND w3.last_seen_at > now() - interval '60 seconds'
 	         AND s3.status = 'active'
 	         AND NOT COALESCE(w3.throttled, false)
-	         AND NOT COALESCE(w3.unsandboxed_opt_in, false)
+`+workerJobContainmentSQL("w3", "j")+`
 	         AND COALESCE(w3.min_payout_usd_hr, 0) < $5
 	         AND COALESCE(j.offered_rate_usd_hr, 1e9) >= COALESCE(w3.min_payout_usd_hr, 0)
 	         AND COALESCE(j.min_memory_gb,0) <= COALESCE(w3.effective_memory_gb, w3.memory_gb, 0)
@@ -893,10 +894,11 @@ func claimTaskSQL(claimedByPredicate, shapeOrderExpr string) string {
 	         AND j.placement_requirement->>'hardware_identity' = me.hardware_identity
 	       )
 	     )
-	     -- Containment: a worker that deliberately opted out of the seatbelt
-	     -- (MERC_ALLOW_UNSANDBOXED) must not receive buyer payload. Greppable
-	     -- via workers.unsandboxed_opt_in and the capability record.
-	     AND NOT COALESCE(me.unsandboxed_opt_in, false)
+	     -- Containment eligibility: ordinary buyer work requires sandboxed=true.
+	     -- Directed work (workload_decision.directed_cell_id) is the explicit
+	     -- permit for uncontained supply. unsandboxed_opt_in remains an
+	     -- independent absolute exclusion (MERC_ALLOW_UNSANDBOXED).
+`+workerJobContainmentSQL("me", "j")+`
 `+claimIndependenceSQL+`
 	     -- Budget Governor (Plane C §12 / Plane D §14 D8): when the job has a hard
 	     -- spend cap, NEVER dispatch a new task whose projected charge would breach

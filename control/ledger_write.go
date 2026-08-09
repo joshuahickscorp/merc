@@ -75,9 +75,9 @@ type ledgerInsert struct {
 	// CurrencyAuthority is ledgerCurrencyAuthorityJob; the insert currency must
 	// equal this value exactly.
 	BoundJobCurrency string
-	PayoutStatus    string
-	ReleaseAt       *time.Time
-	PayoutRef       string
+	PayoutStatus     string
+	ReleaseAt        *time.Time
+	PayoutRef        string
 }
 
 type ledgerCurrencyAuthority string

@@ -543,6 +543,8 @@ func registerContainmentCleanup(t *testing.T, pool *pgxpool.Pool, workerIDs, job
 func testWorkerCapability(workerID, supplierID uuid.UUID) WorkerCapability {
 	// Exact physical identity matches installBoundCataloguePublicationAuthorityForTest
 	// so enrolment projection can bind when that TEST_ONLY seam is installed.
+	// Sandboxed defaults true: ordinary claim eligibility requires containment,
+	// and fixtures that need uncontained supply set Sandboxed=false explicitly.
 	return WorkerCapability{
 		WorkerID:            workerID,
 		SupplierID:          supplierID,
@@ -567,5 +569,6 @@ func testWorkerCapability(workerID, supplierID uuid.UUID) WorkerCapability {
 		}},
 		AgentVersion: "test",
 		OSVersion:    "test",
+		Sandboxed:    true,
 	}
 }

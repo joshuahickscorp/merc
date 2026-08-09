@@ -37,9 +37,15 @@ func bindWorkerToGovernedProfile(t *testing.T, pool *pgxpool.Pool, ctx context.C
 		digest, err = profile.CapabilityDigest(runtimeAuthorityModels)
 		mustf(t, err, "digest declared historical test profile: %v")
 	}
+	// sandboxed=true is explicit: claim eligibility requires containment for
+	// ordinary buyer work. Test fixtures that bind a governed profile are
+	// building a dispatchable worker and must declare that class rather than
+	// relying on an absent gate. Directed/lab uncontained cases set
+	// sandboxed=false deliberately after this bind.
 	if _, err := pool.Exec(ctx,
 		`UPDATE workers SET engine='candle', runtime_profile_id=$2,
-		                    runtime_profile_revision=$3, runtime_profile_digest=$4
+		                    runtime_profile_revision=$3, runtime_profile_digest=$4,
+		                    sandboxed=true
 		  WHERE id=$1`, workerID, id, revision, digest); err != nil {
 		t.Fatalf("bind worker %s to governed profile: %v", workerID, err)
 	}

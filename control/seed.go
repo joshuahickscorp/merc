@@ -58,14 +58,22 @@ func seedDemo(ctx context.Context, pool *pgxpool.Pool, storage *Storage) error {
 		{`INSERT INTO suppliers (id, email, reputation, tier, status)
 		  VALUES ($1, 'demo-supplier@example.com', 0.90, 2, 'active')
 		  ON CONFLICT (id) DO NOTHING`, []any{demoSupplierID}},
+		// sandboxed=true is deliberate: the local seed fleet is the named
+		// development class permitted to take ordinary work. Uncontained
+		// public supply is not routable; seed workers earn eligibility by
+		// declaring containment rather than by the gate being absent.
 		{`INSERT INTO workers (id, supplier_id, hw_class, memory_gb, bw_gbps, last_seen_at, version,
-		                       supported_jobs, supported_models, min_payout_usd_hr, thermal_ok)
+		                       supported_jobs, supported_models, min_payout_usd_hr, thermal_ok,
+		                       sandboxed)
 		  VALUES ($1, $2, 'apple_silicon_max', 64, 400, now(), 'seed',
 		          ARRAY['embed','batch_infer'],
-		          ARRAY['all-minilm-l6-v2','llama-3.2-1b-instruct-q4'], 0, true)
+		          ARRAY['all-minilm-l6-v2','llama-3.2-1b-instruct-q4'], 0, true, true)
 		  ON CONFLICT (id) DO NOTHING`, []any{demoWorkerID, demoSupplierID}},
 		{`UPDATE suppliers SET data_country = 'US' WHERE id = $1 AND data_country IS NULL`,
 			[]any{demoSupplierID}},
+		// Existing seed rows predate the containment gate; re-seed must make the
+		// local fleet explicitly eligible rather than leaving sandboxed=false.
+		{`UPDATE workers SET sandboxed = true WHERE id = $1`, []any{demoWorkerID}},
 		// Remap demo tokens onto the v4 worker rows so existing local DBs that still
 		// hold version-nibble-0 demo workers stop advertising non-receipt-grade IDs.
 		// Expiry is long but finite (1 year) so local agent configs keep working
@@ -82,13 +90,15 @@ func seedDemo(ctx context.Context, pool *pgxpool.Pool, storage *Storage) error {
 		  VALUES ($1, 'demo-supplier-2@example.com', 0.90, 2, 'active')
 		  ON CONFLICT (id) DO NOTHING`, []any{demoSupplierID2}},
 		{`INSERT INTO workers (id, supplier_id, hw_class, memory_gb, bw_gbps, last_seen_at, version,
-		                       supported_jobs, supported_models, min_payout_usd_hr, thermal_ok)
+		                       supported_jobs, supported_models, min_payout_usd_hr, thermal_ok,
+		                       sandboxed)
 		  VALUES ($1, $2, 'apple_silicon_max', 64, 400, now(), 'seed',
 		          ARRAY['embed','batch_infer'],
-		          ARRAY['all-minilm-l6-v2','llama-3.2-1b-instruct-q4'], 0, true)
+		          ARRAY['all-minilm-l6-v2','llama-3.2-1b-instruct-q4'], 0, true, true)
 		  ON CONFLICT (id) DO NOTHING`, []any{demoWorkerID2, demoSupplierID2}},
 		{`UPDATE suppliers SET data_country = 'US' WHERE id = $1 AND data_country IS NULL`,
 			[]any{demoSupplierID2}},
+		{`UPDATE workers SET sandboxed = true WHERE id = $1`, []any{demoWorkerID2}},
 		{`INSERT INTO worker_tokens (token_hash, worker_id, supplier_id, revoked, expires_at, last_renewed_at)
 		  VALUES ($1, $2, $3, false, now() + interval '365 days', now())
 		  ON CONFLICT (token_hash) DO UPDATE

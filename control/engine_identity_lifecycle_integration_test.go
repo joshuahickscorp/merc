@@ -36,6 +36,8 @@ func currentIdentityWorkerCapability(
 		SupportedJobs: []string{job.JobType}, SupportedModels: []string{job.ModelRef},
 		Benchmarks:   []BenchResult{benchmark},
 		AgentVersion: "TEST_ONLY identity lifecycle", OSVersion: "TEST_ONLY macOS",
+		// Ordinary claim requires containment; uncontained cases set this false.
+		Sandboxed: true,
 	}
 }
 

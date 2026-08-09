@@ -138,7 +138,8 @@ func TestDynamicPeerTransactionalPredicatesMatchCurrentClaimContainment(t *testi
 		must(t, err)
 		sql := string(raw)
 		for _, predicate := range []string{
-			"NOT COALESCE(nw.unsandboxed_opt_in,false)",
+			// Shared helper expands to sandboxed OR directed_cell_id + opt-in ban.
+			`workerJobContainmentSQL("nw", "j")`,
 			"supplierNotLinkedToBuyerSQL(\"ns\")",
 			"wac.authorized_at>=now()-interval '7 days'",
 			"j.placement_requirement->>'engine_build_identity_policy'",

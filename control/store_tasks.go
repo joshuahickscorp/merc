@@ -717,7 +717,7 @@ func dynamicPeerClaimEligibleTx(
 		    AND nw.last_seen_at>now()-interval '60 seconds'
 		    AND ns.status='active'
 		    AND NOT COALESCE(nw.throttled,false)
-		    AND NOT COALESCE(nw.unsandboxed_opt_in,false)
+`+workerJobContainmentSQL("nw", "j")+`
 		    AND COALESCE(nw.effective_memory_gb,nw.memory_gb,0)>=COALESCE(j.min_memory_gb,0)
 		    AND (j.hw_classes IS NULL OR nw.hw_class=ANY(j.hw_classes))
 		    AND (j.data_residency IS NULL OR ns.data_country=ANY(j.data_residency))

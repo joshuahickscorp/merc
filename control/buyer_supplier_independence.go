@@ -200,6 +200,32 @@ func supplierNotLinkedToBuyerSQL(supplierAlias string) string {
 	     )`
 }
 
+// workerJobContainmentSQL gates a worker against a job's containment
+// requirement.
+//
+// Ordinary buyer work requires platform-enforced sandbox (sandboxed=true).
+// Work with a frozen directed_cell_id on the workload decision is the named
+// permit for uncontained supply: that is how operator-directed, lab, and
+// canary lanes are already distinguished in this codebase, so the permit is
+// an existing row property rather than a parallel trust class. Unsandboxed
+// opt-in remains an independent absolute exclusion from every claim path —
+// the two facts mean different things and both must gate.
+//
+// workerAlias is the workers-table alias (e.g. "me", "w2", "nw"); jobAlias is
+// the jobs-table alias (always "j" in current claim SQL).
+func workerJobContainmentSQL(workerAlias, jobAlias string) string {
+	return `
+	     -- Containment eligibility (Bible §18): public supply requires
+	     -- sandboxed=true. Directed work (workload_decision.directed_cell_id)
+	     -- is the explicit permit for uncontained hosts. unsandboxed_opt_in
+	     -- is a separate absolute exclusion.
+	     AND (
+	       COALESCE(` + workerAlias + `.sandboxed, false)
+	       OR COALESCE(` + jobAlias + `.workload_decision->>'directed_cell_id','') <> ''
+	     )
+	     AND NOT COALESCE(` + workerAlias + `.unsandboxed_opt_in, false)`
+}
+
 // claimIndependenceSQL is the predicate spliced into ClaimTaskSQL: the claiming
 // supplier must not be linked to the job's buyer. Applied to ALL tasks
 // (ordinary + verification). Verification tasks get an additional permanent
