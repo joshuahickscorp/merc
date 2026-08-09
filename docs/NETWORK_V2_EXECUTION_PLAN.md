@@ -35,6 +35,29 @@ promote a physical-fleet or launch claim.
   below 100, evidence integrity below 100, or plan fidelity below 95 is repaired
   before the next dependent step.
 
+## Amended steps — precedence and strike ledger
+
+Where a `shape note — amended` conflicts with the step body above it, the **note
+governs**. The note was written against the code; the body was written from
+intent. Bodies stay unedited as the historical statement of intent so this ledger
+remains auditable. An implementer or later audit must not re-assert a struck
+criterion from the body, and must not mark a step complete under a softer note
+without reading the disposition column.
+
+| Step | Body still says | Note struck | Disposition |
+|---:|---|---|---|
+| 7 | (body already amended 2026-08-09: pull shapes prove claim-time eligibility, not a book) | Batch `MarketDecision` before/at first capacity reservation / synthetic buyer book | **Relocated** → pull eligibility snapshot at claim (`PULL_ELIGIBILITY_SNAPSHOT` / Step 7 note). Batch claim is pull + fleet-relative deferrals (`cheaper_class_online` / `cheaper_ask_online`, `SKIP LOCKED` at `control/scheduler.go:1093-1104`). |
+| 8 | Objective lists rollback target; required proof lists "no benchmark-only promotion"; rollback path names promotion-gate bypass | Promotion + instant rollback as Step 8 completion | **Refused by construction** today: `promotionMatchedPairAuthorityRefusal` (`control/runtime_cell_promotion.go:78`, refuse at `:321`); scope/global-lifecycle refuse (`control/activation_policy.go:1326-1333`). **Relocated** → promotion-coverage obligation (Step 8 note) and Step 29 promotion/rollback seams. |
+| 9 | Required proof: "selected worker belongs to frozen candidate set and epoch" | Frozen candidate set/epoch **for batch** | **Refused by construction** for batch: pull + `SKIP LOCKED` (`control/scheduler.go:1104-1105`); no batch epoch object. **Relocated** → claim-time eligibility snapshot; RT/lease may keep frozen sets (Step 9 note). |
+| 10 | Current authority: "Promotes `TopologyPlan` as the canonical core" | Promote/rename `TopologyPlan` as accept authority | **Relocated** → accept-time immutable topology record per lane (batch job field inside accept TX; RT cites existing `RealtimePlacementPlan`). Shadow-only `topology_plan` write is post-commit and non-vetoing (`control/api.go:1676-1711`; `control/runtime_shadow_selection.go:529-561`). |
+| 10 | Required proof: "measured local gang admission" | Measured local gang admission as Step 10 completion | **Refused by construction**: fabric evaluations force `LocalClusterAdmissible: false` (`control/fabric_topology.go:146`); statuses never `LOCAL_CLUSTER_ADMITTED_V1` (`:283-289`; const `control/fabric_topology_planner.go:18`). Remain refuse `LOCAL_CLUSTER` until gang/pricing authorities exist. |
+| 13 | Completion: every liability transition authorized by one accepted `SettlementPlan` and 100% reconciles | Pre-execution true-net `SettlementPlan` for every transition **as written** | **Refused by construction** for pre-execution true net: forecast vs FINAL split (`control/pricing_decision.go:105-109`; `control/contribution_settlement.go:16-19`, `:54-55`). **Relocated** (required, not optional): refund/dispute/payout state-machine revision identity; explicit RT/lease finality; every transition cites an existing authority digest (Step 13 note correction 2026-08-09). |
+| 21 | Completion: every selector promotion requires historical replay + paired/shadow gates and instant rollback | Promotion as Step 21 completion | **Refused by construction** while gate v4 refuses every promotion (`control/runtime_cell_promotion.go:78`, `:321`). **Relocated** → Mode A replay from existing shadow/regret authorities now; Mode B only after capture; promotion-coverage / Step 29 family (Step 21 note). |
+| 22 | Completion: "100% registered network faults caught…" | Bible-wide 100% of the Bible network-fault list as completion | **Relocated** → 100% of faults **registered against live targets**; catalogue must **explicitly list deferred faults with no target** (Step 22 note). Inventing mutants for ABSENT authorities (e.g. region-health) is refused. |
+| 25 | Completion: each **enabled** class has production callers and receipt-backed savings | ~~Prefix money attribution optional~~ | **Strike withdrawn 2026-08-09** (adversarial audit F2). Note correction restores body force: prefix is live production routing (`control/scheduler.go:1093-1108`); `ClassPrefixReusedInput` (`control/billing_classes.go:23`) has no non-test `RecordTokenAccounting` caller — savings are **unattributed OPEN**, not optional. |
+
+Rows beyond the audit's six-pair table: Step 7 (batch book-at-reserve), Step 8 (promotion), and Step 10 measured local gang — same class of body/note tension, already named in the shape notes.
+
 ## Live ledger at plan freeze
 
 | Step | Boundary | Entry status | HEAD | Grade | Key evidence / blocker | Next dependency |
@@ -813,8 +836,9 @@ duplicate objects that already hold those roles under other names.
   method while SAMPLED selection is false. That is the buyer-overrun risk: the
   strategy/cost line, not the aggregate `fully-verified` label alone.
   `fully-verified` requires every delivered chunk to have been verified under the
-  aggregate rules (`control/types.go:421-424`); task receipts can disclose
-  `verification_selected` (`control/receipt.go:53-59`).
+  aggregate rules (`deriveVerificationLabel` at `control/types.go:421-424`, the
+  branch that returns `"fully-verified"` when `VerifiedChunks >= DeliveredChunks`);
+  task receipts can disclose `verification_selected` (`control/receipt.go:53-59`).
 - **Rich comparator output is not retained on the ordinary path.**
   `resultsAgree` keeps only `.Passed` (`control/verification.go:581-584`) while
   `EmbeddingComparison` was designed to persist full diagnosis
@@ -1087,13 +1111,17 @@ Every claim below was re-verified against `codex/network-v2` at `ed1549ca`.
 **Batch cache-aware routing already exists. Treating Step 15 as "expand
 two-worker locality into routing" rebuilds a second scheduler over soft belief.**
 Production `ClaimTasksTx` already ranks on believed prefix depth and model warm
-**below** cost/ask: `cheaper_class_online ASC, cheaper_ask_online ASC, …,
-warm_prefix_depth DESC, warm_for_task DESC` (`control/scheduler.go:1093-1102`).
-Prefix depth is computed from `worker_prefix_state` joined to `job_prefix_chain`
-with a 90s TTL (`:758-786`, `last_seen_warm > now() - interval '90 seconds'` at
-`:779`). Model warm is a 60s `EXISTS` on `worker_model_state` (`:751-755`). The
-pure twin is `RankByCostThenPrefixAffinity` (`control/prefix_placement.go:56`);
-wiring tests pin cost-before-prefix and forbid warm-as-hard-filter
+**below** cost/ask (and below shape and throughput):
+`cheaper_class_online ASC, cheaper_ask_online ASC, <shapeOrderExpr> ASC,
+worker_tps DESC, warm_prefix_depth DESC, warm_for_task DESC`
+(`control/scheduler.go:1093-1108` — cost at `:1093`, shape at `:1100`, TPS at
+`:1101`, warmth at `:1102`). Cost-before-warmth holds; shape and TPS outrank
+warmth inside that span. Prefix depth is computed from
+`worker_prefix_state` joined to `job_prefix_chain` with a 90s TTL (`:758-786`,
+`last_seen_warm > now() - interval '90 seconds'` at `:779`). Model warm is a 60s
+`EXISTS` on `worker_model_state` (`:751-755`). The pure twin is
+`RankByCostThenPrefixAffinity` (`control/prefix_placement.go:56`); wiring tests
+pin cost-before-prefix and forbid warm-as-hard-filter
 (`control/prefix_placement_test.go`, `control/prefix_routing_wiring_test.go`).
 
 **Locality is a belief, not a mirror of the engine.**
@@ -1105,18 +1133,21 @@ model table at `:1689`). Warmth is written **after** durable commit:
 `CorrectPrefixBeliefFromObservation` then `markWorkerWarmForJob`
 (`control/store_tasks.go:516-517`; path `control/prefix_routing_path.go:144-166`,
 `:87-94`). TTL is `prefixWarmTTL = 90s` (`control/prefix_routing.go:104`);
-stale rows are swept at 20×TTL (`:203`). Model residency is heartbeat-written
-(`control/store_workers.go:515-554`).
+stale rows are swept at 20×TTL (`:203`). Model residency is heartbeat-written in
+`HeartbeatTx` (`control/store_workers.go:596`): eviction DELETE at `:515-519`,
+measured resident INSERT/UPDATE at `:535-544`, legacy loaded-model INSERT at
+`:548-554`.
 
 **Stale `worker_prefix_state` can change the winner inside a cost class without
 appearing on any receipt.** `warm_prefix_depth` is ORDER BY only; it flips which
-eligible worker wins when cost/ask tie. Claim `RETURNING` deliberately does **not**
-expose prefix warmth to the worker client (`control/prefix_routing_wiring_test.go:434-442`;
-production `RETURNING` at `control/scheduler.go:1125`). No batch placement or
-settlement field freezes "I chose worker W because believed depth D at freshness
-T." Because warmth is post-commit, concurrent claimants can pile onto a stale warm
-row until observation correction or TTL. Realtime freezes **offer-declared**
-warmth on the selected rank
+eligible worker wins when cost/ask (and shape/TPS) tie. Claim `RETURNING`
+deliberately does **not** expose prefix warmth to the worker client
+(`control/prefix_routing_wiring_test.go:434-442`; production `RETURNING` clause at
+`control/scheduler.go:1125-1136` — starts at `:1125`, no `prefix_id` /
+`warm_prefix*`). No batch placement or settlement field freezes "I chose worker W
+because believed depth D at freshness T." Because warmth is post-commit,
+concurrent claimants can pile onto a stale warm row until observation correction
+or TTL. Realtime freezes **offer-declared** warmth on the selected rank
 (`RealtimeClearingRankingInputs.Warmth` at `control/realtime_clearing.go:56-74`;
 receipt `control/realtime_store.go:258-279`) — that is a different warmth channel,
 not `worker_prefix_state`.
@@ -1319,6 +1350,41 @@ canonical graph-through-receipt does not.
 12. **Rollback:** Remove/refuse the twin seam if it forks scoring/economics,
     mutates production state, or can mint admissible physical evidence.
 
+### Step 17 shape note — amended 2026-08-09 after reconnaissance
+
+**There is no extractable pure production decision core for a twin to call.** The
+body still assumes "the pure production decision core extracted in steps 7–11"
+and validators shared by production and twin. Production selection is SQL inside
+PostgreSQL, not a Go `Select(epoch, request)`:
+
+- **Batch** — `ClaimTasksTx` (`control/scheduler.go:1140+`): one large CTE, fleet-
+  relative `EXISTS` per eligible job, `FOR UPDATE OF t SKIP LOCKED LIMIT 1`
+  (`:1104-1105`).
+- **Realtime** — profile-scoped offer reservation CTEs
+  (`realtimeAuthorizeSelectOfferSQL*` in `control/realtime_supplier_outcome_stats.go`;
+  call site `control/realtime_store.go:999-1044`).
+- **Service lease** — ordered book walk under `FOR UPDATE`, first ask that clears
+  `PricingDecision` (`control/service_leases.go:681-691+`).
+
+`Match` (`control/scheduler.go:97-146`) is peer/redundancy ranking in Go — **not**
+the poll hot path. No repo search under `control/` yields a pure
+`Select(epoch, request) -> decision` that production and twin could both invoke.
+
+**Step 17 inherits Step 20's SQL-harness requirement in full.** A twin must drive
+production's own entry points (or an extracted core that production *genuinely*
+calls after a separate extraction), with injected state/clock only at explicit
+seams, `SIMULATION_ONLY` evidence class, and no DB/money side effect. A Go
+stand-in that "looks like" the selector would produce numbers that look like the
+Bible's scale targets and mean nothing — worse than having no twin. Byte-identical
+decisions/digests are required only where production already has a pure digest
+function; for selection, parity means the same SQL text and planner shape under
+the same durable state.
+
+**Completion, restated:** every twin scenario exercises production decision entry
+points (or a production-called extracted core); any semantic divergence fails;
+stand-in scorers are refused. Status language remains ABSENT for the twin package
+until that seam exists.
+
 ### Step 18 — Add hierarchical candidate indexes and coherent epochs
 
 1. **Objective:** Maintain incremental indexes for hard contract, region/privacy/
@@ -1454,6 +1520,46 @@ narrows.
     production decision seam with an explicit `SIMULATION_ONLY` evidence class.
 12. **Rollback:** Reject a generator revision if distributions are unbounded,
     expected answers are encoded by a second selector, or memory is impractical.
+
+### Step 19 shape note — amended 2026-08-09 after reconnaissance
+
+**A synthetic fleet can generate only dimensions production schema and selectors
+already consume.** The body still varies workers by "failure domain." Step 18
+already proved `failure_domain` is **ABSENT** in control Go and schema: repo
+search under `control/` returns no `failure_domain` / `FailureDomain` symbol (no
+column, no type, no ranking term). Hard-search for region-health /
+failed-region-healthy authorities likewise finds no production surface (Step 21
+lists that substrate as missing; Step 22 defers "Make failed region healthy"
+because inventing a mutant invents an authority).
+
+**What a generator can vary today against live tables and live selectors:**
+
+- engine / build / hardware class / hardware identity (capability and claim
+  filters already read these);
+- price / ask (`min_payout_usd_hr`, offer rates; batch cheaper-ask deferral);
+- region / data residency lists (service-lease region scope; batch residency
+  filters — not a failure-domain object);
+- queue depth via ready tasks and worker liveness (`last_seen_at`, throttled);
+- reliability signals that existing ranking multiplies (where the path already
+  reads them);
+- residency / cache belief (`worker_model_state` via `HeartbeatTx` at
+  `control/store_workers.go:596+`; `worker_prefix_state`);
+- fabric-measurement inputs only where substrate exists
+  (`control/fabric_measurement.go`, `control/fabric_topology.go`).
+
+**What it cannot generate as a governed axis today:** `failure_domain`;
+region-health state machines; coherent network epochs / hierarchical candidate
+indexes (Step 18 product ABSENT); any authority Step 18 forbids inventing.
+
+Generating a synthetic `failure_domain` field, scorer, or scenario expectation
+before schema and selectors own one would invent authority — the same defect as
+scaffolding empty cache classes or a Go stand-in selector. Scenarios that need a
+failure-domain axis wait on a real column + hard filter + ranking term, or they
+name the axis ABSENT and skip it.
+
+**Completion, restated:** every declared size/scenario is reproducible against
+production seams for axes that exist; ABSENT axes are listed absent, not faked.
+Status remains ABSENT for the 10→1M governed generator product.
 
 ### Step 20 — Persist qualified scale curves and enforce narrowing budgets
 
@@ -1855,9 +1961,10 @@ framework"):**
 **Wired but UNMEASURED as a cold-vs-warm load receipt:**
 
 - **Model-weight residency** — agent disk pin + `ModelPool` (`agent/src/models.rs`,
-  `agent/src/pool.rs`); control plane sees heartbeat `worker_model_state`
-  (`control/store_workers.go:515-554`; claim `warm_for_task` 60s). Five-cache
-  audit status **`WIRED_UNMEASURED`**: substrate exists; bound saving =
+  `agent/src/pool.rs`); control plane sees heartbeat `worker_model_state` via
+  `HeartbeatTx` (`control/store_workers.go:596`, writers `:515-519` / `:535-544` /
+  `:548-554`; claim `warm_for_task` 60s at `control/scheduler.go:751-755`).
+  Five-cache audit status **`WIRED_UNMEASURED`**: substrate exists; bound saving =
   cold_path_ms − warm_path_ms for the same governed model id is **not** a sealed
   receipt. Do not fork ModelPool; measure or leave UNMEASURED.
 
