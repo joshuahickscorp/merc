@@ -1051,7 +1051,22 @@ gate. The clean preflight is split into two deterministic complete DB lanes plus
 independent unit/baseline proofs; mutation count and per-mutant isolation are
 unchanged.
 
-Verdict: RECONCILED_COMPLETE
+Correction recorded 2026-08-09, during the Step 5 baseline measurement:
+The proofs above are exactly what was run, and they hold. They are not a
+whole-suite green, and this audit originally read as though they were. Measured
+at 53c804f1, the Step 4 boundary commit, with a disposable PostgreSQL and object
+store: `go test ./...` over the complete package reports 70 failures in 452.9 s.
+Every one of them is a stale test premise, not a production bypass: making the
+checked-in benchmark authority honestly non-routable was the substance of Step
+4, and dozens of fixtures still assumed it routed. Eight such fixtures were
+reconciled before this audit was written; the remaining group was not, and
+saying so is the difference between a proof and a claim. The mutation preflight
+selector, which is what the 287 s campaign binds, is a deliberate subset and was
+green. Closing the remaining fixtures is tracked inside Step 5 so that one
+boundary owns one whole-suite verdict.
+
+Verdict: RECONCILED_COMPLETE for the runtime-cell economics authority named
+above, on the proofs named above. NOT a whole-suite verdict; see the correction.
 ```
 
 ### Step 2 mini-audit — canonical migration and deletion register

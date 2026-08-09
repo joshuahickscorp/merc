@@ -12,7 +12,7 @@
     "exact_config",
     "raw_samples"
   ],
-  "updated_at": "2026-08-09T15:53:54Z",
+  "updated_at": "2026-08-09T18:25:00Z",
   "baseline_head": "ae443f69b0a63835a356eb1ed01999325677ad1b",
   "plan": "docs/NETWORK_V2_EXECUTION_PLAN.md",
   "steps": [
@@ -92,21 +92,25 @@
       "key_evidence": [
         "0450da06 closes runtime-cell publication/admission/claim/settlement authority",
         "terminal Step-4 audit: no remaining P0/P1",
-        "clean candidate 541c1357: 84 caught, 0 survived, 0 stale, 0 infrastructure, 16 workers, 287 seconds (299-second gate)"
+        "clean candidate 541c1357: 84 caught, 0 survived, 0 stale, 0 infrastructure, 16 workers, 287 seconds (299-second gate)",
+        "CORRECTION 2026-08-09: these proofs are a named subset, not a whole-suite green. Measured at 53c804f1 with disposable PostgreSQL + object store, `go test ./...` over the complete control package reports 70 failures in 452.9s, all stale test premises left by making the checked-in benchmark authority honestly non-routable. The 287s campaign binds the mutation preflight selector, which is a deliberate subset and was green. Remaining fixture reconciliation is owned by step 5."
       ],
-      "blocker": "none; production evidence remains honestly non-routable where superseded",
+      "blocker": "none for the runtime-cell economics authority; production evidence remains honestly non-routable where superseded. Whole-suite DB gate was NOT green at this boundary \u2014 carried into step 5 rather than claimed here.",
       "next_dependency": "step 5 PricingDecision reconciliation"
     },
     {
       "step": 5,
       "status": "REPAIR_IN_PROGRESS",
-      "head": "541c13575aa1f21356c128d0beceb888babb2c7c",
+      "head": "97ed15dd",
       "grade": null,
       "key_evidence": [
-        "canonical staged ContributionSettlement and frozen cost/FX/retention authority implemented in working tree",
-        "cross-currency audit found prepaid balance, realtime historical ledger/receipt, service-offer currency, retention replay and lease-reservation P1s; repairs in progress"
+        "step 5 tranche committed as exact candidate 97ed15dd (61 files, +8202/-1204)",
+        "green at 97ed15dd: pure suite 42.7s; gofmt/vet clean; agent cargo test 175/175; evidence-binding 174/174; LFS corpus integrity; evidence dependency/withdrawal/writer-bypass gates",
+        "isolated-DB gate measured twice, same environment: baseline 53c804f1 = 70 failures / 452.9s, candidate 97ed15dd = 68 failures / 454.8s. Delta: 59 common (step 4 fixture debt), 11 fixed by step 5, 9 genuine step 5 regressions",
+        "9 regressions isolated to three root causes: envelope funding micros-vs-nanos round-up margin or currency-scoped prepaid read, cost FX version/rounding drift, same-currency identity FX no longer forgeable",
+        "mutation manifest covers no file this tranche introduced \u2014 pricing/money mutants required by plan step 5 item 9 are not yet authored"
       ],
-      "blocker": "cross-currency authority repairs and terminal Step-5 audit not yet complete",
+      "blocker": "9 regressions open, 46 stale fixture premises open, step 5 mutation coverage unauthored, terminal step 5 adversarial audit not yet reported",
       "next_dependency": "step 6 canonical Capability"
     }
   ],
