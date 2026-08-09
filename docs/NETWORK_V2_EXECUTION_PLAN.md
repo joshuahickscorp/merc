@@ -259,17 +259,70 @@ promote a physical-fleet or launch claim.
 6. **Safe parallelism:** Compatibility converters and fixture construction.
 7. **Serial work:** One canonical builder/validator/digest and each lane's
    transactional persistence.
-8. **Required proof:** Exact candidate/exclusion set, price/currency/ceiling,
-   duplicate supplier refusal, stale/forged offer rejection, deterministic
-   tie-break, frozen accepted economics, historical replay.
+8. **Required proof, per market shape.** Amended 2026-08-09 — see the shape note
+   below. Push shapes prove the exact candidate and exclusion set, the
+   contention/availability mode, each ceiling stage in the order it is applied, a
+   deterministic tie-break under the stated mode, duplicate-supplier refusal,
+   stale/forged offer rejection, frozen accepted economics and historical replay.
+   Pull shapes prove the claiming worker, the hard filters, the deferral signals,
+   the floor and the selected task — and make **no** book-clearing claim.
 9. **Mutation/test scope:** Reverse prices, duplicate identity, remove ceiling,
    change currency, stale benchmark, hide provider failure.
 10. **Performance metrics:** Book acquisition and clearing p50/p95/p99,
     shortlist size, allocations, verified-outcome cost delta.
-11. **Completion:** All accepted batch/realtime/lease paths bind one validated
-    MarketDecision digest; legacy receipts project losslessly from it.
+11. **Completion:** Every accepted path binds a **shape-validated**
+    MarketDecision digest — push paths a ranked book plus availability mode, pull
+    paths a claim-time eligibility snapshot — and each legacy receipt projects
+    losslessly from its matching shape.
 12. **Rollback:** Revert lane wiring on atomicity, money, deterministic-order,
     or latency regression beyond the declared admission budget.
+
+### Step 7 shape note — amended 2026-08-09 after reconnaissance
+
+The original wording assumed one clearing story across all three lanes. The code
+does not have one, and writing a single MarketDecision over all of them would
+produce an authoritative-looking record for a lane whose semantics it does not
+fit. Three corrections, each grounded in the current code:
+
+**Batch is a pull market.** Workers pull work and eligibility uses fleet-relative
+deferrals (`cheaper_class_online`, `cheaper_ask_online` in the scheduler); no
+market receipt is produced at all. The earlier requirement — that batch create a
+MarketDecision before or at its first capacity reservation rather than
+reconstructing the book from later rows — is **struck**. Batch freezes a pull
+eligibility snapshot at claim and does not synthesise a buyer offer book.
+Quote-time supply remains observational unless claim validates a reserved
+shortlist, which is out of scope unless the product changes.
+
+**Realtime clearing is partially honest today, so Step 7 is repair, not
+greenfield.** `selected_rank` is economic `row_number()` over the full eligible
+set, and when `SKIP LOCKED` contention means rank 2 wins, the receipt records
+rank 2 rather than rewriting it to 1 — that part is truthful. What is not:
+`SelectionReason` still reads "lowest verified-outcome cost" when
+`selected_rank > 1`, and no peer list, lock exclusion or contended set is
+recorded at all. So the repair is to add the book and the availability mode, and
+to stop the prose asserting a clearing that did not happen. Service lease is
+different again: it locks every candidate with blocking `FOR UPDATE` and walks
+ranks, which is genuine rank-1-under-ceiling clearing bought with serialisation.
+That difference is a first-class fact the decision must record, not smooth over.
+
+**Ranking currency is a behaviour change, not part of this step.** Realtime ranks
+on float USD in SQL and applies the *buyer-declared* ceiling after selection —
+though its profile-rate filter is already pre-rank, so "ceilings come after
+selection" is true only of the buyer ceiling. Service lease already ranks in
+exact settlement nanos. Moving realtime ranking into nanos and making the buyer
+ceiling a pre-rank filter changes money-adjacent admission behaviour and
+therefore carries money-proof obligations; it is **demoted** out of Step 7 and
+belongs to a later step that can pay for it. Step 7 records the pipeline
+truthfully first.
+
+Consequently MarketDecision is one canonical concept with an explicit
+`market_shape` discriminator and a per-shape body — `PUSH_ORDER_BOOK` and
+`PULL_ELIGIBILITY_SNAPSHOT` — not one nullable-field type spanning both. Build
+order: realtime `PUSH_ORDER_BOOK` alone, projecting the legacy receipt losslessly
+from it; then service lease onto the same shape; then batch as the pull shape.
+Shipping "one MarketDecision for all three lanes" first would freeze a fake batch
+book or omit realtime contention, and that is the wide lie this note exists to
+prevent.
 
 ### Step 8 — Introduce and wire canonical RuntimeDecision
 

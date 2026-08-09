@@ -233,9 +233,23 @@ provider observations, market depth, selected offer/economic plan, clearing
 policy/tie-break, confidence and digest.
 
 Liquidity reports remain observations. Realtime and service clearing receipts
-become API projections from MarketDecision. Batch creates a MarketDecision
-before/at its first capacity reservation rather than reconstructing the book
-from later rows.
+become API projections from MarketDecision.
+
+Amended 2026-08-09 — see the Step 7 shape note in
+`docs/NETWORK_V2_EXECUTION_PLAN.md` for the evidence. The previous sentence here
+required batch to create a MarketDecision before or at its first capacity
+reservation rather than reconstructing the book from later rows. That is
+**struck**: batch is a pull market, its claim path produces no book, and
+synthesising one would make a fabricated order book look like accepted authority.
+
+`MarketDecision` therefore carries an explicit `market_shape` discriminator with a
+per-shape body — `PUSH_ORDER_BOOK` for realtime and service lease,
+`PULL_ELIGIBILITY_SNAPSHOT` for batch claim — rather than one nullable-field type
+spanning both. A shape whose semantics a lane does not have is not written for
+that lane at all. Push bodies additionally record the availability mode, because
+realtime admits a non-rank-1 offer under `SKIP LOCKED` contention while service
+lease serialises with blocking `FOR UPDATE`, and a decision that hides that
+difference misrepresents how supply was chosen.
 
 ### Conversion, allocation, and loss
 
