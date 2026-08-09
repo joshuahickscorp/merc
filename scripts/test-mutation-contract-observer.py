@@ -23,13 +23,19 @@ def event(action: str, test: str | None = None, output: str | None = None) -> st
     return json.dumps(value)
 
 
-def check(lines: list[str], exit_code: int, want_code: int, want_prefix: str) -> None:
+def check(
+    lines: list[str],
+    exit_code: int,
+    want_code: int,
+    want_prefix: str,
+    *completion: str,
+) -> None:
     with tempfile.TemporaryDirectory() as temporary:
         log = Path(temporary) / "go.json"
         log.write_text("\n".join(lines) + "\n", encoding="utf-8")
         result = subprocess.run(
             [sys.executable, str(OBSERVER), "--log", str(log), "--exit-code", str(exit_code),
-             "--expected", "TestInvariant", "--expected", "TestOther"],
+             "--expected", "TestInvariant", "--expected", "TestOther", *completion],
             text=True,
             capture_output=True,
             check=False,
@@ -44,6 +50,37 @@ def check(lines: list[str], exit_code: int, want_code: int, want_prefix: str) ->
 def main() -> int:
     check([event("run", "TestInvariant"), event("pass", "TestInvariant")], 0, 0, "pass:")
     check([event("run", "TestInvariant"), event("skip", "TestInvariant")], 0, 0, "skipped:")
+    check(
+        [event("run", "TestInvariant"), event("pass", "TestInvariant")],
+        0,
+        2,
+        "infrastructure: declared_test_not_run:TestOther",
+        "--require-all-run",
+    )
+    check(
+        [
+            event("run", "TestInvariant"),
+            event("pass", "TestInvariant"),
+            event("run", "TestOther"),
+            event("skip", "TestOther"),
+        ],
+        0,
+        0,
+        "pass:",
+        "--require-all-run",
+    )
+    check(
+        [
+            event("run", "TestInvariant"),
+            event("pass", "TestInvariant"),
+            event("run", "TestOther"),
+            event("skip", "TestOther"),
+        ],
+        0,
+        2,
+        "infrastructure: declared_test_not_passed:TestOther",
+        "--require-all-pass",
+    )
     check([event("run", "TestInvariant"), event("fail", "TestInvariant")], 1, 0, "caught:")
     check([event("fail", output="build failed")], 1, 2, "infrastructure:")
     check([event("run", "TestInvariant"), event("fail", "TestInvariant", "panic: test timed out")], 1, 2, "infrastructure:")

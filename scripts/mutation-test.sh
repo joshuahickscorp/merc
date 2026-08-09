@@ -30,6 +30,7 @@ MERC_MUTATION_TEST_STRATEGY="${MERC_MUTATION_TEST_STRATEGY:-full}"
 MERC_MUTATION_DB_TEMPLATE="${MERC_MUTATION_DB_TEMPLATE:-}"
 MERC_MUTATION_TIMINGS_FILE="${MERC_MUTATION_TIMINGS_FILE:-}"
 MERC_MUTATION_GLOBAL_UNIT_PREFLIGHT="${MERC_MUTATION_GLOBAL_UNIT_PREFLIGHT:-0}"
+MERC_MUTATION_PREFLIGHT_CACHE="${MERC_MUTATION_PREFLIGHT_CACHE:-}"
 MUTATION_LOCK=""
 BACKUP=""
 MUTATION_OBSERVATION=""
@@ -128,10 +129,19 @@ contract_selector() {
 }
 
 observe_contract_log() {
-  local source="$1" log="$2" status="$3"
+  local source="$1" log="$2" status="$3" completion_requirement="${4:-}"
   local -a arguments
   local test_name
   arguments=(--log "$log" --exit-code "$status")
+  case "$completion_requirement" in
+    "") ;;
+    all-run) arguments+=(--require-all-run) ;;
+    all-pass) arguments+=(--require-all-pass) ;;
+    *)
+      echo "mutation-test: invalid contract completion requirement: $completion_requirement" >&2
+      return 2
+      ;;
+  esac
   while IFS= read -r test_name; do
     [ -n "$test_name" ] || continue
     arguments+=(--expected "$test_name")
@@ -145,7 +155,10 @@ observe_contract_log() {
 }
 
 run_unit_contract_tests() {
-  local source="$1" label="$2" selector log status
+  local source="$1" label="$2" selector log status completion_requirement=""
+  if [ "$label" = "baseline" ]; then
+    completion_requirement="all-run"
+  fi
   selector="$(contract_selector "$source")" || return 2
   log="${BACKUP:-${TMPDIR:-/tmp}}/mutation-contract-${label}-${source%.go}-unit.json"
   (
@@ -154,11 +167,14 @@ run_unit_contract_tests() {
         go test -json -count=1 -timeout=2m -run "$selector" .
   ) >"$log" 2>&1
   status=$?
-  observe_contract_log "$source" "$log" "$status"
+  observe_contract_log "$source" "$log" "$status" "$completion_requirement"
 }
 
 run_db_contract_tests() {
-  local source="$1" label="$2" selector log status
+  local source="$1" label="$2" selector log status completion_requirement=""
+  if [ "$label" = "baseline" ]; then
+    completion_requirement="all-pass"
+  fi
   selector="$(contract_selector "$source")" || return 2
   log="${BACKUP:-${TMPDIR:-/tmp}}/mutation-contract-${label}-${source%.go}-db.json"
   # Contract tests are bounded independently of the full-package default. The
@@ -170,7 +186,7 @@ run_db_contract_tests() {
     bash -c 'cd "$1" && go test -json -count=1 -timeout=2m -run "$2" .' _ "$CONTROL" "$selector" \
     >"$log" 2>&1
   status=$?
-  observe_contract_log "$source" "$log" "$status"
+  observe_contract_log "$source" "$log" "$status" "$completion_requirement"
 }
 
 run_contract_tests() {
@@ -244,19 +260,8 @@ run_mutation_tests() {
   fi
 }
 
-preflight_mutation_strategy() {
+selected_mutation_sources() {
   local source entry rest description candidate=0 checked_sources="|"
-  case "$MERC_MUTATION_TEST_STRATEGY" in
-    full)
-      return 0
-      ;;
-    adaptive)
-      if [ "$MERC_MUTATION_GLOBAL_UNIT_PREFLIGHT" = "1" ] && ! run_unit_tests "baseline"; then
-        echo "mutation-test: clean unit-suite preflight failed" >&2
-        return 1
-      fi
-      ;;
-  esac
   for entry in "${MUTATIONS[@]}"; do
     candidate=$((candidate + 1))
     if ! case_is_selected "$candidate"; then
@@ -272,6 +277,39 @@ preflight_mutation_strategy() {
       *"|$source|"*) continue ;;
     esac
     checked_sources="${checked_sources}${source}|"
+    printf '%s\n' "$source"
+  done
+}
+
+preflight_mutation_strategy() {
+  local source sources_file
+  case "$MERC_MUTATION_TEST_STRATEGY" in
+    full)
+      return 0
+      ;;
+    adaptive)
+      if [ "$MERC_MUTATION_GLOBAL_UNIT_PREFLIGHT" = "1" ] && ! run_unit_tests "baseline"; then
+        echo "mutation-test: clean unit-suite preflight failed" >&2
+        return 1
+      fi
+      ;;
+  esac
+  sources_file="${BACKUP:-${TMPDIR:-/tmp}}/mutation-preflight-sources"
+  selected_mutation_sources >"$sources_file"
+  if [ ! -s "$sources_file" ]; then
+    echo "mutation-test: selected no sources for contract preflight" >&2
+    return 1
+  fi
+  if [ -n "$MERC_MUTATION_PREFLIGHT_CACHE" ]; then
+    if ! python3 scripts/mutation-preflight-cache.py \
+      --root . --cache "$MERC_MUTATION_PREFLIGHT_CACHE" --sources "$sources_file" --verify; then
+      echo "mutation-test: aggregate preflight cache is not valid for this exact mutation shard" >&2
+      return 1
+    fi
+    return 0
+  fi
+  while IFS= read -r source; do
+    [ -n "$source" ] || continue
     if ! run_unit_contract_tests "$source" "baseline"; then
       echo "mutation-test: clean unit contract preflight failed for control/$source" >&2
       return 1
@@ -287,7 +325,7 @@ preflight_mutation_strategy() {
       echo "mutation-test: clean contract preflight failed for control/$source" >&2
       return 1
     fi
-  done
+  done <"$sources_file"
 }
 
 # file|description|sed-expression

@@ -128,6 +128,7 @@ ci:
 	bash scripts/test-mutation-test-parallel.sh
 	python3 scripts/test-mutation-test-contracts.py
 	python3 scripts/test-mutation-contract-observer.py
+	python3 scripts/test-mutation-preflight-cache.py
 	python3 scripts/test-mutation-manifest.py
 	bash scripts/test-with-isolated-test-db.sh
 	bash scripts/test-mutation-gate.sh

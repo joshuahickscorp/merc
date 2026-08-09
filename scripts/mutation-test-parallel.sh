@@ -259,6 +259,16 @@ if ! mkdir "$candidate_lock" 2>/dev/null; then
 fi
 
 run_root="$(mktemp -d "${TMPDIR:-/tmp}/merc-mutation-parallel.XXXXXX")"
+selected_case_csv="$(IFS=,; printf '%s' "${case_ids[*]}")"
+preflight_sources_file="$run_root/preflight-sources"
+MERC_MUTATION_LIST=1 MERC_MUTATION_LIST_DETAIL=1 bash scripts/mutation-test.sh |
+  awk -F '\t' -v selected=",$selected_case_csv," 'index(selected, "," $1 ",") { print $2 }' |
+  LC_ALL=C sort -u >"$preflight_sources_file"
+[ -s "$preflight_sources_file" ] || {
+  echo "parallel mutation test could not resolve selected source contracts" >&2
+  exit 2
+}
+preflight_cache="$run_root/preflight-cache.json"
 declare -a worktrees=()
 declare -a worker_pids=()
 declare -a worker_logs=()
@@ -502,6 +512,49 @@ for ((index = 0; index < ${#template_pids[@]}; index++)); do
   fi
 done
 
+# A clean preflight must prove every source's named invariants before any
+# mutation starts. The aggregate run is not a shortcut: every worker later
+# re-hashes and re-parses these logs for its own exact source subset. This
+# removes only duplicate clean preflights, while every mutant still gets a
+# fresh disposable database inside its isolated worker cluster.
+run_aggregate_preflight() {
+  local worktree port selector
+  worktree="${worktrees[0]}"
+  port="${cluster_ports[0]}"
+  selector="$(cd "$worktree" && python3 scripts/mutation-preflight-cache.py \
+    --root . --sources "$preflight_sources_file" --selector)" || return 1
+  (
+    cd "$worktree/control" &&
+      env -u MERC_TEST_DATABASE_URL MERC_ALLOW_SKIPPING_DB_TESTS=1 \
+        GOMAXPROCS="$go_max_procs" \
+        go test -json -count=1 -timeout=2m -run "$selector" .
+  ) >"$run_root/preflight-unit.json" 2>&1 || return 1
+  (
+    cd "$worktree" &&
+      MERC_TEST_DATABASE_URL="postgres://cx@127.0.0.1:${port}/cx?sslmode=disable" \
+      MERC_ISOLATED_TEST_DB_PREFIX="merc_mutation_preflight" \
+      MERC_ISOLATED_TEST_DB_TEMPLATE="${template_names[0]}" \
+      GOMAXPROCS="$go_max_procs" \
+      bash scripts/with-isolated-test-db.sh \
+        bash -c 'cd "$1" && go test -json -count=1 -timeout=2m -run "$2" .' \
+        _ "$worktree/control" "$selector"
+  ) >"$run_root/preflight-db.json" 2>&1 || return 1
+  (
+    cd "$worktree" &&
+      python3 scripts/mutation-preflight-cache.py \
+        --root . --sources "$preflight_sources_file" --cache "$preflight_cache" --create
+  ) >"$run_root/preflight-cache.log" 2>&1 || return 1
+  chmod 0444 "$run_root/preflight-unit.json" "$run_root/preflight-db.json" "$preflight_cache"
+}
+
+if ! run_aggregate_preflight; then
+  echo "parallel-mutation-test: aggregate clean contract preflight failed" >&2
+  cat "$run_root/preflight-unit.json" >&2 || true
+  cat "$run_root/preflight-db.json" >&2 || true
+  cat "$run_root/preflight-cache.log" >&2 || true
+  exit 1
+fi
+
 for ((worker = 1; worker <= workers; worker++)); do
   worktree="${worktrees[$((worker - 1))]}"
   port="${cluster_ports[$((worker - 1))]}"
@@ -519,6 +572,7 @@ for ((worker = 1; worker <= workers; worker++)); do
     export MERC_MUTATION_DB_TEMPLATE="${template_names[$((worker - 1))]}"
     export MERC_MUTATION_TIMINGS_FILE="$timing_file"
     export MERC_MUTATION_TEST_STRATEGY="$test_strategy"
+    export MERC_MUTATION_PREFLIGHT_CACHE="$preflight_cache"
     export GOMAXPROCS="$go_max_procs"
     exec bash scripts/mutation-test.sh
   ) >"$log" 2>&1 &
