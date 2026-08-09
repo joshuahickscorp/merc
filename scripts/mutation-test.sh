@@ -414,7 +414,7 @@ MUTATIONS=(
 # nothing about the code that now decides which runtime cell wins.
 "runtime_cell_economics.go|supplier entitlement stops cancelling unitsPerSec|s#return units / 1000.0 \* pricePer1K \* share#return units / 1000.0 * pricePer1K * share * 1.0001#"
 "runtime_cell_economics.go|throughput re-enters the expanded entitlement form|s#seconds := units / unitsPerSec#seconds := units / unitsPerSec * 1.05#"
-"runtime_shadow_selection.go|a cost tie is reported as a cost win|s#if !supplierLiabilitiesTieUSD(bestLiability, secondLiability) {#if false {#"
+"runtime_shadow_selection.go|a cost tie is reported as a cost win|s#if !supplierLiabilitiesTieUSD(bestLiability, secondLiability) {#if supplierLiabilitiesTieUSD(bestLiability, secondLiability) {#"
 "runtime_shadow_selection.go|a true tie manufactures a winner|s#if math.Abs(a-b) < latencyNoiseAbsMs {#if false {#"
 "runtime_shadow_selection.go|latency noise floor stops guarding the ratio band|s#return math.Abs(a-b)/mid < latencyNoiseFraction#return math.Abs(a-b)/mid < 0.0#"
 "runtime_governed_comparison.go|an unbound actual is allowed to rule on a prior claim|s#if !strings.EqualFold(binding, BindingBound) {#if false {#"
