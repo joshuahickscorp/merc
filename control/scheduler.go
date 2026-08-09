@@ -813,6 +813,12 @@ func claimTaskSQL(claimedByPredicate, shapeOrderExpr string) string {
 	          -- routable test here, that widening would let a directed-only
 	          -- capability pick up ordinary buyer work through the one filter that
 	          -- asks nothing.
+	          --
+	          -- Network V2 Step 6: wac.routable is a dual-written COMPATIBILITY
+	          -- PROJECTION of activationRoutableProjection (activation policy),
+	          -- not a NodeCapability fact. Claim still reads the projection so
+	          -- semantics stay byte-identical; the dual-write agreement test
+	          -- proves projection == activation authority.
 	          (j.workload_decision IS NULL AND wac.routable)
 	          OR (
 	            EXISTS (

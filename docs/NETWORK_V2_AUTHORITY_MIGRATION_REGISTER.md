@@ -101,46 +101,98 @@ loses policy.
 - Static runtime catalogue facts live in `authorityCell` and
   `authorityRuntimeProfile` in `control/runtime_authority.go`.
 - `WorkerCapability` in `control/types.go` and `agent/src/types.rs` is the
-  registration wire shape.
-- `Store.UpsertWorker` in `control/store_workers.go` flattens registration into
-  worker and `worker_authorized_capabilities` rows.
-- `generatedRuntimeCapability` in `control/runtime_authority.go` combines
-  catalogue and activation projections for admission.
-- `advertisedRuntimeCapabilities` and `directedRuntimeCapabilities` in
-  `control/activation_policy.go` correctly keep activation policy distinct.
+  registration wire shape (ingress DTO).
+- `NodeCapability` in `control/node_capability.go` is the **canonical**
+  versioned, digest-bound node snapshot (Step 6).
+- `Store.UpsertWorker` in `control/store_workers.go` converts registration into
+  a sealed `NodeCapability`, appends `worker_capability_snapshots`, dual-writes
+  worker projection columns and `worker_authorized_capabilities` (including
+  `routable` as an activation-policy projection).
+- `generatedRuntimeCapability` in `control/runtime_authority.go` remains the
+  catalogue cell projection used at enrollment; node-specific state lives on
+  `NodeCapability`, not on a second cell authority.
+- `advertisedRuntimeCapabilities` / `directedRuntimeCapabilities` in
+  `control/activation_policy.go` stay the activation overlay.
+  `activationRoutableProjection` is the named policy-authority function that
+  dual-writes `wac.routable`.
 - Realtime/service offers, prefix state, fabric observations, outcome stats and
-  agent controls hold additional capability facts outside the registration
-  object.
+  agent controls hold additional lane-local capacity facts; they are not a
+  second node Capability writer.
 
 ### Canonical decision
 
-`Capability` becomes the immutable, versioned node snapshot for a coherent
-epoch. It embeds references to immutable runtime-cell catalogue identities and
-owns node hardware/accelerators, memory/storage/network, region/failure domain,
-runtime versions, model/artifact/prefix/cache residency with freshness,
-availability/limits, thermal/power, benchmark/trust/reliability and interruption
-facts. Activation policy remains a separate versioned eligibility overlay.
+**Implemented (Step 6):** `NodeCapability` is the immutable, versioned node
+snapshot for one coherent epoch. It embeds references to immutable runtime-cell
+catalogue identities (`CapabilityCellRef`) and owns node hardware/accelerators,
+topology (`gpu_count` / `memory_gb_per_gpu` / `interconnect`), memory/storage/
+network, region (with provenance), failure domain, runtime versions, model
+declaration, availability stamps, interruption policy, thermal/power (class
+ASSUMED watts never promoted), benchmarks, and containment facts. Activation
+policy remains a separate versioned eligibility overlay and is **never** stored
+on the snapshot (no `routable`, `lifecycle`, canary, or directed-eligibility
+field; no `min_payout_usd_hr`).
 
-`WorkerCapability` becomes an ingress DTO only. Runtime catalogue objects remain
-immutable catalogues referenced by digest; they are not copied into a competing
-node authority. Database rows and indexes are projections carrying the
-Capability digest and worker-state epoch.
+`WorkerCapability` is the registration ingress DTO only. Optional additive wire
+fields (`region`, `failure_domain`, `interruption_policy`, `disk_gb`) map to
+UNKNOWN when absent so old agents keep working (D4). Runtime catalogue objects
+remain immutable catalogues referenced by digest. Database rows and indexes are
+projections carrying the Capability digest and worker-state epoch.
+
+**Epoch / freshness:** `workers.capability_epoch` is monotonic per worker and
+bumps on every capability rewrite. Each fact family declares a TTL in
+`capabilityFamilyTTL`; a fact past its TTL cannot satisfy a hard contract
+(`NodeCapability.SatisfiesHardContract`). UNKNOWN knowledge can never satisfy a
+hard contract.
 
 ### Conversion, allocation, and loss
 
-| Edge | Allocation/copy | Current loss | V2 disposition |
+| Edge | Allocation/copy | What it loses / keeps | V2 disposition |
 |---|---|---|---|
-| agent `WorkerCapability` → store rows | JSON decode plus several DB projections | region/failure domain, network/storage, residency, interruption and governed power/trust facts are absent or elsewhere | one validated conversion into Capability snapshot, then derive rows/indexes |
-| runtime catalogue + activation → `generatedRuntimeCapability` | generated slice copy on policy read | node-specific state cannot be expressed | replace selector input with Capability cell references plus activation overlay |
-| offers/prefix/fabric/outcomes → selection SQL | repeated joins/copies per decision | no coherent epoch across sources | publish one coherent Capability/market/locality snapshot; retain durable sources |
+| agent `WorkerCapability` → `NodeCapability` → store | `BuildNodeCapability` then `UpsertWorker` dual-write | Lossless for wire facts; missing optional fields → UNKNOWN | **Canonical write path** |
+| `NodeCapability` → `workers.*` columns | derived projection at seal | Index/filter convenience only; not authority | **Compatibility projection** — delete when all readers use snapshots (milestone: post Step 7–8 when claim/quote/placement read snapshot epoch) |
+| `NodeCapability` → `worker_capability_snapshots` | append-only JSONB + digest | Nothing — sealed body is the authority | **Canonical store** |
+| activation → `wac.routable` | `activationRoutableProjection` dual-write | Not a node fact; policy only | **Compatibility projection** — delete when claim/quote/candidate resolve routability without this column (milestone: after claim SQL reads activation authority or a frozen activation epoch join; target: Step 8/placement) |
+| runtime catalogue + activation → `generatedRuntimeCapability` | generated slice on policy read | Node-specific state not here | Keep as catalogue projection for enrollment; selectors move to `NodeCapability` cell refs + activation overlay |
+| offers/prefix/fabric/outcomes → selection SQL | lane-local joins | Parallel freshness universes remain until market/placement steps bind one epoch | Retain durable sources; bind to capability epoch in later steps |
+
+### Absences and provenance (D3)
+
+| Fact | Step 6 handling |
+|---|---|
+| failure domain | first-class; default UNKNOWN; UNKNOWN refuses hard failure-domain contracts |
+| interruption / preempt / spot | first-class; default UNKNOWN; refuses preemption guarantees |
+| per-node power/thermal policy | class-level ASSUMED watts only; never promoted to MEASURED |
+| worker disk/storage | optional measured `disk_gb` on wire; absent → UNKNOWN (agent does not measure today) |
+| region on batch registration | supplier `data_country` as `supplier_derived` until agent declares `region` |
+| gpu_count / interconnect / os_version | persisted on workers + snapshot (lossless capture of existing wire) |
+| network BW as node capability | UNKNOWN (fabric measurements stay non-admission) |
 
 ### Removal sequence and proof
 
-1. Add canonical field bounds, digest and wire compatibility.
-2. Persist snapshot identity/epoch; derive indexes incrementally.
-3. Move admission/market/placement to one Capability vocabulary.
+1. ~~Add canonical field bounds, digest and wire compatibility.~~ **Done**
+   (`node_capability.go`, optional wire fields, digest seal/verify).
+2. ~~Persist snapshot identity/epoch; derive indexes.~~ **Done**
+   (`worker_capability_snapshots`, `workers.capability_epoch` / digest /
+   topology / region / failure_domain / interruption / disk).
+3. Move admission/market/placement hard filters to one Capability vocabulary
+   (claim still reads dual-written projections for byte-identical eligibility —
+   D6). **Partial:** hard-contract helper exists; claim SQL dual-write agreement
+   proven; full claim SQL rewrite deferred to avoid eligibility drift.
 4. Rename `WorkerCapability` to an explicit registration DTO after clients
    migrate; delete `generatedRuntimeCapability` as selector authority.
+5. **Delete `wac.routable`** once claim/quote/candidate paths resolve
+   routability from activation without the column (see compatibility edge
+   above).
+6. **Delete denormalized workers capability columns** that only exist as
+   snapshot projections once readers join `worker_capability_snapshots` by
+   epoch.
+
+**Proof tests:** `node_capability_test.go` (lossless conversion, no routability
+fields, digest tamper, UNKNOWN refusal, stale family refusal, region
+provenance, ASSUMED power, multi-GPU topology, old-agent wire, snapshot JSON
+round-trip); `node_capability_integration_test.go` (UpsertWorker snapshot +
+epoch + dual-write routable agreement + append-only; legacy claim decision
+table).
 
 Completion requires lossless registration compatibility, fact/policy separation,
 stale-epoch refusal and bounded update/allocation metrics. Roll back on changed

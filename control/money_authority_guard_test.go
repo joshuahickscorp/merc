@@ -430,6 +430,7 @@ var declaredMoneyAuthority = []string{
 	"WriteBoundEvidenceJSON",                              // receipt_identity.go
 	"accrueSupplierLiability",                             // supplier_accrual.go
 	"activationAdmissionRevision",                         // activation_policy.go
+	"activationRoutableProjection",                        // node_capability.go — dual-write of activation policy into wac.routable (not a node Capability fact)
 	"activationSnapshotFrom",                              // activation_policy.go
 	"admissionUnitsPerSec",                                // runtime_cell_performance.go
 	"advertisedProjectRuntimeContracts",                   // project_contracts.go

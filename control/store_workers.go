@@ -277,55 +277,35 @@ func (s *Store) UpsertWorker(ctx context.Context, cap WorkerCapability) error {
 		thermalOK = thermalOK && b.ThermalOK
 	}
 
-	_, err = tx.Exec(ctx,
-		`INSERT INTO workers
-		   (id, supplier_id, hw_class, engine, build_hash, build_identity_policy, hardware_identity, memory_gb, bw_gbps, last_seen_at, version,
-		    supported_jobs, supported_models, min_payout_usd_hr, thermal_ok,
-		    agent_session_id, agent_session_started_at, runtime_profile_id,
-		    runtime_profile_revision, runtime_profile_digest,
-		    sandboxed, unsandboxed_opt_in)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, now(), $10,$11,$12,$13,$14,$15,
-		         CASE WHEN $15::uuid IS NULL THEN NULL ELSE now() END, $16,$17,$18,$19,$20)
-		 ON CONFLICT (id) DO UPDATE SET
-		   hw_class = EXCLUDED.hw_class,
-		   engine = EXCLUDED.engine,
-		   runtime_profile_id = EXCLUDED.runtime_profile_id,
-		   runtime_profile_revision = EXCLUDED.runtime_profile_revision,
-		   runtime_profile_digest = EXCLUDED.runtime_profile_digest,
-		   build_hash = EXCLUDED.build_hash,
-		   build_identity_policy = EXCLUDED.build_identity_policy,
-		   hardware_identity = EXCLUDED.hardware_identity,
-		   memory_gb = EXCLUDED.memory_gb,
-		   bw_gbps = EXCLUDED.bw_gbps,
-		   last_seen_at = now(),
-		   version = EXCLUDED.version,
-		   supported_jobs = EXCLUDED.supported_jobs,
-		   supported_models = EXCLUDED.supported_models,
-		   min_payout_usd_hr = EXCLUDED.min_payout_usd_hr,
-		   thermal_ok = EXCLUDED.thermal_ok,
-		   sandboxed = EXCLUDED.sandboxed,
-		   unsandboxed_opt_in = EXCLUDED.unsandboxed_opt_in,
-		   agent_session_started_at = CASE
-		     WHEN EXCLUDED.agent_session_id IS NOT NULL
-		      AND workers.agent_session_id IS DISTINCT FROM EXCLUDED.agent_session_id
-		     THEN now()
-		     ELSE workers.agent_session_started_at
-		   END,
-		   agent_session_id = COALESCE(EXCLUDED.agent_session_id, workers.agent_session_id)`,
-		cap.WorkerID, cap.SupplierID, cap.HWClass, cap.Engine, cap.BuildHash, cap.BuildIdentityPolicy, cap.HardwareIdentity, cap.MemoryGB, cap.MemoryBwGbps, cap.AgentVersion,
-		cap.SupportedJobs, cap.SupportedModels, cap.MinPayoutUsdHr, thermalOK, cap.AgentSessionID,
-		profile.RuntimeID, profile.Revision, profileDigest,
-		cap.Sandboxed, cap.UnsandboxedOptIn,
-	)
-	if err != nil {
-		return err
+	// Supplier residency used as a derived region fact when the agent did not
+	// declare region. Provenance stays supplier_derived — never declared (D3).
+	var supplierDataCountry string
+	if err := tx.QueryRow(ctx,
+		`SELECT COALESCE(data_country,'') FROM suppliers WHERE id=$1`,
+		cap.SupplierID,
+	).Scan(&supplierDataCountry); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("load supplier data_country for capability: %w", err)
 	}
+
+	// Monotonic capability epoch: bump on every registration that rewrites
+	// capability facts. First enrollment starts at 1.
+	var priorEpoch int64
+	if err := tx.QueryRow(ctx,
+		`SELECT COALESCE(capability_epoch,0) FROM workers WHERE id=$1`,
+		cap.WorkerID,
+	).Scan(&priorEpoch); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("load capability epoch: %w", err)
+	}
+	nextEpoch := priorEpoch + 1
 
 	// Re-registration must never make a genuine newer source measurement older.
 	// Keep the authorization instant only for the exact same capability tuple;
 	// a removed cell or a matrix/runtime/model change still disappears below.
 	// This is weight-bearing for live dynamic pins: replaying a near-expiry cache
 	// cannot shorten their remaining claim window after reserve was consumed.
+	//
+	// Load existing stamps BEFORE sealing the snapshot so the epoch-consistent
+	// Capability and the dual-written wac rows share one authorized_at view.
 	type wacIdentity struct {
 		cellID, runtimeID, jobType, modelRef, modelKind, matrixSHA256 string
 	}
@@ -355,13 +335,20 @@ func (s *Store) UpsertWorker(ctx context.Context, cap WorkerCapability) error {
 	}
 	rows.Close()
 
-	if _, err := tx.Exec(ctx,
-		`DELETE FROM worker_authorized_capabilities WHERE worker_id = $1`,
-		cap.WorkerID); err != nil {
-		return err
+	registeredAt = time.Now().UTC()
+	cellAuthorizedAt := make(map[string]time.Time, len(projected))
+	type wacWrite struct {
+		cell       generatedRuntimeCapability
+		routable   bool
+		authorized time.Time
 	}
+	wacWrites := make([]wacWrite, 0, len(projected))
 	for _, authorized := range projected {
-		routable := advertisedRuntimeCell(authorized.ID)
+		// Dual-write: routable is a COMPATIBILITY PROJECTION of the activation
+		// policy authority, not a NodeCapability fact (D1/D2). Claim SQL still
+		// reads this column for the legacy workload_decision IS NULL branch so
+		// directed-only workers cannot claim ordinary work.
+		routable := activationRoutableProjection(authorized.ID)
 		authorizedAt := workerCapabilityAuthorizedAt(cap, authorized, routable, registeredAt)
 		key := wacIdentity{
 			cellID: authorized.ID, runtimeID: authorized.Runtime,
@@ -371,17 +358,151 @@ func (s *Store) UpsertWorker(ctx context.Context, cap WorkerCapability) error {
 		if prior, ok := existingAuthorizedAt[key]; ok && prior.After(authorizedAt) {
 			authorizedAt = prior
 		}
+		cellAuthorizedAt[authorized.ID] = authorizedAt
+		wacWrites = append(wacWrites, wacWrite{cell: authorized, routable: routable, authorized: authorizedAt})
+	}
+
+	nodeCap, err := BuildNodeCapability(NodeCapabilityBuildInput{
+		Registration:        cap,
+		ProjectedCells:      projected,
+		CellAuthorizedAt:    cellAuthorizedAt,
+		SupplierDataCountry: supplierDataCountry,
+		ProfileID:           profile.RuntimeID,
+		ProfileRev:          profile.Revision,
+		ProfileDigest:       profileDigest,
+		MatrixSHA256:        generatedRuntimeMatrixSHA256,
+		Epoch:               nextEpoch,
+		CapturedAt:          registeredAt,
+		LastSeen:            registeredAt,
+	})
+	if err != nil {
+		return fmt.Errorf("build node capability: %w", err)
+	}
+	snapshotBlob, err := capabilitySnapshotJSON(nodeCap)
+	if err != nil {
+		return fmt.Errorf("seal capability snapshot: %w", err)
+	}
+
+	// Projection columns derived from the sealed snapshot (compatibility
+	// indexes). min_payout remains on workers as reservation-price policy —
+	// it is intentionally absent from NodeCapability (D1 mixing-point split).
+	gpuCount := nodeCap.GPUCount.Value
+	memPerGPU := nodeCap.MemoryGBPerGPU.Value
+	interconnect := nodeCap.Interconnect.Value
+	osVersion := ""
+	if nodeCap.OSVersion.Knowledge != capabilityKnowledgeUnknown {
+		osVersion = nodeCap.OSVersion.Value
+	}
+	region := ""
+	regionProvenance := capabilityKnowledgeUnknown
+	if nodeCap.Region.Knowledge != capabilityKnowledgeUnknown {
+		region = nodeCap.Region.Value
+		regionProvenance = nodeCap.Region.Knowledge
+	}
+	failureDomain := nodeCap.FailureDomain.Value
+	if failureDomain == "" {
+		failureDomain = capabilityUnknownValue
+	}
+	interruption := nodeCap.InterruptionPolicy.Value
+	if interruption == "" {
+		interruption = capabilityUnknownValue
+	}
+	var diskGB *float64
+	if nodeCap.DiskGB.Knowledge != capabilityKnowledgeUnknown {
+		v := nodeCap.DiskGB.Value
+		diskGB = &v
+	}
+
+	_, err = tx.Exec(ctx,
+		`INSERT INTO workers
+		   (id, supplier_id, hw_class, engine, build_hash, build_identity_policy, hardware_identity, memory_gb, bw_gbps, last_seen_at, version,
+		    supported_jobs, supported_models, min_payout_usd_hr, thermal_ok,
+		    agent_session_id, agent_session_started_at, runtime_profile_id,
+		    runtime_profile_revision, runtime_profile_digest,
+		    sandboxed, unsandboxed_opt_in,
+		    gpu_count, memory_gb_per_gpu, interconnect, os_version,
+		    region, region_provenance, failure_domain, interruption_policy, disk_gb,
+		    capability_epoch, capability_digest)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, now(), $10,$11,$12,$13,$14,$15,
+		         CASE WHEN $15::uuid IS NULL THEN NULL ELSE now() END, $16,$17,$18,$19,$20,
+		         $21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31)
+		 ON CONFLICT (id) DO UPDATE SET
+		   hw_class = EXCLUDED.hw_class,
+		   engine = EXCLUDED.engine,
+		   runtime_profile_id = EXCLUDED.runtime_profile_id,
+		   runtime_profile_revision = EXCLUDED.runtime_profile_revision,
+		   runtime_profile_digest = EXCLUDED.runtime_profile_digest,
+		   build_hash = EXCLUDED.build_hash,
+		   build_identity_policy = EXCLUDED.build_identity_policy,
+		   hardware_identity = EXCLUDED.hardware_identity,
+		   memory_gb = EXCLUDED.memory_gb,
+		   bw_gbps = EXCLUDED.bw_gbps,
+		   last_seen_at = now(),
+		   version = EXCLUDED.version,
+		   supported_jobs = EXCLUDED.supported_jobs,
+		   supported_models = EXCLUDED.supported_models,
+		   min_payout_usd_hr = EXCLUDED.min_payout_usd_hr,
+		   thermal_ok = EXCLUDED.thermal_ok,
+		   sandboxed = EXCLUDED.sandboxed,
+		   unsandboxed_opt_in = EXCLUDED.unsandboxed_opt_in,
+		   gpu_count = EXCLUDED.gpu_count,
+		   memory_gb_per_gpu = EXCLUDED.memory_gb_per_gpu,
+		   interconnect = EXCLUDED.interconnect,
+		   os_version = EXCLUDED.os_version,
+		   region = EXCLUDED.region,
+		   region_provenance = EXCLUDED.region_provenance,
+		   failure_domain = EXCLUDED.failure_domain,
+		   interruption_policy = EXCLUDED.interruption_policy,
+		   disk_gb = EXCLUDED.disk_gb,
+		   capability_epoch = EXCLUDED.capability_epoch,
+		   capability_digest = EXCLUDED.capability_digest,
+		   agent_session_started_at = CASE
+		     WHEN EXCLUDED.agent_session_id IS NOT NULL
+		      AND workers.agent_session_id IS DISTINCT FROM EXCLUDED.agent_session_id
+		     THEN now()
+		     ELSE workers.agent_session_started_at
+		   END,
+		   agent_session_id = COALESCE(EXCLUDED.agent_session_id, workers.agent_session_id)`,
+		cap.WorkerID, cap.SupplierID, cap.HWClass, cap.Engine, cap.BuildHash, cap.BuildIdentityPolicy, cap.HardwareIdentity, cap.MemoryGB, cap.MemoryBwGbps, cap.AgentVersion,
+		cap.SupportedJobs, cap.SupportedModels, cap.MinPayoutUsdHr, thermalOK, cap.AgentSessionID,
+		profile.RuntimeID, profile.Revision, profileDigest,
+		cap.Sandboxed, cap.UnsandboxedOptIn,
+		gpuCount, memPerGPU, interconnect, osVersion,
+		nullIfEmpty(region), regionProvenance, failureDomain, interruption, diskGB,
+		nextEpoch, nodeCap.Digest,
+	)
+	if err != nil {
+		return err
+	}
+
+	// Append-only sealed snapshot for this epoch. Canonical read path.
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO worker_capability_snapshots
+		   (worker_id, epoch, captured_at, digest, snapshot)
+		 VALUES ($1,$2,$3,$4,$5)`,
+		cap.WorkerID, nextEpoch, registeredAt, nodeCap.Digest, snapshotBlob,
+	); err != nil {
+		return fmt.Errorf("append capability snapshot: %w", err)
+	}
+
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM worker_authorized_capabilities WHERE worker_id = $1`,
+		cap.WorkerID); err != nil {
+		return err
+	}
+	for _, write := range wacWrites {
 		if _, err := tx.Exec(ctx,
 			`INSERT INTO worker_authorized_capabilities
 				   (worker_id, cell_id, runtime_id, job_type, model_ref, model_kind,
 				    matrix_sha256, routable, authorized_at)
 				 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-			cap.WorkerID, authorized.ID, authorized.Runtime, authorized.Job,
-			authorized.Model, authorized.ModelKind, generatedRuntimeMatrixSHA256,
-			// Routability comes from the ADVERTISED projection, never from the
-			// worker. A directed-only capability is recorded as non-routable so
-			// the scheduler's legacy branch cannot dispatch ordinary work to it.
-			routable, authorizedAt); err != nil {
+			cap.WorkerID, write.cell.ID, write.cell.Runtime, write.cell.Job,
+			write.cell.Model, write.cell.ModelKind, generatedRuntimeMatrixSHA256,
+			// Routability comes from the ACTIVATION projection, never from the
+			// worker and never from NodeCapability. A directed-only cell is
+			// recorded as non-routable so the scheduler's legacy branch cannot
+			// dispatch ordinary work to it.
+			write.routable, write.authorized); err != nil {
 			return err
 		}
 	}

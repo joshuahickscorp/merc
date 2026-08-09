@@ -203,8 +203,27 @@ type WorkerCapability struct {
 	// for uncontained supply; opt-in remains an absolute exclusion.
 	Sandboxed        bool `json:"sandboxed"`
 	UnsandboxedOptIn bool `json:"unsandboxed_opt_in"`
+	// Optional additive node facts (Network V2 Step 6). Old agents omit them;
+	// missing values map to UNKNOWN on the canonical Capability and cannot
+	// satisfy a hard contract that requires the fact (D3, D4). None of these
+	// are required on the wire.
+	//
+	// Region is agent-declared node region when present. When absent, control
+	// may derive region from suppliers.data_country and must label that
+	// provenance supplier_derived — never declared.
+	Region string `json:"region,omitempty"`
+	// FailureDomain is a named failure domain when the operator/agent knows
+	// one. Empty → UNKNOWN.
+	FailureDomain string `json:"failure_domain,omitempty"`
+	// InterruptionPolicy declares preempt/spot/interruptible posture when
+	// known. Empty → UNKNOWN; UNKNOWN never satisfies a preemption guarantee.
+	InterruptionPolicy string `json:"interruption_policy,omitempty"`
+	// DiskGB is local storage capacity in GB when the agent actually measured
+	// it. Nil/absent → UNKNOWN; do not invent a size (D3).
+	DiskGB *float32 `json:"disk_gb,omitempty"`
 	// activationPolicyRevision is server-side admission context. It is never
-	// accepted from or returned to the worker.
+	// accepted from or returned to the worker. It is policy, not a capability
+	// fact, and is excluded from NodeCapability (D1).
 	activationPolicyRevision int64
 }
 

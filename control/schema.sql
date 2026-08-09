@@ -7648,3 +7648,84 @@ DROP TRIGGER IF EXISTS risk_reserve_ledger_append_only ON ledger_entries;
 CREATE TRIGGER risk_reserve_ledger_append_only
 BEFORE UPDATE OR DELETE ON ledger_entries
 FOR EACH ROW EXECUTE FUNCTION cx_reject_risk_reserve_ledger_mutation();
+
+-- =============================================================================
+-- Network V2 Step 6 — canonical node Capability epoch + lossless capture
+-- =============================================================================
+-- Canonical authority: NodeCapability snapshots in worker_capability_snapshots.
+-- workers.* columns below are compatibility projections / indexes derived from
+-- the sealed snapshot at registration. worker_authorized_capabilities.routable
+-- remains an activation-policy projection (NOT a capability fact); deletion
+-- milestone recorded in docs/NETWORK_V2_AUTHORITY_MIGRATION_REGISTER.md §2.
+
+-- Topology / version facts already on the wire but previously unpersisted.
+ALTER TABLE workers ADD COLUMN IF NOT EXISTS gpu_count INTEGER;
+ALTER TABLE workers ADD COLUMN IF NOT EXISTS memory_gb_per_gpu REAL;
+ALTER TABLE workers ADD COLUMN IF NOT EXISTS interconnect TEXT NOT NULL DEFAULT '';
+ALTER TABLE workers ADD COLUMN IF NOT EXISTS os_version TEXT NOT NULL DEFAULT '';
+
+-- Region: node fact with explicit provenance. supplier_derived until agents
+-- declare region; never present derived as declared.
+ALTER TABLE workers ADD COLUMN IF NOT EXISTS region TEXT;
+ALTER TABLE workers ADD COLUMN IF NOT EXISTS region_provenance TEXT NOT NULL DEFAULT 'unknown';
+ALTER TABLE workers DROP CONSTRAINT IF EXISTS workers_region_provenance_valid;
+ALTER TABLE workers ADD CONSTRAINT workers_region_provenance_valid
+    CHECK (region_provenance IN ('unknown','declared','supplier_derived'));
+
+-- Failure domain / interruption: default UNKNOWN; UNKNOWN never satisfies a
+-- hard contract that requires a concrete value.
+ALTER TABLE workers ADD COLUMN IF NOT EXISTS failure_domain TEXT NOT NULL DEFAULT 'unknown';
+ALTER TABLE workers ADD COLUMN IF NOT EXISTS interruption_policy TEXT NOT NULL DEFAULT 'unknown';
+
+-- Disk capacity: NULL means UNKNOWN (agent did not measure). Positive only when
+-- measured.
+ALTER TABLE workers ADD COLUMN IF NOT EXISTS disk_gb REAL;
+
+-- Monotonic per-worker capability epoch + digest of the sealed snapshot.
+ALTER TABLE workers ADD COLUMN IF NOT EXISTS capability_epoch BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE workers ADD COLUMN IF NOT EXISTS capability_digest TEXT NOT NULL DEFAULT '';
+
+-- Append-only sealed Capability snapshots. One row per (worker, epoch).
+CREATE TABLE IF NOT EXISTS worker_capability_snapshots (
+    worker_id    UUID NOT NULL REFERENCES workers(id) ON DELETE CASCADE,
+    epoch        BIGINT NOT NULL,
+    captured_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    digest       TEXT NOT NULL,
+    snapshot     JSONB NOT NULL,
+    PRIMARY KEY (worker_id, epoch),
+    CHECK (epoch > 0),
+    CHECK (digest ~ '^[0-9a-f]{64}$')
+);
+CREATE INDEX IF NOT EXISTS worker_capability_snapshots_worker_captured_idx
+    ON worker_capability_snapshots (worker_id, captured_at DESC);
+
+CREATE OR REPLACE FUNCTION cx_reject_capability_snapshot_mutation() RETURNS trigger AS $$
+BEGIN
+    IF TG_OP = 'UPDATE' THEN
+        RAISE EXCEPTION 'worker_capability_snapshots are append-only';
+    END IF;
+    -- DELETE is refused while the parent worker still exists (no silent history
+    -- rewrite). ON DELETE CASCADE from workers removes the parent first, so
+    -- fixture/cleanup cascades are allowed when the worker row is gone.
+    IF TG_OP = 'DELETE' THEN
+        IF EXISTS (SELECT 1 FROM workers WHERE id = OLD.worker_id) THEN
+            RAISE EXCEPTION 'worker_capability_snapshots are append-only';
+        END IF;
+        RETURN OLD;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS worker_capability_snapshots_append_only ON worker_capability_snapshots;
+CREATE TRIGGER worker_capability_snapshots_append_only
+BEFORE UPDATE OR DELETE ON worker_capability_snapshots
+FOR EACH ROW EXECUTE FUNCTION cx_reject_capability_snapshot_mutation();
+
+-- Compatibility note: worker_authorized_capabilities.routable is a dual-written
+-- projection of activationRoutableProjection(cell_id) / advertisedRuntimeCell.
+-- It is NOT a node capability fact. Claim SQL continues to read it for the
+-- legacy workload_decision IS NULL branch so directed-only workers cannot claim
+-- ordinary work. Deletion: after every claim/quote/candidate path resolves
+-- routability from the activation authority without this column.
+COMMENT ON COLUMN worker_authorized_capabilities.routable IS
+  'COMPATIBILITY PROJECTION of activation policy (advertisedRuntimeCell). Not a NodeCapability fact. Dual-written at UpsertWorker. Deletion milestone: Network V2 post-Step-6 when claim/quote paths read activation without this column.';
