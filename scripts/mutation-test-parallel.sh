@@ -172,7 +172,9 @@ python3 scripts/mutation-manifest.py --root . --validate >/dev/null
 # First-fit decreasing on measured p90s keeps a slow database contract from
 # being stranded at the end of one shard. On the first calibrated run every
 # unknown weight is identical, so this still produces a complete deterministic
-# plan without inventing performance data.
+# plan without inventing performance data. Each bin then begins with its
+# cheapest pure mutation when it has one: that warms its independent checkout
+# before an expensive database fallback, without changing membership or load.
 case_weight_json="$(python3 - "${case_ids[@]}" <<'PY'
 import json
 import subprocess
@@ -191,7 +193,13 @@ for line in result.stdout.splitlines():
     weights[int(case_id)] = float(weight)
 if set(selected) - set(weights):
     raise SystemExit("mutation manifest did not provide every selected weight")
-print(json.dumps([[case_id, weights[case_id]] for case_id in selected], separators=(",", ":")))
+manifest = json.loads(open("scripts/mutation-manifest.json", encoding="utf-8").read())
+classes = {item["id"]: item["class"] for item in manifest["mutations"]}
+if set(selected) - set(classes):
+    raise SystemExit("mutation manifest did not provide every selected class")
+if any(classes[case_id] not in {"PURE", "DB"} for case_id in selected):
+    raise SystemExit("parallel adaptive mutation plan supports only PURE and DB cases")
+print(json.dumps([[case_id, weights[case_id], classes[case_id]] for case_id in selected], separators=(",", ":")))
 PY
 )"
 
@@ -205,20 +213,27 @@ import json
 import sys
 
 workers = int(sys.argv[1])
-items = [(int(case_id), float(weight)) for case_id, weight in json.loads(sys.argv[2])]
+items = [(int(case_id), float(weight), classification) for case_id, weight, classification in json.loads(sys.argv[2])]
 bins = [([], 0.0) for _ in range(workers)]
-for case_id, weight in sorted(items, key=lambda value: (-value[1], value[0])):
+for item in sorted(items, key=lambda value: (-value[1], value[0])):
+    case_id, weight, _ = item
     target = min(range(workers), key=lambda index: (bins[index][1], index))
-    bins[target][0].append(case_id)
+    bins[target][0].append(item)
     bins[target] = (bins[target][0], bins[target][1] + weight)
-for index, (cases, load) in enumerate(bins, 1):
-    print(f"{index}\t{','.join(str(case_id) for case_id in sorted(cases))}\t{load:.6f}")
+for index, (items, load) in enumerate(bins, 1):
+    pure = [item for item in items if item[2] == "PURE"]
+    if pure:
+        warmup = min(pure, key=lambda item: (item[1], item[0]))
+    else:
+        warmup = min(items, key=lambda item: (item[1], item[0]))
+    ordered = [warmup, *sorted((item for item in items if item != warmup), key=lambda item: item[0])]
+    print(f"{index}\t{','.join(str(case_id) for case_id, _, _ in ordered)}\t{load:.6f}")
 PY
 )
 
 print_plan() {
   local worker ids
-  printf 'parallel-mutation-test: candidate=%s cases=%s workers=%s budget=%ss db=isolated-clusters strategy=%s gomaxprocs=%s sharding=weighted-p90\n' \
+  printf 'parallel-mutation-test: candidate=%s cases=%s workers=%s budget=%ss db=isolated-clusters strategy=%s gomaxprocs=%s sharding=weighted-p90-pure-warmup\n' \
     "$(git rev-parse HEAD)" "$case_count" "$workers" "$budget_seconds" "$test_strategy" "$go_max_procs"
   worker=1
   while [ "$worker" -le "$workers" ]; do
