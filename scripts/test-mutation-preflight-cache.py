@@ -34,10 +34,16 @@ def git(root: Path, *args: str) -> None:
     subprocess.run(["git", *args], cwd=root, check=True, stdout=subprocess.DEVNULL)
 
 
-def write_log(path: Path) -> None:
+def write_log(path: Path, *, database: bool = False) -> None:
     events = []
-    for name in ("TestPrice", "TestStore"):
-        events.extend(({"Action": "run", "Test": name}, {"Action": "pass", "Test": name}))
+    for name in ("TestPrice", "TestPriceDB", "TestStore"):
+        events.append({"Action": "run", "Test": name})
+        events.append(
+            {
+                "Action": "skip" if database and name == "TestPriceDB" else "pass",
+                "Test": name,
+            }
+        )
     path.write_text("\n".join(json.dumps(event) for event in events) + "\n", encoding="utf-8")
 
 
@@ -62,7 +68,8 @@ def fixture(root: Path) -> tuple[Path, Path, Path]:
     (root / "control" / "price.go").write_text("package control\n", encoding="utf-8")
     (root / "control" / "store.go").write_text("package control\n", encoding="utf-8")
     (root / "control" / "price_test.go").write_text(
-        "package control\nfunc TestPrice(t *testing.T) {}\n", encoding="utf-8"
+        "package control\nfunc TestPrice(t *testing.T) {}\nfunc TestPriceDB(t *testing.T) {}\n",
+        encoding="utf-8",
     )
     (root / "control" / "store_test.go").write_text(
         "package control\nfunc TestStore(t *testing.T) {}\n", encoding="utf-8"
@@ -79,7 +86,7 @@ def fixture(root: Path) -> tuple[Path, Path, Path]:
     sources = proof / "sources"
     sources.write_text("price.go\nstore.go\n", encoding="utf-8")
     write_log(proof / "preflight-unit.json")
-    write_log(proof / "preflight-db.json")
+    write_log(proof / "preflight-db.json", database=True)
     return proof, sources, proof / "preflight-cache.json"
 
 

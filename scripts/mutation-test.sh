@@ -173,7 +173,11 @@ run_unit_contract_tests() {
 run_db_contract_tests() {
   local source="$1" label="$2" selector log status completion_requirement=""
   if [ "$label" = "baseline" ]; then
-    completion_requirement="all-pass"
+    # A source contract may intentionally contain both a unit-only invariant
+    # and a database-only invariant. Every named test must run here, while the
+    # caller below separately requires at least one named database pass before
+    # any mutant may rely on this fallback.
+    completion_requirement="all-run"
   fi
   selector="$(contract_selector "$source")" || return 2
   log="${BACKUP:-${TMPDIR:-/tmp}}/mutation-contract-${label}-${source%.go}-db.json"
