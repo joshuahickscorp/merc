@@ -181,46 +181,102 @@ def build(root: Path, existing: dict[str, Any] | None) -> dict[str, Any]:
     return result
 
 
+def timing_campaigns(timing_file: Path) -> list[dict[str, Any]]:
+    """Read one certification campaign without mistaking report JSON for JSONL.
+
+    The parallel runner writes one aggregate JSON report per exact candidate run,
+    while the serial runner's internal timing file is JSONL.  Both forms are
+    useful evidence, but neither may silently turn a duplicate record into a
+    second sample.
+    """
+    try:
+        raw = timing_file.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise SystemExit(f"unable to read timing report {timing_file}: {exc}") from exc
+    try:
+        decoded = json.loads(raw)
+    except json.JSONDecodeError:
+        decoded = None
+    if isinstance(decoded, dict):
+        records = decoded.get("mutations")
+        candidate = decoded.get("candidate")
+        if decoded.get("version") != 1 or not isinstance(records, list) or not isinstance(candidate, str):
+            raise SystemExit(f"aggregate timing report {timing_file} has an invalid schema")
+        normalized: list[dict[str, Any]] = []
+        for record in records:
+            if not isinstance(record, dict):
+                raise SystemExit(f"aggregate timing report {timing_file} has a non-object mutation record")
+            copy = dict(record)
+            if copy.get("candidate") != candidate:
+                raise SystemExit(f"aggregate timing report {timing_file} mixes candidate commits")
+            normalized.append(copy)
+        return [{"candidate": candidate, "records": normalized}]
+    if isinstance(decoded, list):
+        if any(not isinstance(record, dict) for record in decoded):
+            raise SystemExit(f"timing report {timing_file} has a non-object mutation record")
+        return [{"candidate": None, "records": [dict(record) for record in decoded]}]
+
+    records: list[dict[str, Any]] = []
+    for line_number, line in enumerate(raw.splitlines(), 1):
+        if not line:
+            continue
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise SystemExit(f"invalid timing JSON {timing_file}:{line_number}: {exc}") from exc
+        if not isinstance(record, dict):
+            raise SystemExit(f"timing report {timing_file}:{line_number} has a non-object mutation record")
+        records.append(record)
+    return [{"candidate": None, "records": records}]
+
+
 def ingest(manifest: dict[str, Any], timing_files: list[Path], commit: str | None, require_complete: bool) -> None:
     by_id = {item["id"]: item for item in manifest["mutations"]}
-    seen: set[int] = set()
     candidate: str | None = None
+    seen_paths: set[Path] = set()
     for timing_file in timing_files:
-        for line_number, line in enumerate(timing_file.read_text(encoding="utf-8").splitlines(), 1):
-            if not line:
-                continue
-            try:
-                record = json.loads(line)
-            except json.JSONDecodeError as exc:
-                raise SystemExit(f"invalid timing JSON {timing_file}:{line_number}: {exc}") from exc
-            case_id = record.get("case_id")
-            if case_id not in by_id or case_id in seen:
-                raise SystemExit(f"timing records have a missing or duplicate case ID: {case_id!r}")
-            if record.get("result") != "caught" or record.get("pathway") not in {"PURE", "DB"}:
-                raise SystemExit(f"timing record {case_id} is not a legitimate catch")
-            duration = record.get("duration_seconds")
-            if not isinstance(duration, (int, float)) or duration < 0:
-                raise SystemExit(f"timing record {case_id} has invalid duration")
-            source = record.get("source")
-            if source != by_id[case_id]["source_target"].removeprefix("control/"):
-                raise SystemExit(f"timing record {case_id} has a source mismatch")
-            current_candidate = record.get("candidate")
-            if not isinstance(current_candidate, str) or len(current_candidate) != 40:
-                raise SystemExit(f"timing record {case_id} lacks exact candidate")
-            if candidate is None:
-                candidate = current_candidate
-            elif candidate != current_candidate:
-                raise SystemExit("timing files mix candidate commits")
-            seen.add(case_id)
-            entry = by_id[case_id]
-            samples = entry["historical"]["samples_seconds"]
-            samples.append(round(float(duration), 6))
-            entry["class"] = record["pathway"]
-            entry["historical"]["p50_seconds"] = percentile(samples, 0.50)
-            entry["historical"]["p90_seconds"] = percentile(samples, 0.90)
-            entry["last_validated_commit"] = commit or candidate
-    if require_complete and seen != set(by_id):
-        raise SystemExit(f"timing records are not a complete mutation campaign: missing={sorted(set(by_id) - seen)}")
+        resolved = timing_file.resolve()
+        if resolved in seen_paths:
+            raise SystemExit(f"timing report was supplied more than once: {timing_file}")
+        seen_paths.add(resolved)
+        for campaign in timing_campaigns(timing_file):
+            seen: set[int] = set()
+            reported_candidate = campaign["candidate"]
+            for record in campaign["records"]:
+                case_id = record.get("case_id")
+                if case_id not in by_id or case_id in seen:
+                    raise SystemExit(f"timing report {timing_file} has a missing or duplicate case ID: {case_id!r}")
+                if record.get("result") != "caught" or record.get("pathway") not in {"PURE", "DB"}:
+                    raise SystemExit(f"timing record {case_id} is not a legitimate catch")
+                duration = record.get("duration_seconds")
+                if not isinstance(duration, (int, float)) or duration < 0:
+                    raise SystemExit(f"timing record {case_id} has invalid duration")
+                source = record.get("source")
+                if source != by_id[case_id]["source_target"].removeprefix("control/"):
+                    raise SystemExit(f"timing record {case_id} has a source mismatch")
+                if record.get("description") != by_id[case_id]["description"]:
+                    raise SystemExit(f"timing record {case_id} has a description mismatch")
+                current_candidate = record.get("candidate")
+                if not isinstance(current_candidate, str) or len(current_candidate) != 40 or any(c not in "0123456789abcdef" for c in current_candidate):
+                    raise SystemExit(f"timing record {case_id} lacks exact candidate")
+                if reported_candidate is not None and current_candidate != reported_candidate:
+                    raise SystemExit(f"timing report {timing_file} mixes candidate commits")
+                if candidate is None:
+                    candidate = current_candidate
+                elif candidate != current_candidate:
+                    raise SystemExit("timing files mix candidate commits")
+                seen.add(case_id)
+                entry = by_id[case_id]
+                samples = entry["historical"]["samples_seconds"]
+                samples.append(round(float(duration), 6))
+                entry["class"] = record["pathway"]
+                entry["historical"]["p50_seconds"] = percentile(samples, 0.50)
+                entry["historical"]["p90_seconds"] = percentile(samples, 0.90)
+                entry["last_validated_commit"] = commit or candidate
+            if require_complete and seen != set(by_id):
+                raise SystemExit(f"timing report {timing_file} is not a complete mutation campaign: missing={sorted(set(by_id) - seen)}")
+    if commit is not None and candidate is not None and commit != candidate:
+        raise SystemExit(f"timing report candidate {candidate} does not match requested commit {commit}")
 
 
 def write_json(path: Path, value: dict[str, Any]) -> None:

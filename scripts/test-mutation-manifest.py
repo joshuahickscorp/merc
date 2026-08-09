@@ -54,6 +54,47 @@ def main() -> int:
         updated = json.loads(copied.read_text(encoding="utf-8"))
         if any(item["historical"]["p90_seconds"] is None or item["last_validated_commit"] != candidate for item in updated["mutations"]):
             raise SystemExit("manifest did not persist complete timing statistics")
+
+        aggregate_a = temporary_path / "campaign-a.json"
+        aggregate_b = temporary_path / "campaign-b.json"
+        aggregate_a.write_text(json.dumps({
+            "version": 1, "candidate": candidate, "workers": 8,
+            "elapsed_seconds": 480, "mutations": records,
+        }) + "\n", encoding="utf-8")
+        later_records = [{**record, "duration_seconds": record["duration_seconds"] + 0.5} for record in records]
+        aggregate_b.write_text(json.dumps({
+            "version": 1, "candidate": candidate, "workers": 9,
+            "elapsed_seconds": 420, "mutations": later_records,
+        }) + "\n", encoding="utf-8")
+        run("--manifest", str(copied), "--ingest", str(aggregate_a), "--ingest", str(aggregate_b),
+            "--commit", candidate, "--require-complete", "--write")
+        updated = json.loads(copied.read_text(encoding="utf-8"))
+        if any(len(item["historical"]["samples_seconds"]) != 3 for item in updated["mutations"]):
+            raise SystemExit("manifest did not retain one sample per complete campaign")
+
+        duplicate_aggregate = subprocess.run(
+            [sys.executable, str(TOOL), "--root", str(ROOT), "--manifest", str(copied),
+             "--ingest", str(aggregate_a), "--ingest", str(aggregate_a), "--require-complete", "--write"],
+            text=True, capture_output=True, check=False,
+        )
+        if duplicate_aggregate.returncode == 0:
+            raise SystemExit("manifest accepted the same aggregate campaign twice")
+
+        foreign_candidate = "f" * 40
+        foreign = temporary_path / "foreign.json"
+        foreign.write_text(json.dumps({
+            "version": 1, "candidate": foreign_candidate, "workers": 8,
+            "elapsed_seconds": 480,
+            "mutations": [{**record, "candidate": foreign_candidate} for record in records],
+        }) + "\n", encoding="utf-8")
+        foreign_result = subprocess.run(
+            [sys.executable, str(TOOL), "--root", str(ROOT), "--manifest", str(copied),
+             "--ingest", str(foreign), "--commit", candidate, "--require-complete", "--write"],
+            text=True, capture_output=True, check=False,
+        )
+        if foreign_result.returncode == 0:
+            raise SystemExit("manifest accepted a foreign candidate timing report")
+
         duplicate = temporary_path / "duplicate.jsonl"
         duplicate.write_text(timing.read_text(encoding="utf-8") + timing.read_text(encoding="utf-8"), encoding="utf-8")
         result = subprocess.run(
