@@ -30,7 +30,8 @@
       "job_task_money_integration_test.go"
     ],
     "money_nanos.go": [
-      "money_nanos_test.go"
+      "money_nanos_test.go",
+      "pricing_authority_reconciliation_test.go"
     ],
     "payment.go": [
       "payment_test.go",

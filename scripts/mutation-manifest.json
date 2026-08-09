@@ -13,10 +13,13 @@
       "last_validated_commit": null,
       "required_invariant_contracts": [
         "TestBothTaskFloorDerivationsAgree",
+        "TestBuyerGrossIsNotQuantisedToMicrosBeforeTheSupplierShare",
         "TestConservationHoldsExactlyAcrossManySmallJobs",
         "TestExactDerivationsRefuseDegenerateInputs",
         "TestExactMoneyRefusesToMixCurrencies",
         "TestExactMoneyRefusesToOverflowInsteadOfWrapping",
+        "TestExactTaskEconomicsUsesOneSettlementCurrencyAuthority",
+        "TestFractionalUnitsAreNotInflatedToWholeUnits",
         "TestLegacyFloatConversionIsGuarded",
         "TestManyTinyAccrualsLoseNothing",
         "TestRealtimeBuyerAndSupplierRoundingDirectionsAreOpposite",
@@ -28,7 +31,9 @@
         "TestRemainderCarryPostsOnWholeMicrosAndKeepsTheRest",
         "TestRoundingDirectionFavoursNeitherSideByAccident",
         "TestRoundingPolicyIsNamed",
-        "TestTheAdmissionDefectDisappearsUnderExactComparison"
+        "TestSubSecondTaskFloorIsNotRoundedUpToAWholeSecond",
+        "TestTheAdmissionDefectDisappearsUnderExactComparison",
+        "TestTheEntitlementAndItsFloorAreOneQuantity"
       ],
       "source_target": "control/money_nanos.go"
     },
@@ -45,10 +50,13 @@
       "last_validated_commit": null,
       "required_invariant_contracts": [
         "TestBothTaskFloorDerivationsAgree",
+        "TestBuyerGrossIsNotQuantisedToMicrosBeforeTheSupplierShare",
         "TestConservationHoldsExactlyAcrossManySmallJobs",
         "TestExactDerivationsRefuseDegenerateInputs",
         "TestExactMoneyRefusesToMixCurrencies",
         "TestExactMoneyRefusesToOverflowInsteadOfWrapping",
+        "TestExactTaskEconomicsUsesOneSettlementCurrencyAuthority",
+        "TestFractionalUnitsAreNotInflatedToWholeUnits",
         "TestLegacyFloatConversionIsGuarded",
         "TestManyTinyAccrualsLoseNothing",
         "TestRealtimeBuyerAndSupplierRoundingDirectionsAreOpposite",
@@ -60,7 +68,9 @@
         "TestRemainderCarryPostsOnWholeMicrosAndKeepsTheRest",
         "TestRoundingDirectionFavoursNeitherSideByAccident",
         "TestRoundingPolicyIsNamed",
-        "TestTheAdmissionDefectDisappearsUnderExactComparison"
+        "TestSubSecondTaskFloorIsNotRoundedUpToAWholeSecond",
+        "TestTheAdmissionDefectDisappearsUnderExactComparison",
+        "TestTheEntitlementAndItsFloorAreOneQuantity"
       ],
       "source_target": "control/money_nanos.go"
     },
@@ -113,10 +123,13 @@
       "last_validated_commit": null,
       "required_invariant_contracts": [
         "TestBothTaskFloorDerivationsAgree",
+        "TestBuyerGrossIsNotQuantisedToMicrosBeforeTheSupplierShare",
         "TestConservationHoldsExactlyAcrossManySmallJobs",
         "TestExactDerivationsRefuseDegenerateInputs",
         "TestExactMoneyRefusesToMixCurrencies",
         "TestExactMoneyRefusesToOverflowInsteadOfWrapping",
+        "TestExactTaskEconomicsUsesOneSettlementCurrencyAuthority",
+        "TestFractionalUnitsAreNotInflatedToWholeUnits",
         "TestLegacyFloatConversionIsGuarded",
         "TestManyTinyAccrualsLoseNothing",
         "TestRealtimeBuyerAndSupplierRoundingDirectionsAreOpposite",
@@ -128,7 +141,9 @@
         "TestRemainderCarryPostsOnWholeMicrosAndKeepsTheRest",
         "TestRoundingDirectionFavoursNeitherSideByAccident",
         "TestRoundingPolicyIsNamed",
-        "TestTheAdmissionDefectDisappearsUnderExactComparison"
+        "TestSubSecondTaskFloorIsNotRoundedUpToAWholeSecond",
+        "TestTheAdmissionDefectDisappearsUnderExactComparison",
+        "TestTheEntitlementAndItsFloorAreOneQuantity"
       ],
       "source_target": "control/money_nanos.go"
     },
@@ -253,10 +268,13 @@
       "last_validated_commit": null,
       "required_invariant_contracts": [
         "TestBothTaskFloorDerivationsAgree",
+        "TestBuyerGrossIsNotQuantisedToMicrosBeforeTheSupplierShare",
         "TestConservationHoldsExactlyAcrossManySmallJobs",
         "TestExactDerivationsRefuseDegenerateInputs",
         "TestExactMoneyRefusesToMixCurrencies",
         "TestExactMoneyRefusesToOverflowInsteadOfWrapping",
+        "TestExactTaskEconomicsUsesOneSettlementCurrencyAuthority",
+        "TestFractionalUnitsAreNotInflatedToWholeUnits",
         "TestLegacyFloatConversionIsGuarded",
         "TestManyTinyAccrualsLoseNothing",
         "TestRealtimeBuyerAndSupplierRoundingDirectionsAreOpposite",
@@ -268,7 +286,9 @@
         "TestRemainderCarryPostsOnWholeMicrosAndKeepsTheRest",
         "TestRoundingDirectionFavoursNeitherSideByAccident",
         "TestRoundingPolicyIsNamed",
-        "TestTheAdmissionDefectDisappearsUnderExactComparison"
+        "TestSubSecondTaskFloorIsNotRoundedUpToAWholeSecond",
+        "TestTheAdmissionDefectDisappearsUnderExactComparison",
+        "TestTheEntitlementAndItsFloorAreOneQuantity"
       ],
       "source_target": "control/money_nanos.go"
     },
@@ -285,10 +305,13 @@
       "last_validated_commit": null,
       "required_invariant_contracts": [
         "TestBothTaskFloorDerivationsAgree",
+        "TestBuyerGrossIsNotQuantisedToMicrosBeforeTheSupplierShare",
         "TestConservationHoldsExactlyAcrossManySmallJobs",
         "TestExactDerivationsRefuseDegenerateInputs",
         "TestExactMoneyRefusesToMixCurrencies",
         "TestExactMoneyRefusesToOverflowInsteadOfWrapping",
+        "TestExactTaskEconomicsUsesOneSettlementCurrencyAuthority",
+        "TestFractionalUnitsAreNotInflatedToWholeUnits",
         "TestLegacyFloatConversionIsGuarded",
         "TestManyTinyAccrualsLoseNothing",
         "TestRealtimeBuyerAndSupplierRoundingDirectionsAreOpposite",
@@ -300,7 +323,9 @@
         "TestRemainderCarryPostsOnWholeMicrosAndKeepsTheRest",
         "TestRoundingDirectionFavoursNeitherSideByAccident",
         "TestRoundingPolicyIsNamed",
-        "TestTheAdmissionDefectDisappearsUnderExactComparison"
+        "TestSubSecondTaskFloorIsNotRoundedUpToAWholeSecond",
+        "TestTheAdmissionDefectDisappearsUnderExactComparison",
+        "TestTheEntitlementAndItsFloorAreOneQuantity"
       ],
       "source_target": "control/money_nanos.go"
     },
@@ -317,10 +342,13 @@
       "last_validated_commit": null,
       "required_invariant_contracts": [
         "TestBothTaskFloorDerivationsAgree",
+        "TestBuyerGrossIsNotQuantisedToMicrosBeforeTheSupplierShare",
         "TestConservationHoldsExactlyAcrossManySmallJobs",
         "TestExactDerivationsRefuseDegenerateInputs",
         "TestExactMoneyRefusesToMixCurrencies",
         "TestExactMoneyRefusesToOverflowInsteadOfWrapping",
+        "TestExactTaskEconomicsUsesOneSettlementCurrencyAuthority",
+        "TestFractionalUnitsAreNotInflatedToWholeUnits",
         "TestLegacyFloatConversionIsGuarded",
         "TestManyTinyAccrualsLoseNothing",
         "TestRealtimeBuyerAndSupplierRoundingDirectionsAreOpposite",
@@ -332,7 +360,9 @@
         "TestRemainderCarryPostsOnWholeMicrosAndKeepsTheRest",
         "TestRoundingDirectionFavoursNeitherSideByAccident",
         "TestRoundingPolicyIsNamed",
-        "TestTheAdmissionDefectDisappearsUnderExactComparison"
+        "TestSubSecondTaskFloorIsNotRoundedUpToAWholeSecond",
+        "TestTheAdmissionDefectDisappearsUnderExactComparison",
+        "TestTheEntitlementAndItsFloorAreOneQuantity"
       ],
       "source_target": "control/money_nanos.go"
     },
@@ -349,10 +379,13 @@
       "last_validated_commit": null,
       "required_invariant_contracts": [
         "TestBothTaskFloorDerivationsAgree",
+        "TestBuyerGrossIsNotQuantisedToMicrosBeforeTheSupplierShare",
         "TestConservationHoldsExactlyAcrossManySmallJobs",
         "TestExactDerivationsRefuseDegenerateInputs",
         "TestExactMoneyRefusesToMixCurrencies",
         "TestExactMoneyRefusesToOverflowInsteadOfWrapping",
+        "TestExactTaskEconomicsUsesOneSettlementCurrencyAuthority",
+        "TestFractionalUnitsAreNotInflatedToWholeUnits",
         "TestLegacyFloatConversionIsGuarded",
         "TestManyTinyAccrualsLoseNothing",
         "TestRealtimeBuyerAndSupplierRoundingDirectionsAreOpposite",
@@ -364,7 +397,9 @@
         "TestRemainderCarryPostsOnWholeMicrosAndKeepsTheRest",
         "TestRoundingDirectionFavoursNeitherSideByAccident",
         "TestRoundingPolicyIsNamed",
-        "TestTheAdmissionDefectDisappearsUnderExactComparison"
+        "TestSubSecondTaskFloorIsNotRoundedUpToAWholeSecond",
+        "TestTheAdmissionDefectDisappearsUnderExactComparison",
+        "TestTheEntitlementAndItsFloorAreOneQuantity"
       ],
       "source_target": "control/money_nanos.go"
     },
@@ -381,10 +416,13 @@
       "last_validated_commit": null,
       "required_invariant_contracts": [
         "TestBothTaskFloorDerivationsAgree",
+        "TestBuyerGrossIsNotQuantisedToMicrosBeforeTheSupplierShare",
         "TestConservationHoldsExactlyAcrossManySmallJobs",
         "TestExactDerivationsRefuseDegenerateInputs",
         "TestExactMoneyRefusesToMixCurrencies",
         "TestExactMoneyRefusesToOverflowInsteadOfWrapping",
+        "TestExactTaskEconomicsUsesOneSettlementCurrencyAuthority",
+        "TestFractionalUnitsAreNotInflatedToWholeUnits",
         "TestLegacyFloatConversionIsGuarded",
         "TestManyTinyAccrualsLoseNothing",
         "TestRealtimeBuyerAndSupplierRoundingDirectionsAreOpposite",
@@ -396,7 +434,9 @@
         "TestRemainderCarryPostsOnWholeMicrosAndKeepsTheRest",
         "TestRoundingDirectionFavoursNeitherSideByAccident",
         "TestRoundingPolicyIsNamed",
-        "TestTheAdmissionDefectDisappearsUnderExactComparison"
+        "TestSubSecondTaskFloorIsNotRoundedUpToAWholeSecond",
+        "TestTheAdmissionDefectDisappearsUnderExactComparison",
+        "TestTheEntitlementAndItsFloorAreOneQuantity"
       ],
       "source_target": "control/money_nanos.go"
     },
@@ -413,10 +453,13 @@
       "last_validated_commit": null,
       "required_invariant_contracts": [
         "TestBothTaskFloorDerivationsAgree",
+        "TestBuyerGrossIsNotQuantisedToMicrosBeforeTheSupplierShare",
         "TestConservationHoldsExactlyAcrossManySmallJobs",
         "TestExactDerivationsRefuseDegenerateInputs",
         "TestExactMoneyRefusesToMixCurrencies",
         "TestExactMoneyRefusesToOverflowInsteadOfWrapping",
+        "TestExactTaskEconomicsUsesOneSettlementCurrencyAuthority",
+        "TestFractionalUnitsAreNotInflatedToWholeUnits",
         "TestLegacyFloatConversionIsGuarded",
         "TestManyTinyAccrualsLoseNothing",
         "TestRealtimeBuyerAndSupplierRoundingDirectionsAreOpposite",
@@ -428,7 +471,9 @@
         "TestRemainderCarryPostsOnWholeMicrosAndKeepsTheRest",
         "TestRoundingDirectionFavoursNeitherSideByAccident",
         "TestRoundingPolicyIsNamed",
-        "TestTheAdmissionDefectDisappearsUnderExactComparison"
+        "TestSubSecondTaskFloorIsNotRoundedUpToAWholeSecond",
+        "TestTheAdmissionDefectDisappearsUnderExactComparison",
+        "TestTheEntitlementAndItsFloorAreOneQuantity"
       ],
       "source_target": "control/money_nanos.go"
     },
@@ -445,10 +490,13 @@
       "last_validated_commit": null,
       "required_invariant_contracts": [
         "TestBothTaskFloorDerivationsAgree",
+        "TestBuyerGrossIsNotQuantisedToMicrosBeforeTheSupplierShare",
         "TestConservationHoldsExactlyAcrossManySmallJobs",
         "TestExactDerivationsRefuseDegenerateInputs",
         "TestExactMoneyRefusesToMixCurrencies",
         "TestExactMoneyRefusesToOverflowInsteadOfWrapping",
+        "TestExactTaskEconomicsUsesOneSettlementCurrencyAuthority",
+        "TestFractionalUnitsAreNotInflatedToWholeUnits",
         "TestLegacyFloatConversionIsGuarded",
         "TestManyTinyAccrualsLoseNothing",
         "TestRealtimeBuyerAndSupplierRoundingDirectionsAreOpposite",
@@ -460,7 +508,9 @@
         "TestRemainderCarryPostsOnWholeMicrosAndKeepsTheRest",
         "TestRoundingDirectionFavoursNeitherSideByAccident",
         "TestRoundingPolicyIsNamed",
-        "TestTheAdmissionDefectDisappearsUnderExactComparison"
+        "TestSubSecondTaskFloorIsNotRoundedUpToAWholeSecond",
+        "TestTheAdmissionDefectDisappearsUnderExactComparison",
+        "TestTheEntitlementAndItsFloorAreOneQuantity"
       ],
       "source_target": "control/money_nanos.go"
     },
@@ -477,10 +527,13 @@
       "last_validated_commit": null,
       "required_invariant_contracts": [
         "TestBothTaskFloorDerivationsAgree",
+        "TestBuyerGrossIsNotQuantisedToMicrosBeforeTheSupplierShare",
         "TestConservationHoldsExactlyAcrossManySmallJobs",
         "TestExactDerivationsRefuseDegenerateInputs",
         "TestExactMoneyRefusesToMixCurrencies",
         "TestExactMoneyRefusesToOverflowInsteadOfWrapping",
+        "TestExactTaskEconomicsUsesOneSettlementCurrencyAuthority",
+        "TestFractionalUnitsAreNotInflatedToWholeUnits",
         "TestLegacyFloatConversionIsGuarded",
         "TestManyTinyAccrualsLoseNothing",
         "TestRealtimeBuyerAndSupplierRoundingDirectionsAreOpposite",
@@ -492,7 +545,9 @@
         "TestRemainderCarryPostsOnWholeMicrosAndKeepsTheRest",
         "TestRoundingDirectionFavoursNeitherSideByAccident",
         "TestRoundingPolicyIsNamed",
-        "TestTheAdmissionDefectDisappearsUnderExactComparison"
+        "TestSubSecondTaskFloorIsNotRoundedUpToAWholeSecond",
+        "TestTheAdmissionDefectDisappearsUnderExactComparison",
+        "TestTheEntitlementAndItsFloorAreOneQuantity"
       ],
       "source_target": "control/money_nanos.go"
     },
@@ -509,10 +564,13 @@
       "last_validated_commit": null,
       "required_invariant_contracts": [
         "TestBothTaskFloorDerivationsAgree",
+        "TestBuyerGrossIsNotQuantisedToMicrosBeforeTheSupplierShare",
         "TestConservationHoldsExactlyAcrossManySmallJobs",
         "TestExactDerivationsRefuseDegenerateInputs",
         "TestExactMoneyRefusesToMixCurrencies",
         "TestExactMoneyRefusesToOverflowInsteadOfWrapping",
+        "TestExactTaskEconomicsUsesOneSettlementCurrencyAuthority",
+        "TestFractionalUnitsAreNotInflatedToWholeUnits",
         "TestLegacyFloatConversionIsGuarded",
         "TestManyTinyAccrualsLoseNothing",
         "TestRealtimeBuyerAndSupplierRoundingDirectionsAreOpposite",
@@ -524,7 +582,9 @@
         "TestRemainderCarryPostsOnWholeMicrosAndKeepsTheRest",
         "TestRoundingDirectionFavoursNeitherSideByAccident",
         "TestRoundingPolicyIsNamed",
-        "TestTheAdmissionDefectDisappearsUnderExactComparison"
+        "TestSubSecondTaskFloorIsNotRoundedUpToAWholeSecond",
+        "TestTheAdmissionDefectDisappearsUnderExactComparison",
+        "TestTheEntitlementAndItsFloorAreOneQuantity"
       ],
       "source_target": "control/money_nanos.go"
     },
