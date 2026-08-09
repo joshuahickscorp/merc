@@ -31,6 +31,7 @@ def main() -> int:
         raise SystemExit("manifest does not contain exactly the 84 declared mutations")
     if any(not item["required_invariant_contracts"] for item in mutations):
         raise SystemExit("manifest has a mutation without invariant contracts")
+    original_sample_counts = {item["id"]: len(item["historical"]["samples_seconds"]) for item in mutations}
 
     candidate = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
     with tempfile.TemporaryDirectory() as temporary:
@@ -69,7 +70,7 @@ def main() -> int:
         run("--manifest", str(copied), "--ingest", str(aggregate_a), "--ingest", str(aggregate_b),
             "--commit", candidate, "--require-complete", "--write")
         updated = json.loads(copied.read_text(encoding="utf-8"))
-        if any(len(item["historical"]["samples_seconds"]) != 3 for item in updated["mutations"]):
+        if any(len(item["historical"]["samples_seconds"]) != original_sample_counts[item["id"]] + 3 for item in updated["mutations"]):
             raise SystemExit("manifest did not retain one sample per complete campaign")
 
         duplicate_aggregate = subprocess.run(

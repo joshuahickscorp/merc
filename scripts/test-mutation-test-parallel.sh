@@ -47,4 +47,13 @@ if MERC_MUTATION_PARALLEL_CASE_IDS=85 bash scripts/mutation-test-parallel.sh --p
   exit 1
 fi
 
+# Template migration is candidate work, not per-mutant work. The runner must
+# seed one exact-candidate template and restore that immutable snapshot into
+# the remaining isolated worker clusters.
+rg --fixed-strings 'pg_dump --host=127.0.0.1' scripts/mutation-test-parallel.sh >/dev/null
+rg --fixed-strings 'pg_restore --host=127.0.0.1' scripts/mutation-test-parallel.sh >/dev/null
+rg --fixed-strings 'prepare_seed_template' scripts/mutation-test-parallel.sh >/dev/null
+rg --fixed-strings 'restore_template_snapshot' scripts/mutation-test-parallel.sh >/dev/null
+rg --fixed-strings 'candidate_baseline_pid' scripts/mutation-test-parallel.sh >/dev/null
+
 echo "test-mutation-test-parallel: PASS all 84 cases are uniquely sharded"

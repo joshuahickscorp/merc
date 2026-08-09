@@ -234,7 +234,7 @@ if [ "$mode" = "plan" ]; then
 fi
 
 : "${MERC_TEST_DATABASE_URL:?parallel mutation testing needs a database}"
-for command in initdb pg_ctl createdb; do
+for command in initdb pg_ctl createdb pg_dump pg_restore; do
   command -v "$command" >/dev/null 2>&1 || {
     echo "parallel mutation testing needs $command for isolated PostgreSQL clusters" >&2
     exit 2
@@ -247,14 +247,6 @@ if [ -n "$(git status --porcelain)" ]; then
   exit 2
 fi
 started="$(date +%s)"
-# The detached worktrees below begin with Git LFS pointer text. Verify the
-# candidate's hydrated corpus independently before fan-out, then require each
-# worker to materialize those same local objects. This is intentionally local:
-# remote fresh-clone durability remains the separate origin-authority gate.
-if ! python3 scripts/verify-lfs-corpus.py --root "$ROOT" >/dev/null; then
-  echo "parallel mutation test requires an independently verified hydrated LFS corpus" >&2
-  exit 2
-fi
 
 # Share the serial runner's candidate-root lock.  A concurrent serial mutation
 # would otherwise change the candidate while isolated shards were proving a
@@ -274,11 +266,18 @@ declare -a cluster_dirs=()
 declare -a cluster_ports=()
 declare -a template_names=()
 declare -a worker_timing_files=()
+candidate_baseline_pid=""
+lfs_verify_pid=""
 run_ok=0
 
 cleanup() {
-  local worktree cluster
+  local worktree cluster pid
   trap - EXIT INT TERM
+  for pid in "$candidate_baseline_pid" "$lfs_verify_pid"; do
+    [ -n "$pid" ] || continue
+    kill -TERM "$pid" >/dev/null 2>&1 || true
+    wait "$pid" >/dev/null 2>&1 || true
+  done
   # Stop clusters before removing their worktree/log parent. Fast shutdown is
   # safe here: these clusters are test-only and every test database is already
   # disposable.
@@ -365,17 +364,18 @@ trap on_signal INT TERM
 
 print_plan
 
-# This is a candidate-level baseline, not one duplicate run per worker. The
-# workers then prove their own exact named contracts against clean source.
-if ! (
+# The independent LFS proof and candidate-level unit baseline have no mutable
+# shared state with disposable worktree/cluster creation. Start both now so
+# their required work overlaps setup rather than extending the critical path.
+# We still wait for both before a worker can exercise one mutation.
+(
   cd "$ROOT/control" &&
     env -u MERC_TEST_DATABASE_URL MERC_ALLOW_SKIPPING_DB_TESTS=1 \
       go test -count=1 -timeout=2m ./...
-) >"$run_root/candidate-unit-baseline.log" 2>&1; then
-  echo "parallel-mutation-test: candidate unit baseline failed" >&2
-  cat "$run_root/candidate-unit-baseline.log" >&2 || true
-  exit 1
-fi
+) >"$run_root/candidate-unit-baseline.log" 2>&1 &
+candidate_baseline_pid="$!"
+python3 scripts/verify-lfs-corpus.py --root "$ROOT" >"$run_root/candidate-lfs-verify.log" 2>&1 &
+lfs_verify_pid="$!"
 
 cluster_port_base="$(find_cluster_port_base)"
 
@@ -420,14 +420,29 @@ for ((worker = 1; worker <= workers; worker++)); do
     --maintenance-db=postgres cx
 done
 
-# Each worker builds one schema-only template from its exact detached source.
-# Every database contract still clones that template into a new database, so
-# mutations never share data, connections, WAL state, or a migrated test DB.
-prepare_template() {
-  local worker="$1" worktree port template template_url
-  worktree="${worktrees[$((worker - 1))]}"
-  port="${cluster_ports[$((worker - 1))]}"
-  template="merc_mutation_template_w${worker}"
+# No worker may run a contract until both exact-candidate prerequisites passed.
+if ! wait "$candidate_baseline_pid"; then
+  echo "parallel-mutation-test: candidate unit baseline failed" >&2
+  cat "$run_root/candidate-unit-baseline.log" >&2 || true
+  exit 1
+fi
+candidate_baseline_pid=""
+if ! wait "$lfs_verify_pid"; then
+  echo "parallel mutation test requires an independently verified hydrated LFS corpus" >&2
+  cat "$run_root/candidate-lfs-verify.log" >&2 || true
+  exit 2
+fi
+lfs_verify_pid=""
+
+# A seed cluster builds the one schema-only candidate template. The remaining
+# isolated clusters restore an exact pg_dump snapshot of that template instead
+# of independently re-running the same migration nine times. Every contract
+# still gets a fresh createdb clone in its own worker cluster.
+prepare_seed_template() {
+  local worktree port template template_url
+  worktree="${worktrees[0]}"
+  port="${cluster_ports[0]}"
+  template="${template_names[0]}"
   template_url="postgres://cx@127.0.0.1:${port}/${template}?sslmode=disable"
   createdb --host=127.0.0.1 --port="$port" --username=cx \
     --maintenance-db=postgres "$template"
@@ -436,17 +451,51 @@ prepare_template() {
       MERC_TEST_DATABASE_URL="$template_url" MERC_MUTATION_TEMPLATE_DB=1 \
         GOMAXPROCS="$go_max_procs" \
         go test -count=1 -timeout=2m -run '^TestMutationTemplateSchema$' .
-  ) >"$run_root/template-$worker.log" 2>&1
+  ) >"$run_root/template-seed.log" 2>&1
 }
 
-declare -a template_pids=()
+snapshot_template() {
+  local port="${cluster_ports[0]}" template="${template_names[0]}"
+  pg_dump --host=127.0.0.1 --port="$port" --username=cx \
+    --format=custom --no-owner --no-privileges \
+    --file="$run_root/template.snapshot" "$template" \
+    >"$run_root/template-snapshot.log" 2>&1
+  [ -s "$run_root/template.snapshot" ]
+}
+
+restore_template_snapshot() {
+  local worker="$1" port template
+  port="${cluster_ports[$((worker - 1))]}"
+  template="${template_names[$((worker - 1))]}"
+  createdb --host=127.0.0.1 --port="$port" --username=cx \
+    --maintenance-db=postgres "$template"
+  pg_restore --host=127.0.0.1 --port="$port" --username=cx \
+    --dbname="$template" --no-owner --no-privileges --exit-on-error \
+    "$run_root/template.snapshot" >"$run_root/template-$worker.log" 2>&1
+}
+
 for ((worker = 1; worker <= workers; worker++)); do
-  prepare_template "$worker" &
-  template_pids+=("$!")
   template_names[$((worker - 1))]="merc_mutation_template_w${worker}"
 done
-for ((worker = 1; worker <= workers; worker++)); do
-  if ! wait "${template_pids[$((worker - 1))]}"; then
+if ! prepare_seed_template; then
+  echo "parallel-mutation-test: seed worker could not prepare its schema template" >&2
+  cat "$run_root/template-seed.log" >&2 || true
+  exit 1
+fi
+if ! snapshot_template; then
+  echo "parallel-mutation-test: could not snapshot its exact schema template" >&2
+  cat "$run_root/template-snapshot.log" >&2 || true
+  exit 1
+fi
+
+declare -a template_pids=()
+for ((worker = 2; worker <= workers; worker++)); do
+  restore_template_snapshot "$worker" &
+  template_pids+=("$!")
+done
+for ((index = 0; index < ${#template_pids[@]}; index++)); do
+  worker=$((index + 2))
+  if ! wait "${template_pids[$index]}"; then
     echo "parallel-mutation-test: worker $worker could not prepare its schema template" >&2
     cat "$run_root/template-$worker.log" >&2 || true
     exit 1
