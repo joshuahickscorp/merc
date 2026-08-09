@@ -19,7 +19,7 @@ func TestQuoteCurrencyIsVisibleImmutableAndBoundAtSubmission(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	workload, compute, economic := computePlanFixture(t)
+	workload, compute, economic := pricingComputePlanFixture(t)
 	schedule := economic.Schedule
 	schedule.Currency = "cad"
 	economic = BuildEconomicPlan(economic.Input, schedule)
@@ -53,6 +53,10 @@ func TestQuoteCurrencyIsVisibleImmutableAndBoundAtSubmission(t *testing.T) {
 		Economics:   economic,
 		InputSHA256: strings.Repeat("a", 64),
 		ExpiresAt:   time.Now().Add(quoteTTL).UTC(),
+	}
+	if quote.Placement.Version != placementRequirementVersion ||
+		quote.Placement.PerformanceAuthority == nil {
+		t.Fatalf("quote fixture does not exercise current placement authority: %+v", quote.Placement)
 	}
 	must(t, store.InsertQuote(ctx, buyerID, quote))
 
@@ -115,7 +119,7 @@ func TestQuoteCurrencyIsVisibleImmutableAndBoundAtSubmission(t *testing.T) {
 func TestInsertQuoteRejectsCurrencyMismatchBeforeDatabaseWrite(t *testing.T) {
 	installSettlementCurrencyForTest(t, "cad")
 	ctx, store, _ := openIsolatedTestStore(t)
-	workload, compute, economic := computePlanFixture(t)
+	workload, compute, economic := pricingComputePlanFixture(t)
 	schedule := economic.Schedule
 	schedule.Currency = "cad"
 	economic = BuildEconomicPlan(economic.Input, schedule)

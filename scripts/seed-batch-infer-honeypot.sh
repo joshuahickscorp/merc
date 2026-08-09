@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Measure a batch_infer known-answer honeypot against the merc-agent build on
 # this machine and install it into the local control-plane database. Byte-exact
-# honeypots are class-bound (engine|build_hash); regenerate whenever the agent
+# honeypots are class-bound (engine|build_hash|build_identity_policy); regenerate whenever the agent
 # binary or its engine identity changes.
 #
 # Usage:

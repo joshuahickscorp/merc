@@ -1,9 +1,11 @@
 package main
 
 import (
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 func distributedPricingFixture(t *testing.T) (
@@ -14,7 +16,7 @@ func distributedPricingFixture(t *testing.T) (
 	PricingDecision,
 ) {
 	t.Helper()
-	workload, compute, economic := computePlanFixture(t)
+	workload, compute, economic := pricingComputePlanFixture(t)
 	authority := catalogueAuthorityFixture(
 		t, workload, economic.Schedule.Currency, economic.Input.SupplierShare,
 	)
@@ -25,6 +27,141 @@ func distributedPricingFixture(t *testing.T) (
 	)
 	mustf(t, err, "build distributed pricing fixture: %v")
 	return workload, compute, placement, economic, pricing
+}
+
+func TestHistoricalDistributedPricingReplayAcceptsEmptyTaskEconomicPolicy(t *testing.T) {
+	workload, compute, placement, economic, pricing := distributedPricingFixture(t)
+	if pricing.TaskEconomicPolicy == "" {
+		t.Fatal("current fixture lacks task-economic policy")
+	}
+	historical := pricing
+	historical.TaskEconomicPolicy = ""
+	if err := ValidateDistributedPricingDecisionSnapshot(
+		historical, workload, compute, placement, economic,
+	); err != nil {
+		t.Fatalf("historical empty task-economic policy no longer replays: %v", err)
+	}
+}
+
+func TestHistoricalPlacementV1DigestAndPricingReplayRemainSupported(t *testing.T) {
+	workload, compute, current, economic, pricing := distributedPricingFixture(t)
+	if current.PerformanceAuthority == nil {
+		t.Fatal("current fixture lacks frozen performance authority")
+	}
+	rate := current.PerformanceAuthority.Performance.ConservativeUnitsPerSec
+	legacy := current
+	legacy.Version = 1
+	legacy.PerformanceAuthority = nil
+	legacy.HWClasses = append([]string(nil), workload.Binding.Constraints.HWClasses...)
+
+	if err := validatePlacementRequirement(legacy, workload); err != nil {
+		t.Fatalf("historical placement v1 no longer validates: %v", err)
+	}
+	if digest, err := placementRequirementDigest(legacy); err != nil || !validSHA256(digest) {
+		t.Fatalf("historical placement v1 digest unavailable: digest=%q err=%v", digest, err)
+	}
+	legacyPricing, err := distributedPricingDecisionAtRate(
+		workload, compute, legacy, economic, pricing.Catalogue, pricing.Tier,
+		pricing.OriginQuotePricingDecisionSHA256, rate,
+	)
+	mustf(t, err, "build historical v1 pricing snapshot: %v")
+	if err := ValidateDistributedPricingDecisionSnapshot(
+		legacyPricing, workload, compute, legacy, economic,
+	); err != nil {
+		t.Fatalf("historical placement v1 pricing replay failed: %v", err)
+	}
+
+	// Placement v1 never carried a receipt snapshot. Its accepted rate must
+	// remain readable when today's pointer is withdrawn, ages onto a different
+	// haircut, or disappears entirely. New ingress rejects this placement version;
+	// these mutations exercise replay only.
+	path := current.PerformanceAuthority.Performance.BenchmarkAuthority
+	original, ok := benchmarkAuthorityManifest[path]
+	if !ok {
+		t.Fatalf("current fixture receipt %q is absent", path)
+	}
+	assertReplay := func(t *testing.T) {
+		t.Helper()
+		if err := ValidateDistributedPricingDecisionSnapshot(
+			legacyPricing, workload, compute, legacy, economic,
+		); err != nil {
+			t.Fatalf("historical placement v1 replay consulted current receipt authority: %v", err)
+		}
+	}
+	t.Run("withdrawn current receipt", func(t *testing.T) {
+		withdrawn := cloneBenchmarkReceiptSummary(original)
+		withdrawn.Validity = authorityValidityWithdrawn
+		benchmarkAuthorityManifest[path] = withdrawn
+		t.Cleanup(func() { benchmarkAuthorityManifest[path] = original })
+		assertReplay(t)
+	})
+	t.Run("newly stale current receipt", func(t *testing.T) {
+		stale := cloneBenchmarkReceiptSummary(original)
+		stale.MeasuredAt = time.Now().Add(-benchmarkRevalidationWindow - 24*time.Hour).
+			UTC().Format(time.RFC3339)
+		benchmarkAuthorityManifest[path] = stale
+		t.Cleanup(func() { benchmarkAuthorityManifest[path] = original })
+		assertReplay(t)
+	})
+	t.Run("removed current receipt", func(t *testing.T) {
+		delete(benchmarkAuthorityManifest, path)
+		t.Cleanup(func() { benchmarkAuthorityManifest[path] = original })
+		assertReplay(t)
+	})
+}
+
+func TestHistoricalEmbedPlacementV1ReplayDoesNotInheritCurrentUnitPolicy(t *testing.T) {
+	installTestOnlyExactIdentityForLegacyBenchmark(t, candleEmbedCell)
+	workload, compute, economic := computePlanFixture(t)
+	if workload.RuntimeJobType != "embed" {
+		t.Fatalf("historical fixture job=%q, want embed", workload.RuntimeJobType)
+	}
+	candidate := workload.RuntimeCandidates[0]
+	profile, cell := cellByID(t, candidate.CellID)
+	performance := resolveCellPerformance(profile, cell, time.Now())
+	if performance.Unit != "embeddings" || performance.Status == cellThroughputUnproven {
+		t.Fatalf("historical embed benchmark premise changed: %+v", performance)
+	}
+	if err := validateCurrentPerformanceSettlementAuthority(performance); err == nil {
+		t.Fatal("current embed admission unexpectedly accepts embeddings/s")
+	}
+
+	authority := catalogueAuthorityFixture(
+		t, workload, economic.Schedule.Currency, economic.Input.SupplierShare)
+	modelKind := candidate.ModelKind
+	if modelKind == "" {
+		modelKind = workload.Binding.Model.Kind
+	}
+	legacy := PlacementRequirement{
+		Version:             1,
+		JobType:             workload.RuntimeJobType,
+		ModelRef:            workload.Binding.Model.Ref,
+		ModelKind:           modelKind,
+		RuntimeCellID:       candidate.CellID,
+		RuntimeID:           candidate.RuntimeID,
+		Engine:              candidate.Engine,
+		RuntimeMatrixSHA256: generatedRuntimeMatrixSHA256,
+		MinMemoryGB:         float32(workload.MinimumMemoryGB),
+		HWClasses:           append([]string(nil), workload.Binding.Constraints.HWClasses...),
+		DataResidency:       append([]string(nil), workload.Binding.Constraints.DataResidency...),
+		MinReputation:       workload.Binding.MinReputation,
+		TrustedOnly:         workload.Binding.Tier == "trusted",
+		OfferedRateUsdHr: float32(expectedSupplierUSDHr(
+			performance.ConservativeUnitsPerSec, authority.ReferencePricePer1K,
+			authority.SupplierShare, workload.Binding.Tier)),
+	}
+	mustf(t, validatePlacementRequirement(legacy, workload),
+		"historical v1 embed placement rejected: %v")
+	pricing, err := distributedPricingDecisionAtRate(
+		workload, compute, legacy, economic, authority, workload.Binding.Tier,
+		"", performance.ConservativeUnitsPerSec,
+	)
+	mustf(t, err, "build historical v1 embed pricing: %v")
+	if err := ValidateDistributedPricingDecisionSnapshot(
+		pricing, workload, compute, legacy, economic,
+	); err != nil {
+		t.Fatalf("historical v1 embed pricing inherited today's unit policy: %v", err)
+	}
 }
 
 func TestFixedPointPricingConservesAndRefusesFalseTrueNet(t *testing.T) {
@@ -274,6 +411,23 @@ func TestBoundQuoteCatalogueSelectionNeverReadsCurrentModelPrice(t *testing.T) {
 	}
 }
 
+func TestBoundVersionTwoQuoteCannotMintANewJob(t *testing.T) {
+	_, _, _, _, pricing := distributedPricingFixture(t)
+	pricing.Catalogue.Version = 2
+	pricing.Catalogue.ScheduleVersion = 2
+	pricing.Catalogue.PhysicalAuthority = CatalogueResultPhysicalAuthority{}
+	_, err := selectCataloguePriceAuthority(
+		&boundQuote{Pricing: pricing},
+		func() (CataloguePriceAuthority, error) {
+			t.Fatal("historical bound quote consulted mutable current price")
+			return CataloguePriceAuthority{}, nil
+		},
+	)
+	if err == nil || !strings.Contains(err.Error(), "historical-only") {
+		t.Fatalf("bound v2 quote selection error=%v", err)
+	}
+}
+
 // The validator must re-derive the supplier unit rate from the governed cell
 // authority, never from the record being checked.
 //
@@ -309,27 +463,45 @@ func TestStoredPricingDecisionCannotCertifyItsOwnSupplierRate(t *testing.T) {
 // A quote freezes a supplier unit rate; the receipt behind it keeps ageing.
 // Rebuilding a bound submission from live evidence compared today's posture
 // against the quote's frozen offered rate, so a receipt crossing its 180-day
-// revalidation window between quote and submit turned an accepted quote into a
-// 409 - on a quote nothing the buyer controls had changed.
+// revalidation window between quote and submit must be classified as temporary
+// physical-authority unavailability, never a buyer-caused 4xx.
 func TestQuoteFrozenSupplierRateSurvivesTheRevalidationBoundary(t *testing.T) {
 	workload, compute, placement, economic, pricing := distributedPricingFixture(t)
+	if placement.PerformanceAuthority == nil {
+		t.Fatal("v2 fixture has no frozen performance authority")
+	}
 
-	// What the SAME receipt yields once it is past its window.
-	stalePostureRate := pricing.ExpectedSupplierUnitsPerSec /
-		measuredThroughputHaircut * staleThroughputHaircut
+	// Freeze what the SAME receipt yields once it is past its window. A v2
+	// placement carries that posture inside its accepted performance snapshot;
+	// changing only OfferedRateUsdHr would create inconsistent sibling fields
+	// and should be rejected.
 	stalePlacement := placement
+	stalePerformance := *placement.PerformanceAuthority
+	stalePerformance.Performance.Status = cellThroughputStale
+	stalePerformance.Performance.Haircut = staleThroughputHaircut
+	stalePostureRate := stalePerformance.Performance.ObservedUnitsPerSec *
+		staleThroughputHaircut
+	stalePerformance.Performance.ConservativeUnitsPerSec = stalePostureRate
+	stalePerformance.Performance.Reason = "receipt exceeded revalidation window when this placement was accepted"
+	stalePerformance.Digest = ""
+	var err error
+	stalePerformance.Digest, err = frozenRuntimeCellPerformanceDigest(stalePerformance)
+	mustf(t, err, "digest stale performance authority: %v")
+	stalePlacement.PerformanceAuthority = &stalePerformance
 	stalePlacement.OfferedRateUsdHr = float32(expectedSupplierUSDHr(
 		stalePostureRate, pricing.Catalogue.ReferencePricePer1K,
 		pricing.Catalogue.SupplierShare, pricing.Tier,
 	))
 
-	// This is the 409: live resolution refuses a quote frozen on the other side
-	// of the boundary, in either direction.
+	// Live resolution refuses a quote frozen on the other side of the boundary,
+	// in either direction, and preserves the sentinel the API maps to 503.
 	if _, err := newDistributedPricingDecision(
 		workload, compute, stalePlacement, economic, pricing.Catalogue, pricing.Tier, "",
 	); err == nil {
 		t.Fatal("live re-resolution accepted a rate from the other posture; " +
 			"this test no longer describes the boundary")
+	} else if !errors.Is(err, errQuotePhysicalAuthorityUnavailable) {
+		t.Fatalf("performance posture crossing lost its public 503 sentinel: %v", err)
 	}
 
 	// Binding the quote's own frozen rate accepts it, and the stored snapshot

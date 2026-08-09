@@ -514,11 +514,13 @@ func (p *VerificationProcessor) createPlan(ctx context.Context, lease Verificati
 
 	var redundancyBytes []byte
 	var err error
-	peerArtifact, peerSupplier, peerEngine, peerBuild, sealedErr := p.store.PeerSealedResult(ctx, info.TaskID)
+	peerArtifact, peerSupplier, peerEngine, peerBuild, peerBuildPolicy, sealedErr := p.store.PeerSealedResult(ctx, info.TaskID)
 	if sealedErr == nil {
-		info.peerSupplierID, info.peerEngine, info.peerBuildHash = peerSupplier, peerEngine, peerBuild
+		info.peerSupplierID, info.peerEngine, info.peerBuildHash, info.peerBuildIdentityPolicy =
+			peerSupplier, peerEngine, peerBuild, peerBuildPolicy
 		if byteExactJobType(info.jobType) &&
-			sameVerificationClass(info.engine, info.buildHash, peerEngine, peerBuild) &&
+			sameVerificationClass(info.engine, info.buildHash, peerEngine, peerBuild,
+				info.buildIdentityPolicy, peerBuildPolicy) &&
 			peerArtifact.SHA256 == work.Artifact.SHA256 {
 			redundancyBytes = commitBytes
 			metrics.hashTrustedRedundancy.Add(1)
@@ -531,12 +533,13 @@ func (p *VerificationProcessor) createPlan(ctx context.Context, lease Verificati
 	} else if !errors.Is(sealedErr, errNotFound) {
 		return VerificationWorkPlan{}, sealedErr
 	} else {
-		peerKey, legacySupplier, legacyEngine, legacyBuild, _, legacyErr := p.store.PeerResultKey(ctx, info.TaskID)
+		peerKey, legacySupplier, legacyEngine, legacyBuild, legacyBuildPolicy, _, legacyErr := p.store.PeerResultKey(ctx, info.TaskID)
 		if legacyErr != nil && !errors.Is(legacyErr, errNotFound) {
 			return VerificationWorkPlan{}, legacyErr
 		}
 		if peerKey != "" {
-			info.peerSupplierID, info.peerEngine, info.peerBuildHash = legacySupplier, legacyEngine, legacyBuild
+			info.peerSupplierID, info.peerEngine, info.peerBuildHash, info.peerBuildIdentityPolicy =
+				legacySupplier, legacyEngine, legacyBuild, legacyBuildPolicy
 			redundancyBytes, err = p.storage.readVerificationObjectBounded(ctx, peerKey, info.resultMaxBytes, nil)
 			if err != nil {
 				return VerificationWorkPlan{}, fmt.Errorf("read legacy redundancy peer: %w", err)

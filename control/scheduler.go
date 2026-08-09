@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -63,28 +64,34 @@ func (h *claimHistogram) snapshot() (cumulative []int64, count int64, sumMs int6
 }
 
 type MatchTask struct {
-	JobType      string
-	MinMemoryGB  float32
-	HWClasses    []string // nil/empty = any
-	Tier         string   // batch | priority | trusted
-	PinEngine    string
-	PinBuildHash string
+	JobType                string
+	MinMemoryGB            float32
+	HWClasses              []string // nil/empty = any
+	Tier                   string   // batch | priority | trusted
+	PinEngine              string
+	PinBuildHash           string
+	PinBuildIdentityPolicy string
+	PinHardwareIdentity    string
+	RequiredRuntimeKeys    []string
 }
 
 type MatchWorker struct {
-	ID              uuid.UUID
-	SupplierID      uuid.UUID
-	HWClass         string
-	Engine          string
-	BuildHash       string
-	MemoryGB        float32
-	Reputation      float32
-	TPS             map[string]float32 // job_type -> tokens/sec
-	LastSeen        time.Time
-	Tier            int  // 0-3
-	Throttled       bool // currently pausing new claims (memory pressure)
-	Warm            bool // already has the job's model warm in its pool (re-rank bonus only)
-	ThermalDegraded bool
+	ID                    uuid.UUID
+	SupplierID            uuid.UUID
+	HWClass               string
+	Engine                string
+	BuildHash             string
+	BuildIdentityPolicy   string
+	HardwareIdentity      string
+	AuthorizedRuntimeKeys []string
+	MemoryGB              float32
+	Reputation            float32
+	TPS                   map[string]float32 // job_type -> tokens/sec
+	LastSeen              time.Time
+	Tier                  int  // 0-3
+	Throttled             bool // currently pausing new claims (memory pressure)
+	Warm                  bool // already has the job's model warm in its pool (re-rank bonus only)
+	ThermalDegraded       bool
 }
 
 func Match(t MatchTask, workers []MatchWorker) ([]MatchWorker, error) {
@@ -108,6 +115,15 @@ func Match(t MatchTask, workers []MatchWorker) ([]MatchWorker, error) {
 		if t.PinBuildHash != "" && w.BuildHash != t.PinBuildHash {
 			continue
 		}
+		if t.PinBuildIdentityPolicy != "" && w.BuildIdentityPolicy != t.PinBuildIdentityPolicy {
+			continue
+		}
+		if t.PinHardwareIdentity != "" && w.HardwareIdentity != t.PinHardwareIdentity {
+			continue
+		}
+		if len(t.RequiredRuntimeKeys) > 0 && !matchWorkerRuntimeKeys(t.RequiredRuntimeKeys, w.AuthorizedRuntimeKeys) {
+			continue
+		}
 		if t.Tier == "trusted" && w.Tier < 2 {
 			continue
 		}
@@ -127,6 +143,24 @@ func Match(t MatchTask, workers []MatchWorker) ([]MatchWorker, error) {
 		}
 	}
 	return same, nil
+}
+
+func runtimeCapabilityKey(cellID, runtimeID, modelKind string) string {
+	return cellID + "\x1f" + runtimeID + "\x1f" + modelKind
+}
+
+func matchWorkerRuntimeKeys(required, authorized []string) bool {
+	if len(required) == 0 {
+		return true
+	}
+	for _, want := range required {
+		for _, have := range authorized {
+			if want == have {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 const warmBonus = 1.05
@@ -216,29 +250,114 @@ func hwClassCostRankSQL(col string) string {
 }
 
 func (s *Store) SelectRedundancyPeer(ctx context.Context, jobType, modelRef string, minMemGB float32, primaryWorker uuid.UUID) (uuid.UUID, error) {
-	return s.SelectRedundancyPeerExcluding(ctx, jobType, modelRef, minMemGB, primaryWorker, nil, nil)
+	return s.SelectRedundancyPeerExcluding(ctx, uuid.Nil, uuid.Nil, jobType, modelRef, minMemGB, primaryWorker, nil, nil)
 }
 
-func (s *Store) SelectRedundancyPeerExcluding(ctx context.Context, jobType, modelRef string, minMemGB float32, anchor uuid.UUID, also, alsoSuppliers []uuid.UUID) (uuid.UUID, error) {
-	primary, err := s.GetWorkerProfile(ctx, anchor)
+type dynamicPeerAnchor struct {
+	MatchTask
+	WorkerID   uuid.UUID
+	SupplierID uuid.UUID
+	JobType    string
+	ModelRef   string
+	Current    bool
+}
+
+// frozenDynamicPeerAnchor resolves peer selection from the task/job freeze,
+// never from the anchor worker's mutable registration. A v3 anchor that is not
+// byte-for-byte coherent with its accepted placement is not selectable.
+func (s *Store) frozenDynamicPeerAnchor(ctx context.Context, jobID, anchorTaskID uuid.UUID) (dynamicPeerAnchor, error) {
+	var (
+		out                                      dynamicPeerAnchor
+		placementRaw                             []byte
+		hwClass, hardware, engine, build, policy string
+		cellID, runtimeID, modelKind, matrix     string
+	)
+	err := s.pool.QueryRow(ctx, `
+		SELECT COALESCE(j.placement_requirement,'{}'::jsonb),j.job_type,COALESCE(j.model_ref,''),
+		       COALESCE(j.min_memory_gb,0),
+		       COALESCE(anchor.execution_worker_id,'00000000-0000-0000-0000-000000000000'::uuid),
+		       COALESCE(anchor.execution_supplier_id,'00000000-0000-0000-0000-000000000000'::uuid),
+		       COALESCE(anchor.execution_hw_class,''),COALESCE(anchor.execution_hardware_identity,''),
+		       COALESCE(anchor.execution_engine,''),COALESCE(anchor.execution_build_hash,''),
+		       COALESCE(anchor.execution_build_identity_policy,''),
+		       COALESCE(anchor.runtime_cell_id,''),COALESCE(anchor.runtime_id,''),
+		       COALESCE(anchor.model_kind,''),COALESCE(anchor.runtime_matrix_sha256,'')
+		  FROM jobs j JOIN tasks anchor ON anchor.job_id=j.id
+		 WHERE j.id=$1 AND anchor.id=$2`, jobID, anchorTaskID).Scan(
+		&placementRaw, &out.JobType, &out.ModelRef, &out.MinMemoryGB,
+		&out.WorkerID, &out.SupplierID, &hwClass, &hardware, &engine, &build, &policy,
+		&cellID, &runtimeID, &modelKind, &matrix)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return out, ErrNoSupply
+	}
 	if err != nil {
-		return uuid.Nil, err
+		return out, err
+	}
+	var placement PlacementRequirement
+	if err := json.Unmarshal(placementRaw, &placement); err != nil {
+		return out, ErrNoSupply
+	}
+	if placement.Version < placementRequirementVersion {
+		return out, nil
+	}
+	if placement.Version != placementRequirementVersion || out.WorkerID == uuid.Nil || out.SupplierID == uuid.Nil ||
+		hwClass == "" || hardware == "" || engine == "" || !engineBuildHashPattern.MatchString(build) ||
+		!validCurrentEngineBuildIdentityPolicy(policy) || placement.RuntimeCellID == "" ||
+		placement.RuntimeID == "" || placement.ModelKind == "" ||
+		placement.RuntimeMatrixSHA256 != generatedRuntimeMatrixSHA256 ||
+		placement.Engine != engine || placement.EngineBuildHash != build ||
+		placement.EngineBuildIdentityPolicy != policy || placement.HardwareIdentity != hardware ||
+		placement.RuntimeCellID != cellID || placement.RuntimeID != runtimeID ||
+		placement.ModelKind != modelKind || placement.RuntimeMatrixSHA256 != matrix {
+		return out, ErrNoSupply
+	}
+	out.Current = true
+	out.JobType = placement.JobType
+	out.ModelRef = placement.ModelRef
+	out.HWClasses = []string{hwClass}
+	out.PinEngine = engine
+	out.PinBuildHash = build
+	out.PinBuildIdentityPolicy = policy
+	out.PinHardwareIdentity = hardware
+	out.RequiredRuntimeKeys = []string{runtimeCapabilityKey(cellID, runtimeID, modelKind)}
+	out.Tier = "batch"
+	return out, nil
+}
+
+func (s *Store) SelectRedundancyPeerExcluding(ctx context.Context, jobID, anchorTaskID uuid.UUID, jobType, modelRef string, minMemGB float32, anchor uuid.UUID, also, alsoSuppliers []uuid.UUID) (uuid.UUID, error) {
+	matchTask := MatchTask{JobType: jobType, MinMemoryGB: minMemGB, Tier: "batch"}
+	anchorWorker, anchorSupplier := anchor, uuid.Nil
+	if jobID != uuid.Nil && anchorTaskID != uuid.Nil {
+		frozen, err := s.frozenDynamicPeerAnchor(ctx, jobID, anchorTaskID)
+		if err != nil {
+			return uuid.Nil, err
+		}
+		if frozen.Current {
+			matchTask = frozen.MatchTask
+			jobType, modelRef, minMemGB = frozen.JobType, frozen.ModelRef, frozen.MinMemoryGB
+			anchorWorker, anchorSupplier = frozen.WorkerID, frozen.SupplierID
+		}
+	}
+	if anchorSupplier == uuid.Nil {
+		primary, err := s.GetWorkerProfile(ctx, anchor)
+		if err != nil {
+			return uuid.Nil, err
+		}
+		anchorSupplier = primary.SupplierID
+		matchTask.HWClasses = []string{primary.HWClass}
+		matchTask.PinEngine = primary.Engine
+		matchTask.PinBuildHash = primary.BuildHash
+		matchTask.PinBuildIdentityPolicy = primary.BuildIdentityPolicy
+		matchTask.PinHardwareIdentity = primary.HardwareIdentity
 	}
 
 	candidates, err := s.CandidateWorkers(ctx, jobType, modelRef, minMemGB)
 	if err != nil {
 		return uuid.Nil, err
 	}
-	pruned := prunePeers(candidates, anchor, primary.SupplierID, also, alsoSuppliers)
+	pruned := prunePeers(candidates, anchorWorker, anchorSupplier, also, alsoSuppliers)
 
-	ranked, err := Match(MatchTask{
-		JobType:      jobType,
-		MinMemoryGB:  minMemGB,
-		HWClasses:    []string{primary.HWClass}, // same hw class only
-		PinEngine:    primary.Engine,
-		PinBuildHash: primary.BuildHash,
-		Tier:         "batch",
-	}, pruned)
+	ranked, err := Match(matchTask, pruned)
 	if err != nil {
 		if errors.Is(err, ErrNoSupply) && len(pruned) > 0 {
 			noHedgePeerFound.Add(1)
@@ -259,12 +378,14 @@ func (s *Store) SelectEndgameRacePeer(ctx context.Context, jobType, modelRef str
 	}
 	pruned := prunePeers(candidates, anchor, primary.SupplierID, nil, nil)
 	ranked, err := Match(MatchTask{
-		JobType:      jobType,
-		MinMemoryGB:  minMemGB,
-		HWClasses:    []string{primary.HWClass},
-		PinEngine:    primary.Engine,
-		PinBuildHash: primary.BuildHash,
-		Tier:         "batch",
+		JobType:                jobType,
+		MinMemoryGB:            minMemGB,
+		HWClasses:              []string{primary.HWClass},
+		PinEngine:              primary.Engine,
+		PinBuildHash:           primary.BuildHash,
+		PinBuildIdentityPolicy: primary.BuildIdentityPolicy,
+		PinHardwareIdentity:    primary.HardwareIdentity,
+		Tier:                   "batch",
 	}, pruned)
 	if err != nil {
 		return uuid.Nil, err // ErrNoSupply when no same-class peer is online at all
@@ -331,6 +452,7 @@ type ClaimedTask struct {
 	RuntimeID        string
 	RuntimeMatrixSHA string
 	InputRef         string // this task's input chunk key (presigned to input_url)
+	InputSHA256      string // exact bytes the current worker must verify after download
 	ResultKey        string // where the worker writes its result (presigned to output_url)
 	OutputRef        string // the job-level merged output key (manifest)
 	Tier             string
@@ -377,6 +499,8 @@ func claimTaskSQL(claimedByPredicate, shapeOrderExpr string) string {
 	   -- task, so it belongs here, computed once per job, not once per task.
 	   SELECT w.id AS worker_id, w.supplier_id, w.hw_class,
 	          COALESCE(w.engine,'') AS engine, COALESCE(w.build_hash,'') AS build_hash,
+	          COALESCE(w.build_identity_policy,'') AS build_identity_policy,
+	          COALESCE(w.hardware_identity,'') AS hardware_identity,
 	          w.effective_memory_gb, w.memory_gb,
 		          w.min_payout_usd_hr, w.throttled,
 		          COALESCE(w.priority_claim_streak,0) AS priority_claim_streak,
@@ -409,8 +533,10 @@ func claimTaskSQL(claimedByPredicate, shapeOrderExpr string) string {
 	     me.worker_id AS claim_worker_id,
 	     me.supplier_id_s AS claim_supplier_id,
 	     me.hw_class AS claim_hw_class,
-		     me.engine AS claim_engine,
-		     me.build_hash AS claim_build_hash,
+	     me.engine AS claim_engine,
+	     me.build_hash AS claim_build_hash,
+	     me.build_identity_policy AS claim_build_identity_policy,
+	     me.hardware_identity AS claim_hardware_identity,
 		     me.priority_claim_streak,
 	     runtime_authority.cell_id AS runtime_cell_id,
 	     runtime_authority.runtime_id AS runtime_id,
@@ -450,6 +576,15 @@ func claimTaskSQL(claimedByPredicate, shapeOrderExpr string) string {
 	           OR (COALESCE(s2.reputation,0) >= 0.80 AND COALESCE(s2.completed_tasks,0) >= 500)
 	         )
 	         AND COALESCE(j.offered_rate_usd_hr,1e9) >= COALESCE(w2.min_payout_usd_hr,0)
+	         AND (
+	           COALESCE(j.placement_requirement->>'version','') IN ('','1','2')
+	           OR (
+	             j.placement_requirement->>'version' = '3'
+	             AND j.placement_requirement->>'engine_build_hash' = COALESCE(w2.build_hash,'')
+	             AND j.placement_requirement->>'engine_build_identity_policy' = COALESCE(w2.build_identity_policy,'')
+	             AND j.placement_requirement->>'hardware_identity' = COALESCE(w2.hardware_identity,'')
+	           )
+	         )
 `+supplierNotLinkedToBuyerSQL("s2")+`
 	         AND EXISTS (
 	           SELECT 1 FROM worker_authorized_capabilities wac2
@@ -457,6 +592,7 @@ func claimTaskSQL(claimedByPredicate, shapeOrderExpr string) string {
 	              AND wac2.job_type = j.job_type
 	              AND wac2.model_ref = COALESCE(j.model_ref,'')
 	              AND wac2.matrix_sha256 = $4
+	              AND wac2.authorized_at >= now() - interval '7 days'
 	              AND (
 	                -- A legacy job carries no frozen runtime candidate, so this is the
 	                -- one branch that matches a capability against no named cell.
@@ -522,6 +658,15 @@ func claimTaskSQL(claimedByPredicate, shapeOrderExpr string) string {
 	         AND (j.data_residency IS NULL OR s3.data_country = ANY(j.data_residency))
 	         AND COALESCE(j.min_reputation,0) <= COALESCE(s3.reputation,0)
 	         AND (
+	           COALESCE(j.placement_requirement->>'version','') IN ('','1','2')
+	           OR (
+	             j.placement_requirement->>'version' = '3'
+	             AND j.placement_requirement->>'engine_build_hash' = COALESCE(w3.build_hash,'')
+	             AND j.placement_requirement->>'engine_build_identity_policy' = COALESCE(w3.build_identity_policy,'')
+	             AND j.placement_requirement->>'hardware_identity' = COALESCE(w3.hardware_identity,'')
+	           )
+	         )
+	         AND (
 	           j.tier <> 'trusted'
 	           OR (COALESCE(s3.reputation,0) >= 0.80 AND COALESCE(s3.completed_tasks,0) >= 500)
 	         )
@@ -532,6 +677,7 @@ func claimTaskSQL(claimedByPredicate, shapeOrderExpr string) string {
 	              AND wac3.job_type = j.job_type
 	              AND wac3.model_ref = COALESCE(j.model_ref,'')
 	              AND wac3.matrix_sha256 = $4
+	              AND wac3.authorized_at >= now() - interval '7 days'
 	              AND (
 	                -- A legacy job carries no frozen runtime candidate, so this is the
 	                -- one branch that matches a capability against no named cell.
@@ -653,6 +799,7 @@ func claimTaskSQL(claimedByPredicate, shapeOrderExpr string) string {
 	        AND wac.job_type = j.job_type
 	        AND wac.model_ref = COALESCE(j.model_ref,'')
 	        AND wac.matrix_sha256 = $4
+	        AND wac.authorized_at >= now() - interval '7 days'
 	        -- New jobs execute only on the exact runtime cells frozen by the
 	        -- admission decision. Legacy rows predate workload authority and
 	        -- retain the generated-matrix filter above.
@@ -733,6 +880,19 @@ func claimTaskSQL(claimedByPredicate, shapeOrderExpr string) string {
 	     AND COALESCE(j.min_reputation,0) <= me.reputation
 	     AND (j.tier <> 'trusted' OR $2 >= 2)
 	     AND (COALESCE(j.offered_rate_usd_hr,1e9) >= COALESCE(me.min_payout_usd_hr,0))
+	     -- Placement v3 prices supplier active-hour viability from one exact
+	     -- measured execution build and device generation. A worker in the same
+	     -- coarse class is not interchangeable. Historical v1/v2 jobs retain
+	     -- their accepted pre-identity claim semantics.
+	     AND (
+	       COALESCE(j.placement_requirement->>'version','') IN ('','1','2')
+	       OR (
+	         j.placement_requirement->>'version' = '3'
+	         AND j.placement_requirement->>'engine_build_hash' = me.build_hash
+	         AND j.placement_requirement->>'engine_build_identity_policy' = me.build_identity_policy
+	         AND j.placement_requirement->>'hardware_identity' = me.hardware_identity
+	       )
+	     )
 	     -- Containment: a worker that deliberately opted out of the seatbelt
 	     -- (MERC_ALLOW_UNSANDBOXED) must not receive buyer payload. Greppable
 	     -- via workers.unsandboxed_opt_in and the capability record.
@@ -791,7 +951,9 @@ func claimTaskSQL(claimedByPredicate, shapeOrderExpr string) string {
 	     ej.claim_supplier_id,
 	     ej.claim_hw_class,
 	     ej.claim_engine,
-	     ej.claim_build_hash
+	     ej.claim_build_hash,
+	     ej.claim_build_identity_policy,
+	     ej.claim_hardware_identity
 	   FROM tasks t
 	     -- Only the per-JOB-eligible jobs survive to here (eligible_jobs above), so
 	     -- this join IS the whole hard filter except the two per-task conditions
@@ -857,6 +1019,8 @@ func claimTaskSQL(claimedByPredicate, shapeOrderExpr string) string {
 	              OR ej.claim_engine=t.verification_engine)
 	         AND (COALESCE(t.verification_build_hash,'')=''
 	              OR ej.claim_build_hash=t.verification_build_hash)
+	         AND (COALESCE(t.verification_build_identity_policy,'')=''
+	              OR ej.claim_build_identity_policy=t.verification_build_identity_policy)
 	         AND NOT EXISTS (
 	           SELECT 1
 	             FROM (
@@ -950,14 +1114,17 @@ func claimTaskSQL(claimedByPredicate, shapeOrderExpr string) string {
 	       execution_worker_id = next.claim_worker_id,
 	       execution_supplier_id = next.claim_supplier_id,
 	       execution_hw_class = next.claim_hw_class,
+	       execution_hardware_identity = NULLIF(next.claim_hardware_identity,''),
 	       execution_engine = next.claim_engine,
-	       execution_build_hash = next.claim_build_hash
+	       execution_build_hash = next.claim_build_hash,
+	       execution_build_identity_policy = next.claim_build_identity_policy
 	 FROM next, jobs j
 	 WHERE tasks.id = next.id AND j.id = tasks.job_id
 	 RETURNING tasks.id, COALESCE(tasks.retry_count,0), tasks.job_id, j.job_type, COALESCE(j.model_ref,''),
 	           tasks.model_kind, tasks.runtime_cell_id, tasks.runtime_id,
 	           tasks.runtime_matrix_sha256,
-		           COALESCE(tasks.input_ref,''), COALESCE(tasks.result_key,''),
+		           COALESCE(tasks.input_ref,''), COALESCE(tasks.input_sha256,''),
+		           COALESCE(tasks.result_key,''),
 		           COALESCE(j.output_ref,''), j.tier,
 		           COALESCE(j.min_memory_gb,0), j.hw_classes,
 		           COALESCE(j.max_duration_secs,0), j.data_residency,
@@ -1021,7 +1188,7 @@ func (s *Store) ClaimTasksTx(ctx context.Context, w WorkerAuth) (*ClaimedTask, e
 			w.WorkerID, int(tier), selfCostRank, generatedRuntimeMatrixSHA256,
 			selfMinPayoutUsdHr, askDeferralWindow.String(), settlementCurrency,
 		).Scan(&c.TaskID, &c.Attempt, &c.JobID, &c.JobType, &c.ModelRef, &c.ModelKind,
-			&c.RuntimeCellID, &c.RuntimeID, &c.RuntimeMatrixSHA, &c.InputRef, &c.ResultKey,
+			&c.RuntimeCellID, &c.RuntimeID, &c.RuntimeMatrixSHA, &c.InputRef, &c.InputSHA256, &c.ResultKey,
 			&c.OutputRef, &c.Tier, &c.MinMemoryGB, &c.HWClasses, &c.MaxDurationSecs,
 			&c.DataResidency, &c.VerifPolicy, &c.JobTypeSpec, &c.OfferedRateUsdHr,
 			&c.ChunkIndex, &c.IsHoneypot)

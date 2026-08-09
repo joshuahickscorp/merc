@@ -5,8 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
+	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -53,12 +56,26 @@ type ActivationPolicyEntry struct {
 	EffectiveAt      time.Time `json:"effective_at"`
 	Source           string    `json:"source"`
 	Note             string    `json:"note,omitempty"`
+	// RestoredSource is read-time provenance for a rollback row: the source of
+	// the statement selected at RollbackTarget. It is deliberately not a wire or
+	// storage field. A rollback must not launder an operator promotion accepted
+	// under an obsolete gate into current authority merely because the new row's
+	// source is "rollback".
+	RestoredSource string `json:"-"`
 }
 
 const (
 	activationSourceDocument = "document"
 	activationSourceOperator = "operator"
 	activationSourceRollback = "rollback"
+
+	// Every activation-policy writer takes this transaction-scoped lock before
+	// it reads the current epoch or allocates the next one. The policy revision
+	// is a global epoch, not a per-cell counter: two disjoint writes sharing one
+	// MAX(revision)+1 would make one revision mean two independently reviewed
+	// decisions and would let a promotion validate against an epoch that changed
+	// before it committed.
+	activationPolicyAdvisoryLockID int64 = 0x4d45524341504359
 )
 
 // activationKey addresses a profile ("candle_metal") or one of its cells
@@ -119,9 +136,17 @@ func (a *runtimeActivation) cellLifecycle(p authorityRuntimeProfile, c authority
 }
 
 func (a *runtimeActivation) cellRoutable(p authorityRuntimeProfile, c authorityCell) bool {
-	// Lifecycle from policy, authority binding from the document: a CANARY cell
-	// whose receipt was withdrawn is not routable, and an operator write cannot
-	// make it so without a new bindable authority.
+	// CANARY has no ordinary-routing consumer that enforces CanaryAllowlist or
+	// CanaryTrafficPct. Until such a scoped admission path exists, advertising a
+	// CANARY cell would send it unrestricted buyer traffic. It remains in the
+	// directed set for governed evidence collection; only ACTIVE can enter the
+	// ordinary advertised projection.
+	if a.cellLifecycle(p, c) != runtimeLifecycleActive {
+		return false
+	}
+	// Lifecycle comes from policy and authority binding from the document: even an
+	// ACTIVE cell whose receipt was withdrawn is not routable, and an operator
+	// write cannot make it so without new bindable authority.
 	resolved := a.resolve(p)
 	var cell authorityCell
 	for _, candidate := range resolved.Cells {
@@ -174,6 +199,15 @@ func (a *runtimeActivation) resolve(profile authorityRuntimeProfile) authorityRu
 // decision to answer a question whose answer only changes when policy does.
 func (a *runtimeActivation) profiles() []authorityRuntimeProfile { return a.resolved }
 
+func (a *runtimeActivation) profileByID(runtimeID string) (authorityRuntimeProfile, bool) {
+	for _, profile := range a.resolved {
+		if profile.RuntimeID == runtimeID {
+			return profile, true
+		}
+	}
+	return authorityRuntimeProfile{}, false
+}
+
 // routableProfiles returns the profiles allowed to receive buyer work under this
 // policy.
 func (a *runtimeActivation) routableProfiles() []authorityRuntimeProfile {
@@ -207,6 +241,12 @@ func documentActivation() *runtimeActivation {
 
 var activeRuntimeActivation atomic.Pointer[runtimeActivation]
 
+// The database advisory lock orders writers across processes. This local lock
+// extends that ordering through RefreshActivationPolicy so an older writer's
+// post-commit refresh cannot race a newer writer's refresh and regress the
+// process-wide snapshot after the newer revision has already been installed.
+var activationPolicyWriteMu sync.Mutex
+
 // currentActivation is the policy every projection and admission decision reads.
 func currentActivation() *runtimeActivation {
 	if a := activeRuntimeActivation.Load(); a != nil {
@@ -219,8 +259,29 @@ func currentActivation() *runtimeActivation {
 	return activeRuntimeActivation.Load()
 }
 
-// adoptActivation installs a refreshed policy for the whole process.
+// adoptActivation installs a policy for the whole process. Startup uses this
+// unconditional form because it is binding the process to one database after a
+// migration; live refreshes use adoptActivationIfNewer below.
 func adoptActivation(a *runtimeActivation) { activeRuntimeActivation.Store(a) }
+
+// adoptActivationIfNewer prevents an asynchronous/best-effort refresh from
+// replacing a snapshot already known to include a later committed epoch. Policy
+// is append-only, so an equal revision has equal meaning and need not replace
+// the snapshot either.
+func adoptActivationIfNewer(candidate *runtimeActivation) bool {
+	if candidate == nil {
+		return false
+	}
+	for {
+		current := activeRuntimeActivation.Load()
+		if current != nil && candidate.PolicyRevision <= current.PolicyRevision {
+			return false
+		}
+		if activeRuntimeActivation.CompareAndSwap(current, candidate) {
+			return true
+		}
+	}
+}
 
 // advertisedRuntimeCapabilities is the buyer-visible catalogue under the current
 // policy.
@@ -251,7 +312,7 @@ func documentActivationEntries() ([]ActivationPolicyEntry, error) {
 			// Profile-level routable stays lifecycle-derived: the catalogue is
 			// per cell. A profile with every cell unbound is still "ACTIVE" as a
 			// document statement; its cells are simply not advertised.
-			Routable:         runtimeLifecycleRoutable(profile.Lifecycle),
+			Routable:         profile.Lifecycle == runtimeLifecycleActive,
 			DirectedEligible: directedReachableLifecycle(profile.Lifecycle),
 			PromotionReceipt: profile.BenchmarkAuthority,
 			Source:           activationSourceDocument,
@@ -268,7 +329,7 @@ func documentActivationEntries() ([]ActivationPolicyEntry, error) {
 				// predicate projectActivationPolicyIntoRegistry writes into the
 				// registry, so a document seed cannot advertise a cell the
 				// predicate would refuse.
-				Routable:         cell.Routable(profile),
+				Routable:         effective == runtimeLifecycleActive && cell.Routable(profile),
 				DirectedEligible: directedReachableLifecycle(effective),
 				PromotionReceipt: cell.benchmarkAuthorityFor(profile),
 				Source:           activationSourceDocument,
@@ -316,8 +377,66 @@ func insertActivationPolicy(
 	ctx context.Context, tx pgx.Tx, entries []ActivationPolicyEntry,
 	source string, rollbackTarget *int64, note string,
 ) (int64, error) {
+	if err := lockActivationPolicy(ctx, tx); err != nil {
+		return 0, err
+	}
+	return insertActivationPolicyLocked(ctx, tx, entries, source, rollbackTarget, note)
+}
+
+// lockActivationPolicy serializes policy epoch reads and writes. Transaction
+// scope is important: an error or caller cancellation releases the lock with
+// the rollback, and a committed epoch becomes visible before the next writer
+// validates its receipt.
+func lockActivationPolicy(ctx context.Context, tx pgx.Tx) error {
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, activationPolicyAdvisoryLockID); err != nil {
+		return fmt.Errorf("lock activation policy epoch: %w", err)
+	}
+	return nil
+}
+
+// insertActivationPolicyLocked allocates and writes one revision while the
+// caller holds activationPolicyAdvisoryLockID.
+func insertActivationPolicyLocked(
+	ctx context.Context, tx pgx.Tx, entries []ActivationPolicyEntry,
+	source string, rollbackTarget *int64, note string,
+) (int64, error) {
 	if len(entries) == 0 {
 		return 0, errors.New("an activation policy revision must contain at least one entry")
+	}
+	// A revision is one global epoch. Letting its rows become effective at
+	// different instants changes policy semantics without changing MAX(revision),
+	// which makes replica freshness impossible to prove. The database trigger
+	// enforces this for every writer; reject it here too so the governed API gives
+	// an actionable error instead of a trigger diagnostic.
+	var (
+		explicitEffectiveAt *time.Time
+		usesDatabaseNow     bool
+	)
+	validationNow := time.Now().UTC()
+	for _, entry := range entries {
+		if entry.EffectiveAt.IsZero() {
+			usesDatabaseNow = true
+			continue
+		}
+		// Scheduled activation would let a future rN force every later revision
+		// (including emergency quarantine or rollback) to wait behind it in order
+		// to preserve monotonic epochs. Activation is therefore immediate or
+		// historical only; future policy needs a separately governed scheduler
+		// whose cancellation/containment semantics are explicit.
+		if entry.EffectiveAt.After(validationNow) {
+			return 0, errors.New("activation policy effective_at cannot be in the future")
+		}
+		if explicitEffectiveAt == nil {
+			value := entry.EffectiveAt
+			explicitEffectiveAt = &value
+			continue
+		}
+		if !entry.EffectiveAt.Equal(*explicitEffectiveAt) {
+			return 0, errors.New("all activation policy entries in one revision must have the same effective_at")
+		}
+	}
+	if usesDatabaseNow && explicitEffectiveAt != nil {
+		return 0, errors.New("activation policy revision cannot mix database-now and explicit effective_at values")
 	}
 	var next int64
 	if err := tx.QueryRow(ctx,
@@ -336,7 +455,7 @@ func insertActivationPolicy(
 		}
 		// NULL, not time.Now(). PostgreSQL's now() is the TRANSACTION start, so a
 		// wall-clock timestamp taken in Go is always fractionally later than it —
-		// and the "in force" read filters on effective_at <= now(). A policy
+		// and the "in force" read filters on effective_at <= clock_timestamp(). A policy
 		// written and projected in one transaction would therefore have projected
 		// nothing, silently, which is exactly how it first behaved.
 		var effective any
@@ -355,13 +474,14 @@ func insertActivationPolicy(
 				for j := range proposed.Cells {
 					if proposed.Cells[j].ID == entry.CellID {
 						proposed.Cells[j].Lifecycle = entry.Lifecycle
-						routable = proposed.Cells[j].Routable(proposed)
+						routable = entry.Lifecycle == runtimeLifecycleActive &&
+							proposed.Cells[j].Routable(proposed)
 						break
 					}
 				}
 			}
 		} else {
-			routable = runtimeLifecycleRoutable(entry.Lifecycle)
+			routable = entry.Lifecycle == runtimeLifecycleActive
 		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO runtime_activation_policies
@@ -387,14 +507,33 @@ func insertActivationPolicy(
 // profile and cell.
 func currentActivationEntries(ctx context.Context, q pgxQuerier) ([]ActivationPolicyEntry, error) {
 	rows, err := q.Query(ctx, `
-		SELECT DISTINCT ON (runtime_profile_id, cell_id)
-		       policy_revision, runtime_profile_id, profile_revision, cell_id,
-		       capability_digest, lifecycle, routable, directed_eligible,
-		       canary_allowlist, canary_traffic_pct, promotion_receipt,
-		       rollback_target, effective_at, source, note
-		  FROM runtime_activation_policies
-		 WHERE effective_at <= now()
-		 ORDER BY runtime_profile_id, cell_id, policy_revision DESC`)
+		WITH current_policy AS (
+			SELECT DISTINCT ON (runtime_profile_id, cell_id)
+			       policy_revision, runtime_profile_id, profile_revision, cell_id,
+			       capability_digest, lifecycle, routable, directed_eligible,
+			       canary_allowlist, canary_traffic_pct, promotion_receipt,
+			       rollback_target, effective_at, source, note
+			  FROM runtime_activation_policies
+			 WHERE effective_at <= clock_timestamp()
+			 ORDER BY runtime_profile_id, cell_id, policy_revision DESC
+		)
+		SELECT c.policy_revision, c.runtime_profile_id, c.profile_revision, c.cell_id,
+		       c.capability_digest, c.lifecycle, c.routable, c.directed_eligible,
+		       c.canary_allowlist, c.canary_traffic_pct, c.promotion_receipt,
+		       c.rollback_target, c.effective_at, c.source, c.note,
+		       CASE WHEN c.source = 'rollback' AND c.rollback_target IS NOT NULL THEN
+		         COALESCE((
+		           SELECT target.source
+		             FROM runtime_activation_policies target
+		            WHERE target.runtime_profile_id = c.runtime_profile_id
+		              AND target.cell_id = c.cell_id
+		              AND target.policy_revision <= c.rollback_target
+		            ORDER BY target.policy_revision DESC
+		            LIMIT 1
+		         ), '')
+		       ELSE c.source END AS restored_source
+		  FROM current_policy c
+		 ORDER BY c.runtime_profile_id, c.cell_id`)
 	if err != nil {
 		return nil, err
 	}
@@ -408,7 +547,7 @@ func currentActivationEntries(ctx context.Context, q pgxQuerier) ([]ActivationPo
 			&entry.CellID, &entry.CapabilityDigest, &entry.Lifecycle, &entry.Routable,
 			&entry.DirectedEligible, &allowlist, &entry.CanaryTrafficPct,
 			&entry.PromotionReceipt, &entry.RollbackTarget, &entry.EffectiveAt,
-			&entry.Source, &entry.Note); err != nil {
+			&entry.Source, &entry.Note, &entry.RestoredSource); err != nil {
 			return nil, err
 		}
 		if len(allowlist) > 0 {
@@ -427,6 +566,7 @@ func currentActivationEntries(ctx context.Context, q pgxQuerier) ([]ActivationPo
 // from a live pool.
 type pgxQuerier interface {
 	Query(context.Context, string, ...any) (pgx.Rows, error)
+	QueryRow(context.Context, string, ...any) pgx.Row
 }
 
 // activationSnapshotFrom turns stored policy into the overlay the process runs
@@ -440,6 +580,14 @@ type pgxQuerier interface {
 func activationSnapshotFrom(entries []ActivationPolicyEntry) (*runtimeActivation, error) {
 	digests := make(map[string]string, len(runtimeAuthority.Runtimes))
 	revisions := make(map[string]string, len(runtimeAuthority.Runtimes))
+	documentEntries, err := documentActivationEntries()
+	if err != nil {
+		return nil, err
+	}
+	documentByKey := make(map[string]ActivationPolicyEntry, len(documentEntries))
+	for _, entry := range documentEntries {
+		documentByKey[activationKey(entry.RuntimeProfileID, entry.CellID)] = entry
+	}
 	for _, profile := range runtimeAuthority.Runtimes {
 		digest, err := profile.CapabilityDigest(runtimeAuthorityModels)
 		if err != nil {
@@ -452,6 +600,9 @@ func activationSnapshotFrom(entries []ActivationPolicyEntry) (*runtimeActivation
 	var stale []string
 	var maxRevision int64
 	for _, entry := range entries {
+		if entry.PolicyRevision > maxRevision {
+			maxRevision = entry.PolicyRevision
+		}
 		key := activationKey(entry.RuntimeProfileID, entry.CellID)
 		want, known := digests[entry.RuntimeProfileID]
 		switch {
@@ -472,26 +623,207 @@ func activationSnapshotFrom(entries []ActivationPolicyEntry) (*runtimeActivation
 				key, entry.PolicyRevision, entry.CapabilityDigest[:12], want[:12]))
 			continue
 		}
-		overlay[key] = entry.Lifecycle
-		if entry.PolicyRevision > maxRevision {
-			maxRevision = entry.PolicyRevision
+		lifecycle := entry.Lifecycle
+		if runtimeLifecycleRoutable(lifecycle) &&
+			!storedRoutableEntryHasCurrentGlobalAuthority(entry, documentByKey[key]) {
+			lifecycle = runtimeLifecycleQuarantined
+			stale = append(stale, fmt.Sprintf(
+				"%s: policy r%d %s %s statement has no current global authority; effective lifecycle is QUARANTINED",
+				key, entry.PolicyRevision, entry.Source, entry.Lifecycle))
 		}
+		overlay[key] = lifecycle
 	}
 	sort.Strings(stale)
 	return newRuntimeActivation(maxRevision, overlay, stale), nil
 }
 
+// storedRoutableEntryHasCurrentGlobalAuthority is the load/rollback boundary
+// for CANARY and ACTIVE statements.
+//
+// Gate v4 intentionally cannot authorize a cell-global lifecycle: its evidence
+// type covers one exact cohort and lacks durable matched execution/input-pair
+// authority. Consequently, an operator statement accepted by gate v2 or by the
+// old free-form receipt path is never grandfathered. Only the exact statement
+// seeded from the current document is usable. A rollback may restore that
+// statement when its target row was document-sourced; it may not turn an old
+// operator row into authority merely by changing source to "rollback".
+func storedRoutableEntryHasCurrentGlobalAuthority(
+	entry, document ActivationPolicyEntry,
+) bool {
+	provenanceAuthorized := entry.Source == activationSourceDocument ||
+		(entry.Source == activationSourceRollback &&
+			entry.RestoredSource == activationSourceDocument)
+	if !provenanceAuthorized {
+		return false
+	}
+	if document.RuntimeProfileID == "" ||
+		entry.RuntimeProfileID != document.RuntimeProfileID ||
+		entry.CellID != document.CellID ||
+		entry.ProfileRevision != document.ProfileRevision ||
+		entry.CapabilityDigest != document.CapabilityDigest ||
+		entry.Lifecycle != document.Lifecycle ||
+		entry.PromotionReceipt != document.PromotionReceipt {
+		return false
+	}
+	// ACTIVE is the only lifecycle admitted to ordinary routing. For a cell,
+	// the current document must additionally bind the complete cell authority;
+	// a historical document receipt that is now withdrawn cannot be revived.
+	if entry.Lifecycle == runtimeLifecycleActive && entry.CellID != "" {
+		return document.Routable
+	}
+	if entry.Lifecycle == runtimeLifecycleActive {
+		for _, profile := range runtimeAuthority.Runtimes {
+			if profile.RuntimeID != entry.RuntimeProfileID {
+				continue
+			}
+			for _, cell := range profile.Cells {
+				if cell.EffectiveLifecycle(profile) == runtimeLifecycleActive &&
+					cell.Routable(profile) {
+					return true
+				}
+			}
+			return false
+		}
+		return false
+	}
+	return true
+}
+
+func readActivationSnapshot(
+	ctx context.Context, q pgxQuerier,
+) (*runtimeActivation, error) {
+	entries, err := currentActivationEntries(ctx, q)
+	if err != nil {
+		return nil, err
+	}
+	return activationSnapshotFrom(entries)
+}
+
+// activationPolicyBestEffortRefresh is a test seam for the non-authoritative
+// read after commit. Correctness never depends on this read: the exact snapshot
+// was derived in the transaction and is installed first. A successful read can
+// only advance the cache to an even newer cross-process commit.
+var activationPolicyBestEffortRefresh = func(
+	ctx context.Context, pool *pgxpool.Pool,
+) (*runtimeActivation, error) {
+	return readActivationSnapshot(ctx, pool)
+}
+
+var (
+	errActivationAdmissionUnavailable = errors.New("runtime activation authority is unavailable for new admission")
+	errActivationAdmissionStale       = errors.New("runtime activation authority changed during admission")
+)
+
+// activationForNewAdmission is the replica-freshness boundary for anything
+// that is about to mint new runtime authority (a quote, an accepted job, or a
+// worker registration).
+//
+// The process snapshot is deliberately a cache: another control process can
+// commit a containment epoch without touching this process's atomic pointer.
+// Therefore every new admission reads the database's complete in-force
+// snapshot, compares its epoch with the cache, and advances the cache when it is
+// behind. A read failure is a refusal, never permission to keep using the last
+// snapshot. Historical reads and scheduling of already accepted work do not
+// call this function; their authority is frozen on the durable object.
+//
+// This read is paired with guardActivationAdmissionTx at the eventual durable
+// write. The pair closes the otherwise unavoidable interval in which another
+// replica could commit quarantine after this read but before the admission row
+// was inserted.
+func (s *Store) activationForNewAdmission(
+	ctx context.Context,
+) (*runtimeActivation, error) {
+	if s == nil || s.pool == nil {
+		return nil, fmt.Errorf("%w: activation store is not configured",
+			errActivationAdmissionUnavailable)
+	}
+	databaseSnapshot, err := readActivationSnapshot(ctx, s.pool)
+	if err != nil {
+		return nil, fmt.Errorf("%w: read current policy epoch: %v",
+			errActivationAdmissionUnavailable, err)
+	}
+	cached := currentActivation()
+	switch {
+	case cached.PolicyRevision < databaseSnapshot.PolicyRevision:
+		adoptActivationIfNewer(databaseSnapshot)
+	case cached.PolicyRevision > databaseSnapshot.PolicyRevision:
+		// In production every Store in a process points at the same database, so
+		// an ahead cache means its provenance cannot be established for this
+		// Store. Refuse instead of silently regressing the process-wide pointer.
+		return nil, fmt.Errorf(
+			"%w: cached policy epoch %d is ahead of database epoch %d",
+			errActivationAdmissionUnavailable, cached.PolicyRevision,
+			databaseSnapshot.PolicyRevision)
+	}
+	installed := currentActivation()
+	if installed.PolicyRevision != databaseSnapshot.PolicyRevision {
+		// A same-process policy write advanced the pointer between the read and
+		// install. Retrying is safe; classifying against a potentially mixed pair
+		// of epochs is not.
+		return nil, fmt.Errorf(
+			"%w: policy epoch advanced from %d to %d while refreshing",
+			errActivationAdmissionStale, databaseSnapshot.PolicyRevision,
+			installed.PolicyRevision)
+	}
+	return installed, nil
+}
+
+// activationAdmissionRevision returns the explicit epoch captured at request
+// ingress, or the process snapshot for internal/test callers predating that
+// field. The transaction guard below still compares that fallback with the
+// database and fails closed if it is stale.
+func activationAdmissionRevision(captured int64) int64 {
+	if captured > 0 {
+		return captured
+	}
+	return currentActivation().PolicyRevision
+}
+
+// guardActivationAdmissionTx closes the freshness/read-to-write race.
+//
+// Policy writers take the exclusive form of activationPolicyAdvisoryLockID.
+// Admissions take the shared form only for their short durable transaction,
+// then compare the exact epoch used to classify the request with PostgreSQL's
+// current effective epoch. Consequently a quarantine either commits first and
+// this transaction refuses without writes, or waits until this already-current
+// admission commits. There is no ordering in which a stale admission can land
+// after a committed quarantine.
+func guardActivationAdmissionTx(
+	ctx context.Context, tx pgx.Tx, expectedRevision int64,
+) error {
+	if expectedRevision <= 0 {
+		return fmt.Errorf("%w: admission did not capture a positive policy epoch",
+			errActivationAdmissionUnavailable)
+	}
+	if _, err := tx.Exec(ctx,
+		`SELECT pg_advisory_xact_lock_shared($1)`,
+		activationPolicyAdvisoryLockID,
+	); err != nil {
+		return fmt.Errorf("%w: lock current policy epoch: %v",
+			errActivationAdmissionUnavailable, err)
+	}
+	var databaseRevision int64
+	if err := tx.QueryRow(ctx, `
+		SELECT COALESCE(MAX(policy_revision),0)
+		  FROM runtime_activation_policies
+		 WHERE effective_at <= clock_timestamp()`).Scan(&databaseRevision); err != nil {
+		return fmt.Errorf("%w: read locked current policy epoch: %v",
+			errActivationAdmissionUnavailable, err)
+	}
+	if databaseRevision != expectedRevision {
+		return fmt.Errorf("%w: classified at epoch %d, database is at epoch %d",
+			errActivationAdmissionStale, expectedRevision, databaseRevision)
+	}
+	return nil
+}
+
 // RefreshActivationPolicy reloads policy from PostgreSQL and installs it.
 func (s *Store) RefreshActivationPolicy(ctx context.Context) (*runtimeActivation, error) {
-	entries, err := currentActivationEntries(ctx, s.pool)
+	snapshot, err := readActivationSnapshot(ctx, s.pool)
 	if err != nil {
 		return nil, err
 	}
-	snapshot, err := activationSnapshotFrom(entries)
-	if err != nil {
-		return nil, err
-	}
-	adoptActivation(snapshot)
+	adoptActivationIfNewer(snapshot)
 	return snapshot, nil
 }
 
@@ -521,8 +853,33 @@ func (s *Store) writeActivationPolicy(
 	ctx context.Context, entries []ActivationPolicyEntry,
 	source string, rollbackTarget *int64, note string,
 ) (int64, error) {
+	activationPolicyWriteMu.Lock()
+	defer activationPolicyWriteMu.Unlock()
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback(ctx)
+	if err := lockActivationPolicy(ctx, tx); err != nil {
+		return 0, err
+	}
+
+	// Read the activation snapshot only after taking the epoch lock. Receipt
+	// validation and incumbent resolution must describe the same state the write
+	// follows; consulting the process cache here would permit another committed
+	// policy revision to sit between validation and insertion.
+	lockedEntries, err := currentActivationEntries(ctx, tx)
+	if err != nil {
+		return 0, fmt.Errorf("read locked activation policy epoch: %w", err)
+	}
+	lockedActivation, err := activationSnapshotFrom(lockedEntries)
+	if err != nil {
+		return 0, fmt.Errorf("resolve locked activation policy epoch: %w", err)
+	}
+
 	for i, entry := range entries {
-		profile, known := runtimeProfileByID(entry.RuntimeProfileID)
+		profile, known := lockedActivation.profileByID(entry.RuntimeProfileID)
 		if !known {
 			return 0, fmt.Errorf("activation policy names unregistered profile %q",
 				entry.RuntimeProfileID)
@@ -539,6 +896,34 @@ func (s *Store) writeActivationPolicy(
 		}
 		entries[i].CapabilityDigest = digest
 		entries[i].ProfileRevision = profile.Revision
+		// A rollback writes forward, but it does not mint new authority. If the
+		// target's routable statement came from an operator epoch (including legacy
+		// gate-v2/free-form/profile writes), persist an explicit quarantine instead
+		// of copying CANARY/ACTIVE into the new epoch. A current exact document row
+		// remains restorable.
+		if source == activationSourceRollback &&
+			runtimeLifecycleRoutable(entry.Lifecycle) {
+			candidate := entries[i]
+			candidate.Source = activationSourceRollback
+			documentEntries, docErr := documentActivationEntries()
+			if docErr != nil {
+				return 0, docErr
+			}
+			var documentEntry ActivationPolicyEntry
+			for _, declared := range documentEntries {
+				if activationKey(declared.RuntimeProfileID, declared.CellID) ==
+					activationKey(candidate.RuntimeProfileID, candidate.CellID) {
+					documentEntry = declared
+					break
+				}
+			}
+			if !storedRoutableEntryHasCurrentGlobalAuthority(candidate, documentEntry) {
+				entries[i].Lifecycle = runtimeLifecycleQuarantined
+				entries[i].Routable = false
+				entries[i].DirectedEligible = false
+				entry = entries[i]
+			}
+		}
 		if _, known := cellLifecycleRank(entry.Lifecycle); !known {
 			return 0, fmt.Errorf("activation policy for %s names unknown lifecycle %q",
 				activationKey(entry.RuntimeProfileID, entry.CellID), entry.Lifecycle)
@@ -594,89 +979,357 @@ func (s *Store) writeActivationPolicy(
 					activationKey(entry.RuntimeProfileID, entry.CellID), err)
 			}
 		}
-		// Operator promotion into the routable lifecycle band requires the gate's
-		// verdict. Runs after rejection/document rules so a measured rejection is
-		// still refused for that reason, not for a missing gate receipt. Document
-		// seed and rollback re-state prior receipts and are not promotions.
-		// Profile-level entries have no cell gate (promotion is per cell).
+		// Operator promotion into the routable lifecycle band requires authority
+		// whose coverage is at least as wide as the lifecycle statement. Runs after
+		// rejection/document rules so a measured rejection is still refused for
+		// that reason, not for a missing gate receipt. Document seed and rollback
+		// re-state prior receipts and are not promotions.
 		if source == activationSourceOperator &&
-			runtimeLifecycleRoutable(entry.Lifecycle) &&
-			entry.CellID != "" {
-			if err := s.requirePromotionGateVerdict(ctx, entry); err != nil {
+			runtimeLifecycleRoutable(entry.Lifecycle) {
+			if entry.CellID == "" {
+				return 0, fmt.Errorf(
+					"activation policy for profile %s promotes to %s globally, but %s receipts are exact cell/traffic/hardware scopes and cannot authorize a profile-global lifecycle",
+					entry.RuntimeProfileID, entry.Lifecycle, promotionGateVersion)
+			}
+			if err := s.requirePromotionGateVerdict(
+				ctx, tx, lockedActivation, entries[i],
+			); err != nil {
 				return 0, err
 			}
 		}
 	}
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return 0, err
-	}
-	defer tx.Rollback(ctx)
-	revision, err := insertActivationPolicy(ctx, tx, entries, source, rollbackTarget, note)
+	revision, err := insertActivationPolicyLocked(ctx, tx, entries, source, rollbackTarget, note)
 	if err != nil {
 		return 0, err
 	}
 	if err := projectActivationPolicyIntoRegistry(ctx, tx); err != nil {
 		return 0, err
 	}
+	// Derive the exact in-force snapshot while the epoch lock is held and before
+	// commit. This read sees the policy and registry projection as one atomic
+	// decision; installing it cannot fail after commit.
+	committedSnapshot, err := readActivationSnapshot(ctx, tx)
+	if err != nil {
+		return 0, fmt.Errorf("resolve committed activation policy epoch: %w", err)
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return 0, err
 	}
-	if _, err := s.RefreshActivationPolicy(ctx); err != nil {
-		return revision, err
+	// Containment is effective in memory immediately after the durable commit.
+	// The optional read can discover a newer cross-process epoch, but a failure is
+	// non-authoritative and an older/equal snapshot cannot regress this one.
+	adoptActivationIfNewer(committedSnapshot)
+	if newest, refreshErr := activationPolicyBestEffortRefresh(ctx, s.pool); refreshErr == nil {
+		adoptActivationIfNewer(newest)
 	}
 	return revision, nil
 }
 
-// requirePromotionGateVerdict refuses an operator promotion whose receipt is
-// not a passed evaluation of the cell-promotion gate.
+// requirePromotionGateVerdict authenticates and semantically checks the complete
+// stored gate receipt against the locked activation epoch.
 //
-// The gate's ReceiptRef format is `cell-promotion-gate-v2:<cell_id>:<sha256>`.
-// Anything else — a benchmark path, a chain receipt, a free string — used to
-// satisfy the non-empty CHECK and activate the cell without the gate running.
-func (s *Store) requirePromotionGateVerdict(ctx context.Context, entry ActivationPolicyEntry) error {
+// Authentication is intentionally followed by a coverage refusal. A
+// CellPromotionEvidence scope names one workload/model/tier/hardware/latency
+// cohort, while ActivationPolicyEntry changes a cell's lifecycle for every
+// cohort. The current receipt type has no representation for complete cell
+// coverage, so even a well-formed narrow pass cannot authorize this global
+// policy write. Keeping all checks before that refusal ensures a stale or
+// fabricated row is diagnosed as such and cannot become latent authority if a
+// future policy gains a scope narrow enough to consume these receipts.
+func (s *Store) requirePromotionGateVerdict(
+	ctx context.Context, q pgxQuerier, activation *runtimeActivation,
+	entry ActivationPolicyEntry,
+) error {
+	key := activationKey(entry.RuntimeProfileID, entry.CellID)
 	ref := strings.TrimSpace(entry.PromotionReceipt)
 	if ref == "" {
 		return fmt.Errorf(
 			"activation policy for %s promotes to %s without a promotion receipt",
-			activationKey(entry.RuntimeProfileID, entry.CellID), entry.Lifecycle)
+			key, entry.Lifecycle)
 	}
 	prefix := promotionGateVersion + ":" + entry.CellID + ":"
 	if !strings.HasPrefix(ref, prefix) {
 		return fmt.Errorf(
 			"activation policy for %s: promotion_receipt must be a %s verdict for cell %q, got %q",
-			activationKey(entry.RuntimeProfileID, entry.CellID), promotionGateVersion,
-			entry.CellID, ref)
+			key, promotionGateVersion, entry.CellID, ref)
 	}
-	digest := strings.TrimPrefix(ref, prefix)
-	if len(digest) != 64 {
+	refDigest := strings.TrimPrefix(ref, prefix)
+	if len(refDigest) != 64 {
 		return fmt.Errorf(
 			"activation policy for %s: promotion_receipt digest is not a sha256",
-			activationKey(entry.RuntimeProfileID, entry.CellID))
+			key)
 	}
-	for _, r := range digest {
+	for _, r := range refDigest {
 		if (r < '0' || r > '9') && (r < 'a' || r > 'f') {
 			return fmt.Errorf(
 				"activation policy for %s: promotion_receipt digest is not lowercase hex",
-				activationKey(entry.RuntimeProfileID, entry.CellID))
+				key)
 		}
 	}
-	var passed bool
-	err := s.pool.QueryRow(ctx, `
-		SELECT passed FROM runtime_cell_promotion_evaluations
-		 WHERE promotion_receipt_ref = $1`, ref).Scan(&passed)
+
+	var (
+		storedDigest, storedRef, storedGateVersion string
+		storedScopeJSON, storedEvidenceJSON        []byte
+		storedIncumbent, storedChallenger          string
+		storedPassed                               bool
+		storedPolicyRevision                       int64
+		storedRuntimeMatrix                        string
+		storedEvaluatedAt                          time.Time
+	)
+	err := q.QueryRow(ctx, `
+		SELECT evidence_sha256, promotion_receipt_ref, gate_version, scope_json,
+		       incumbent_cell, challenger_cell, passed, policy_revision,
+		       runtime_matrix_sha256, evaluated_at, evidence_json
+		  FROM runtime_cell_promotion_evaluations
+		 WHERE promotion_receipt_ref = $1`, ref).Scan(
+		&storedDigest, &storedRef, &storedGateVersion, &storedScopeJSON,
+		&storedIncumbent, &storedChallenger, &storedPassed, &storedPolicyRevision,
+		&storedRuntimeMatrix, &storedEvaluatedAt, &storedEvidenceJSON)
 	if err != nil {
 		return fmt.Errorf(
 			"activation policy for %s: promotion_receipt %q is not a recorded gate verdict "+
 				"(EvaluateCellPromotion must pass and be recorded first): %w",
-			activationKey(entry.RuntimeProfileID, entry.CellID), ref, err)
+			key, ref, err)
 	}
-	if !passed {
+
+	var evidence CellPromotionEvidence
+	if err := decodeStrictJSONObject(storedEvidenceJSON, &evidence); err != nil {
+		return fmt.Errorf("activation policy for %s: promotion receipt evidence is not strict CellPromotionEvidence JSON: %w", key, err)
+	}
+	var projectedScope CellPromotionScope
+	if err := decodeStrictJSONObject(storedScopeJSON, &projectedScope); err != nil {
+		return fmt.Errorf("activation policy for %s: promotion receipt scope projection is invalid: %w", key, err)
+	}
+	computedDigest, err := evidence.Digest()
+	if err != nil {
+		return fmt.Errorf("activation policy for %s: digest promotion evidence: %w", key, err)
+	}
+	computedRef, err := evidence.ReceiptRef()
+	if err != nil {
+		return fmt.Errorf("activation policy for %s: derive promotion receipt reference: %w", key, err)
+	}
+	if storedRef != ref || storedDigest != refDigest || computedDigest != refDigest || computedRef != ref {
+		return fmt.Errorf(
+			"activation policy for %s: promotion receipt cryptographic identity disagrees (ref digest=%s stored digest=%s computed digest=%s computed ref=%q)",
+			key, refDigest, storedDigest, computedDigest, computedRef)
+	}
+	if storedGateVersion != promotionGateVersion || evidence.GateVersion != promotionGateVersion {
+		return fmt.Errorf(
+			"activation policy for %s: promotion receipt gate version is stale or inconsistent (stored=%q evidence=%q current=%q)",
+			key, storedGateVersion, evidence.GateVersion, promotionGateVersion)
+	}
+	if projectedScope != evidence.Scope {
+		return fmt.Errorf("activation policy for %s: promotion receipt scope projection disagrees with evidence", key)
+	}
+	if storedIncumbent != evidence.IncumbentCell ||
+		storedChallenger != evidence.Scope.CellID ||
+		storedChallenger != entry.CellID {
+		return fmt.Errorf(
+			"activation policy for %s: promotion receipt pair projection disagrees (stored %s->%s, evidence %s->%s)",
+			key, storedIncumbent, storedChallenger, evidence.IncumbentCell,
+			evidence.Scope.CellID)
+	}
+	if storedPassed != evidence.Passed() {
+		return fmt.Errorf(
+			"activation policy for %s: promotion receipt passed projection=%t but evidence passed=%t",
+			key, storedPassed, evidence.Passed())
+	}
+	if !storedPassed {
 		return fmt.Errorf(
 			"activation policy for %s: promotion gate verdict %q did not pass",
-			activationKey(entry.RuntimeProfileID, entry.CellID), ref)
+			key, ref)
 	}
-	return nil
+	if !storedEvaluatedAt.Equal(evidence.EvaluatedAt) &&
+		math.Abs(float64(storedEvaluatedAt.Sub(evidence.EvaluatedAt))) >= float64(time.Microsecond) {
+		return fmt.Errorf("activation policy for %s: promotion evaluated_at projection disagrees with evidence", key)
+	}
+	if !evidence.EvaluatedAt.Equal(evidence.Scope.ObservedBefore) ||
+		evidence.Scope.ObservedBefore.Sub(evidence.Scope.ObservedAfter) != supplierLiabilityObservationWindow {
+		return fmt.Errorf("activation policy for %s: promotion receipt does not bind the gate's exact observation window", key)
+	}
+	if storedPolicyRevision != evidence.PolicyRevision ||
+		evidence.PolicyRevision != evidence.Scope.PolicyRevision ||
+		evidence.RollbackTargetRevision != activation.PolicyRevision ||
+		evidence.PolicyRevision != activation.PolicyRevision {
+		return fmt.Errorf(
+			"activation policy for %s: promotion receipt policy epoch is stale or inconsistent (stored=%d evidence=%d scope=%d rollback=%d locked-current=%d)",
+			key, storedPolicyRevision, evidence.PolicyRevision,
+			evidence.Scope.PolicyRevision, evidence.RollbackTargetRevision,
+			activation.PolicyRevision)
+	}
+	if storedRuntimeMatrix != evidence.RuntimeMatrixSHA256 ||
+		evidence.RuntimeMatrixSHA256 != evidence.Scope.RuntimeMatrixSHA256 ||
+		evidence.RuntimeMatrixSHA256 != generatedRuntimeMatrixSHA256 {
+		return fmt.Errorf(
+			"activation policy for %s: promotion receipt runtime matrix is stale or inconsistent (stored=%s evidence=%s scope=%s current=%s)",
+			key, storedRuntimeMatrix, evidence.RuntimeMatrixSHA256,
+			evidence.Scope.RuntimeMatrixSHA256, generatedRuntimeMatrixSHA256)
+	}
+	if evidence.Scope.SelectionPolicy != shadowSelectionPolicy {
+		return fmt.Errorf(
+			"activation policy for %s: promotion receipt selection policy %q is not current %q",
+			key, evidence.Scope.SelectionPolicy, shadowSelectionPolicy)
+	}
+	if evidence.Scope.RuntimeID != entry.RuntimeProfileID {
+		return fmt.Errorf(
+			"activation policy for %s: promotion receipt runtime %q does not match policy runtime %q",
+			key, evidence.Scope.RuntimeID, entry.RuntimeProfileID)
+	}
+
+	profile, known := activation.profileByID(entry.RuntimeProfileID)
+	if !known {
+		return fmt.Errorf("activation policy for %s: promotion runtime is no longer registered", key)
+	}
+	capabilityDigest, err := profile.CapabilityDigest(runtimeAuthorityModels)
+	if err != nil {
+		return fmt.Errorf("activation policy for %s: resolve current capability identity: %w", key, err)
+	}
+	if entry.ProfileRevision != profile.Revision || entry.CapabilityDigest != capabilityDigest {
+		return fmt.Errorf(
+			"activation policy for %s: promotion policy identity does not match current capability %s/%s/%s",
+			key, profile.RuntimeID, profile.Revision, capabilityDigest)
+	}
+
+	// Cross-check the durable registry projection as well as the embedded
+	// authority. A drifted registry row must not be repaired by trusting whichever
+	// side happens to make the promotion pass.
+	var dbRevision, dbDigest, dbJob, dbModel, dbVerification, dbQuality string
+	var dbHardware bool
+	if err := q.QueryRow(ctx, `
+		SELECT p.revision, p.profile_digest, m.job_type, m.model_id,
+		       m.verification, m.quality_tier,
+		       EXISTS (SELECT 1 FROM runtime_profile_hardware h
+		                WHERE h.runtime_profile_id=p.runtime_profile_id
+		                  AND h.revision=p.revision AND h.platform=$3)
+		  FROM runtime_profiles p
+		  JOIN runtime_profile_models m
+		    ON m.runtime_profile_id=p.runtime_profile_id AND m.revision=p.revision
+		 WHERE p.is_current AND p.runtime_profile_id=$1 AND m.cell_id=$2`,
+		entry.RuntimeProfileID, entry.CellID, evidence.Scope.HWClass).Scan(
+		&dbRevision, &dbDigest, &dbJob, &dbModel, &dbVerification, &dbQuality,
+		&dbHardware); err != nil {
+		return fmt.Errorf("activation policy for %s: current runtime/cell registry identity unavailable: %w", key, err)
+	}
+	if dbRevision != profile.Revision || dbDigest != capabilityDigest ||
+		dbJob != evidence.Scope.JobType || dbModel != evidence.Scope.ModelRef ||
+		dbVerification != evidence.Scope.Verification ||
+		dbQuality != evidence.Scope.QualityTier || !dbHardware {
+		return fmt.Errorf("activation policy for %s: promotion scope disagrees with the current runtime/cell registry projection", key)
+	}
+
+	liabilityScope := supplierLiabilityScope{
+		JobType: evidence.Scope.JobType, ModelRef: evidence.Scope.ModelRef,
+		HWClass:                 evidence.Scope.HWClass,
+		HardwareIdentity:        evidence.Scope.HardwareIdentity,
+		Tier:                    evidence.Scope.Tier,
+		Currency:                evidence.Scope.Currency,
+		CatalogueScheduleSHA256: evidence.Scope.CatalogueScheduleSHA256,
+		RuntimeMatrixSHA256:     evidence.Scope.RuntimeMatrixSHA256,
+		ModelRevision:           evidence.Scope.ModelRevision,
+		QualityTier:             evidence.Scope.QualityTier,
+		Verification:            evidence.Scope.Verification,
+		LatencyClass:            evidence.Scope.LatencyClass,
+		SelectionPolicy:         evidence.Scope.SelectionPolicy,
+		PolicyRevision:          evidence.Scope.PolicyRevision,
+		ObservedAfter:           evidence.Scope.ObservedAfter,
+		ObservedBefore:          evidence.Scope.ObservedBefore,
+		IncumbentCell:           evidence.IncumbentCell,
+		ChallengerCell:          evidence.Scope.CellID,
+	}
+	if err := liabilityScope.validate(); err != nil {
+		return fmt.Errorf("activation policy for %s: invalid exact promotion scope: %w", key, err)
+	}
+	authorityRefusals := []string{}
+	if err := verifyPromotionScopeAgainstAuthority(
+		activation, evidence.Scope, evidence.IncumbentCell,
+		func(format string, args ...any) {
+			authorityRefusals = append(authorityRefusals, fmt.Sprintf(format, args...))
+		},
+	); err != nil {
+		return fmt.Errorf("activation policy for %s: validate promotion scope authority: %w", key, err)
+	}
+	if len(authorityRefusals) != 0 {
+		return fmt.Errorf("activation policy for %s: promotion scope is not current authority: %s",
+			key, strings.Join(authorityRefusals, "; "))
+	}
+
+	incumbentRuntime := promotionRuntimeForCell(
+		activation, evidence.Scope.JobType, evidence.Scope.ModelRef,
+		evidence.IncumbentCell)
+	validateProxyIdentity := func(
+		label string, proxy MeasuredSupplierLiabilityProxy,
+		wantCell, wantRuntime string,
+	) error {
+		if proxy.CellID != wantCell || proxy.RuntimeID != wantRuntime ||
+			proxy.JobType != evidence.Scope.JobType ||
+			proxy.ModelRef != evidence.Scope.ModelRef ||
+			proxy.HWClass != evidence.Scope.HWClass ||
+			proxy.HardwareIdentity != evidence.Scope.HardwareIdentity ||
+			proxy.Currency != evidence.Scope.Currency ||
+			proxy.RuntimeMatrixSHA256 != evidence.Scope.RuntimeMatrixSHA256 ||
+			proxy.SourceBinding != BindingBound ||
+			strings.TrimSpace(proxy.ExecutionBuildHash) == "" ||
+			!validSHA256(proxy.InputGeometrySHA256) {
+			return fmt.Errorf("%s measured proxy does not bind the exact cell/runtime/build/geometry scope", label)
+		}
+		if err := validateMeasuredProxyCurrentExecutionIdentity(proxy, wantCell); err != nil {
+			return fmt.Errorf("%s measured proxy does not bind the current exact execution identity", label)
+		}
+		if _, ok := eligibleMeasuredSupplierLiability(proxy); !ok {
+			return fmt.Errorf("%s measured proxy is not promotion-eligible", label)
+		}
+		return nil
+	}
+	if err := validateProxyIdentity("challenger", evidence.ChallengerSupplierLiability,
+		evidence.Scope.CellID, evidence.Scope.RuntimeID); err != nil {
+		return fmt.Errorf("activation policy for %s: %w", key, err)
+	}
+	if err := validateProxyIdentity("incumbent", evidence.IncumbentSupplierLiability,
+		evidence.IncumbentCell, incumbentRuntime); err != nil {
+		return fmt.Errorf("activation policy for %s: %w", key, err)
+	}
+	if evidence.ChallengerSupplierLiability.InputGeometrySHA256 !=
+		evidence.IncumbentSupplierLiability.InputGeometrySHA256 {
+		return fmt.Errorf("activation policy for %s: promotion proxies do not share exact input geometry", key)
+	}
+	challengerLiability, _ := eligibleMeasuredSupplierLiability(evidence.ChallengerSupplierLiability)
+	incumbentLiability, _ := eligibleMeasuredSupplierLiability(evidence.IncumbentSupplierLiability)
+	if evidence.ChallengerSupplierLiability.MedianMsPerUnit <= 0 ||
+		evidence.IncumbentSupplierLiability.MedianMsPerUnit <= 0 {
+		return fmt.Errorf("activation policy for %s: passed promotion evidence has no positive per-unit latency authority", key)
+	}
+	wantGain := (evidence.IncumbentSupplierLiability.MedianMsPerUnit -
+		evidence.ChallengerSupplierLiability.MedianMsPerUnit) /
+		evidence.IncumbentSupplierLiability.MedianMsPerUnit
+	wantLatencyRatio := evidence.ChallengerSupplierLiability.MedianMsPerUnit /
+		evidence.IncumbentSupplierLiability.MedianMsPerUnit
+	if evidence.Basis != promotionBasisThroughput ||
+		evidence.RequiredMarginFraction != promotionThroughputMarginFraction ||
+		!supplierLiabilitiesTieUSD(challengerLiability, incumbentLiability) ||
+		evidence.ThroughputGainFraction < promotionThroughputMarginFraction ||
+		math.Abs(evidence.ThroughputGainFraction-wantGain) > 1e-12 ||
+		math.Abs(evidence.LatencyRatio-wantLatencyRatio) > 1e-12 ||
+		evidence.ChallengerSupplierLiabilityUSDPerVerifiedUnit != challengerLiability ||
+		evidence.IncumbentSupplierLiabilityUSDPerVerifiedUnit != incumbentLiability ||
+		evidence.LiabilityRegret.ExactPairScoredDecisions <= 0 ||
+		evidence.LiabilityRegret.JobType != evidence.Scope.JobType ||
+		evidence.LiabilityRegret.ModelRef != evidence.Scope.ModelRef ||
+		evidence.LiabilityRegret.HWClass != evidence.Scope.HWClass ||
+		evidence.LiabilityRegret.HardwareIdentity != evidence.Scope.HardwareIdentity ||
+		evidence.LiabilityRegret.Currency != evidence.Scope.Currency ||
+		!slices.Equal(evidence.UnknownPlatformCostComponents,
+			unresolvedPlatformCostComponents(evidence.ChallengerSupplierLiability,
+				evidence.IncumbentSupplierLiability)) {
+		return fmt.Errorf("activation policy for %s: passed promotion evidence is not semantically consistent with the current gate", key)
+	}
+
+	return fmt.Errorf(
+		"activation policy for %s: receipt %q cannot authorize promotion: %s; independently, it covers only exact scope job=%s model=%s tier=%s hardware=%s/%s latency=%s while cell lifecycle %s is global across traffic scopes and CellPromotionEvidence has no global-coverage authority",
+		key, ref, promotionMatchedPairAuthorityRefusal,
+		evidence.Scope.JobType, evidence.Scope.ModelRef,
+		evidence.Scope.Tier, evidence.Scope.HWClass, evidence.Scope.HardwareIdentity,
+		evidence.Scope.LatencyClass,
+		entry.Lifecycle)
 }
 
 // RollbackActivationPolicy restores an earlier revision by writing it forward.
@@ -690,7 +1343,8 @@ func (s *Store) RollbackActivationPolicy(
 	rows, err := s.pool.Query(ctx, `
 		SELECT DISTINCT ON (runtime_profile_id, cell_id)
 		       runtime_profile_id, profile_revision, cell_id, capability_digest,
-		       lifecycle, canary_allowlist, canary_traffic_pct, promotion_receipt
+		       lifecycle, canary_allowlist, canary_traffic_pct, promotion_receipt,
+		       source
 		  FROM runtime_activation_policies
 		 WHERE policy_revision <= $1
 		 ORDER BY runtime_profile_id, cell_id, policy_revision DESC`, target)
@@ -704,7 +1358,8 @@ func (s *Store) RollbackActivationPolicy(
 		var allowlist []byte
 		if err := rows.Scan(&entry.RuntimeProfileID, &entry.ProfileRevision, &entry.CellID,
 			&entry.CapabilityDigest, &entry.Lifecycle, &allowlist,
-			&entry.CanaryTrafficPct, &entry.PromotionReceipt); err != nil {
+			&entry.CanaryTrafficPct, &entry.PromotionReceipt,
+			&entry.RestoredSource); err != nil {
 			return 0, err
 		}
 		if len(allowlist) > 0 {
@@ -745,7 +1400,7 @@ func projectActivationPolicyIntoRegistry(ctx context.Context, tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, `
 			UPDATE runtime_profiles
 			   SET lifecycle = $3,
-			       routable = (is_current AND $3 IN ('CANARY','ACTIVE')),
+			       routable = (is_current AND $3 = 'ACTIVE'),
 			       updated_at = now()
 			 WHERE runtime_profile_id = $1 AND revision = $2`,
 			profile.RuntimeID, profile.Revision, state); err != nil {
@@ -754,22 +1409,10 @@ func projectActivationPolicyIntoRegistry(ctx context.Context, tx pgx.Tx) error {
 		}
 		for _, cell := range profile.Cells {
 			effective := snapshot.cellLifecycle(profile, cell)
-			// Registry routable tracks the full predicate (lifecycle + bindable
-			// authority), not lifecycle alone. The DB CHECK allows CANARY/ACTIVE
-			// with routable=false so a withdrawn receipt demotes without editing
-			// the lifecycle field by hand.
-			resolved := snapshot.resolve(profile)
-			routable := false
-			for _, candidate := range resolved.Cells {
-				if candidate.ID == cell.ID {
-					// Effective lifecycle is already on the resolved cell when
-					// policy overlaid it; force the projected effective so a
-					// policy demotion is visible even if resolve missed it.
-					candidate.Lifecycle = effective
-					routable = candidate.Routable(resolved)
-					break
-				}
-			}
+			// Registry routable tracks the complete ordinary-buyer predicate:
+			// ACTIVE plus bindable authority. CANARY remains directed-only because
+			// no admission path consumes its allowlist/percentage fields.
+			routable := snapshot.cellRoutable(profile, cell)
 			if _, err := tx.Exec(ctx, `
 				UPDATE runtime_profile_models
 				   SET lifecycle = $4, routable = $5

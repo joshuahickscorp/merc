@@ -15,28 +15,19 @@ import (
 
 func validBatchWorkloadSubmit(t *testing.T) jobSubmit {
 	t.Helper()
-	// Ordinary admission is a singleton on the bindable advertised cell. At this
-	// commit that is embed/all-minilm — batch_infer is lifecycle-present but its
-	// authority does not bind, so it is not an ordinary buyer submit path.
-	sub, herr := normalizeAndValidateJobSubmit(jobSubmit{
-		JobType: JobType{Type: "embed"},
-		Model:   ModelRef{Ref: "all-minilm-l6-v2"},
-		Params:  json.RawMessage(`{"split_size":8}`),
-		Constraints: JobConstraints{
-			MaxDurationSecs: 3600,
-		},
-		Verification: VerificationPolicy{
-			RedundancyFrac: 0.1,
-			HoneypotFrac:   0.1,
-			PayoutHoldSecs: 3600,
-		},
-		Tier:          "batch",
-		MinReputation: 0.25,
-		DeadlineSecs:  3600,
-	})
-	if herr != nil {
-		t.Fatalf("normalize valid workload: %s", herr.msg)
+	// Classification mechanics require one successful current admission. The
+	// checked-in production authority is intentionally empty, so start from the
+	// explicit in-memory TEST_ONLY combined-token lane and layer this fixture's
+	// execution-shape fields onto that normalized request.
+	sub := testOnlyCombinedTokenSubmit(t)
+	sub.Params = json.RawMessage(`{"split_size":8}`)
+	sub.Verification = VerificationPolicy{
+		RedundancyFrac: 0.1,
+		HoneypotFrac:   0.1,
+		PayoutHoldSecs: 3600,
 	}
+	sub.MinReputation = 0.25
+	sub.DeadlineSecs = 3600
 	return sub
 }
 
@@ -44,18 +35,19 @@ func TestWorkloadDecisionIsServerClassifiedAndRevisionPinned(t *testing.T) {
 	sub := validBatchWorkloadSubmit(t)
 	decision, err := buildWorkloadDecision(sub, strings.Repeat("a", 64))
 	must(t, err)
-	if decision.WorkloadClass != "embeddings" ||
-		decision.RuntimeJobType != "embed" ||
-		decision.ModelRevision != "1110a243fdf4706b3f48f1d95db1a4f5529b4d41" {
+	if decision.WorkloadClass != "batch_generation" ||
+		decision.RuntimeJobType != "batch_infer" ||
+		decision.ModelRevision != "b69aef112e9f895e6f98d7ae0949f72ff09aa401" {
 		t.Fatalf("decision did not derive class/job/revision from runtime authority: %+v", decision)
 	}
 	if len(decision.RuntimeCandidates) != 1 ||
-		decision.RuntimeCandidates[0].CellID != "candle-metal-minilm-embed" {
+		decision.RuntimeCandidates[0].CellID != "candle-metal-llama1-infer" {
 		t.Fatalf("decision did not resolve one exact runtime cell: %+v", decision.RuntimeCandidates)
 	}
-	// Embed is cosine-verified: deterministic for cache purposes, not prefix-reuse.
+	// Batch generation is deterministic and prefix-compatible, but exact-result
+	// reuse remains fail-closed until its settlement meter is governed.
 	if !decision.Deterministic || decision.ExactResultCacheEligible ||
-		decision.PrefixReuseEligible || decision.InflightCoalescingEligible {
+		!decision.PrefixReuseEligible || decision.InflightCoalescingEligible {
 		t.Fatalf("decision over/under-stated reuse eligibility: %+v", decision)
 	}
 	mustf(t, ValidateWorkloadDecisionSnapshot(decision), "untouched decision rejected: %v")
@@ -68,7 +60,7 @@ func TestWorkloadBindingCoversEveryExecutionAssumption(t *testing.T) {
 	must(t, err)
 
 	mutations := map[string]func(*jobSubmit){
-		"max tokens": func(s *jobSubmit) { s.JobType.MaxTokens = 64 },
+		"max tokens": func(s *jobSubmit) { s.JobType.MaxTokens++ },
 		"params":     func(s *jobSubmit) { s.Params = json.RawMessage(`{"split_size":16}`) },
 		"memory":     func(s *jobSubmit) { s.Constraints.MinMemoryGB = 12 },
 		"hardware": func(s *jobSubmit) {
@@ -121,8 +113,8 @@ func TestWorkloadDecisionRejectsTampering(t *testing.T) {
 }
 
 func TestPlacementRequirementRejectsEveryClaimAuthorityMutation(t *testing.T) {
-	sub := validBatchWorkloadSubmit(t)
-	sub.Constraints.HWClasses = []string{"apple_silicon_max"}
+	sub := testOnlyCombinedTokenSubmit(t)
+	sub.Constraints.HWClasses = []string{"apple_silicon_ultra"}
 	sub.Constraints.DataResidency = []string{"CA"}
 	decision, err := buildWorkloadDecision(sub, strings.Repeat("e", 64))
 	must(t, err)
@@ -134,15 +126,15 @@ func TestPlacementRequirementRejectsEveryClaimAuthorityMutation(t *testing.T) {
 		mutate func(*PlacementRequirement)
 	}{
 		{"version", func(p *PlacementRequirement) { p.Version++ }},
-		{"job type", func(p *PlacementRequirement) { p.JobType = "batch_infer" }},
+		{"job type", func(p *PlacementRequirement) { p.JobType = "embed" }},
 		{"model ref", func(p *PlacementRequirement) { p.ModelRef = "different-model" }},
 		{"model kind", func(p *PlacementRequirement) { p.ModelKind = "different-kind" }},
 		{"runtime cell", func(p *PlacementRequirement) { p.RuntimeCellID = "different-cell" }},
 		{"runtime id", func(p *PlacementRequirement) { p.RuntimeID = "different-runtime" }},
 		{"engine", func(p *PlacementRequirement) { p.Engine = "different-engine" }},
-		{"matrix", func(p *PlacementRequirement) { p.RuntimeMatrixSHA256 = strings.Repeat("f", 64) }},
+		{"malformed matrix identity", func(p *PlacementRequirement) { p.RuntimeMatrixSHA256 = "not-a-sha256" }},
 		{"memory", func(p *PlacementRequirement) { p.MinMemoryGB++ }},
-		{"hardware", func(p *PlacementRequirement) { p.HWClasses = []string{"apple_silicon_ultra"} }},
+		{"hardware", func(p *PlacementRequirement) { p.HWClasses = []string{"apple_silicon_max"} }},
 		{"residency", func(p *PlacementRequirement) { p.DataResidency = []string{"US"} }},
 		{"reputation", func(p *PlacementRequirement) { p.MinReputation = 0.99 }},
 		{"trusted tier", func(p *PlacementRequirement) { p.TrustedOnly = !p.TrustedOnly }},
@@ -150,12 +142,32 @@ func TestPlacementRequirementRejectsEveryClaimAuthorityMutation(t *testing.T) {
 		{"non-finite offered rate", func(p *PlacementRequirement) {
 			p.OfferedRateUsdHr = float32(math.NaN())
 		}},
+		{"performance digest", func(p *PlacementRequirement) {
+			p.PerformanceAuthority.Digest = strings.Repeat("0", 64)
+		}},
+		{"benchmark snapshot digest", func(p *PlacementRequirement) {
+			p.PerformanceAuthority.BenchmarkSnapshotSHA256 = strings.Repeat("1", 64)
+		}},
+		{"measured hardware", func(p *PlacementRequirement) {
+			p.PerformanceAuthority.Performance.MeasuredOnHWClass = "apple_silicon_max"
+		}},
+		{"observed throughput", func(p *PlacementRequirement) {
+			p.PerformanceAuthority.Performance.ObservedUnitsPerSec *= 2
+		}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			mutant := base
 			mutant.HWClasses = append([]string(nil), base.HWClasses...)
 			mutant.DataResidency = append([]string(nil), base.DataResidency...)
+			if base.PerformanceAuthority != nil {
+				frozen := *base.PerformanceAuthority
+				frozen.Performance.HardwareClasses = append([]string(nil),
+					base.PerformanceAuthority.Performance.HardwareClasses...)
+				frozen.BenchmarkSnapshot = cloneBenchmarkReceiptSummary(
+					base.PerformanceAuthority.BenchmarkSnapshot)
+				mutant.PerformanceAuthority = &frozen
+			}
 			tc.mutate(&mutant)
 			if err := validatePlacementRequirement(mutant, decision); err == nil {
 				t.Fatalf("%s mutation survived placement validation", tc.name)
@@ -164,9 +176,138 @@ func TestPlacementRequirementRejectsEveryClaimAuthorityMutation(t *testing.T) {
 	}
 }
 
-func TestJobClaimProjectionRejectsFrozenWorkloadMismatch(t *testing.T) {
-	sub := validBatchWorkloadSubmit(t)
+func TestPlacementRequirementPinsTheBenchmarkHardwareClass(t *testing.T) {
+	sub := testOnlyCombinedTokenSubmit(t)
+	sub.Constraints.HWClasses = nil
+	decision, err := buildWorkloadDecision(sub, strings.Repeat("9", 64))
+	must(t, err)
+
+	placement, err := placementRequirementFor(sub, decision, 1.25)
+	must(t, err)
+	if got, want := placement.HWClasses, []string{"apple_silicon_ultra"}; !sameStrings(got, want) {
+		t.Fatalf("placement hardware = %v, want benchmark-bound %v", got, want)
+	}
+	if placement.PerformanceAuthority == nil ||
+		placement.PerformanceAuthority.Performance.MeasuredOnHWClass != "apple_silicon_ultra" ||
+		!validSHA256(placement.PerformanceAuthority.BenchmarkSnapshotSHA256) ||
+		!validSHA256(placement.PerformanceAuthority.Digest) {
+		t.Fatalf("placement did not freeze benchmark/hardware authority: %+v",
+			placement.PerformanceAuthority)
+	}
+	if !sameStrings(decision.Binding.Constraints.HWClasses, nil) {
+		t.Fatalf("buyer constraint was rewritten instead of narrowed by placement: %v",
+			decision.Binding.Constraints.HWClasses)
+	}
+}
+
+func TestHistoricalPlacementReplaysFrozenBenchmarkAfterCurrentManifestReplacement(t *testing.T) {
+	workload, compute, placement, economic, pricing := distributedPricingFixture(t)
+	if placement.PerformanceAuthority == nil {
+		t.Fatal("fixture placement lacks frozen performance authority")
+	}
+	path := placement.PerformanceAuthority.Performance.BenchmarkAuthority
+	original, ok := benchmarkAuthorityManifest[path]
+	if !ok {
+		t.Fatalf("fixture benchmark authority %q is not in the manifest", path)
+	}
+	replacement := cloneBenchmarkReceiptSummary(original)
+	replacement.HWClass = "apple_silicon_max"
+	throughput := replacement.Throughput[placement.RuntimeID]
+	throughput.UnitsPerSecAtOperatingBatch *= 1.5
+	replacement.Throughput[placement.RuntimeID] = throughput
+	benchmarkAuthorityManifest[path] = replacement
+	t.Cleanup(func() { benchmarkAuthorityManifest[path] = original })
+
+	if err := ValidateDistributedPricingDecisionSnapshot(
+		pricing, workload, compute, placement, economic,
+	); err != nil {
+		t.Fatalf("historical pricing failed after current benchmark replacement: %v", err)
+	}
+
+	if _, err := newDistributedPricingDecision(
+		workload, compute, placement, economic, pricing.Catalogue,
+		pricing.Tier, pricing.OriginQuotePricingDecisionSHA256,
+	); err == nil {
+		t.Fatal("new admission accepted a placement frozen from the replaced benchmark authority")
+	}
+}
+
+func TestNewPlacementRefusesAWithdrawnCurrentBenchmarkAuthority(t *testing.T) {
+	sub := testOnlyCombinedTokenSubmit(t)
+	decision, err := buildWorkloadDecision(sub, strings.Repeat("7", 64))
+	must(t, err)
+
+	// Resolve the authority path before changing the current manifest. The
+	// workload decision is already frozen, which exercises the precise seam that
+	// matters: an old workload proposal must not launder a newly withdrawn
+	// benchmark into a fresh placement/pricing acceptance.
+	candidate := decision.RuntimeCandidates[0]
+	var path string
+	for _, profile := range runtimeAuthority.Runtimes {
+		if profile.RuntimeID != candidate.RuntimeID {
+			continue
+		}
+		for _, cell := range profile.Cells {
+			if cell.ID == candidate.CellID {
+				path = cell.benchmarkAuthorityFor(profile)
+			}
+		}
+	}
+	if path == "" {
+		t.Fatal("fixture runtime cell names no benchmark authority")
+	}
+	original := benchmarkAuthorityManifest[path]
+	withdrawn := cloneBenchmarkReceiptSummary(original)
+	withdrawn.Validity = authorityValidityWithdrawn
+	benchmarkAuthorityManifest[path] = withdrawn
+	t.Cleanup(func() { benchmarkAuthorityManifest[path] = original })
+
+	if _, err := placementRequirementFor(sub, decision, 1.25); err == nil ||
+		!strings.Contains(strings.ToLower(err.Error()), "withdrawn") {
+		t.Fatalf("new placement did not refuse withdrawn benchmark authority: %v", err)
+	}
+}
+
+func TestFrozenPerformanceCanonicalizesSourceCommitForRepositorylessReplay(t *testing.T) {
+	_, _, placement, _, _ := distributedPricingFixture(t)
+	if placement.PerformanceAuthority == nil {
+		t.Fatal("fixture placement lacks frozen performance authority")
+	}
+	frozen := *placement.PerformanceAuthority
+	if got := frozen.BenchmarkSnapshot.MercSourceCommit; len(got) != 40 ||
+		!hexObjectName.MatchString(got) {
+		t.Fatalf("frozen benchmark source commit is not canonical: %q", got)
+	}
+	// Rehash a syntactically short historical snapshot. The validator must reject
+	// it by frozen-contract shape, without relying on whether the current process
+	// happens to have a .git object database.
+	frozen.BenchmarkSnapshot.MercSourceCommit = frozen.BenchmarkSnapshot.MercSourceCommit[:12]
+	var err error
+	frozen.BenchmarkSnapshotSHA256, err = benchmarkReceiptSummarySHA256(frozen.BenchmarkSnapshot)
+	must(t, err)
+	frozen.Digest, err = frozenRuntimeCellPerformanceDigest(frozen)
+	must(t, err)
+	if err := validateFrozenRuntimeCellPerformance(&frozen); err == nil ||
+		!strings.Contains(err.Error(), "40-character") {
+		t.Fatalf("rehashable short source commit survived frozen replay: %v", err)
+	}
+}
+
+func TestPlacementRequirementRefusesHardwareWithoutMatchingThroughputEvidence(t *testing.T) {
+	sub := testOnlyCombinedTokenSubmit(t)
 	sub.Constraints.HWClasses = []string{"apple_silicon_max"}
+	decision, err := buildWorkloadDecision(sub, strings.Repeat("8", 64))
+	must(t, err)
+
+	if _, err := placementRequirementFor(sub, decision, 1.25); err == nil ||
+		!strings.Contains(err.Error(), "outside the buyer's allowed set") {
+		t.Fatalf("unmeasured hardware placement was not refused: %v", err)
+	}
+}
+
+func TestJobClaimProjectionRejectsFrozenWorkloadMismatch(t *testing.T) {
+	sub := testOnlyCombinedTokenSubmit(t)
+	sub.Constraints.HWClasses = []string{"apple_silicon_ultra"}
 	sub.Constraints.DataResidency = []string{"CA"}
 	decision, err := buildWorkloadDecision(sub, strings.Repeat("f", 64))
 	must(t, err)
@@ -178,7 +319,7 @@ func TestJobClaimProjectionRejectsFrozenWorkloadMismatch(t *testing.T) {
 		Tier:                 decision.Binding.Tier,
 		MinMemoryGB:          float32(decision.MinimumMemoryGB),
 		MaxDurationSecs:      decision.Binding.Constraints.MaxDurationSecs,
-		HWClasses:            append([]string(nil), decision.Binding.Constraints.HWClasses...),
+		HWClasses:            append([]string(nil), placement.HWClasses...),
 		DataResidency:        append([]string(nil), decision.Binding.Constraints.DataResidency...),
 		MinReputation:        decision.Binding.MinReputation,
 		OfferedRateUsdHr:     1.25,
@@ -190,15 +331,12 @@ func TestJobClaimProjectionRejectsFrozenWorkloadMismatch(t *testing.T) {
 		name   string
 		mutate func(*jobRow)
 	}{
-		// Base is the bindable embed singleton. Mutating to a quarantined job
-		// type must still be refused — this is a column/authority mismatch, not
-		// an admission check, so demoted cells remain valid mutation targets.
-		{"job type", func(j *jobRow) { j.JobType = "batch_infer" }},
+		{"job type", func(j *jobRow) { j.JobType = "embed" }},
 		{"model", func(j *jobRow) { j.ModelRef = "different-model" }},
 		{"tier", func(j *jobRow) { j.Tier = "priority" }},
 		{"memory", func(j *jobRow) { j.MinMemoryGB++ }},
 		{"duration", func(j *jobRow) { j.MaxDurationSecs++ }},
-		{"hardware", func(j *jobRow) { j.HWClasses = []string{"apple_silicon_ultra"} }},
+		{"hardware", func(j *jobRow) { j.HWClasses = []string{"apple_silicon_max"} }},
 		{"residency", func(j *jobRow) { j.DataResidency = []string{"US"} }},
 		{"reputation", func(j *jobRow) { j.MinReputation = 0.99 }},
 		{"offered rate", func(j *jobRow) { j.OfferedRateUsdHr = -1 }},
@@ -323,6 +461,12 @@ func TestQuoteUsesStrictSharedNormalizerBeforeStoreAccess(t *testing.T) {
 }
 
 func TestNormalizeWorkloadRejectsCrossLaneAndInvalidPolicyFields(t *testing.T) {
+	// These are request-shape assertions. Exercise the same structural preflight
+	// production uses before loading durable activation, so zero current lanes do
+	// not turn every case into the same authority error.
+	normalize := func(sub jobSubmit) (jobSubmit, *httpError) {
+		return normalizeAndValidateJobSubmit(sub, false)
+	}
 	valid := func() jobSubmit {
 		return jobSubmit{
 			JobType: JobType{Type: "embed"},
@@ -346,7 +490,7 @@ func TestNormalizeWorkloadRejectsCrossLaneAndInvalidPolicyFields(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			sub := valid()
 			mutate(&sub)
-			if _, herr := normalizeAndValidateJobSubmit(sub); herr == nil {
+			if _, herr := normalize(sub); herr == nil {
 				t.Fatal("invalid workload shape accepted")
 			}
 		})
@@ -355,7 +499,7 @@ func TestNormalizeWorkloadRejectsCrossLaneAndInvalidPolicyFields(t *testing.T) {
 	sub := valid()
 	sub.Constraints.HWClasses = []string{"apple_silicon_ultra", "apple_silicon_ultra"}
 	sub.Constraints.DataResidency = []string{"ca", " CA "}
-	normalized, herr := normalizeAndValidateJobSubmit(sub)
+	normalized, herr := normalize(sub)
 	if herr != nil {
 		t.Fatal(herr.msg)
 	}
@@ -421,19 +565,37 @@ func TestClaimUsesFrozenRuntimeCandidate(t *testing.T) {
 	ctx, store, pool := openIsolatedTestStore(t)
 	fixture := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{TaskCount: 1})
 
-	// Only the primary worker is registered for the cell/runtime frozen by the
-	// server decision. The second worker still advertises the same model and
-	// current matrix digest, so a model-only claim filter would incorrectly
-	// accept it.
-	if _, err := pool.Exec(ctx, `
-		UPDATE worker_authorized_capabilities
-		   SET cell_id='candle-metal-minilm-embed', runtime_id='candle_metal'
-		 WHERE worker_id=$1`, fixture.WorkerID); err != nil {
-		t.Fatal(err)
-	}
-
 	tasks := makeTasks(fixture, 1)
 	job := validJobRow(t, fixture, tasks)
+	// Only the primary worker is registered for the exact cell/runtime frozen by
+	// the server decision. The second worker advertises the same job, model and
+	// current matrix digest but a different cell/runtime, so a model-only claim
+	// filter would incorrectly accept it. Derive the fixture from the placement
+	// instead of hard-coding the old embed lane: successful new-path mechanics
+	// currently use the explicit TEST_ONLY combined-token batch authority.
+	for _, update := range []struct {
+		workerID uuid.UUID
+		cellID   string
+		runtime  string
+	}{
+		{fixture.WorkerID, job.PlacementRequirement.RuntimeCellID,
+			job.PlacementRequirement.RuntimeID},
+		{fixture.OtherWorkerID, "test-only-wrong-cell", "test-only-wrong-runtime"},
+	} {
+		if _, err := pool.Exec(ctx, `
+			UPDATE worker_authorized_capabilities
+			   SET cell_id=$2, runtime_id=$3, job_type=$4, model_ref=$5, model_kind=$6
+			 WHERE worker_id=$1`, update.workerID, update.cellID, update.runtime,
+			job.JobType, job.ModelRef, job.PlacementRequirement.ModelKind); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := pool.Exec(ctx, `
+			UPDATE workers
+			   SET hw_class=$2, min_payout_usd_hr=0
+			 WHERE id=$1`, update.workerID, job.PlacementRequirement.HWClasses[0]); err != nil {
+			t.Fatal(err)
+		}
+	}
 	mustf(t, store.SubmitJobTx(ctx, job, tasks), "submit frozen-runtime job: %v")
 
 	wrong, err := store.ClaimTasksTx(ctx, WorkerAuth{

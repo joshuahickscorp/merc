@@ -16,11 +16,13 @@ import (
 // operator or test routing.
 func TestLlamaCppWorkerCanEnrolAgainstItsDirectedCell(t *testing.T) {
 	cap := WorkerCapability{
-		HWClass:         "apple_silicon_max",
-		Engine:          "llama_cpp",
-		MemoryGB:        64,
-		SupportedJobs:   []string{"embed"},
-		SupportedModels: []string{"all-minilm-l6-v2"},
+		HWClass:          "apple_silicon_max",
+		Engine:           "llama_cpp",
+		BuildHash:        "0123456789abcdef",
+		HardwareIdentity: "TEST_ONLY Apple M3 Max",
+		MemoryGB:         64,
+		SupportedJobs:    []string{"embed"},
+		SupportedModels:  []string{"all-minilm-l6-v2"},
 	}
 	projected, err := projectWorkerRuntimeCapabilities(cap)
 	mustf(t, err, "a llama.cpp embed worker could not enrol: %v")
@@ -32,8 +34,8 @@ func TestLlamaCppWorkerCanEnrolAgainstItsDirectedCell(t *testing.T) {
 	if advertisedRuntimeCell(projected[0].ID) {
 		t.Fatal("the llama.cpp embed cell is in the advertised buyer projection")
 	}
-	if !advertisedRuntimeCell(candleEmbedCell) {
-		t.Fatal("the candle embed cell is not in the advertised buyer projection")
+	if advertisedRuntimeCell(candleEmbedCell) {
+		t.Fatal("the legacy candle embed receipt lacks exact build/device identity but is advertised")
 	}
 }
 
@@ -41,11 +43,13 @@ func TestLlamaCppWorkerCanEnrolAgainstItsDirectedCell(t *testing.T) {
 // is not "unproven pending evidence"; it is a decision.
 func TestRejectedCellCannotBeEnrolledAgainst(t *testing.T) {
 	cap := WorkerCapability{
-		HWClass:         "apple_silicon_max",
-		Engine:          "llama_cpp",
-		MemoryGB:        64,
-		SupportedJobs:   []string{"batch_infer"},
-		SupportedModels: []string{"llama-3.2-1b-instruct-q4"},
+		HWClass:          "apple_silicon_max",
+		Engine:           "llama_cpp",
+		BuildHash:        "0123456789abcdef",
+		HardwareIdentity: "TEST_ONLY Apple M3 Max",
+		MemoryGB:         64,
+		SupportedJobs:    []string{"batch_infer"},
+		SupportedModels:  []string{"llama-3.2-1b-instruct-q4"},
 	}
 	_, err := projectWorkerRuntimeCapabilities(cap)
 	if err == nil {
@@ -70,10 +74,12 @@ func TestEnrolmentStillRefusesUnknownEngineAndHardware(t *testing.T) {
 	for name, cap := range map[string]WorkerCapability{
 		"unknown engine": {
 			HWClass: "apple_silicon_max", Engine: "tensorrt", MemoryGB: 64,
+			BuildHash: "0123456789abcdef", HardwareIdentity: "TEST_ONLY Apple M3 Max",
 			SupportedJobs: []string{"embed"}, SupportedModels: []string{"all-minilm-l6-v2"},
 		},
 		"unknown hardware": {
 			HWClass: "definitely-not-a-class", Engine: "candle", MemoryGB: 64,
+			BuildHash: "0123456789abcdef", HardwareIdentity: "TEST_ONLY Unknown Device",
 			SupportedJobs: []string{"embed"}, SupportedModels: []string{"all-minilm-l6-v2"},
 		},
 	} {

@@ -238,7 +238,7 @@ var declaredMoneyAuthoritySinks = []string{
 }
 
 // Full declared authority set: reverse-reachable closure of the sink
-// catalogue under the package call graph at land time (343 symbols).
+// catalogue under the package call graph at land time (379 symbols).
 // This is the machine-checked half of View 1; the sink catalogue above is
 // the human-readable core. Edit deliberately when observation changes.
 var declaredMoneyAuthority = []string{
@@ -255,6 +255,7 @@ var declaredMoneyAuthority = []string{
 	"Server.buildQuoteWithSchedule",                       // quote.go
 	"Server.chargeForJob",                                 // billing.go
 	"Server.createJob",                                    // api.go
+	"Server.estimateJobSettlement",                        // api.go
 	"Server.finalizeJobIfDone",                            // api.go
 	"Server.handleAdminCreateSubsidyFund",                 // api.go
 	"Server.handleAdminDirectedJob",                       // runtime_cell_cost.go
@@ -263,6 +264,7 @@ var declaredMoneyAuthority = []string{
 	"Server.handleAdminReleasePayout",                     // api.go
 	"Server.handleAdminResolveDispute",                    // api.go
 	"Server.handleAdminSelectorActivation",                // runtime_cell_cost.go
+	"Server.handleAdminSelectorLiabilityRegret",           // runtime_cell_cost.go
 	"Server.handleAdminSelectorPromotion",                 // runtime_cell_cost.go
 	"Server.handleAdminSelectorRollback",                  // runtime_cell_cost.go
 	"Server.handleAdminSubsidizePayout",                   // api.go
@@ -277,6 +279,7 @@ var declaredMoneyAuthority = []string{
 	"Server.handleJobInvoice",                             // api.go
 	"Server.handleJobReceipt",                             // api.go
 	"Server.handleModels",                                 // api.go
+	"Server.handlePriceBoardData",                         // api.go
 	"Server.handlePriceEstimate",                          // api.go
 	"Server.handleProjectCompile",                         // project_compile_api.go
 	"Server.handleQuote",                                  // quote.go
@@ -290,6 +293,7 @@ var declaredMoneyAuthority = []string{
 	"Server.handleWorkerPoll",                             // api.go
 	"Server.handleWorkerRegister",                         // api.go
 	"Server.handleWorkerViability",                        // api.go
+	"Server.loadCurrentPublicCatalogue",                   // api.go
 	"Server.normalizeWorkloadRequest",                     // job_submit_validate.go
 	"Server.refundPrepaidRemainder",                       // prepaid.go
 	"Server.tryRealtimeCoalescedDelivery",                 // realtime.go
@@ -297,6 +301,8 @@ var declaredMoneyAuthority = []string{
 	"SettleRealtimeReuseHitMoney",                         // exact_reuse.go
 	"Store.AccrueRiskReserveAtSettlement",                 // risk_reserve_ledger.go
 	"Store.ApplyActivationPolicy",                         // activation_policy.go
+	"Store.ApplyRepricing",                                // pricing.go
+	"Store.activationForNewAdmission",                     // activation_policy.go
 	"Store.ApplyPaymentEventTx",                           // stripe_cash_events.go
 	"Store.AuthorizePayoutSubsidy",                        // store_payouts.go
 	"Store.AuthorizeRealtimeContract",                     // realtime_store.go
@@ -332,8 +338,11 @@ var declaredMoneyAuthority = []string{
 	"Store.JobPricingDecision",                            // store_jobs.go
 	"Store.JobPrimaryChunkCount",                          // store_jobs.go
 	"Store.JobTaskReceipts",                               // store_tasks.go
+	"Store.LoadCataloguePriceAuthority",                   // pricing_decision.go
 	"Store.MarkPayout",                                    // store_payouts.go
 	"Store.MarkPayoutOutcomeUnknown",                      // store_payouts.go
+	"Store.MeasuredSupplierLiabilityProxies",              // runtime_cell_cost.go
+	"Store.MeasuredSupplierLiabilityProxiesByHardware",    // runtime_cell_cost.go
 	"Store.Migrate",                                       // store.go
 	"Store.RealtimeReceipt",                               // realtime_store.go
 	"Store.ReconcileBuyerChargeOperation",                 // buyer_charge_operations.go
@@ -347,6 +356,7 @@ var declaredMoneyAuthority = []string{
 	"Store.ResolveDisputeTx",                              // store_disputes.go
 	"Store.RollbackActivationPolicy",                      // activation_policy.go
 	"Store.SeedPrepaidBalance",                            // store_prepaid.go
+	"Store.SelectorLiabilityRegretForScope",               // runtime_cell_cost.go
 	"Store.SetDisputeStatus",                              // store_disputes.go
 	"Store.SettleJobSLA",                                  // collect.go
 	"Store.SettlePendingRealtimeIntents",                  // realtime_store.go
@@ -364,7 +374,9 @@ var declaredMoneyAuthority = []string{
 	"Store.finalizeExpiredServiceLease",                   // service_leases.go
 	"Store.observedOutputSettlementForTask",               // verification_processor.go
 	"Store.reconcilePrepaidTopup",                         // prepaid.go
+	"Store.requirePromotionGateVerdict",                   // activation_policy.go
 	"Store.resolveDispute",                                // store_disputes.go
+	"Store.settledSupplierLiabilitiesForTasks",            // runtime_cell_cost.go
 	"Store.writeActivationPolicy",                         // activation_policy.go
 	"StripePayout.RefundCharge",                           // payment.go
 	"StripePayout.ReverseTransfer",                        // payment.go
@@ -412,6 +424,7 @@ var declaredMoneyAuthority = []string{
 	"Workers.settleSLAOutcomes",                           // collect.go
 	"WriteBoundEvidenceJSON",                              // receipt_identity.go
 	"accrueSupplierLiability",                             // supplier_accrual.go
+	"activationAdmissionRevision",                         // activation_policy.go
 	"activationSnapshotFrom",                              // activation_policy.go
 	"admissionUnitsPerSec",                                // runtime_cell_performance.go
 	"advertisedProjectRuntimeContracts",                   // project_contracts.go
@@ -428,12 +441,14 @@ var declaredMoneyAuthority = []string{
 	"authorizePaymentOperation",                           // payment_authority.go
 	"authorizePaymentOperationAt",                         // payment_authority.go
 	"buildProjectIR",                                      // project_compiler.go
+	"buildCatalogueResultPhysicalAuthority",               // pricing_citation_authority.go
 	"buildWorkloadDecision",                               // workload_classification.go
 	"buildWorkloadDecisionDirected",                       // workload_classification.go
 	"buildWorkloadDecisionForSubmit",                      // workload_classification.go
 	"buildWorkloadDecisionFromBinding",                    // workload_classification.go
 	"buildWorkloadDecisionFromBindingDirected",            // workload_classification.go
 	"captureEnvelopeSpendTx",                              // execution_envelope.go
+	"canonicalFrozenMercSourceCommit",                     // runtime_cell_performance.go
 	"cellAuthorityBindable",                               // cell_authority_binding.go
 	"chargeBuyer",                                         // billing.go
 	"chargeOrDeferJob",                                    // billing.go
@@ -449,6 +464,7 @@ var declaredMoneyAuthority = []string{
 	"compileLaunchPlan",                                   // release_launch.go
 	"compileProject",                                      // project_compiler.go
 	"creditPrepaidBalanceTx",                              // store_prepaid.go
+	"currentRuntimeCellBenchmarkIdentity",                 // cell_authority_binding.go
 	"currentActivation",                                   // activation_policy.go
 	"currentActivationEntries",                            // activation_policy.go
 	"debitPrepaidForExecutionContractTx",                  // store_prepaid.go
@@ -472,14 +488,17 @@ var declaredMoneyAuthority = []string{
 	"ensurePricingCitationBindable",                       // pricing_citation_authority.go
 	"ensureStripeCustomer",                                // billing.go
 	"finalizeRealtimeFailure",                             // realtime.go
+	"freezeRuntimeCellPerformance",                        // runtime_cell_performance.go
 	"generatedRuntimeModelRef",                            // runtime_matrix.go
 	"genericProfileAdapter.Estimate",                      // runtime_adapter.go
 	"genericProfileAdapter.Supports",                      // runtime_adapter.go
 	"gitBytes",                                            // evidence.go
 	"gitObjectExists",                                     // cell_authority_binding.go
 	"governedAdmissionUnitRates",                          // runtime_cell_performance.go
+	"governPublishedPrice",                                // pricing_governance.go
 	"governedProfileIdentity",                             // runtime_profile_admission.go
 	"insertActivationPolicy",                              // activation_policy.go
+	"insertActivationPolicyLocked",                        // activation_policy.go
 	"insertJobDisputeBuyerRefundsTx",                      // ledger_write.go
 	"insertJobDisputeClawbacksTx",                         // ledger_write.go
 	"insertLedgerEntryIfAbsentByRefTx",                    // ledger_write.go
@@ -509,14 +528,18 @@ var declaredMoneyAuthority = []string{
 	"onboardingLink",                                      // connect.go
 	"performDevCheckpoint",                                // dev_checkpoint.go
 	"persistMinorUnitSettlement",                          // store.go
+	"placementRequirementFor",                             // quote.go
 	"planShadowSelection",                                 // runtime_shadow_selection.go
 	"pricingRepoRootCandidates",                           // pricing_citation_authority.go
+	"pricingPowerAuthoritySnapshot",                       // pricing_citation_authority.go
+	"pricingThroughputAuthoritySnapshot",                  // pricing_citation_authority.go
 	"projectActivationPolicyIntoRegistry",                 // activation_policy.go
 	"projectWorkerRuntimeCapabilities",                    // runtime_matrix.go
 	"quoteCompiledProject",                                // project_quote.go
 	"quoteDependentProjectStep",                           // project_dependency.go
 	"quoteInitialProjectRoots",                            // project_dependency.go
 	"rankAndFreezeAdmissionCell",                          // workload_classification.go
+	"readActivationSnapshot",                              // activation_policy.go
 	"recordStripeFee",                                     // billing.go
 	"releaseEnvelopeSpendForContractTx",                   // execution_envelope.go
 	"repoRootOrCwd",                                       // prove.go
@@ -526,10 +549,14 @@ var declaredMoneyAuthority = []string{
 	"reservePrepaidForJobTx",                              // store_prepaid.go
 	"reservePrepaidForServiceLeaseTx",                     // store_prepaid.go
 	"reserveServiceLeasePayoutFunding",                    // store_payouts.go
+	"resolveCellPerformance",                              // runtime_cell_performance.go
 	"resolveCitedEvidencePath",                            // pricing_citation_authority.go
 	"resolveDeclaredProjectContracts",                     // project_contracts.go
 	"resolveDisputeInTx",                                  // store_disputes.go
 	"resolveLFSPayload",                                   // evidence.go
+	"revalidateCataloguePriceScheduleCurrent",             // pricing_citation_authority.go
+	"revalidateCataloguePriceSchedulePhysicalCurrent",     // pricing_citation_authority.go
+	"revalidateCatalogueResultPhysicalCurrent",            // pricing_citation_authority.go
 	"routableCellPerformance",                             // runtime_cell_performance.go
 	"routableProfileForEngine",                            // runtime_profile_admission.go
 	"runDevAuthority",                                     // dev_authority.go
@@ -555,12 +582,14 @@ var declaredMoneyAuthority = []string{
 	"settleStorageEgressFromBytes",                        // modeled_cost_settlement.go
 	"setupIntent",                                         // billing.go
 	"sourceFingerprint",                                   // evidence.go
+	"sustainedWattsForPublication",                        // pricing.go
 	"splitSupplierLiabilityMicros",                        // payment.go
 	"splitSupplierLiabilityMicrosForCurrency",             // payment.go
 	"stripeCreateRefund",                                  // prepaid.go
 	"stripeForm",                                          // billing.go
 	"stripeGet",                                           // billing.go
 	"stripeTransferredUSD",                                // reconcile.go
+	"storedRoutableEntryHasCurrentGlobalAuthority",        // activation_policy.go
 	"stubPayout.RefundCharge",                             // payment.go
 	"submitCompiledProject",                               // project_submit.go
 	"submitDependentProjectStep",                          // project_dependency.go
@@ -571,6 +600,13 @@ var declaredMoneyAuthority = []string{
 	"validateAdvertisedRuntimeCatalogRows",                // runtime_matrix.go
 	"validateAdvertisedRuntimeJobModel",                   // runtime_matrix.go
 	"validateAllRepricingBenchmarkCitations",              // pricing_citation_authority.go
+	"validateCurrentCataloguePriceAuthorityFrom",          // pricing_decision.go
+	"validateBoundCataloguePriceAuthorityFrom",            // pricing_decision.go
+	"validateCurrentPlacementPerformanceAuthority",        // runtime_cell_performance.go
+	"validateCurrentPlacementPerformanceAuthorityAt",      // runtime_cell_performance.go
+	"validateCurrentPlacementRequirement",                 // quote.go
+	"validateCurrentRuntimeCellPerformanceAuthority",      // runtime_cell_performance.go
+	"validateCurrentRuntimeCellPerformanceAuthorityAt",    // runtime_cell_performance.go
 	"validateDependentQuoteForSubmit",                     // project_dependency.go
 	"validateGitObject",                                   // receipt_identity.go
 	"validateHeartbeatModelIDs",                           // runtime_matrix.go
@@ -578,6 +614,9 @@ var declaredMoneyAuthority = []string{
 	"validateHeartbeatRuntimeModels",                      // runtime_matrix.go
 	"validateInitialProjectQuoteForSubmit",                // project_dependency.go
 	"validateMercSourceCommit",                            // cell_authority_binding.go
+	"validateMeasuredProxyCurrentExecutionIdentity",       // runtime_cell_promotion.go
+	"validatePricingPowerCitation",                        // pricing_citation_authority.go
+	"validatePricingThroughputRuntimeCellIdentity",        // pricing_citation_authority.go
 	"validateProjectQuoteForSubmit",                       // project_submit.go
 	"validateRepricingBenchmarkCitation",                  // pricing_citation_authority.go
 	"validateVerificationSettlementTx",                    // verification_apply.go

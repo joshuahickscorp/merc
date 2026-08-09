@@ -11,6 +11,13 @@ import (
 // through a ~500-line handler needing live Postgres and MinIO.  These cases run
 // in microseconds against no dependencies.
 func TestNormalizeAndValidateJobSubmit(t *testing.T) {
+	// This suite exercises the request-only preflight used before durable
+	// activation is loaded. Passing false is the production structural pass; it
+	// keeps these assertions independent of the honest zero-lane production
+	// authority census.
+	normalize := func(in jobSubmit) (jobSubmit, *httpError) {
+		return normalizeAndValidateJobSubmit(in, false)
+	}
 	valid := func() jobSubmit {
 		return jobSubmit{
 			JobType: JobType{Type: "embed"},
@@ -22,7 +29,7 @@ func TestNormalizeAndValidateJobSubmit(t *testing.T) {
 	t.Run("defaults the tier", func(t *testing.T) {
 		in := valid()
 		in.Tier = ""
-		out, herr := normalizeAndValidateJobSubmit(in)
+		out, herr := normalize(in)
 		if herr != nil {
 			t.Fatalf("unexpected error: %v", herr.msg)
 		}
@@ -34,7 +41,7 @@ func TestNormalizeAndValidateJobSubmit(t *testing.T) {
 	t.Run("clamps an unbounded duration", func(t *testing.T) {
 		in := valid()
 		in.Constraints.MaxDurationSecs = 0
-		out, herr := normalizeAndValidateJobSubmit(in)
+		out, herr := normalize(in)
 		if herr != nil {
 			t.Fatalf("unexpected error: %v", herr.msg)
 		}
@@ -61,7 +68,7 @@ func TestNormalizeAndValidateJobSubmit(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			in := valid()
 			tc.mutate(&in)
-			if _, herr := normalizeAndValidateJobSubmit(in); herr == nil {
+			if _, herr := normalize(in); herr == nil {
 				t.Fatal("invalid submission accepted")
 			} else if herr.status != tc.status {
 				t.Fatalf("status = %d, want %d (%s)", herr.status, tc.status, herr.msg)
@@ -73,7 +80,7 @@ func TestNormalizeAndValidateJobSubmit(t *testing.T) {
 		for _, secs := range []int{0, -1, 60, 604800} {
 			in := valid()
 			in.DeadlineSecs = secs
-			if _, herr := normalizeAndValidateJobSubmit(in); herr != nil {
+			if _, herr := normalize(in); herr != nil {
 				t.Fatalf("deadline_secs=%d rejected: %s", secs, herr.msg)
 			}
 		}

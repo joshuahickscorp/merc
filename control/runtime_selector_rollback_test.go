@@ -10,23 +10,24 @@ import (
 
 func TestAdminSelectorRollbackReachesAppendOnlyPolicy(t *testing.T) {
 	ctx, store, pool := openActivationStore(t)
-	receipt := seedPassedPromotionGate(t, ctx, store, llamaEmbedCell)
-	if _, err := store.ApplyActivationPolicy(ctx, []ActivationPolicyEntry{
-		{RuntimeProfileID: "llama_cpp_metal", Lifecycle: runtimeLifecycleCanary, PromotionReceipt: "profile-canary"},
-		{RuntimeProfileID: "llama_cpp_metal", CellID: llamaEmbedCell,
-			Lifecycle: runtimeLifecycleCanary, PromotionReceipt: receipt,
-			CanaryAllowlist: []string{"selector-rollback-test"}, CanaryTrafficPct: 5},
-	}, "selector rollback endpoint fixture promotion"); err != nil {
-		t.Fatalf("apply promotion fixture: %v", err)
+	// Use a non-routable containment write as the state to undo. Operator-global
+	// promotion is intentionally unavailable until global coverage and durable
+	// matched-pair evidence exist; rollback must remain functional independently
+	// of that fail-closed promotion boundary.
+	if _, err := store.ApplyActivationPolicy(ctx, []ActivationPolicyEntry{{
+		RuntimeProfileID: "llama_cpp_metal", CellID: llamaEmbedCell,
+		Lifecycle: runtimeLifecycleQuarantined,
+	}}, "selector rollback endpoint fixture containment"); err != nil {
+		t.Fatalf("apply containment fixture: %v", err)
 	}
-	var promotedRevision int64
-	must(t, pool.QueryRow(ctx, `SELECT MAX(policy_revision) FROM runtime_activation_policies`).Scan(&promotedRevision))
-	if got := lifecycleOfCell(t, ctx, pool, "llama_cpp_metal", llamaEmbedCell); got != runtimeLifecycleCanary {
-		t.Fatalf("fixture cell lifecycle=%s, want CANARY", got)
+	var containedRevision int64
+	must(t, pool.QueryRow(ctx, `SELECT MAX(policy_revision) FROM runtime_activation_policies`).Scan(&containedRevision))
+	if got := lifecycleOfCell(t, ctx, pool, "llama_cpp_metal", llamaEmbedCell); got != runtimeLifecycleQuarantined {
+		t.Fatalf("fixture cell lifecycle=%s, want QUARANTINED", got)
 	}
 
 	body, err := json.Marshal(selectorRollbackRequest{
-		TargetPolicyRevision: promotedRevision - 1,
+		TargetPolicyRevision: containedRevision - 1,
 		Note:                 "selector challenger failed the bounded canary; restore incumbent",
 	})
 	must(t, err)
@@ -42,8 +43,8 @@ func TestAdminSelectorRollbackReachesAppendOnlyPolicy(t *testing.T) {
 		RollbackTargetRevision int64 `json:"rollback_target_revision"`
 	}
 	must(t, json.Unmarshal(rec.Body.Bytes(), &response))
-	if !response.ActivationApplied || response.PolicyRevision <= promotedRevision ||
-		response.RollbackTargetRevision != promotedRevision-1 {
+	if !response.ActivationApplied || response.PolicyRevision <= containedRevision ||
+		response.RollbackTargetRevision != containedRevision-1 {
 		t.Fatalf("rollback response lost forward policy authority: %+v", response)
 	}
 	if got := lifecycleOfCell(t, ctx, pool, "llama_cpp_metal", llamaEmbedCell); got != runtimeLifecycleRealRuntimeProven {
@@ -56,7 +57,7 @@ func TestAdminSelectorRollbackReachesAppendOnlyPolicy(t *testing.T) {
 		Scan(&source, &target); err != nil {
 		t.Fatal(err)
 	}
-	if source != activationSourceRollback || target == nil || *target != promotedRevision-1 {
+	if source != activationSourceRollback || target == nil || *target != containedRevision-1 {
 		t.Fatalf("rollback revision lost append-only provenance: source=%q target=%v", source, target)
 	}
 }

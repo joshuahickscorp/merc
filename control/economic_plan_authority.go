@@ -177,6 +177,78 @@ func assertTaskEconomicNanosMatchPlan(
 	return nil
 }
 
+// currentUniformCloneTaskEconomics proves that a dynamic current-policy task
+// is an exact clone of its anchor before any economic reserve is consumed. The
+// caller-provided input identity is checked, while depth/output columns are
+// copied from the anchor by SQL. Historical policies keep their prior reserve
+// path and report current=false rather than being reinterpreted.
+func currentUniformCloneTaskEconomics(
+	ctx context.Context,
+	q ledgerExec,
+	jobID, anchorTaskID uuid.UUID,
+	inputRef string,
+	chunkIndex int,
+) (frozen frozenTaskEconomics, current bool, err error) {
+	var (
+		policy                          string
+		anchorInputRef                  string
+		anchorInputSHA256               string
+		workloadInputSHA256             string
+		anchorChunk                     int
+		buyerUSD, supplierUSD           float64
+		buyerNanos, supplierPayoutNanos *int64
+	)
+	err = q.QueryRow(ctx, `
+		SELECT COALESCE(j.pricing_decision->>'task_economic_policy',''),
+		       t.input_ref,COALESCE(t.input_sha256,''),
+		       COALESCE(j.workload_decision #>> '{binding,input_sha256}',''),
+		       COALESCE(t.chunk_index,0),
+		       t.economic_buyer_charge_usd::float8,
+		       t.economic_supplier_payout_usd::float8,
+		       t.economic_buyer_charge_nanos,
+		       t.economic_supplier_payout_nanos
+		  FROM tasks t JOIN jobs j ON j.id=t.job_id
+		 WHERE t.id=$1 AND t.job_id=$2`, anchorTaskID, jobID).
+		Scan(&policy, &anchorInputRef, &anchorInputSHA256, &workloadInputSHA256,
+			&anchorChunk, &buyerUSD, &supplierUSD,
+			&buyerNanos, &supplierPayoutNanos)
+	if err != nil {
+		return frozenTaskEconomics{}, false, err
+	}
+	if policy != uniformSinglePrimaryTaskEconomicsV1 {
+		return frozenTaskEconomics{}, false, nil
+	}
+	if inputRef != anchorInputRef || chunkIndex != anchorChunk {
+		return frozenTaskEconomics{}, true, fmt.Errorf(
+			"%w: dynamic task input/chunk %q/%d does not match anchor %q/%d",
+			errHeterogeneousTaskEconomicsUnavailable,
+			inputRef, chunkIndex, anchorInputRef, anchorChunk)
+	}
+	if !validSHA256(anchorInputSHA256) || anchorInputSHA256 != workloadInputSHA256 {
+		return frozenTaskEconomics{}, true, fmt.Errorf(
+			"%w: dynamic task anchor lacks the frozen whole-input digest",
+			errHeterogeneousTaskEconomicsUnavailable)
+	}
+	plan, _, err := assertDenormalizedEconomicPlanMoney(ctx, q, jobID)
+	if err != nil {
+		return frozenTaskEconomics{}, true, err
+	}
+	if !moneyEqual6(buyerUSD, plan.BuyerChargePerTaskUSD) ||
+		!moneyEqual6(supplierUSD, plan.SupplierPayoutPerTaskUSD) {
+		return frozenTaskEconomics{}, true, fmt.Errorf(
+			"%s: anchor task %s float money does not match the uniform plan",
+			errTaskEconomicNanosMismatch, anchorTaskID)
+	}
+	if err := assertTaskEconomicNanosMatchPlan(
+		buyerNanos, supplierPayoutNanos, plan, anchorTaskID); err != nil {
+		return frozenTaskEconomics{}, true, err
+	}
+	return frozenTaskEconomics{
+		BuyerChargeUSD: buyerUSD, SupplierPayoutUSD: supplierUSD,
+		BuyerChargeNanos: buyerNanos, SupplierPayoutNanos: supplierPayoutNanos,
+	}, true, nil
+}
+
 func moneyEqual6(a, b float64) bool {
 	return usdToMicros(a) == usdToMicros(b) &&
 		!math.IsNaN(a) && !math.IsNaN(b) &&

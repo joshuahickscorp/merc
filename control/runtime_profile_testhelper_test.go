@@ -21,7 +21,22 @@ func bindWorkerToGovernedProfile(t *testing.T, pool *pgxpool.Pool, ctx context.C
 	workerID uuid.UUID) {
 	t.Helper()
 	id, revision, digest, err := governedProfileIdentity("candle")
-	mustf(t, err, "resolve governed profile: %v")
+	if err != nil {
+		// Historical/direct money-path fixtures are deliberately constructed
+		// before their TEST_ONLY current benchmark authority is installed. With
+		// every checked-in execution credential honestly demoted, there is no
+		// buyer-routable profile for governedProfileIdentity to select. Still bind
+		// the worker to the exact declared profile identity so these direct rows
+		// have a shape production once emitted; they remain non-routable until the
+		// test installs its explicit synthetic authority and capability.
+		profile, ok := runtimeProfileByID("candle_metal")
+		if !ok || profile.Engine != "candle" {
+			t.Fatalf("resolve declared historical test profile after routable lookup failed (%v)", err)
+		}
+		id, revision = profile.RuntimeID, profile.Revision
+		digest, err = profile.CapabilityDigest(runtimeAuthorityModels)
+		mustf(t, err, "digest declared historical test profile: %v")
+	}
 	if _, err := pool.Exec(ctx,
 		`UPDATE workers SET engine='candle', runtime_profile_id=$2,
 		                    runtime_profile_revision=$3, runtime_profile_digest=$4

@@ -155,18 +155,23 @@ func (s *Store) ReconcileLegacyVerifyingTasks(ctx context.Context) (int64, error
 }
 
 type StalePinnedTiebreak struct {
-	TaskID       uuid.UUID
-	JobID        uuid.UUID
-	AnchorTaskID uuid.UUID
-	PinnedWorker uuid.UUID
-	HWClass      string
-	Engine       string
-	BuildHash    string
-	JobType      string
-	ModelRef     string
-	MinMemoryGB  float32
-	ChunkIndex   int
-	ClaimedAt    time.Time
+	TaskID              uuid.UUID
+	JobID               uuid.UUID
+	AnchorTaskID        uuid.UUID
+	PinnedWorker        uuid.UUID
+	HWClass             string
+	Engine              string
+	BuildHash           string
+	BuildIdentityPolicy string
+	HardwareIdentity    string
+	RuntimeCellID       string
+	RuntimeID           string
+	ModelKind           string
+	JobType             string
+	ModelRef            string
+	MinMemoryGB         float32
+	ChunkIndex          int
+	ClaimedAt           time.Time
 }
 
 func (s *Store) StalePinnedTiebreaks(ctx context.Context, olderThan time.Duration, limit int) ([]StalePinnedTiebreak, error) {
@@ -176,7 +181,11 @@ func (s *Store) StalePinnedTiebreaks(ctx context.Context, olderThan time.Duratio
 	rows, err := s.pool.Query(ctx, `
 		SELECT t.id,t.job_id,t.hedged_from,t.claimed_by,
 		       COALESCE(t.verification_hw_class,''),COALESCE(t.verification_engine,''),
-		       COALESCE(t.verification_build_hash,''),
+		       COALESCE(t.verification_build_hash,''),COALESCE(t.verification_build_identity_policy,''),
+		       COALESCE(j.placement_requirement->>'hardware_identity',''),
+		       COALESCE(j.placement_requirement->>'runtime_cell_id',''),
+		       COALESCE(j.placement_requirement->>'runtime_id',''),
+		       COALESCE(j.placement_requirement->>'model_kind',''),
 		       j.job_type,COALESCE(j.model_ref,''),COALESCE(j.min_memory_gb,0),
 		       COALESCE(t.chunk_index,0),t.claimed_at
 		  FROM tasks t JOIN jobs j ON j.id=t.job_id
@@ -195,7 +204,8 @@ func (s *Store) StalePinnedTiebreaks(ctx context.Context, olderThan time.Duratio
 	for rows.Next() {
 		var item StalePinnedTiebreak
 		if err := rows.Scan(&item.TaskID, &item.JobID, &item.AnchorTaskID, &item.PinnedWorker,
-			&item.HWClass, &item.Engine, &item.BuildHash,
+			&item.HWClass, &item.Engine, &item.BuildHash, &item.BuildIdentityPolicy,
+			&item.HardwareIdentity, &item.RuntimeCellID, &item.RuntimeID, &item.ModelKind,
 			&item.JobType, &item.ModelRef, &item.MinMemoryGB, &item.ChunkIndex, &item.ClaimedAt); err != nil {
 			return nil, err
 		}
@@ -205,9 +215,10 @@ func (s *Store) StalePinnedTiebreaks(ctx context.Context, olderThan time.Duratio
 }
 
 type tiebreakVerificationClass struct {
-	HWClass   string
-	Engine    string
-	BuildHash string
+	HWClass             string
+	Engine              string
+	BuildHash           string
+	BuildIdentityPolicy string
 }
 
 func frozenTiebreakClassForAnchorTx(ctx context.Context, tx pgx.Tx, anchorTaskID uuid.UUID) (tiebreakVerificationClass, error) {
@@ -227,10 +238,15 @@ func frozenTiebreakClassForAnchorTx(ctx context.Context, tx pgx.Tx, anchorTaskID
 		         SELECT vw.input_snapshot->>'build_hash'
 		           FROM verification_work vw WHERE vw.task_id=anchor.id
 		          ORDER BY vw.attempt DESC LIMIT 1
-		       ),COALESCE(anchor.execution_build_hash,''))
+		       ),COALESCE(anchor.execution_build_hash,'')),
+		       COALESCE((
+		         SELECT vw.input_snapshot->>'build_identity_policy'
+		           FROM verification_work vw WHERE vw.task_id=anchor.id
+		          ORDER BY vw.attempt DESC LIMIT 1
+		       ),COALESCE(anchor.execution_build_identity_policy,''))
 		  FROM tasks anchor
 		 WHERE anchor.id=$1`, anchorTaskID).
-		Scan(&out.HWClass, &out.Engine, &out.BuildHash)
+		Scan(&out.HWClass, &out.Engine, &out.BuildHash, &out.BuildIdentityPolicy)
 	if err != nil {
 		return out, err
 	}
@@ -241,6 +257,8 @@ func frozenTiebreakClassForAnchorTx(ctx context.Context, tx pgx.Tx, anchorTaskID
 }
 
 func tiebreakPeerClaimEligibleTx(ctx context.Context, tx pgx.Tx, taskID, jobID, peer uuid.UUID) (bool, error) {
+	// Every caller owns peer's worker row before any task/job lock. Keeping the
+	// lock acquisition at the writer boundary preserves worker->task->job order.
 	var eligible bool
 	err := tx.QueryRow(ctx, `
 		SELECT EXISTS (
@@ -259,19 +277,42 @@ func tiebreakPeerClaimEligibleTx(ctx context.Context, tx pgx.Tx, taskID, jobID, 
 		         OR COALESCE(nw.engine,'')=t.verification_engine)
 		    AND (COALESCE(t.verification_build_hash,'')=''
 		         OR COALESCE(nw.build_hash,'')=t.verification_build_hash)
+		    AND (COALESCE(t.verification_build_identity_policy,'')=''
+		         OR COALESCE(nw.build_identity_policy,'')=t.verification_build_identity_policy)
+		    AND (
+		      COALESCE(NULLIF(j.placement_requirement->>'version','')::int,1)<3
+		      OR (
+		        COALESCE(nw.engine,'')=COALESCE(j.placement_requirement->>'engine','')
+		        AND COALESCE(nw.runtime_profile_id,'')=COALESCE(j.placement_requirement->>'runtime_id','')
+		        AND COALESCE(nw.build_hash,'')=COALESCE(j.placement_requirement->>'engine_build_hash','')
+		        AND COALESCE(nw.build_identity_policy,'')=COALESCE(j.placement_requirement->>'engine_build_identity_policy','')
+		        AND COALESCE(nw.hardware_identity,'')=COALESCE(j.placement_requirement->>'hardware_identity','')
+		      )
+		    )
 		    AND nw.last_seen_at>now()-interval '60 seconds'
 		    AND ns.status='active' AND NOT COALESCE(nw.throttled,false)
+		    AND NOT COALESCE(nw.unsandboxed_opt_in,false)
 		    AND COALESCE(nw.effective_memory_gb,nw.memory_gb,0)>=COALESCE(j.min_memory_gb,0)
 		    AND (j.hw_classes IS NULL OR nw.hw_class=ANY(j.hw_classes))
 		    AND EXISTS (
 		      SELECT 1 FROM worker_authorized_capabilities wac
 		       WHERE wac.worker_id=nw.id AND wac.job_type=j.job_type
 		         AND wac.model_ref=COALESCE(j.model_ref,'') AND wac.matrix_sha256=$4
+		         AND wac.authorized_at>=now()-interval '7 days'
+		         AND (
+		           COALESCE(NULLIF(j.placement_requirement->>'version','')::int,1)<3
+		           OR (
+		             wac.cell_id=j.placement_requirement->>'runtime_cell_id'
+		             AND wac.runtime_id=j.placement_requirement->>'runtime_id'
+		             AND wac.model_kind=j.placement_requirement->>'model_kind'
+		           )
+		         )
 		    )
 		    AND (j.data_residency IS NULL OR ns.data_country=ANY(j.data_residency))
 		    AND COALESCE(j.min_reputation,0)<=ns.reputation
 		    AND (j.tier<>'trusted' OR (ns.reputation>=0.80 AND ns.completed_tasks>=500))
 		    AND COALESCE(j.offered_rate_usd_hr,1e9)>=COALESCE(nw.min_payout_usd_hr,0)
+`+supplierNotLinkedToBuyerSQL("ns")+`
 		    AND (j.max_usd IS NULL OR (
 		      (SELECT COALESCE(SUM(-le.amount_usd),0) FROM ledger_entries le
 		        WHERE le.kind='buyer_charge'
@@ -366,6 +407,9 @@ func (s *Store) ReassignPinnedTiebreak(ctx context.Context, item StalePinnedTieb
 		return false, err
 	}
 	defer tx.Rollback(ctx)
+	if err := lockDynamicPeerWorkerTx(ctx, tx, peer); err != nil {
+		return false, err
+	}
 
 	var locked uuid.UUID
 	err = tx.QueryRow(ctx, `

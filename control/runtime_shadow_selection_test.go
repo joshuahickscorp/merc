@@ -16,6 +16,7 @@ import (
 // record the answer it was handed and call it a decision.
 func TestShadowSelectionConsidersTheProvenCellAdmissionCannotRoute(t *testing.T) {
 	withActivationRestored(t)
+	installBoundCataloguePublicationAuthorityForTest(t)
 
 	decision, err := buildWorkloadDecision(jobSubmit{
 		JobType:     JobType{Type: "embed"},
@@ -75,6 +76,7 @@ func TestShadowSelectionConsidersTheProvenCellAdmissionCannotRoute(t *testing.T)
 // the only form of exclusion anyone can argue with.
 func TestShadowSelectionRecordsWhyACellWasExcluded(t *testing.T) {
 	withActivationRestored(t)
+	installBoundCataloguePublicationAuthorityForTest(t)
 
 	// Ordinary admission freezes the bindable embed singleton. Shadow selection
 	// then scores the directed set, where llama.cpp's embed cell is reachable
@@ -172,16 +174,28 @@ func TestShadowSelectionBreaksTiesTowardWhatAdmissionChose(t *testing.T) {
 // The selection is recorded, immutable, and cannot refuse a submit.
 func TestShadowSelectionIsRecordedAndImmutable(t *testing.T) {
 	ctx, store, pool := openActivationStore(t)
-
-	decision, err := buildWorkloadDecision(jobSubmit{
-		JobType:     JobType{Type: "embed"},
-		Model:       ModelRef{Kind: "hf", Ref: "all-minilm-l6-v2"},
-		Tier:        "batch",
-		Constraints: JobConstraints{MaxDurationSecs: 3600},
-	}, strings.Repeat("c", 64))
-	must(t, err)
-	shadow, err := planShadowSelection(decision)
-	must(t, err)
+	shadow := ShadowSelection{
+		RuntimeMatrixSHA: generatedRuntimeMatrixSHA256, PolicyRevision: 1,
+		JobType: "embed", ModelRef: "all-minilm-l6-v2", ModelKind: "hf",
+		WorkloadClass: "embeddings", LatencyClass: "standard_batch",
+		RoutedCellID: candleEmbedCell, ShadowCellID: llamaEmbedCell,
+		SelectionPolicy:                   shadowSelectionPolicy,
+		SelectionBasis:                    selectionBasisThroughputEqualLiability,
+		SupplierLiabilityHWClass:          "apple_silicon_ultra",
+		SupplierLiabilityHardwareIdentity: "Apple M3 Ultra",
+		Considered: []shadowCandidate{{
+			CellID: candleEmbedCell, RuntimeID: "candle_metal", Engine: "candle",
+			Lifecycle: runtimeLifecycleActive, QualityTier: "OUTCOME_EQUIVALENT",
+			Verification: "cosine",
+		}, {
+			CellID: llamaEmbedCell, RuntimeID: "llama_cpp_metal", Engine: "llama_cpp",
+			Lifecycle:   runtimeLifecycleRealRuntimeProven,
+			QualityTier: "OUTCOME_EQUIVALENT", Verification: "cosine",
+		}},
+		Excluded: []shadowExclusion{},
+	}.withExecutionMode(WorkloadDecision{Parallelism: WorkloadParallelism{
+		Mode: "independent_task_fanout", TensorParallelDegree: 1,
+	}})
 	jobID := uuid.NewString()
 	mustf(t, store.RecordShadowSelection(ctx, jobID, shadow), "record: %v")
 	// Idempotent: a retried submit must not produce a second opinion.
@@ -189,10 +203,14 @@ func TestShadowSelectionIsRecordedAndImmutable(t *testing.T) {
 
 	var rows int
 	var considered, excluded string
+	var legacyBasis, legacyHW, currentBasis, currentHW, currentHardwareIdentity string
 	if err := pool.QueryRow(ctx, `
-		SELECT COUNT(*) OVER (), considered_cells::text, excluded_cells::text
+		SELECT COUNT(*) OVER (), considered_cells::text, excluded_cells::text,
+		       selection_basis, cost_hw_class, selection_basis_v3,
+		       supplier_liability_hw_class, supplier_liability_hardware_identity
 		  FROM runtime_shadow_selections WHERE job_id=$1`, jobID).
-		Scan(&rows, &considered, &excluded); err != nil {
+		Scan(&rows, &considered, &excluded, &legacyBasis, &legacyHW,
+			&currentBasis, &currentHW, &currentHardwareIdentity); err != nil {
 		t.Fatal(err)
 	}
 	if rows != 1 {
@@ -200,6 +218,13 @@ func TestShadowSelectionIsRecordedAndImmutable(t *testing.T) {
 	}
 	if !strings.Contains(considered, llamaEmbedCell) {
 		t.Errorf("the stored decision does not name the proven cell: %s", considered)
+	}
+	if legacyBasis != "" || legacyHW != "" || currentBasis != shadow.SelectionBasis ||
+		currentHW != shadow.SupplierLiabilityHWClass ||
+		currentHardwareIdentity != shadow.SupplierLiabilityHardwareIdentity {
+		t.Fatalf("current writer crossed schema generations: legacy=%q/%q current=%q/%q want=%q/%q",
+			legacyBasis, legacyHW, currentBasis, currentHW,
+			shadow.SelectionBasis, shadow.SupplierLiabilityHWClass)
 	}
 
 	// Immutable. A decision is what was believed at a moment; rewriting one makes
@@ -220,6 +245,88 @@ func TestShadowSelectionIsRecordedAndImmutable(t *testing.T) {
 		t.Fatalf("divergence report = %+v", divergence)
 	}
 	t.Logf("divergence: %+v", divergence[0])
+}
+
+func TestEqualLiabilityThroughputRankingCannotSelectHigherLiabilityThirdArm(t *testing.T) {
+	proxy := func(liability, latency float64) MeasuredSupplierLiabilityProxy {
+		return MeasuredSupplierLiabilityProxy{
+			Measured: true, Samples: minSupplierLiabilitySamples,
+			SupplierUSDPerUnit: liability, MedianMsPerUnit: latency,
+			VerificationSamples: minSupplierLiabilitySamples,
+			TerminalAttempts:    minSupplierLiabilitySamples,
+		}
+	}
+	liabilities := map[string]MeasuredSupplierLiabilityProxy{
+		"tied-slow":   proxy(1.000, 10),
+		"tied-fast":   proxy(1.004, 5), // within pricesTieWithin of the best
+		"costly-fast": proxy(1.020, 1), // fastest, but outside the liability tie
+	}
+
+	decision := decideMeasuredSupplierLiabilityShadow(
+		liabilities, []string{"tied-slow", "tied-fast", "costly-fast"}, "tied-slow")
+	if decision.Winner != "tied-fast" {
+		t.Fatalf("winner = %q, want fastest cell inside liability-tied cohort; decision=%+v",
+			decision.Winner, decision)
+	}
+	if decision.Basis != selectionBasisThroughputEqualLiability {
+		t.Fatalf("basis = %q, want %q", decision.Basis, selectionBasisThroughputEqualLiability)
+	}
+}
+
+func TestEqualLiabilityThroughputRankingRefusesRetryBurden(t *testing.T) {
+	proxy := func(latency float64) MeasuredSupplierLiabilityProxy {
+		return MeasuredSupplierLiabilityProxy{
+			Measured: true, Samples: minSupplierLiabilitySamples,
+			SupplierUSDPerUnit: 1, MedianMsPerUnit: latency,
+			VerificationSamples: minSupplierLiabilitySamples,
+			TerminalAttempts:    minSupplierLiabilitySamples,
+		}
+	}
+	liabilities := map[string]MeasuredSupplierLiabilityProxy{
+		"clean-slow": proxy(10),
+		"retry-fast": proxy(1),
+	}
+	retried := liabilities["retry-fast"]
+	retried.RetryRate = 0.01
+	liabilities["retry-fast"] = retried
+
+	decision := decideMeasuredSupplierLiabilityShadow(
+		liabilities, []string{"clean-slow", "retry-fast"}, "clean-slow")
+	if decision.Winner != "" || decision.Basis != "" {
+		t.Fatalf("retry burden authorized equal-liability throughput ranking: %+v", decision)
+	}
+	payable, ok := retried.ExpectedSupplierLiabilityUSDPerVerifiedUnit()
+	if !ok || payable != 1 {
+		t.Fatalf("retry burden changed payable supplier liability: %.12f, ok=%v", payable, ok)
+	}
+}
+
+func TestTieNoDecisionCannotRetainUnreliableRoutedThirdArm(t *testing.T) {
+	proxy := func(latency float64) MeasuredSupplierLiabilityProxy {
+		return MeasuredSupplierLiabilityProxy{
+			Measured: true, Samples: minSupplierLiabilitySamples,
+			SupplierUSDPerUnit: 1, MedianMsPerUnit: latency,
+			VerificationSamples: minSupplierLiabilitySamples,
+			TerminalAttempts:    minSupplierLiabilitySamples,
+		}
+	}
+	liabilities := map[string]MeasuredSupplierLiabilityProxy{
+		"clean-a":      proxy(10),
+		"clean-b":      proxy(10),
+		"retry-routed": proxy(1),
+	}
+	retried := liabilities["retry-routed"]
+	retried.RetryRate = 0.01
+	liabilities["retry-routed"] = retried
+
+	decision := decideMeasuredSupplierLiabilityShadow(liabilities,
+		[]string{"clean-a", "clean-b", "retry-routed"}, "retry-routed")
+	if decision.Basis != selectionBasisTieNoDecision {
+		t.Fatalf("basis = %q, want %q", decision.Basis, selectionBasisTieNoDecision)
+	}
+	if decision.Winner != "clean-a" {
+		t.Fatalf("tie retained unreliable routed arm: %+v", decision)
+	}
 }
 
 func keysOf(m map[string]shadowCandidate) []string {

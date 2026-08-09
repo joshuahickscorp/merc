@@ -8,6 +8,13 @@ import (
 
 func computePlanFixture(t *testing.T) (WorkloadDecision, ComputePlan, EconomicPlan) {
 	t.Helper()
+	// A few historical embed-reader tests intentionally install an exact legacy
+	// embed authority before calling this shared fixture. Preserve that authority
+	// when present; otherwise install the explicit TEST_ONLY publication seam.
+	// Neither branch widens checked-in production evidence.
+	if !advertisedRuntimeCell(candleEmbedCell) {
+		installBoundCataloguePublicationAuthorityForTest(t)
+	}
 	sub, herr := normalizeAndValidateJobSubmit(jobSubmit{
 		JobType: JobType{Type: "embed"},
 		Model:   ModelRef{Kind: "hf", Ref: "all-minilm-l6-v2"},
@@ -17,8 +24,22 @@ func computePlanFixture(t *testing.T) (WorkloadDecision, ComputePlan, EconomicPl
 		Tier: "batch",
 	})
 	if herr != nil {
-		t.Fatalf("normalize compute-plan fixture: %s", herr.msg)
+		t.Fatalf("normalize shared embed compute-plan fixture: %s", herr.msg)
 	}
+	return computePlanFixtureForSubmit(t, sub)
+}
+
+func combinedTokenComputePlanFixture(t *testing.T) (WorkloadDecision, ComputePlan, EconomicPlan) {
+	t.Helper()
+	// The tests in this file are lane-neutral. Prefer the narrow combined-token
+	// batch seam so they do not imply that superseded embed evidence is current.
+	return computePlanFixtureForSubmit(t, testOnlyCombinedTokenSubmit(t))
+}
+
+func computePlanFixtureForSubmit(
+	t *testing.T, sub jobSubmit,
+) (WorkloadDecision, ComputePlan, EconomicPlan) {
+	t.Helper()
 	decision, err := buildWorkloadDecision(sub, strings.Repeat("a", 64))
 	mustf(t, err, "build compute-plan workload: %v")
 	economic := BuildEconomicPlan(EconomicPlanInput{
@@ -52,7 +73,7 @@ func computePlanFixture(t *testing.T) (WorkloadDecision, ComputePlan, EconomicPl
 }
 
 func TestComputePlanRejectsGeometryPlacementAndEconomicTampering(t *testing.T) {
-	decision, plan, economic := computePlanFixture(t)
+	decision, plan, economic := combinedTokenComputePlanFixture(t)
 
 	tests := []struct {
 		name   string
@@ -83,7 +104,7 @@ func TestComputePlanRejectsGeometryPlacementAndEconomicTampering(t *testing.T) {
 }
 
 func TestComputePlanDigestBindsEveryExecutionField(t *testing.T) {
-	_, plan, _ := computePlanFixture(t)
+	_, plan, _ := combinedTokenComputePlanFixture(t)
 	original, err := computePlanDigest(plan)
 	must(t, err)
 	mutant := plan
@@ -115,7 +136,7 @@ func TestQuoteTimeFromETABandsIsExplicitAndNeverLetsThePlannerBoundFallBelowP50(
 }
 
 func TestFrozenComputePlanRejectsTaskClassTotalTampering(t *testing.T) {
-	decision, plan, _ := computePlanFixture(t)
+	decision, plan, _ := combinedTokenComputePlanFixture(t)
 	plan.TotalInitialTasks++
 	if err := ValidateFrozenComputePlanSnapshot(plan, decision); err == nil {
 		t.Fatal("frozen compute-plan validator accepted a task-class total mutation")
@@ -123,7 +144,7 @@ func TestFrozenComputePlanRejectsTaskClassTotalTampering(t *testing.T) {
 }
 
 func TestBoundQuoteSplitNeverConsultsLivePlanner(t *testing.T) {
-	_, plan, _ := computePlanFixture(t)
+	_, plan, _ := combinedTokenComputePlanFixture(t)
 	calls := 0
 	got, err := selectSubmissionSplitSize(&boundQuote{ComputePlan: plan}, func() int {
 		calls++
@@ -138,7 +159,7 @@ func TestBoundQuoteSplitNeverConsultsLivePlanner(t *testing.T) {
 	}
 }
 
-// Small multi-task embeds (the canary shape: many primary chunks + a floor
+// Small multi-task workloads (the canary shape: many primary chunks + a floor
 // honeypot against a micro-USD catalogue price) freeze an unfloored compute
 // estimate while BuildEconomicPlan raises Input.BaseComputeUSD to the
 // min-billable settlement floor. The authorities must still agree: the
@@ -147,8 +168,8 @@ func TestBoundQuoteSplitNeverConsultsLivePlanner(t *testing.T) {
 // the same estimate and erase cost discrimination among exactly the jobs the
 // floor touches — a settlement concern must not rewrite estimation.
 func TestComputePlanKeepsUnflooredEstimateUnderMinBillableSettlementFloor(t *testing.T) {
-	decision, _, _ := computePlanFixture(t)
-	const cataloguePrimary = 0.000001 // one micro-USD: estimate floor for a tiny embed
+	decision, _, _ := combinedTokenComputePlanFixture(t)
+	const cataloguePrimary = 0.000001 // one micro-USD: estimate floor for a tiny workload
 	const primaryTasks = 24
 	const honeypotTasks = 1
 	totalTasks := primaryTasks + honeypotTasks
@@ -202,7 +223,7 @@ func TestComputePlanKeepsUnflooredEstimateUnderMinBillableSettlementFloor(t *tes
 // The floor-aware binding must not accept an arbitrary economic base above or
 // below the floored form of the compute sum.
 func TestComputePlanStillRejectsTrueMoneyDisagreement(t *testing.T) {
-	decision, plan, economic := computePlanFixture(t)
+	decision, plan, economic := combinedTokenComputePlanFixture(t)
 
 	// Inflate economic base far above floor(compute) without changing compute.
 	inflated := economic
@@ -263,7 +284,7 @@ func TestSettlementBaseFromComputeEstimateMatchesBuildEconomicPlanFloor(t *testi
 }
 
 func TestExactReusePlanBindsOriginWithoutInventingPhysicalWork(t *testing.T) {
-	decision, origin, _ := computePlanFixture(t)
+	decision, origin, _ := combinedTokenComputePlanFixture(t)
 	reuse, err := newExactReuseComputePlan(decision, 4, 512, testInputDepthProfile(4), 0.05, &origin)
 	must(t, err)
 	if reuse.TotalInitialTasks != 0 || reuse.SplitSize != 0 || reuse.ETAP50Secs != 0 {
@@ -281,7 +302,7 @@ func TestExactReusePlanBindsOriginWithoutInventingPhysicalWork(t *testing.T) {
 }
 
 func TestV4ComputePlanSeparatesPlanningDepthFromSettlementUnits(t *testing.T) {
-	_, plan, _ := computePlanFixture(t)
+	_, plan, _ := combinedTokenComputePlanFixture(t)
 	if plan.Version != computePlanVersion || plan.InputDepthProfile == nil {
 		t.Fatalf("fixture is not a current v4 plan: version=%d profile=%v", plan.Version, plan.InputDepthProfile)
 	}
@@ -292,7 +313,7 @@ func TestV4ComputePlanSeparatesPlanningDepthFromSettlementUnits(t *testing.T) {
 }
 
 func TestV4ComputePlanRejectsDepthProfileAndSettlementAuthorityTampering(t *testing.T) {
-	decision, plan, _ := computePlanFixture(t)
+	decision, plan, _ := combinedTokenComputePlanFixture(t)
 	if plan.Version != computePlanVersion || plan.InputDepthProfile == nil {
 		t.Fatalf("fixture is not a current v4 plan: version=%d profile=%v",
 			plan.Version, plan.InputDepthProfile)
@@ -361,11 +382,11 @@ func TestV4ComputePlanRejectsDepthProfileAndSettlementAuthorityTampering(t *test
 }
 
 func TestHistoricalV1ComputePlanRemainsValidUnderOldTokenRule(t *testing.T) {
-	decision, modern, _ := computePlanFixture(t)
-	// Exact-result reuse was eligible when v1/v2 plans were emitted. Rebuild
-	// that frozen workload authority explicitly so the compatibility fixture
-	// remains a byte-for-byte historical record after new batch decisions
-	// fail-close that unsafe cache path.
+	decision, modern, _ := combinedTokenComputePlanFixture(t)
+	// Exact-result reuse was eligible when v1/v2 plans were emitted. Rebuild an
+	// accepted-era shape from the explicit TEST_ONLY batch authority so the
+	// compatibility fixture remains byte-stable without claiming that a
+	// superseded production receipt is current.
 	historicalDecision := decision
 	historicalDecision.ExactResultCacheEligible = true
 	// Runtime candidates gained model_kind after this fixture was published.
@@ -386,8 +407,8 @@ func TestHistoricalV1ComputePlanRemainsValidUnderOldTokenRule(t *testing.T) {
 	v1.EstimatedInputTokens = estimatedInputTokensForComputePlanV1(v1.InputRecords, v1.InputBytes)
 	v1.SettlementInputUnits = 0
 	v1.ETAConfidenceBandMethod = ""
-	// This historical fixture predates v4 ETA-band semantics and must preserve
-	// its already-published digest exactly.
+	// This synthetic accepted-era fixture predates v4 ETA-band semantics and must
+	// preserve its pinned digest exactly.
 	v1.ETAP90Secs = 60
 	mustf(t, ValidateFrozenComputePlanSnapshot(v1, historicalDecision), "historical v1 plan rejected: %v")
 	digest, err := computePlanDigest(v1)
@@ -395,7 +416,7 @@ func TestHistoricalV1ComputePlanRemainsValidUnderOldTokenRule(t *testing.T) {
 	if digest == "" || len(digest) != 64 {
 		t.Fatalf("unexpected v1 digest %q", digest)
 	}
-	const historicalV1FixtureDigest = "afde5895202f42a2defbb15c4cb72f6a02c30fdcba4daca171d7f639903d5160"
+	const historicalV1FixtureDigest = "957fc906575edac0b3bc3b6d0f7b48907e38370dabba46503f379e41b5630f71"
 	if digest != historicalV1FixtureDigest {
 		t.Fatalf("historical v1 digest changed: got %s want %s",
 			digest, historicalV1FixtureDigest)
@@ -439,7 +460,7 @@ func TestHistoricalV1ComputePlanRemainsValidUnderOldTokenRule(t *testing.T) {
 }
 
 func TestBoundQuoteRefusesDifferentMeasuredDepthProfile(t *testing.T) {
-	_, plan, _ := computePlanFixture(t)
+	_, plan, _ := combinedTokenComputePlanFixture(t)
 	if plan.InputDepthProfile == nil {
 		t.Fatal("fixture missing depth profile")
 	}

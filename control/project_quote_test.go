@@ -16,7 +16,7 @@ func projectQuoteIRFixture(quote Quote, ceiling int64) ProjectWorkloadIR {
 		Probe:     ProjectIRProbe{Executed: true, BuyerAuthorized: true, ApprovedIRSHA256: strings.Repeat("b", 64)},
 		Economics: ProjectIREconomics{Currency: quote.Currency, MaximumBuyerPriceNanos: ceiling},
 		Steps: []ProjectIRStep{{
-			ID: "embed", Kind: "embeddings", Inputs: []string{"project://input.jsonl"},
+			ID: "batch", Kind: "batch_inference", Inputs: []string{"project://input.jsonl"},
 			RuntimeID: quote.Workload.RuntimeCandidates[0].RuntimeID, ModelID: quote.Model,
 		}},
 	}
@@ -39,7 +39,7 @@ func TestQuoteCompiledProjectRefusesSymlinkedArtifactParent(t *testing.T) {
 
 func validProjectServerQuote(t *testing.T) Quote {
 	t.Helper()
-	workload, compute, _ := computePlanFixture(t)
+	workload, compute, _ := pricingComputePlanFixture(t)
 	schedule := testEconomicSchedule()
 	schedule.ControlPlanePerTaskUSD = 0
 	schedule.ControlPlanePerBatchUSD = .005

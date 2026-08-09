@@ -68,6 +68,17 @@ func (s *Store) applyVerificationDecision(ctx context.Context, info *CommitTaskI
 		return result, err
 	}
 	defer tx.Rollback(ctx)
+	// A planned tiebreak's peer lock precedes every verification-work, reserve,
+	// task, and job lock below. This matches Claim/Start/Upsert ordering and
+	// closes eligibility-read -> pin-publication registration races.
+	for _, effect := range decision.Effects {
+		if effect.Kind == VerificationEffectInsertTiebreak {
+			if err := lockDynamicPeerWorkerTx(ctx, tx, effect.PeerWorkerID); err != nil {
+				return result, err
+			}
+			break
+		}
+	}
 	if fence != nil {
 		if err := lockVerificationWorkFenceTx(ctx, tx, info, *fence); err != nil {
 			return result, err
@@ -1039,9 +1050,17 @@ func insertPlannedTiebreakTx(ctx context.Context, tx pgx.Tx, info *CommitTaskInf
 	if consumed >= reserved {
 		return false, ErrEconomicReserveExhausted
 	}
+	cloneFrozen, currentUniform, err := currentUniformCloneTaskEconomics(
+		ctx, tx, effect.JobID, effect.PrimaryTaskID, effect.InputRef, effect.ChunkIndex)
+	if err != nil {
+		return false, err
+	}
 	frozen, err := consumeEconomicReserveTx(ctx, tx, effect.JobID)
 	if err != nil {
 		return false, err
+	}
+	if currentUniform {
+		frozen = cloneFrozen
 	}
 	if info == nil || info.HWClass == "" {
 		return false, errors.New("planned tiebreak requires frozen verification class")
@@ -1049,18 +1068,19 @@ func insertPlannedTiebreakTx(ctx context.Context, tx pgx.Tx, info *CommitTaskInf
 	resultKey := taskAttemptResultKey(effect.JobID, effect.TaskID, 0)
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO tasks
-		  (id,job_id,status,is_honeypot,is_redundancy,retry_count,input_ref,result_key,
+		  (id,job_id,status,is_honeypot,is_redundancy,retry_count,input_ref,input_sha256,result_key,
 		   input_depth_band,chunk_index,hedged_from,expected_output_records,
-		   verification_hw_class,verification_engine,verification_build_hash,
+		   verification_hw_class,verification_engine,verification_build_hash,verification_build_identity_policy,
 		   claimed_by,claimed_at,visible_at,
 		   economic_buyer_charge_usd,economic_supplier_payout_usd,
 		   economic_buyer_charge_nanos,economic_supplier_payout_nanos)
-		VALUES ($1,$2,'queued',false,true,0,$3,$4,
+		VALUES ($1,$2,'queued',false,true,0,$3,
+		        (SELECT input_sha256 FROM tasks WHERE id=$6),$4,
 		        (SELECT input_depth_band FROM tasks WHERE id=$6),$5,$6,
 		        (SELECT expected_output_records FROM tasks WHERE id=$6),
-		        $7,$8,$9,NULL,NULL,now(),$10,$11,$12,$13)`,
+		        $7,$8,$9,$10,NULL,NULL,now(),$11,$12,$13,$14)`,
 		effect.TaskID, effect.JobID, effect.InputRef, resultKey, effect.ChunkIndex,
-		effect.PrimaryTaskID, info.HWClass, info.engine, info.buildHash,
+		effect.PrimaryTaskID, info.HWClass, info.engine, info.buildHash, info.buildIdentityPolicy,
 		frozen.BuyerChargeUSD, frozen.SupplierPayoutUSD,
 		frozen.BuyerChargeNanos, frozen.SupplierPayoutNanos); err != nil {
 		return false, err

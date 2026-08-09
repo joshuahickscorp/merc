@@ -38,39 +38,33 @@ import (
 // scorer inventing them produces a number whose only property is that it looks
 // like evidence. The first half was wrong: every committed task already records
 // its cell, its units, its duration, its frozen supplier liability, its retries
-// and its verification outcome. runtime_cell_cost.go reads exactly those, and a
-// decision with two or more MEASURED candidates on one hardware class is ranked
-// on the cost of a verified unit. The second half still holds and is why nothing
-// here predicts memory, and why storage, egress, energy, depreciation and refund
-// risk are reported as `unknown` rather than as zero.
+// and its verification outcome. runtime_cell_cost.go reads exactly those into a
+// measured supplier-liability proxy. It is not a complete cost: storage, egress,
+// energy, depreciation and refund risk remain unknown. Consequently it may
+// establish equal liability for a throughput comparison, but an unequal proxy
+// cannot authorize a cost-based shadow choice.
 
 // shadowSelectionPolicy names the rule that picked the shadow cell. It is stored
 // with every row, so a decision taken under one rule is never re-read as though
 // it had been taken under another.
 //
-// v2 because the scoring half arrived. The paragraph above still describes the
-// eligibility half exactly; what changed is that runtime_cell_cost.go found the
-// per-cell measurement source in the money path, so a decision can now be ranked
-// on the measured cost of a VERIFIED unit instead of on the lifecycle ladder
-// alone. Which arm actually fired is recorded per row as the selection basis —
-// the policy says what rule was available, the basis says what it could prove.
-const shadowSelectionPolicy = "eligibility-and-measured-cost-v2"
+// v3 makes the authority boundary explicit: the measured money-path value is a
+// supplier-liability proxy, not total cost. Which arm actually fired is recorded
+// per row, and an unavailable cost arm records its refusal separately.
+const shadowSelectionPolicy = "eligibility-and-measured-supplier-liability-v3"
 
 // Selection bases. A row records exactly one.
 const (
 	// selectionBasisLadder ranks on the governed lifecycle ladder and quality
-	// tier. Used when fewer than two candidates have a measured cost on any one
-	// hardware class — which is the honest answer, not a degraded one.
+	// tier. It remains the basis when an unequal supplier-liability proxy cannot
+	// authorize a cost decision because platform costs are unknown.
 	selectionBasisLadder = "LIFECYCLE_LADDER"
-	// selectionBasisMeasuredCost ranks on measured expected verified-outcome cost
-	// per unit, on one hardware class. Used only when one candidate is strictly
-	// cheaper; a cost-tie must not claim this basis (see throughput / tie bases).
-	selectionBasisMeasuredCost = "MEASURED_VERIFIED_OUTCOME_COST"
-	// selectionBasisThroughputEqualPrice ranks on measured median latency when
-	// verified-outcome costs tie. Capacity gain at equal price — not a saving.
+	// selectionBasisThroughputEqualLiability ranks on measured median latency
+	// when the supplier-liability proxies tie. Capacity gain at equal supplier
+	// liability — not a total-cost saving.
 	// Same name as the promotion throughput basis so a receipt cannot re-label
 	// a capacity win as a cost win by switching vocabularies.
-	selectionBasisThroughputEqualPrice = "MORE_THROUGHPUT_AT_EQUAL_PRICE"
+	selectionBasisThroughputEqualLiability = "MORE_THROUGHPUT_AT_EQUAL_SUPPLIER_LIABILITY"
 	// selectionBasisTieNoDecision records that every term the projection binds
 	// also tied (cost, reliability, and latency within noise). Preferring the
 	// routed cell is not a judgement and must not be scored as one.
@@ -102,14 +96,15 @@ type shadowCandidate struct {
 	QualityTier  string `json:"quality_tier"`
 	Verification string `json:"verification"`
 
-	// The measured half, present only when this cell cleared minCellCostSamples
+	// The measured half, present only when this cell cleared
+	// minSupplierLiabilitySamples
 	// on the hardware class the decision was scored on. Absent fields mean "not
 	// measured", which is why they are omitempty rather than zero: a zero cost
 	// would read as free.
-	CostMeasured       bool    `json:"cost_measured"`
-	CostSamples        int     `json:"cost_samples,omitempty"`
-	VerifiedUSDPerUnit float64 `json:"verified_outcome_usd_per_unit,omitempty"`
-	// MedianMsPerUnit is carried when measured so a cost-tie can be re-ranked on
+	SupplierLiabilityMeasured           bool    `json:"supplier_liability_proxy_measured"`
+	SupplierLiabilitySamples            int     `json:"supplier_liability_proxy_samples,omitempty"`
+	SupplierLiabilityUSDPerVerifiedUnit float64 `json:"supplier_liability_proxy_usd_per_verified_unit,omitempty"`
+	// MedianMsPerUnit is carried when measured so an equal-liability pair can be ranked on
 	// throughput without a second query. Zero with CostMeasured=true is a real
 	// measurement (free-as-in-instant), not an absent field — so no omitempty.
 	MedianMsPerUnit float64 `json:"median_ms_per_unit,omitempty"`
@@ -141,11 +136,20 @@ type ShadowSelection struct {
 	Considered       []shadowCandidate `json:"considered_cells"`
 	Excluded         []shadowExclusion `json:"excluded_cells"`
 	SelectionPolicy  string            `json:"selection_policy"`
-	// SelectionBasis is which arm of the policy decided this row, and CostHWClass
-	// is the single hardware class the cost comparison was made on. Empty when the
-	// basis is the ladder, because there was no comparison.
+	// SelectionBasis is which arm of the policy decided this row.
 	SelectionBasis string `json:"selection_basis"`
-	CostHWClass    string `json:"cost_hw_class"`
+	// SupplierLiabilityHWClass is the single hardware class on which the proxies
+	// were measured. It may be present with a ladder basis when the cost arm
+	// explicitly refused an unequal-liability comparison.
+	SupplierLiabilityHWClass string `json:"supplier_liability_hw_class"`
+	// SupplierLiabilityHardwareIdentity is the exact device generation shared by
+	// every measured proxy. The broad class alone cannot distinguish M1 Ultra
+	// observations from an M3 Ultra placement.
+	SupplierLiabilityHardwareIdentity string `json:"supplier_liability_hardware_identity"`
+	// EconomicsRefusal states why measured supplier liability could not become a
+	// cost decision. Empty for ladder-only, equal-liability throughput, and true
+	// ties.
+	EconomicsRefusal string `json:"economics_refusal,omitempty"`
 	// ExecutionMode is where the workload was placed and why. Empty when the
 	// placement rule refused every mode, which is a state worth being able to see
 	// rather than one to paper over with a default.
@@ -292,19 +296,19 @@ func planShadowSelection(decision WorkloadDecision) (ShadowSelection, error) {
 	return out, nil
 }
 
-// rankedByMeasuredCost re-decides the shadow cell on measured economics when —
-// and only when — two or more candidates have a measured cost on one hardware
-// class.
+// rankedByMeasuredSupplierLiability re-decides the shadow cell only for the
+// honest equal-liability throughput arm. Unequal liabilities cannot establish a
+// cost winner while platform-cost components are unknown, so the existing
+// lifecycle choice is retained and an explicit refusal is persisted.
 //
 // Ranking honesty:
 //
-//   - When one cell is strictly cheaper on verified-outcome USD/unit, the basis
-//     is MEASURED_VERIFIED_OUTCOME_COST and that cell wins.
-//   - When costs tie (the common case for same-model catalogue pricing, where
+//   - When supplier-liability proxies differ, cost selection refuses and the
+//     lifecycle choice remains.
+//   - When liabilities tie (the common case for same-model catalogue pricing, where
 //     duration cancels from supplier entitlement), the basis is
-//     MORE_THROUGHPUT_AT_EQUAL_PRICE and the faster cell wins. Claiming a cost
-//     win on a cost-tie is false.
-//   - When cost and latency both tie, the basis is TIE_NO_DECISION and the
+//     MORE_THROUGHPUT_AT_EQUAL_SUPPLIER_LIABILITY and the faster cell wins.
+//   - When liability and latency both tie, the basis is TIE_NO_DECISION and the
 //     routed cell is kept. A correct refusal to choose is a real result.
 //
 // Separate from planShadowSelection, and applied after it, for two reasons. The
@@ -317,8 +321,8 @@ func planShadowSelection(decision WorkloadDecision) (ShadowSelection, error) {
 // (job_type, model_ref). At a few thousand tasks that is nothing; if the table
 // grows and this shows up in submit latency, the fix is a partial index on
 // completed primary tasks, not a cache.
-func (s ShadowSelection) rankedByMeasuredCost(
-	byHW map[string]map[string]MeasuredCellCost,
+func (s ShadowSelection) rankedByMeasuredSupplierLiability(
+	byHW map[string]map[string]MeasuredSupplierLiabilityProxy,
 ) ShadowSelection {
 	cells := make([]string, 0, len(s.Considered))
 	for _, candidate := range s.Considered {
@@ -328,65 +332,91 @@ func (s ShadowSelection) rankedByMeasuredCost(
 	if hw == "" {
 		return s
 	}
-	costs := byHW[hw]
+	liabilities := byHW[hw]
+	hardwareIdentity := ""
 	for i, candidate := range s.Considered {
-		cost, ok := measuredCost(costs, candidate.CellID)
+		liability, ok := measuredSupplierLiability(liabilities, candidate.CellID)
 		if !ok {
 			continue
 		}
-		s.Considered[i].CostMeasured = true
-		s.Considered[i].CostSamples = costs[candidate.CellID].Samples
-		s.Considered[i].VerifiedUSDPerUnit = cost
-		s.Considered[i].MedianMsPerUnit = costs[candidate.CellID].MedianMsPerUnit
+		s.Considered[i].SupplierLiabilityMeasured = true
+		s.Considered[i].SupplierLiabilitySamples = liabilities[candidate.CellID].Samples
+		s.Considered[i].SupplierLiabilityUSDPerVerifiedUnit = liability
+		s.Considered[i].MedianMsPerUnit = liabilities[candidate.CellID].MedianMsPerUnit
+		if hardwareIdentity == "" {
+			hardwareIdentity = liabilities[candidate.CellID].HardwareIdentity
+		}
 	}
-	decision := decideMeasuredShadow(costs, cells, s.RoutedCellID)
+	decision := decideMeasuredSupplierLiabilityShadow(liabilities, cells, s.RoutedCellID)
+	if decision.EconomicsRefusal != "" {
+		s.SupplierLiabilityHWClass = hw
+		s.SupplierLiabilityHardwareIdentity = hardwareIdentity
+		s.EconomicsRefusal = decision.EconomicsRefusal
+		return s
+	}
 	if decision.Basis == "" || decision.Winner == "" {
 		return s
 	}
 	s.ShadowCellID = decision.Winner
 	s.SelectionBasis = decision.Basis
-	s.CostHWClass = hw
+	s.SupplierLiabilityHWClass = hw
+	s.SupplierLiabilityHardwareIdentity = hardwareIdentity
 	return s
 }
 
 // measuredShadowDecision is the pure outcome of ranking measured candidates.
 type measuredShadowDecision struct {
-	Winner string
-	Basis  string
+	Winner           string
+	Basis            string
+	EconomicsRefusal string
 }
 
-// decideMeasuredShadow picks a winner and names the term that actually decided.
-// Pure: no DB, no admission side effects. Used by rankedByMeasuredCost and by
-// the governed comparison receipt so both surfaces cannot disagree on basis.
-func decideMeasuredShadow(
-	costs map[string]MeasuredCellCost, cells []string, routed string,
+// decideMeasuredSupplierLiabilityShadow picks a winner only when the measured
+// proxies establish equal supplier liability and throughput can decide. Pure:
+// no DB, no admission side effects. Used by the live shadow path and governed
+// comparison receipt so both surfaces cannot disagree on the refusal or basis.
+func decideMeasuredSupplierLiabilityShadow(
+	liabilities map[string]MeasuredSupplierLiabilityProxy, cells []string, routed string,
 ) measuredShadowDecision {
-	ranked := rankCellsByMeasuredCost(costs, cells)
+	ranked := rankCellsByMeasuredSupplierLiability(liabilities, cells)
 	if len(ranked) < 2 {
 		return measuredShadowDecision{}
 	}
-	// Strict cost win: cheapest is meaningfully below second.
-	bestCost, okBest := measuredCost(costs, ranked[0])
-	secondCost, okSecond := measuredCost(costs, ranked[1])
+	bestLiability, okBest := measuredSupplierLiability(liabilities, ranked[0])
+	secondLiability, okSecond := measuredSupplierLiability(liabilities, ranked[1])
 	if !okBest || !okSecond {
 		return measuredShadowDecision{}
 	}
-	if !costsTieUSD(bestCost, secondCost) {
-		return measuredShadowDecision{Winner: ranked[0], Basis: selectionBasisMeasuredCost}
+	if !supplierLiabilitiesTieUSD(bestLiability, secondLiability) {
+		unknown := unresolvedPlatformCostComponents(liabilities[ranked[0]], liabilities[ranked[1]])
+		return measuredShadowDecision{EconomicsRefusal: fmt.Sprintf(
+			"cost-based shadow selection refused: measured supplier-liability proxies differ, but platform-cost components remain unknown (%v)",
+			unknown)}
 	}
-	// Cost tie. Rank on throughput (lower median ms/unit is more capacity).
-	byLatency := rankCellsByMeasuredLatency(costs, ranked)
+	// Equal supplier liability. Throughput may rank only the cohort whose
+	// liabilities tie with the best candidate. Passing all ranked candidates
+	// through here would let a third, materially higher-liability cell win merely
+	// because it was fastest even though only the two cheapest cells established
+	// the equal-liability arm.
+	liabilityTied := make([]string, 0, len(ranked))
+	for _, cell := range ranked {
+		liability, ok := measuredSupplierLiability(liabilities, cell)
+		if ok && supplierLiabilitiesTieUSD(bestLiability, liability) {
+			liabilityTied = append(liabilityTied, cell)
+		}
+	}
+	byLatency := rankCellsByMeasuredLatency(liabilities, liabilityTied)
 	if len(byLatency) < 2 {
 		// Only one cell has a positive latency sample among the cost-tied set.
 		if len(byLatency) == 1 {
 			return measuredShadowDecision{
-				Winner: byLatency[0], Basis: selectionBasisThroughputEqualPrice,
+				Winner: byLatency[0], Basis: selectionBasisThroughputEqualLiability,
 			}
 		}
 		return measuredShadowDecision{Winner: routed, Basis: selectionBasisTieNoDecision}
 	}
-	fast := costs[byLatency[0]].MedianMsPerUnit
-	slow := costs[byLatency[1]].MedianMsPerUnit
+	fast := liabilities[byLatency[0]].MedianMsPerUnit
+	slow := liabilities[byLatency[1]].MedianMsPerUnit
 	if latenciesTie(fast, slow) {
 		// Every ranking term tied. Prefer the routed cell so sort order does not
 		// manufacture a divergence, and name the refusal.
@@ -394,20 +424,24 @@ func decideMeasuredShadow(
 		if winner == "" {
 			winner = byLatency[0]
 		}
-		// If the routed cell is not among the measured set, keep the first.
-		if _, ok := costs[winner]; !ok || !costs[winner].Measured {
+		// The routed cell may be present with Measured=true yet still be excluded
+		// by strict retry/verification/terminal evidence. Retain it only when it
+		// belongs to this exact clean liability-tied latency cohort; otherwise a
+		// TIE_NO_DECISION receipt would lend two clean arms' evidence to an
+		// ineligible third arm.
+		if !containsString(byLatency, winner) {
 			winner = byLatency[0]
 		}
 		return measuredShadowDecision{Winner: winner, Basis: selectionBasisTieNoDecision}
 	}
 	return measuredShadowDecision{
-		Winner: byLatency[0], Basis: selectionBasisThroughputEqualPrice,
+		Winner: byLatency[0], Basis: selectionBasisThroughputEqualLiability,
 	}
 }
 
-// costsTieUSD reports whether two verified-outcome costs are the same number
-// for selection purposes (same band as promotion pricesTieWithin).
-func costsTieUSD(a, b float64) bool {
+// supplierLiabilitiesTieUSD reports whether two supplier-liability proxies are
+// the same number for the equal-liability throughput arm.
+func supplierLiabilitiesTieUSD(a, b float64) bool {
 	if a <= 0 || b <= 0 {
 		return false
 	}
@@ -436,14 +470,14 @@ func latenciesTie(a, b float64) bool {
 // median_ms_per_unit). Unmeasured or non-positive latency cells are dropped.
 // Ties break toward the cell id so the order is stable; callers that want the
 // routed cell to win a true latency-tie use decideMeasuredShadow instead.
-func rankCellsByMeasuredLatency(costs map[string]MeasuredCellCost, cells []string) []string {
+func rankCellsByMeasuredLatency(liabilities map[string]MeasuredSupplierLiabilityProxy, cells []string) []string {
 	type scored struct {
 		cell string
 		ms   float64
 	}
 	var ranked []scored
 	for _, cell := range cells {
-		c, ok := costs[cell]
+		c, ok := liabilities[cell]
 		if !ok || !c.Measured || c.MedianMsPerUnit <= 0 {
 			continue
 		}
@@ -512,14 +546,18 @@ func (s *Store) RecordShadowSelection(ctx context.Context, jobID string, sel Sha
 		INSERT INTO runtime_shadow_selections
 		  (job_id, runtime_matrix_sha256, policy_revision, job_type, model_ref,
 		   model_kind, workload_class, latency_class, routed_cell_id, shadow_cell_id,
-		   considered_cells, excluded_cells, selection_policy, selection_basis,
-		   cost_hw_class, execution_mode, execution_mode_reason, topology_plan)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18::jsonb)
+		   considered_cells, excluded_cells, selection_policy, selection_basis_v3,
+		   supplier_liability_hw_class, supplier_liability_hardware_identity,
+		   economics_refusal, execution_mode,
+		   execution_mode_reason, topology_plan)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20::jsonb)
 		ON CONFLICT (job_id) DO NOTHING`,
 		jobID, sel.RuntimeMatrixSHA, sel.PolicyRevision, sel.JobType, sel.ModelRef,
 		sel.ModelKind, sel.WorkloadClass, sel.LatencyClass, sel.RoutedCellID,
 		sel.ShadowCellID, string(considered), string(excluded), sel.SelectionPolicy,
-		sel.SelectionBasis, sel.CostHWClass, sel.ExecutionMode, sel.ExecutionModeReason, string(topology))
+		sel.SelectionBasis, sel.SupplierLiabilityHWClass,
+		sel.SupplierLiabilityHardwareIdentity, sel.EconomicsRefusal,
+		sel.ExecutionMode, sel.ExecutionModeReason, string(topology))
 	return err
 }
 

@@ -871,11 +871,12 @@ func (s *Store) InsertHoneypot(ctx context.Context, jobType, inputRef string, kn
 	return err
 }
 
-func (s *Store) PeerResultKey(ctx context.Context, taskID uuid.UUID) (peerResult string, peerSupplier uuid.UUID, peerEngine, peerBuildHash, peerSHA256 string, err error) {
+func (s *Store) PeerResultKey(ctx context.Context, taskID uuid.UUID) (peerResult string, peerSupplier uuid.UUID, peerEngine, peerBuildHash, peerBuildIdentityPolicy, peerSHA256 string, err error) {
 	err = s.pool.QueryRow(ctx,
 		`SELECT COALESCE(p.result_ref,''),COALESCE(vw.supplier_id,p.execution_supplier_id),
 		        COALESCE(vw.input_snapshot->>'engine',p.execution_engine,''),
 		        COALESCE(vw.input_snapshot->>'build_hash',p.execution_build_hash,''),
+		        COALESCE(vw.input_snapshot->>'build_identity_policy',p.execution_build_identity_policy,''),
 		        COALESCE(p.result_sha256,'')
 		 FROM tasks t
 		   JOIN tasks p ON p.job_id = t.job_id AND p.input_ref = t.input_ref
@@ -887,21 +888,22 @@ func (s *Store) PeerResultKey(ctx context.Context, taskID uuid.UUID) (peerResult
 		 ORDER BY p.completed_at ASC
 		 LIMIT 1`,
 		taskID,
-	).Scan(&peerResult, &peerSupplier, &peerEngine, &peerBuildHash, &peerSHA256)
+	).Scan(&peerResult, &peerSupplier, &peerEngine, &peerBuildHash, &peerBuildIdentityPolicy, &peerSHA256)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", uuid.Nil, "", "", "", errNotFound
+		return "", uuid.Nil, "", "", "", "", errNotFound
 	}
-	return peerResult, peerSupplier, peerEngine, peerBuildHash, peerSHA256, err
+	return peerResult, peerSupplier, peerEngine, peerBuildHash, peerBuildIdentityPolicy, peerSHA256, err
 }
 
-func (s *Store) PeerSealedResult(ctx context.Context, taskID uuid.UUID) (VerificationArtifact, uuid.UUID, string, string, error) {
+func (s *Store) PeerSealedResult(ctx context.Context, taskID uuid.UUID) (VerificationArtifact, uuid.UUID, string, string, string, error) {
 	var artifact VerificationArtifact
 	var supplier uuid.UUID
-	var engine, build string
+	var engine, build, buildIdentityPolicy string
 	err := s.pool.QueryRow(ctx, `
 		SELECT vw.artifact_key,vw.artifact_sha256,vw.artifact_bytes,
 		       vw.supplier_id,COALESCE(vw.input_snapshot->>'engine',''),
-		       COALESCE(vw.input_snapshot->>'build_hash','')
+		       COALESCE(vw.input_snapshot->>'build_hash',''),
+		       COALESCE(vw.input_snapshot->>'build_identity_policy','')
 		  FROM tasks t
 		  JOIN tasks p ON p.job_id=t.job_id AND p.input_ref=t.input_ref
 		              AND p.id<>t.id AND p.status='complete'
@@ -909,11 +911,11 @@ func (s *Store) PeerSealedResult(ctx context.Context, taskID uuid.UUID) (Verific
 		 WHERE t.id=$1 AND vw.status='terminal'
 		   AND p.result_ref=vw.artifact_key AND p.result_sha256=vw.artifact_sha256
 		 ORDER BY p.completed_at ASC,p.id LIMIT 1`, taskID).
-		Scan(&artifact.Key, &artifact.SHA256, &artifact.Bytes, &supplier, &engine, &build)
+		Scan(&artifact.Key, &artifact.SHA256, &artifact.Bytes, &supplier, &engine, &build, &buildIdentityPolicy)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return artifact, uuid.Nil, "", "", errNotFound
+		return artifact, uuid.Nil, "", "", "", errNotFound
 	}
-	return artifact, supplier, engine, build, err
+	return artifact, supplier, engine, build, buildIdentityPolicy, err
 }
 
 func (s *Store) TiebreakExists(ctx context.Context, jobID uuid.UUID, chunkIndex int) (bool, error) {
@@ -928,10 +930,10 @@ func (s *Store) TiebreakExists(ctx context.Context, jobID uuid.UUID, chunkIndex 
 
 var ErrEconomicReserveExhausted = errors.New("economic extra-task reserve exhausted or work is no longer pre-charge")
 
-// lockEconomicReserveTx is the first lock in every dynamic economic-obligation
-// insertion. Planned verification apply already establishes the global order
-// reserve -> task -> job; unplanned hedge/tiebreak paths must retain that order
-// or they can deadlock against the planned path on reserve <-> job.
+// lockEconomicReserveTx is the first economic row lock in every dynamic
+// obligation insertion. When a peer is pinned, the writer has already locked
+// that worker; all paths then retain worker -> reserve -> task -> job so they do
+// not deadlock Claim/Start/Upsert or one another.
 func lockEconomicReserveTx(ctx context.Context, tx pgx.Tx, jobID uuid.UUID) error {
 	var locked uuid.UUID
 	err := tx.QueryRow(ctx,

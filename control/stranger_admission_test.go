@@ -1,8 +1,6 @@
 package main
 
 import (
-	"encoding/json"
-	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -51,33 +49,13 @@ const strangerCorpus = `{"id":"0","text":"A verifiable compute network settles e
 {"id":"2","text":"The cheapest verified outcome is not the cheapest attempt."}
 `
 
-// TestAStrangerCanBeAdmittedForASubMicroJob is the admission half of the public
-// loop, and it needs no agent and no engine — which is the point. The execution
-// half is TestFirstCompleteLoopThroughThePublicAPI and needs both, so it can only
-// run where the hardware is; this one can run anywhere and is what stops the
-// pricing-authority defect from coming back unnoticed.
-//
-// What it pins: a three-record embed whose entire physical value is ~1 micro-USD
-// per task is admitted. Every previous derivation refused it, and each refusal
-// looked like a different bug:
-//
-//	1.676%   a rounded per-task payout divided back into an hourly rate
-//	2.1x     a floor from the plan's modeled duration, a ceiling from the catalogue
-//	30x      a sub-second duration truncated to a whole integer second
-//	~4-30%   the buyer's gross quantised to micro-USD before the supplier's share
-//
-// All four are one failure: a fixed granularity, or a lost fraction, dominating a
-// small quote. Admission is now an identity between two evaluations of one
-// expression, so there is no granularity left for a small job to fall through.
-//
-// Run in BOTH settlement currencies, because the reference/settlement distinction
-// is itself one of the four. The floor used to be derived from the USD reference
-// price while the entitlement was denominated in the settlement currency, so under
-// CAD the two sides sat an entire 1.37x FX rate apart and nothing in the type
-// system could object — both were float64 named USD. Under USD settlement the FX
-// rate is 1.0 and that defect is invisible, which is exactly why the mandated
-// money mode has to be exercised rather than assumed.
-func TestAStrangerCanBeAdmittedForASubMicroJob(t *testing.T) {
+// A stranger-facing API must refuse before writing when no current benchmark
+// measures the same semantic unit the job settles. The historical sub-micro
+// fixed-point arithmetic remains covered below; it cannot authorize a live
+// embed admission by treating completed embeddings as token-like input units.
+// Exercise both settlement currencies so FX cannot hide or bypass the unit
+// mismatch.
+func TestAStrangerSubmissionRefusesWithoutScopeCompatiblePerformanceAuthority(t *testing.T) {
 	for _, settlement := range []string{"usd", "cad"} {
 		t.Run(settlement, func(t *testing.T) {
 			strangerAdmissionUnderCurrency(t, settlement)
@@ -87,6 +65,7 @@ func TestAStrangerCanBeAdmittedForASubMicroJob(t *testing.T) {
 
 func strangerAdmissionUnderCurrency(t *testing.T, settlement string) {
 	t.Helper()
+	installBoundCataloguePublicationAuthorityForTest(t)
 	strangerDeploymentInputs(t)
 	installSettlementCurrencyForTest(t, settlement)
 
@@ -119,6 +98,9 @@ func strangerAdmissionUnderCurrency(t *testing.T, settlement string) {
 	}
 
 	const ceiling = 1.00
+	var jobsBefore int
+	mustf(t, pool.QueryRow(ctx, `SELECT count(*) FROM jobs`).Scan(&jobsBefore),
+		"count jobs before refused submission: %v")
 	submit := postJSONWithHeaders(t, srv.URL+"/v1/jobs", apiKey, map[string]string{
 		"Idempotency-Key": uuid.NewString(),
 	}, map[string]any{
@@ -128,166 +110,25 @@ func strangerAdmissionUnderCurrency(t *testing.T, settlement string) {
 		"input":    strangerCorpus,
 		"max_usd":  ceiling,
 	})
-	switch submit.status {
-	case http.StatusOK, http.StatusCreated, http.StatusAccepted:
-	default:
-		// Name the shape of the failure rather than leaving a bare status. A 409 here
-		// is the composite pricing authority refusing, and its text carries every
-		// failing condition with its figures.
-		t.Fatalf("a stranger could not submit a three-record embed: HTTP %d: %s",
+	if submit.status != http.StatusServiceUnavailable {
+		t.Fatalf("scope-incompatible embed submission returned HTTP %d, want 503: %s",
 			submit.status, submit.body)
 	}
-
-	jobIDText, _ := submit.json["job_id"].(string)
-	if jobIDText == "" {
-		jobIDText, _ = submit.json["id"].(string)
+	for _, want := range []string{
+		performanceUnitScopeCompletedEmbeddingRecords,
+		performanceUnitScopeTokenLikeInputGeometry,
+		"no frozen unit conversion authority",
+	} {
+		if !strings.Contains(submit.body, want) {
+			t.Fatalf("scope refusal omits %q: %s", want, submit.body)
+		}
 	}
-	jobID, err := uuid.Parse(jobIDText)
-	if err != nil {
-		t.Fatalf("submit returned no usable job id: %s", submit.body)
+	var jobsAfter int
+	mustf(t, pool.QueryRow(ctx, `SELECT count(*) FROM jobs`).Scan(&jobsAfter),
+		"count jobs after refused submission: %v")
+	if jobsAfter != jobsBefore {
+		t.Fatalf("scope-incompatible submission wrote %d jobs", jobsAfter-jobsBefore)
 	}
-	estimate, _ := submit.json["estimated_usd"].(float64)
-	if estimate <= 0 {
-		t.Fatalf("admitted at an estimate of %v; a job that costs nothing was not priced", estimate)
-	}
-	if estimate > ceiling {
-		t.Fatalf("estimate %.9f exceeds the accepted ceiling %.2f", estimate, ceiling)
-	}
-
-	// Read the frozen authority back out and assert the identity that makes the
-	// admission legitimate rather than merely permitted.
-	var pricingJSON, economicJSON []byte
-	if err := pool.QueryRow(ctx, `
-		SELECT j.pricing_decision, p.plan_json
-		  FROM jobs j JOIN job_economic_plans p ON p.job_id=j.id
-		 WHERE j.id=$1`, jobID).
-		Scan(&pricingJSON, &economicJSON); err != nil {
-		t.Fatalf("read frozen job authority: %v", err)
-	}
-	var pricing PricingDecision
-	mustf(t, json.Unmarshal(pricingJSON, &pricing), "decode frozen pricing decision: %v")
-	var economic EconomicPlan
-	mustf(t, json.Unmarshal(economicJSON, &economic), "decode frozen economic plan: %v")
-
-	if pricing.SupplierEntitlementPolicy != economicRoundingPolicy {
-		t.Fatalf("job was admitted under %q, not the exact policy %q; the legacy hourly "+
-			"comparison decided this job",
-			pricing.SupplierEntitlementPolicy, economicRoundingPolicy)
-	}
-	if pricing.SupplierRequiredNanos <= 0 {
-		t.Fatalf("supplier floor is %d nanos; a floor of zero admits anything",
-			pricing.SupplierRequiredNanos)
-	}
-	if pricing.SupplierGrossNanos < pricing.SupplierRequiredNanos {
-		t.Fatalf("admitted with the supplier entitled to %d nanos against a %d nano floor",
-			pricing.SupplierGrossNanos, pricing.SupplierRequiredNanos)
-	}
-	// Settlement authority is the plan's exact nano entitlement, not the
-	// six-decimal float projection. The float path paid 2000 nanos on the
-	// 1436-nano gross fixture while admission proved 1393 — that was the defect.
-	if economic.SupplierPayoutPerTaskNanos < pricing.SupplierRequiredNanos {
-		t.Fatalf("exact supplier entitlement %d nanos is below the admitted floor %d",
-			economic.SupplierPayoutPerTaskNanos, pricing.SupplierRequiredNanos)
-	}
-	if pricing.FixedPoint != nil &&
-		pricing.FixedPoint.SupplierEntitlementsNanos != economic.SupplierPayoutPerTaskNanos*int64(economic.Input.InitialTaskCount) {
-		t.Fatalf("FixedPoint supplier entitlements %d != plan nanos %d × %d tasks",
-			pricing.FixedPoint.SupplierEntitlementsNanos,
-			economic.SupplierPayoutPerTaskNanos, economic.Input.InitialTaskCount)
-	}
-	// Conservation, exactly: the supplier can never be owed more per task than the
-	// buyer was charged for it.
-	if economic.BuyerChargePerTaskNanos > 0 &&
-		economic.SupplierPayoutPerTaskNanos > economic.BuyerChargePerTaskNanos {
-		t.Fatalf("supplier is owed %d nanos per task against a %d nano buyer charge",
-			economic.SupplierPayoutPerTaskNanos, economic.BuyerChargePerTaskNanos)
-	}
-	// The exact base carries a fraction of a micro-USD that the micro-USD
-	// projection cannot hold. That is what makes this fixture a test of the failure
-	// class rather than of a job large enough for the class not to bite: if the
-	// exact figure were a whole number of micros, rounding it would cost nothing
-	// and every derivation this file records would have agreed all along.
-	if economic.BaseComputePerTaskNanos%NanosPerMicro == 0 {
-		t.Fatalf("exact base compute %d nanos per task is a whole number of micro-USD, "+
-			"so this fixture no longer exercises the sub-micro rounding class",
-			economic.BaseComputePerTaskNanos)
-	}
-	full, err := fullSuccessEconomicScenario(economic)
-	mustf(t, err, "full-success economics: %v")
-	if full.ContributionMarginUSD <= 0 {
-		t.Fatalf("tiny job is admitted at non-positive modeled contribution: %+v", full)
-	}
-	if full.NetBilledUSD <= 0 || full.SupplierLiabilityUSD/full.NetBilledUSD < 0.25 {
-		t.Fatalf("tiny-job supplier share is still commercially meaningless: supplier %.9f / buyer %.9f",
-			full.SupplierLiabilityUSD, full.NetBilledUSD)
-	}
-	if full.ControlPlaneCostUSD >= 0.005*float64(full.AcceptedTasks) {
-		t.Fatalf("control overhead was still charged once per physical task: %+v", full)
-	}
-	if got, want := usdToMicros(full.NetBilledUSD),
-		usdToMicros(full.SupplierLiabilityUSD)+usdToMicros(full.ProcessorFeeUSD)+
-			usdToMicros(full.ControlPlaneCostUSD)+usdToMicros(full.ContributionMarginUSD); got != want {
-		t.Fatalf("commercial split does not conserve: buyer=%d parts=%d micro-units", got, want)
-	}
-	// And the quantisation the old path applied would still REFUSE this job. That
-	// is the exact property worth asserting: not that some fraction is lost, but
-	// that losing it is the difference between admitted and refused. If a later
-	// change makes the fixture large enough for the loss not to matter, this fails
-	// and says so rather than passing on a job that never exercised the defect.
-	quantised := economic.BaseComputePerTaskNanos / NanosPerMicro * NanosPerMicro
-	quantisedEntitlement := int64(math.Ceil(float64(quantised) * pricing.Catalogue.SupplierShare))
-	if quantisedEntitlement >= pricing.SupplierRequiredNanos {
-		t.Fatalf("a micro-quantised base of %d nanos still entitles the supplier to %d "+
-			"against a %d nano floor, so this fixture no longer distinguishes the exact "+
-			"path from the rounded one", quantised, quantisedEntitlement,
-			pricing.SupplierRequiredNanos)
-	}
-
-	if pricing.Currency != settlement || economic.Schedule.Currency != settlement {
-		t.Fatalf("job settled in pricing=%q economic=%q, not the configured %q",
-			pricing.Currency, economic.Schedule.Currency, settlement)
-	}
-	fixed := pricing.FixedPoint
-	if fixed == nil || fixed.Currency != settlement {
-		t.Fatalf("admitted decision lacks currency-bound fixed-point economics: %+v", fixed)
-	}
-	if fixed.SupplierEntitlementsNanos <
-		pricing.SupplierRequiredNanos*int64(economic.Input.InitialTaskCount) {
-		t.Fatalf("fixed supplier entitlement %d is below total floor %d",
-			fixed.SupplierEntitlementsNanos,
-			pricing.SupplierRequiredNanos*int64(economic.Input.InitialTaskCount))
-	}
-	if fixed.BuyerChargeNanos > fixed.AcceptedCeilingNanos {
-		t.Fatalf("fixed buyer charge %d exceeds ceiling %d",
-			fixed.BuyerChargeNanos, fixed.AcceptedCeilingNanos)
-	}
-	if fixed.BuyerChargeNanos != fixed.SupplierEntitlementsNanos+
-		fixed.KnownVariableCostsNanos+fixed.KnownCostContributionNanos {
-		t.Fatal("fixed pricing does not conserve buyer = supplier + variable + contribution")
-	}
-	// With the cost schedule bound, storage/egress/risk are modeled and provider
-	// is not_applicable on community supply, so true net is reachable. Historical
-	// decisions without a cost schedule digest still report true net unavailable
-	// (see TestHistoricalDecisionWithUnknownsKeepsTrueNetUnavailable).
-	if pricing.CostScheduleSHA256 == "" {
-		t.Fatal("admitted decision lacks cost schedule digest")
-	}
-	if len(fixed.UnknownCostCategories) != 0 {
-		t.Fatalf("community admission left unknown cost categories: %v", fixed.UnknownCostCategories)
-	}
-	if fixed.TrueNetContributionNanos == nil ||
-		*fixed.TrueNetContributionNanos != fixed.KnownCostContributionNanos {
-		t.Fatalf("admitted decision lacks true net contribution: %+v", fixed)
-	}
-	t.Logf("ADMITTED in %s: %.2f billable units at %.8f/1k (reference %.8f, FX %.4g); "+
-		"buyer gross %d nanos/task, supplier entitled %d nanos/task against a %d nano "+
-		"floor (headroom %d), buyer estimate %.9f",
-		strings.ToUpper(settlement), pricing.BillableUnits,
-		pricing.Catalogue.SettlementPricePer1K, pricing.Catalogue.ReferencePricePer1K,
-		pricing.Catalogue.ReferenceToSettlementRate,
-		economic.BaseComputePerTaskNanos, pricing.SupplierGrossNanos,
-		pricing.SupplierRequiredNanos,
-		pricing.SupplierGrossNanos-pricing.SupplierRequiredNanos, estimate)
 }
 
 // TestAdmissionRefusesAnEntitlementBelowItsFloor is the negative control.

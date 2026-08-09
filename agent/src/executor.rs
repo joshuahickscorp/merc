@@ -1255,6 +1255,9 @@ async fn bench_embed(pool: &crate::pool::ModelPool) -> Result<BenchResult, RunEr
         p99_ms,
         thermal_ok,
         load_ms,
+        unit: "embeddings".to_string(),
+        unit_scope: "completed_embedding_records".to_string(),
+        measured_unix: 0,
     })
 }
 
@@ -1275,11 +1278,13 @@ fn sustained_throughput(
     let start = std::time::Instant::now();
     let deadline = start + std::time::Duration::from_secs(THERMAL_SECS);
     let mut peak = 0.0f64;
+    let mut samples = Vec::new();
     let (mut early_sum, mut early_n) = (0.0f64, 0u32);
     let (mut late_sum, mut late_n) = (0.0f64, 0u32);
     while std::time::Instant::now() < deadline {
         let thr = step()?;
         peak = peak.max(thr);
+        samples.push(thr);
         let since = start.elapsed().as_secs_f64();
         if since < edge {
             early_sum += thr;
@@ -1294,7 +1299,35 @@ fn sustained_throughput(
     } else {
         (late_sum / late_n as f64) >= (early_sum / early_n as f64) * 0.85
     };
-    Ok((peak as f32, thermal_ok))
+    let conservative =
+        conservative_sustained_rate(&samples).ok_or_else(|| RunError::Inference {
+            backend: "startup_benchmark",
+            msg: "sustained benchmark produced no finite positive throughput samples".into(),
+        })?;
+    tracing::info!(
+        peak_units_per_sec = peak,
+        conservative_units_per_sec = conservative,
+        "startup benchmark retains peak as diagnostics and advertises the haircutted low-tail sustained rate"
+    );
+    Ok((conservative as f32, thermal_ok))
+}
+
+// The worker rate is an admission credential, not a dashboard peak. Use the
+// lower decile across the full thermal window and retain an additional 5%
+// measurement margin. One fast iteration therefore cannot make a slower
+// steady-state worker eligible for a centrally governed active-hour floor.
+fn conservative_sustained_rate(samples: &[f64]) -> Option<f64> {
+    if samples.is_empty()
+        || samples
+            .iter()
+            .any(|sample| !sample.is_finite() || *sample <= 0.0)
+    {
+        return None;
+    }
+    let mut ordered = samples.to_vec();
+    ordered.sort_by(f64::total_cmp);
+    let low_decile_index = (ordered.len() - 1) / 10;
+    Some(ordered[low_decile_index] * 0.95)
 }
 
 const LIVE_BASELINE_SLICES: usize = 2;
@@ -1393,6 +1426,9 @@ async fn bench_llama_ref(
         p99_ms,
         thermal_ok,
         load_ms,
+        unit: "tokens".to_string(),
+        unit_scope: "decode_output_tokens".to_string(),
+        measured_unix: 0,
     })
 }
 
@@ -1402,4 +1438,25 @@ fn sustained_tps(model: &mut LlamaBackend, prompt: &str) -> Result<(f32, bool), 
         let (_txt, n) = model.generate(prompt, 24)?;
         Ok(n as f64 / t.elapsed().as_secs_f64().max(1e-6))
     })
+}
+
+#[cfg(test)]
+mod sustained_benchmark_tests {
+    use super::conservative_sustained_rate;
+
+    #[test]
+    fn one_spike_cannot_authorize_a_higher_active_hour_floor() {
+        let mut spiky = vec![200.0];
+        spiky.extend(std::iter::repeat_n(100.0, 99));
+        let advertised = conservative_sustained_rate(&spiky).expect("valid samples");
+        assert_eq!(advertised, 95.0);
+        assert!(advertised < 158.0, "one peak authorized a higher floor");
+    }
+
+    #[test]
+    fn invalid_sustained_samples_fail_closed() {
+        assert_eq!(conservative_sustained_rate(&[]), None);
+        assert_eq!(conservative_sustained_rate(&[100.0, f64::NAN]), None);
+        assert_eq!(conservative_sustained_rate(&[100.0, 0.0]), None);
+    }
 }

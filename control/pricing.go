@@ -9,33 +9,47 @@ import (
 	"log"
 	"math"
 	"os"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 )
 
 type measuredThroughput struct {
-	ModelID        string
-	JobType        string
-	UnitsPerSec    float64 // tok/s or eps - one unit for one catalogue price, same as estimateJobSettlement
-	HWClass        string  // apple_silicon_pro (the only measured reference box; see GPU_CAPABILITY.md)
-	SourceCitation string
+	ModelID                   string
+	ModelArtifactDigest       string // exact sha256 of the model artifact measured by the cited receipt
+	JobType                   string
+	RuntimeCellID             string
+	RuntimeProfileID          string
+	ProfileRevision           string
+	Engine                    string
+	EngineRevision            string
+	EngineBuildHash           string
+	EngineBuildIdentityPolicy string
+	HardwareIdentity          string
+	Unit                      string  // exact physical unit named by the cited receipt
+	UnitScope                 string  // exact semantic denominator named by the cited receipt
+	UnitsPerSec               float64 // observed/near-observed Unit/UnitScope rate from the cited receipt
+	HWClass                   string  // apple_silicon_pro (the only measured reference box; see GPU_CAPABILITY.md)
+	SourceCitation            string
 }
 
-// repricingBenchmarks is the closed set of throughput rows that may set a
+// repricingBenchmarks is the closed set of throughput rows considered for a
 // buyer-facing catalogue price. Every entry must pass
 // validateRepricingBenchmarkCitation at schedule construction: the citation
-// must resolve, and the artifact must be bindable for pricing. A row that
-// cites an unbindable artifact is refused rather than published.
+// must resolve, carry binding_status=BOUND, and contain complete producer
+// identity with a real source commit. A row that cites weaker evidence remains
+// useful to diagnostics below, but is refused rather than published.
 //
 // evidence/benchmarks/2026-07-01-m3-pro.json is binding_status=UNBOUND (missing
-// producer-identity digests) but still resolvable and passes the separate
-// pricing citation gate under the legacy-catalogue exception. Resolvable is not
-// the same as BOUND: the receipt ships in the release image so the container can
-// boot, and the numbers set live price rows, yet they are not bound identity.
+// all producer-identity fields). Resolvable is not the same as BOUND: the
+// receipt ships for diagnostic comparison, but cannot mint a live schedule.
+// Consequently the checked-in production authority currently has zero
+// publishable catalogue lanes and BuildCataloguePriceSchedule fails closed.
 //
 // Media rows (ffmpeg-transcode-v1, svg-scene-render-v1) were removed from this
 // set because their cited receipts cannot bind: the ffmpeg receipt names
@@ -46,19 +60,37 @@ type measuredThroughput struct {
 // unpricedThroughputUntilBound.
 var repricingBenchmarks = []measuredThroughput{
 	{
-		ModelID:     "all-minilm-l6-v2",
-		JobType:     "embed",
-		UnitsPerSec: 1967.3141,
-		HWClass:     "apple_silicon_pro",
-		// unbound receipt; resolvable under legacy pricing gate, not BOUND identity
+		ModelID:             "all-minilm-l6-v2",
+		ModelArtifactDigest: "53aa51172d142c89d9012cce15ae4d6cc0ca6895895114379cacb4fab128d9db",
+		JobType:             "embed",
+		RuntimeCellID:       "candle-metal-minilm-embed",
+		RuntimeProfileID:    "candle_metal",
+		ProfileRevision:     "r9",
+		Engine:              "candle",
+		EngineBuildHash:     "408db133af3c3014",
+		HardwareIdentity:    "Apple M3 Pro",
+		Unit:                "embeddings",
+		UnitScope:           performanceUnitScopeCompletedEmbeddingRecords,
+		UnitsPerSec:         1967.3141,
+		HWClass:             "apple_silicon_pro",
+		// diagnostic only: UNBOUND receipt, so publication refuses this row
 		SourceCitation: "evidence/benchmarks/2026-07-01-m3-pro.json#embed",
 	},
 	{
-		ModelID:     "llama-3.2-1b-instruct-q4",
-		JobType:     "batch_infer",
-		UnitsPerSec: 138.7,
-		HWClass:     "apple_silicon_pro",
-		// unbound receipt; resolvable under legacy pricing gate, not BOUND identity
+		ModelID:             "llama-3.2-1b-instruct-q4",
+		ModelArtifactDigest: "3f5a22426976ab26cfe84dba63c1d08391717abb1af893e10f1b2968d862dcc1",
+		JobType:             "batch_infer",
+		RuntimeCellID:       "candle-metal-llama1-infer",
+		RuntimeProfileID:    "candle_metal",
+		ProfileRevision:     "r9",
+		Engine:              "candle",
+		EngineBuildHash:     "408db133af3c3014",
+		HardwareIdentity:    "Apple M3 Pro",
+		Unit:                "tokens",
+		UnitScope:           performanceUnitScopeDecodeOutputTokens,
+		UnitsPerSec:         138.7,
+		HWClass:             "apple_silicon_pro",
+		// diagnostic only: UNBOUND receipt, so publication refuses this row
 		SourceCitation: "evidence/benchmarks/2026-07-01-m3-pro.json#batch_infer",
 	},
 }
@@ -75,18 +107,30 @@ var repricingBenchmarks = []measuredThroughput{
 // only as the measured numbers that must not become catalogue prices.
 var unpricedThroughputUntilBound = []measuredThroughput{
 	{
-		ModelID:     "ffmpeg-transcode-v1",
-		JobType:     "media_transcode",
-		UnitsPerSec: 14423.640930216638,
-		HWClass:     "apple_silicon_ultra",
+		ModelID:          "ffmpeg-transcode-v1",
+		JobType:          "media_transcode",
+		RuntimeCellID:    "candle-metal-ffmpeg-transcode",
+		RuntimeProfileID: "candle_metal",
+		ProfileRevision:  "r9",
+		Engine:           "candle",
+		Unit:             "media_work_units",
+		UnitScope:        performanceUnitScopeSingleObjectInputByteQuarters,
+		UnitsPerSec:      14423.640930216638,
+		HWClass:          "apple_silicon_ultra",
 		// unbound and unbindable for pricing; retained measurement only
 		SourceCitation: "evidence/perf/runtime-benchmarks/candle-metal-ffmpeg-media-r1.json#physical_throughput",
 	},
 	{
-		ModelID:     "svg-scene-render-v1",
-		JobType:     "media_rendering",
-		UnitsPerSec: 148271490.0,
-		HWClass:     "apple_silicon_ultra",
+		ModelID:          "svg-scene-render-v1",
+		JobType:          "media_rendering",
+		RuntimeCellID:    "candle-metal-scene-render",
+		RuntimeProfileID: "candle_metal",
+		ProfileRevision:  "r9",
+		Engine:           "candle",
+		Unit:             "pixels",
+		UnitScope:        performanceUnitScopeDeclaredOutputPixelsPerScene,
+		UnitsPerSec:      148271490.0,
+		HWClass:          "apple_silicon_ultra",
 		// unbound and unbindable for pricing; retained measurement only
 		SourceCitation: "evidence/perf/runtime-benchmarks/candle-metal-rendering-r1.json#physical_throughput",
 	},
@@ -108,9 +152,10 @@ const (
 // both of which require non-empty provenance. Startup rejects any entry that
 // somehow lacks kind or provenance.
 type governedSustainedWatts struct {
-	watts      float64
-	kind       wattAuthorityKind
-	provenance string
+	watts         float64
+	kind          wattAuthorityKind
+	provenance    string
+	receiptSHA256 string
 }
 
 // Watts is the sustained draw in watts used by contribution margins and the
@@ -124,15 +169,24 @@ func (g governedSustainedWatts) Kind() wattAuthorityKind { return g.kind }
 // (ASSUMED). Required for every entry.
 func (g governedSustainedWatts) Provenance() string { return g.provenance }
 
+// ReceiptSHA256 pins the exact cited receipt bytes for weight-bearing
+// publication. ASSUMED diagnostic rows intentionally carry no digest.
+func (g governedSustainedWatts) ReceiptSHA256() string { return g.receiptSHA256 }
+
 // wattsMeasured constructs a MEASURED sustained-power figure. provenance must
 // name the receipt that measured it. Panics on empty inputs so an unlabelled
 // constant cannot be added at the call site.
-func wattsMeasured(watts float64, provenance string) governedSustainedWatts {
+func wattsMeasured(watts float64, provenance, receiptSHA256 string) governedSustainedWatts {
 	provenance = strings.TrimSpace(provenance)
 	if watts <= 0 || provenance == "" {
 		panic("wattsMeasured requires positive watts and non-empty provenance naming the receipt")
 	}
-	return governedSustainedWatts{watts: watts, kind: wattKindMeasured, provenance: provenance}
+	return governedSustainedWatts{
+		watts:         watts,
+		kind:          wattKindMeasured,
+		provenance:    provenance,
+		receiptSHA256: strings.TrimSpace(receiptSHA256),
+	}
 }
 
 // wattsAssumed constructs an ASSUMED sustained-power figure. provenance must
@@ -215,12 +269,48 @@ func validateSustainedWattsTable() error {
 
 // sustainedWattsForClass returns the sustained draw for a hardware class, or a
 // conservative apple_silicon_pro-equivalent default when the class is unknown.
-// Callers that care about provenance must look the entry up themselves.
+// It is diagnostic-only: catalogue publication goes through
+// sustainedWattsForPublication and never accepts this fallback.
 func sustainedWattsForClass(hwClass string) float64 {
 	if entry, ok := sustainedWattsByHWClass[hwClass]; ok && entry.Watts() > 0 {
 		return entry.Watts()
 	}
 	return 30.0
+}
+
+// sustainedWattsForPublication returns the exact MEASURED power authority for
+// one benchmark hardware class. An ASSUMED row is useful for diagnostic
+// sensitivity analysis, but it cannot prove that a public price covers the
+// supply side. Unknown classes are refused rather than inheriting another
+// class's default.
+func sustainedWattsForPublication(b measuredThroughput) (governedSustainedWatts, error) {
+	entry, err := sustainedWattsEntryForPublication(b.HWClass)
+	if err != nil {
+		return governedSustainedWatts{}, err
+	}
+	if err := validatePricingPowerCitation(b, entry, cataloguePowerNow()); err != nil {
+		return governedSustainedWatts{}, err
+	}
+	return entry, nil
+}
+
+func sustainedWattsEntryForPublication(hwClass string) (governedSustainedWatts, error) {
+	hwClass = strings.TrimSpace(hwClass)
+	entry, ok := sustainedWattsByHWClass[hwClass]
+	if !ok {
+		return governedSustainedWatts{}, fmt.Errorf(
+			"catalogue publication has no exact sustained-watts authority for hardware class %q", hwClass)
+	}
+	if entry.Watts() <= 0 || strings.TrimSpace(entry.Provenance()) == "" {
+		return governedSustainedWatts{}, fmt.Errorf(
+			"catalogue publication sustained-watts authority for hardware class %q is incomplete", hwClass)
+	}
+	if entry.Kind() != wattKindMeasured {
+		return governedSustainedWatts{}, fmt.Errorf(
+			"catalogue publication requires MEASURED sustained watts for hardware class %q; got %s",
+			hwClass, entry.Kind())
+	}
+	return entry, nil
 }
 
 func init() {
@@ -230,6 +320,10 @@ func init() {
 }
 
 const defaultElectricityUSDPerKWh = 0.15
+
+func catalogueConservativeUnitsPerSecond(b measuredThroughput) float64 {
+	return b.UnitsPerSec * measuredThroughputHaircut
+}
 
 // targetSupplierUSDHr is the cost-plus supplier revenue target used only for
 // the diagnostic floor (diagnosticCostFloorFromSupplierEconomics). Catalogue prices come
@@ -244,11 +338,100 @@ type RepriceResult struct {
 	// SupplierShare is the physical workload's published market term. It is
 	// stored on the result, rather than once on the schedule, so a schedule can
 	// not silently apply the same take rate to every lane.
-	SupplierShare float64 `json:"supplier_share,omitempty"`
-	Formula       string  `json:"formula"` // human-readable, cites every real input (proof artifact)
+	SupplierShare     float64                          `json:"supplier_share,omitempty"`
+	PhysicalAuthority CatalogueResultPhysicalAuthority `json:"physical_authority,omitempty"`
+	Formula           string                           `json:"formula"` // human-readable, cites every real input (proof artifact)
 }
 
-const cataloguePriceScheduleVersion = 2
+const (
+	cataloguePriceScheduleVersion                 = 3
+	catalogueResultPhysicalAuthorityLegacyVersion = 1
+	catalogueResultPhysicalAuthorityVersion       = 2
+	catalogueScheduleCurrentUseFreshnessPolicy    = "catalogue-price-schedule-v1/min-board-throughput-power-valid-until"
+)
+
+// CatalogueThroughputAuthoritySnapshot freezes the exact receipt bytes and
+// semantic throughput denominator that made one catalogue row publishable.
+// Current use re-opens the cited bytes and proves they still carry this exact
+// BOUND authority; accepted historical replay uses only the frozen schedule.
+type CatalogueThroughputAuthoritySnapshot struct {
+	Citation                   string  `json:"citation"`
+	ReceiptSHA256              string  `json:"receipt_sha256"`
+	BenchmarkSummarySHA256     string  `json:"benchmark_summary_sha256,omitempty"`
+	EngineBuildHash            string  `json:"engine_build_hash,omitempty"`
+	EngineBuildIdentityPolicy  string  `json:"engine_build_identity_policy,omitempty"`
+	HardwareIdentity           string  `json:"hardware_identity,omitempty"`
+	FreshnessPolicy            string  `json:"freshness_policy"`
+	MeasuredAt                 string  `json:"measured_at"`
+	ValidUntil                 string  `json:"valid_until"`
+	ObservedUnitsPerSecond     float64 `json:"observed_units_per_second"`
+	HaircutPolicyRevision      string  `json:"haircut_policy_revision"`
+	Haircut                    float64 `json:"haircut"`
+	ConservativeUnitsPerSecond float64 `json:"conservative_units_per_second"`
+}
+
+type CataloguePowerCoveredWorkload struct {
+	ModelID                   string `json:"model_id"`
+	JobType                   string `json:"job_type"`
+	ModelArtifactDigest       string `json:"model_artifact_digest"`
+	RuntimeCellID             string `json:"runtime_cell_id,omitempty"`
+	RuntimeProfileID          string `json:"runtime_profile_id,omitempty"`
+	Engine                    string `json:"engine,omitempty"`
+	EngineBuildHash           string `json:"engine_build_hash,omitempty"`
+	EngineBuildIdentityPolicy string `json:"engine_build_identity_policy,omitempty"`
+	HardwareIdentity          string `json:"hardware_identity,omitempty"`
+}
+
+// CataloguePowerAuthoritySnapshot freezes a whole-package,
+// inference-shaped watts measurement. GPU-domain or idle measurements are not
+// interchangeable with this supply-side cost boundary.
+type CataloguePowerAuthoritySnapshot struct {
+	Citation                  string                          `json:"citation"`
+	ReceiptSHA256             string                          `json:"receipt_sha256"`
+	RuntimeCellID             string                          `json:"runtime_cell_id,omitempty"`
+	RuntimeProfileID          string                          `json:"runtime_profile_id,omitempty"`
+	Engine                    string                          `json:"engine,omitempty"`
+	EngineBuildHash           string                          `json:"engine_build_hash,omitempty"`
+	EngineBuildIdentityPolicy string                          `json:"engine_build_identity_policy,omitempty"`
+	HWClass                   string                          `json:"hardware_class,omitempty"`
+	HardwareIdentity          string                          `json:"hardware_identity,omitempty"`
+	FreshnessPolicy           string                          `json:"freshness_policy"`
+	MeasurementBoundary       string                          `json:"measurement_boundary"`
+	WorkloadClass             string                          `json:"workload_class"`
+	Unit                      string                          `json:"unit"`
+	AuthorityScope            string                          `json:"authority_scope"`
+	Aggregation               string                          `json:"aggregation"`
+	OperatingProtocol         string                          `json:"operating_protocol"`
+	CoveredWorkloads          []CataloguePowerCoveredWorkload `json:"covered_workloads"`
+	Watts                     float64                         `json:"watts"`
+	MeasuredAt                string                          `json:"measured_at"`
+	ValidUntil                string                          `json:"valid_until"`
+}
+
+// CatalogueResultPhysicalAuthority is the self-contained physical basis for
+// one result. Identity is intentionally repeated here (rather than inferred
+// from mutable process tables) so the schedule digest binds the exact model,
+// workload, hardware and settlement-unit geometry that passed publication.
+type CatalogueResultPhysicalAuthority struct {
+	Version                   int                                  `json:"version"`
+	ModelID                   string                               `json:"model_id"`
+	JobType                   string                               `json:"job_type"`
+	RuntimeCellID             string                               `json:"runtime_cell_id"`
+	RuntimeProfileID          string                               `json:"runtime_profile_id"`
+	ProfileRevision           string                               `json:"profile_revision"`
+	Engine                    string                               `json:"engine"`
+	EngineRevision            string                               `json:"engine_revision,omitempty"`
+	EngineBuildHash           string                               `json:"engine_build_hash,omitempty"`
+	EngineBuildIdentityPolicy string                               `json:"engine_build_identity_policy,omitempty"`
+	HWClass                   string                               `json:"hardware_class"`
+	HardwareIdentity          string                               `json:"hardware_identity,omitempty"`
+	Unit                      string                               `json:"unit"`
+	UnitScope                 string                               `json:"unit_scope"`
+	ModelArtifactDigest       string                               `json:"model_artifact_digest"`
+	Throughput                CatalogueThroughputAuthoritySnapshot `json:"throughput"`
+	Power                     CataloguePowerAuthoritySnapshot      `json:"power"`
+	ValidUntil                string                               `json:"valid_until"`
+}
 
 const (
 	catalogueReferenceCurrency = "usd"
@@ -270,6 +453,12 @@ type CataloguePriceSchedule struct {
 	BoardSchemaVersion    int     `json:"board_schema_version"`
 	BoardFetchedAt        string  `json:"board_fetched_at"`
 	PositioningMultiplier float64 `json:"positioning_multiplier"`
+	// v3 binds the named board policy and the earliest instant at which any
+	// board, throughput or power input must be revalidated before current use.
+	BoardFreshnessPolicy      string `json:"board_freshness_policy,omitempty"`
+	BoardValidUntil           string `json:"board_valid_until,omitempty"`
+	CurrentUseFreshnessPolicy string `json:"current_use_freshness_policy,omitempty"`
+	CurrentUseValidUntil      string `json:"current_use_valid_until,omitempty"`
 	// SupplierShare is only populated on v1 schedules. New schedules carry a
 	// per-result share under SupplierSharePolicyRevision.
 	SupplierShare               float64         `json:"supplier_share,omitempty"`
@@ -285,7 +474,7 @@ type CataloguePriceSchedule struct {
 func diagnosticCostFloorFromSupplierEconomics(b measuredThroughput, supplierShare, electricityUSDPerKWh float64) RepriceResult {
 	watts := sustainedWattsForClass(b.HWClass)
 	electricityUSDHr := watts / 1000.0 * electricityUSDPerKWh
-	unitsPerHr := b.UnitsPerSec * 3600.0
+	unitsPerHr := catalogueConservativeUnitsPerSecond(b) * 3600.0
 
 	denom := unitsPerHr / 1000.0 * supplierShare
 	var price float64
@@ -523,8 +712,196 @@ func cataloguePriceScheduleDigest(schedule CataloguePriceSchedule) (string, erro
 	return fmt.Sprintf("%x", sum[:]), nil
 }
 
+func canonicalCatalogueTimestamp(label, value string) (time.Time, error) {
+	parsed, err := time.Parse(time.RFC3339, strings.TrimSpace(value))
+	if err != nil {
+		return time.Time{}, fmt.Errorf("%s must be an RFC3339 timestamp: %w", label, err)
+	}
+	parsed = parsed.UTC()
+	if value != parsed.Format(time.RFC3339) {
+		return time.Time{}, fmt.Errorf("%s must be canonical UTC RFC3339", label)
+	}
+	return parsed, nil
+}
+
+func validateCatalogueResultPhysicalAuthority(
+	result RepriceResult,
+) (time.Time, error) {
+	physical := result.PhysicalAuthority
+	if (physical.Version != catalogueResultPhysicalAuthorityLegacyVersion &&
+		physical.Version != catalogueResultPhysicalAuthorityVersion) ||
+		physical.ModelID != result.ModelID || physical.JobType != result.JobType ||
+		strings.TrimSpace(physical.RuntimeCellID) == "" ||
+		strings.TrimSpace(physical.RuntimeProfileID) == "" ||
+		strings.TrimSpace(physical.ProfileRevision) == "" ||
+		strings.TrimSpace(physical.Engine) == "" ||
+		strings.TrimSpace(physical.HWClass) == "" ||
+		strings.TrimSpace(physical.Unit) == "" || strings.TrimSpace(physical.UnitScope) == "" ||
+		!digestPattern.MatchString(physical.ModelArtifactDigest) {
+		return time.Time{}, fmt.Errorf(
+			"catalogue result %s/%s lacks complete physical identity", result.ModelID, result.JobType)
+	}
+	throughput := physical.Throughput
+	if physical.Version == catalogueResultPhysicalAuthorityVersion {
+		if !engineBuildHashPattern.MatchString(physical.EngineBuildHash) ||
+			!historicalEngineBuildIdentityPolicyMatches(
+				physical.EngineBuildIdentityPolicy,
+				throughput.EngineBuildIdentityPolicy,
+			) ||
+			!validCanonicalHardwareIdentity(physical.HardwareIdentity) ||
+			throughput.EngineBuildHash != physical.EngineBuildHash ||
+			throughput.HardwareIdentity != physical.HardwareIdentity {
+			return time.Time{}, fmt.Errorf(
+				"catalogue result %s/%s lacks exact execution-build/device identity",
+				result.ModelID, result.JobType)
+		}
+	} else if physical.EngineBuildHash != "" || physical.EngineBuildIdentityPolicy != "" ||
+		physical.HardwareIdentity != "" || throughput.EngineBuildHash != "" ||
+		throughput.EngineBuildIdentityPolicy != "" || throughput.HardwareIdentity != "" {
+		return time.Time{}, fmt.Errorf("legacy catalogue physical authority carries future build/device identity")
+	}
+	if strings.TrimSpace(throughput.Citation) == "" ||
+		!digestPattern.MatchString(throughput.ReceiptSHA256) ||
+		throughput.FreshnessPolicy != catalogueThroughputFreshnessPolicy ||
+		!finiteNonNegative(throughput.ObservedUnitsPerSecond) ||
+		throughput.ObservedUnitsPerSecond <= 0 ||
+		throughput.HaircutPolicyRevision != runtimeCellPerformancePolicyRevision ||
+		throughput.Haircut != measuredThroughputHaircut ||
+		!finiteNonNegative(throughput.ConservativeUnitsPerSecond) ||
+		throughput.ConservativeUnitsPerSecond <= 0 {
+		return time.Time{}, fmt.Errorf(
+			"catalogue result %s/%s lacks complete throughput authority", result.ModelID, result.JobType)
+	}
+	wantConservative := throughput.ObservedUnitsPerSecond * throughput.Haircut
+	if math.Abs(throughput.ConservativeUnitsPerSecond-wantConservative) > math.Abs(wantConservative)*1e-12 {
+		return time.Time{}, fmt.Errorf(
+			"catalogue result %s/%s conservative throughput does not equal observed rate times governed haircut",
+			result.ModelID, result.JobType)
+	}
+	throughputAt, err := canonicalCatalogueTimestamp("throughput measured_at", throughput.MeasuredAt)
+	if err != nil {
+		return time.Time{}, err
+	}
+	throughputUntil, err := canonicalCatalogueTimestamp("throughput valid_until", throughput.ValidUntil)
+	if err != nil {
+		return time.Time{}, err
+	}
+	if !throughputUntil.Equal(throughputAt.Add(catalogueThroughputMaxAge)) {
+		return time.Time{}, fmt.Errorf("catalogue throughput valid_until does not follow %s",
+			catalogueThroughputFreshnessPolicy)
+	}
+	power := physical.Power
+	if physical.Version == catalogueResultPhysicalAuthorityVersion {
+		if power.RuntimeCellID != physical.RuntimeCellID ||
+			power.RuntimeProfileID != physical.RuntimeProfileID ||
+			power.Engine != physical.Engine ||
+			power.EngineBuildHash != physical.EngineBuildHash ||
+			!historicalEngineBuildIdentityPolicyMatches(
+				physical.EngineBuildIdentityPolicy,
+				power.EngineBuildIdentityPolicy,
+			) ||
+			power.HWClass != physical.HWClass ||
+			power.HardwareIdentity != physical.HardwareIdentity {
+			return time.Time{}, fmt.Errorf(
+				"catalogue result %s/%s power authority does not bind exact runtime/build/device identity",
+				result.ModelID, result.JobType)
+		}
+	} else if power.RuntimeCellID != "" || power.RuntimeProfileID != "" ||
+		power.Engine != "" || power.EngineBuildHash != "" ||
+		power.EngineBuildIdentityPolicy != "" || power.HWClass != "" ||
+		power.HardwareIdentity != "" {
+		return time.Time{}, fmt.Errorf("legacy catalogue power authority carries future exact identity")
+	}
+	if strings.TrimSpace(power.Citation) == "" ||
+		!digestPattern.MatchString(power.ReceiptSHA256) ||
+		power.FreshnessPolicy != cataloguePowerFreshnessPolicy ||
+		power.MeasurementBoundary != "whole_package" ||
+		power.WorkloadClass != "inference_shaped" || power.Unit != "watts" ||
+		power.AuthorityScope != cataloguePowerAuthorityScope ||
+		power.Aggregation != cataloguePowerAggregation ||
+		power.OperatingProtocol != cataloguePowerOperatingProtocol ||
+		len(power.CoveredWorkloads) == 0 ||
+		!finiteNonNegative(power.Watts) || power.Watts <= 0 {
+		return time.Time{}, fmt.Errorf(
+			"catalogue result %s/%s lacks complete whole-package inference-shaped power authority",
+			result.ModelID, result.JobType)
+	}
+	coveredTarget := false
+	seenCoverage := map[string]bool{}
+	for _, covered := range power.CoveredWorkloads {
+		if strings.TrimSpace(covered.ModelID) == "" || strings.TrimSpace(covered.JobType) == "" ||
+			!digestPattern.MatchString(covered.ModelArtifactDigest) {
+			return time.Time{}, fmt.Errorf("catalogue power coverage identity is incomplete")
+		}
+		key := covered.ModelID + "\x00" + covered.JobType
+		if seenCoverage[key] {
+			return time.Time{}, fmt.Errorf("catalogue power coverage repeats %s/%s", covered.ModelID, covered.JobType)
+		}
+		seenCoverage[key] = true
+		if physical.Version == catalogueResultPhysicalAuthorityVersion {
+			if strings.TrimSpace(covered.RuntimeCellID) == "" ||
+				strings.TrimSpace(covered.RuntimeProfileID) == "" ||
+				strings.TrimSpace(covered.Engine) == "" ||
+				!engineBuildHashPattern.MatchString(covered.EngineBuildHash) ||
+				!historicalEngineBuildIdentityPolicyMatches(
+					covered.EngineBuildIdentityPolicy,
+				) ||
+				!validCanonicalHardwareIdentity(covered.HardwareIdentity) {
+				return time.Time{}, fmt.Errorf(
+					"catalogue power coverage %s/%s lacks exact runtime/build/device identity",
+					covered.ModelID, covered.JobType)
+			}
+		} else if covered.RuntimeCellID != "" || covered.RuntimeProfileID != "" ||
+			covered.Engine != "" || covered.EngineBuildHash != "" ||
+			covered.EngineBuildIdentityPolicy != "" || covered.HardwareIdentity != "" {
+			return time.Time{}, fmt.Errorf("legacy catalogue power coverage carries future exact identity")
+		}
+		if covered.ModelID == result.ModelID && covered.JobType == result.JobType &&
+			covered.ModelArtifactDigest == physical.ModelArtifactDigest &&
+			(physical.Version == catalogueResultPhysicalAuthorityLegacyVersion ||
+				(covered.RuntimeCellID == physical.RuntimeCellID &&
+					covered.RuntimeProfileID == physical.RuntimeProfileID &&
+					covered.Engine == physical.Engine &&
+					covered.EngineBuildHash == physical.EngineBuildHash &&
+					covered.EngineBuildIdentityPolicy == physical.EngineBuildIdentityPolicy &&
+					covered.HardwareIdentity == physical.HardwareIdentity)) {
+			coveredTarget = true
+		}
+	}
+	if !coveredTarget {
+		return time.Time{}, fmt.Errorf(
+			"catalogue power envelope does not cover exact result %s/%s", result.ModelID, result.JobType)
+	}
+	powerAt, err := canonicalCatalogueTimestamp("power measured_at", power.MeasuredAt)
+	if err != nil {
+		return time.Time{}, err
+	}
+	powerUntil, err := canonicalCatalogueTimestamp("power valid_until", power.ValidUntil)
+	if err != nil {
+		return time.Time{}, err
+	}
+	if !powerUntil.Equal(powerAt.Add(cataloguePowerMaxAge)) {
+		return time.Time{}, fmt.Errorf("catalogue power valid_until does not follow %s",
+			cataloguePowerFreshnessPolicy)
+	}
+	wantValidUntil := throughputUntil
+	if powerUntil.Before(wantValidUntil) {
+		wantValidUntil = powerUntil
+	}
+	physicalUntil, err := canonicalCatalogueTimestamp("physical authority valid_until", physical.ValidUntil)
+	if err != nil {
+		return time.Time{}, err
+	}
+	if !physicalUntil.Equal(wantValidUntil) {
+		return time.Time{}, fmt.Errorf(
+			"catalogue result %s/%s physical valid_until is not the earliest receipt boundary",
+			result.ModelID, result.JobType)
+	}
+	return physicalUntil, nil
+}
+
 func validateCataloguePriceSchedule(schedule CataloguePriceSchedule) error {
-	if schedule.Version != 1 && schedule.Version != cataloguePriceScheduleVersion {
+	if schedule.Version != 1 && schedule.Version != 2 && schedule.Version != cataloguePriceScheduleVersion {
 		return fmt.Errorf("unsupported catalogue price schedule version %d", schedule.Version)
 	}
 	if schedule.ReferenceCurrency != catalogueReferenceCurrency ||
@@ -544,9 +921,20 @@ func validateCataloguePriceSchedule(schedule CataloguePriceSchedule) error {
 			schedule.SupplierSharePolicyRevision != "" {
 			return fmt.Errorf("legacy catalogue price schedule has invalid supplier share authority")
 		}
-	case cataloguePriceScheduleVersion:
+	case 2, cataloguePriceScheduleVersion:
 		if schedule.SupplierShare != 0 || schedule.SupplierSharePolicyRevision != supplierSharePolicyRevision {
 			return fmt.Errorf("catalogue price schedule must bind %s per-workload supplier shares", supplierSharePolicyRevision)
+		}
+	}
+	if schedule.Version < cataloguePriceScheduleVersion {
+		if schedule.BoardFreshnessPolicy != "" || schedule.BoardValidUntil != "" ||
+			schedule.CurrentUseFreshnessPolicy != "" || schedule.CurrentUseValidUntil != "" {
+			return fmt.Errorf("historical catalogue price schedule carries unsupported current-use authority")
+		}
+	} else {
+		if schedule.BoardFreshnessPolicy != catalogueBoardFreshnessPolicy ||
+			schedule.CurrentUseFreshnessPolicy != catalogueScheduleCurrentUseFreshnessPolicy {
+			return fmt.Errorf("catalogue price schedule lacks named current-use freshness policies")
 		}
 	}
 	settlement, err := ParseCurrency(schedule.SettlementCurrency)
@@ -565,6 +953,7 @@ func validateCataloguePriceSchedule(schedule CataloguePriceSchedule) error {
 		expected[b.ModelID] = b.JobType
 	}
 	seen := make(map[string]bool, len(schedule.Results))
+	var earliestPhysical time.Time
 	for _, result := range schedule.Results {
 		if seen[result.ModelID] || expected[result.ModelID] != result.JobType ||
 			!finiteNonNegative(result.ReferencePricePer1K) || result.ReferencePricePer1K <= 0 ||
@@ -588,7 +977,37 @@ func validateCataloguePriceSchedule(schedule CataloguePriceSchedule) error {
 		if math.Abs(result.PricePer1K-wantPrice) > 0.0000000001 {
 			return fmt.Errorf("catalogue price result for model %q is inconsistent with FX authority", result.ModelID)
 		}
+		if schedule.Version < cataloguePriceScheduleVersion {
+			if !reflect.DeepEqual(result.PhysicalAuthority, CatalogueResultPhysicalAuthority{}) {
+				return fmt.Errorf("historical catalogue result for model %q carries unsupported physical authority", result.ModelID)
+			}
+		} else {
+			physicalUntil, err := validateCatalogueResultPhysicalAuthority(result)
+			if err != nil {
+				return err
+			}
+			if earliestPhysical.IsZero() || physicalUntil.Before(earliestPhysical) {
+				earliestPhysical = physicalUntil
+			}
+		}
 		seen[result.ModelID] = true
+	}
+	if schedule.Version == cataloguePriceScheduleVersion {
+		boardUntil, err := canonicalCatalogueTimestamp("board valid_until", schedule.BoardValidUntil)
+		if err != nil {
+			return err
+		}
+		currentUseUntil, err := canonicalCatalogueTimestamp("schedule current_use_valid_until", schedule.CurrentUseValidUntil)
+		if err != nil {
+			return err
+		}
+		wantCurrentUseUntil := boardUntil
+		if !earliestPhysical.IsZero() && earliestPhysical.Before(wantCurrentUseUntil) {
+			wantCurrentUseUntil = earliestPhysical
+		}
+		if !currentUseUntil.Equal(wantCurrentUseUntil) {
+			return fmt.Errorf("catalogue schedule current_use_valid_until is not the earliest board or physical boundary")
+		}
 	}
 	digest, err := cataloguePriceScheduleDigest(schedule)
 	if err != nil {
@@ -624,6 +1043,10 @@ func BuildCataloguePriceSchedule() (CataloguePriceSchedule, error) {
 	if err != nil {
 		return CataloguePriceSchedule{}, err
 	}
+	boardValidUntil, err := catalogueBoardValidUntil(board)
+	if err != nil {
+		return CataloguePriceSchedule{}, err
+	}
 	settlement, err := SettlementCurrency()
 	if err != nil {
 		return CataloguePriceSchedule{}, fmt.Errorf("build catalogue price schedule: %w", err)
@@ -634,6 +1057,7 @@ func BuildCataloguePriceSchedule() (CataloguePriceSchedule, error) {
 		return CataloguePriceSchedule{}, err
 	}
 	out := make([]RepriceResult, 0, len(repricingBenchmarks))
+	currentUseValidUntil := boardValidUntil
 	for _, b := range repricingBenchmarks {
 		r, ok := repriceFromMarketBoard(b.ModelID, b.JobType, board)
 		if !ok {
@@ -649,12 +1073,19 @@ func BuildCataloguePriceSchedule() (CataloguePriceSchedule, error) {
 		if serr != nil {
 			return CataloguePriceSchedule{}, serr
 		}
-		if gerr := governPublishedPrice(b, referencePrice, supplierShare); gerr != nil {
+		physical, perr := buildCatalogueResultPhysicalAuthority(b)
+		if perr != nil {
+			return CataloguePriceSchedule{}, perr
+		}
+		if gerr := governPublishedPriceAtWatts(
+			b, referencePrice, supplierShare, physical.Power.Watts,
+		); gerr != nil {
 			return CataloguePriceSchedule{}, gerr
 		}
 		r.ReferencePricePer1K = referencePrice
 		r.PricePer1K = ceilPricePer1K(referencePrice * fxRate)
 		r.SupplierShare = supplierShare
+		r.PhysicalAuthority = physical
 		r.Formula += fmt.Sprintf(
 			" board_sha256=%s reference_price_per_1k=%.15f reference_currency=%s reference_to_settlement_rate=%.12g fx_revision=%s settlement_price_per_1k=%.8f settlement_currency=%s supplier_share_policy=%s supplier_share=%.8f",
 			priceBoardSHA256, r.ReferencePricePer1K, catalogueReferenceCurrency,
@@ -662,6 +1093,10 @@ func BuildCataloguePriceSchedule() (CataloguePriceSchedule, error) {
 			supplierSharePolicyRevision, supplierShare,
 		)
 		out = append(out, r)
+		physicalValidUntil, _ := time.Parse(time.RFC3339, physical.ValidUntil)
+		if physicalValidUntil.Before(currentUseValidUntil) {
+			currentUseValidUntil = physicalValidUntil
+		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ModelID < out[j].ModelID })
 	schedule := CataloguePriceSchedule{
@@ -674,6 +1109,10 @@ func BuildCataloguePriceSchedule() (CataloguePriceSchedule, error) {
 		BoardSchemaVersion:          board.SchemaVersion,
 		BoardFetchedAt:              board.FetchedAt,
 		PositioningMultiplier:       board.PositioningMultiplier,
+		BoardFreshnessPolicy:        catalogueBoardFreshnessPolicy,
+		BoardValidUntil:             boardValidUntil.UTC().Format(time.RFC3339),
+		CurrentUseFreshnessPolicy:   catalogueScheduleCurrentUseFreshnessPolicy,
+		CurrentUseValidUntil:        currentUseValidUntil.UTC().Format(time.RFC3339),
 		SupplierSharePolicyRevision: supplierSharePolicyRevision,
 		Results:                     out,
 	}
@@ -783,7 +1222,8 @@ func SupplierViabilityReport() []SupplierViabilityAtMarket {
 		}
 		watts := sustainedWattsForClass(b.HWClass)
 		elec := watts / 1000.0 * defaultElectricityUSDPerKWh
-		unitsPerHr := b.UnitsPerSec * 3600.0
+		conservativeUnitsPerSec := catalogueConservativeUnitsPerSecond(b)
+		unitsPerHr := conservativeUnitsPerSec * 3600.0
 		gross := unitsPerHr / 1000.0 * mkt.PricePer1K * supplierShare
 		var breakEven float64
 		if perUnitHr := mkt.PricePer1K / 1000.0 * supplierShare; perUnitHr > 0 {
@@ -791,7 +1231,7 @@ func SupplierViabilityReport() []SupplierViabilityAtMarket {
 		}
 		out = append(out, SupplierViabilityAtMarket{
 			ModelID: b.ModelID, JobType: b.JobType, SupplierShare: supplierShare, HWClass: b.HWClass,
-			MeasuredUnitsPerSec:  b.UnitsPerSec,
+			MeasuredUnitsPerSec:  conservativeUnitsPerSec,
 			CataloguePricePer1K:  mkt.PricePer1K,
 			SupplierGrossUSDHr:   roundUSD(gross),
 			ElectricityUSDHr:     roundUSD(elec),
@@ -863,8 +1303,8 @@ func (s *Store) CostDriftRollup(ctx context.Context) ([]CostDriftRow, error) {
 }
 
 func (s *Store) ApplyRepricing(ctx context.Context, schedule CataloguePriceSchedule) (updated int, err error) {
-	if err := validateCataloguePriceSchedule(schedule); err != nil {
-		return 0, fmt.Errorf("refusing invalid catalogue price schedule: %w", err)
+	if err := revalidateCataloguePriceScheduleCurrent(schedule); err != nil {
+		return 0, fmt.Errorf("refusing catalogue price schedule without current physical authority: %w", err)
 	}
 	if err := RequireSettlementCurrency(schedule.SettlementCurrency); err != nil {
 		return 0, fmt.Errorf("refusing catalogue schedule for another settlement authority: %w", err)
@@ -881,6 +1321,15 @@ func (s *Store) ApplyRepricing(ctx context.Context, schedule CataloguePriceSched
 	if _, err := tx.Exec(ctx,
 		`SELECT pg_advisory_xact_lock(hashtextextended('merc-catalogue-price-schedule-v1',0))`); err != nil {
 		return 0, fmt.Errorf("lock catalogue price authority: %w", err)
+	}
+	// Publication can wait on another reprice while receipt or board authority
+	// crosses its exact freshness boundary. Recheck after the serialization lock
+	// and immediately before the first append-only write so the durable current
+	// pointer is never minted from only the earlier, pre-lock observation.
+	if err := revalidateCataloguePriceScheduleCurrent(schedule); err != nil {
+		return 0, fmt.Errorf(
+			"refusing catalogue price schedule without current physical authority under publication lock: %w",
+			err)
 	}
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO catalogue_price_schedules (
@@ -946,11 +1395,11 @@ func (s *Store) ApplyRepricing(ctx context.Context, schedule CataloguePriceSched
 		case errors.Is(err, pgx.ErrNoRows):
 			if _, err := tx.Exec(ctx, `
 				INSERT INTO model_price_history (
-				  schedule_sha256,model_id,prior_price_per_1k,prior_price_source,
+				  schedule_sha256,model_id,job_type,prior_price_per_1k,prior_price_source,
 				  reference_price_per_1k,reference_currency,price_per_1k,
 				  price_currency,price_formula,supplier_share
-				) VALUES ($1,$2,$3,NULLIF($4,''),$5,$6,$7,$8,$9,$10)`,
-				schedule.SHA256, result.ModelID, priorPrice, priorSource,
+				) VALUES ($1,$2,$3,$4,NULLIF($5,''),$6,$7,$8,$9,$10,$11)`,
+				schedule.SHA256, result.ModelID, result.JobType, priorPrice, priorSource,
 				result.ReferencePricePer1K, schedule.ReferenceCurrency,
 				result.PricePer1K, schedule.SettlementCurrency, result.Formula,
 				nullIfZero(result.SupplierShare),

@@ -392,8 +392,14 @@ def main():
                 "store_requires_exact_digest": "pricingSHA256 != quotePricingSHA256" in store_jobs_source,
                 "derived_origin_link_not_accepted_for_bound_jobs":
                     "job pricing decision does not exactly match its bound quote" in store_jobs_source,
-                "cad_project_public_admission_test":
-                    "TestProjectCompilerCADAdmissionThroughPublicAPI" in project_submit_tests,
+                "cad_project_public_authority_refusal_tests": {
+                    "admission_refuses_without_scope_compatible_authority":
+                        "TestProjectCompilerCADEmbedAdmissionRefusesWithoutScopeCompatibleAuthority"
+                        in project_submit_tests,
+                    "execution_refuses_before_durable_mutation":
+                        "TestProjectCompilerCADEmbedExecutionRefusesBeforeDurableMutation"
+                        in project_submit_tests,
+                },
             },
             # The catalogue has exactly one buyer-price derivation: the governed
             # market board schedule. Supplier economics remains an explicitly
@@ -419,17 +425,24 @@ def main():
                 ],
                 "scope": "source-and-test authority boundary only; not a live market, true-net, or Stripe receipt",
             },
-            # The compiler is a product command and the CAD admission test
-            # reaches real authenticated handlers. It remains deliberately
-            # below a project execution/settlement claim because submit
-            # currently refuses dependent steps and the test has no agent.
+            # The compiler is a product command and its CAD refusal tests reach
+            # real authenticated handlers. Current embed performance and
+            # settlement units have no governed conversion, so the source
+            # truth is a buyer-visible 503 with zero durable writes—not an
+            # admission, execution, or settlement claim.
             "project_compiler": {
                 "production_command": bool(grep_count(r"func dispatchProject", "control")),
                 "buyer_approved_probe_required":
                     "project quote requires an exact buyer-approved bounded probe"
                     in read("control/project_quote.go"),
-                "public_cad_admission_test":
-                    "TestProjectCompilerCADAdmissionThroughPublicAPI" in project_submit_tests,
+                "public_cad_authority_refusal_tests": {
+                    "admission_refuses_without_scope_compatible_authority":
+                        "TestProjectCompilerCADEmbedAdmissionRefusesWithoutScopeCompatibleAuthority"
+                        in project_submit_tests,
+                    "execution_refuses_before_durable_mutation":
+                        "TestProjectCompilerCADEmbedExecutionRefusesBeforeDurableMutation"
+                        in project_submit_tests,
+                },
                 "dependent_step_submit_refused":
                     "currently supports only independent finite steps"
                     in read("control/project_submit.go"),

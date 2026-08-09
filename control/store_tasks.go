@@ -93,6 +93,10 @@ type taskRow struct {
 	IsHoneypot   bool
 	IsRedundancy bool
 	InputRef     string
+	// InputSHA256 is the submit-time digest of the exact immutable object this
+	// task will execute. Durable current admission compares it to the workload's
+	// priced input digest; InputRef remains the stored execution handle.
+	InputSHA256 string
 	// InputDepthBand is the immutable depth bucket for this exact input chunk.
 	// It is deliberately task-scoped: a job-wide p90 loses the mixed-input
 	// geometry that task-duration learning needs.
@@ -147,11 +151,13 @@ func (s *Store) StartTask(ctx context.Context, taskID, workerID uuid.UUID, claim
 	defer tx.Rollback(ctx)
 
 	var claimSupplierID uuid.UUID
-	var claimHWClass, claimEngine, claimBuildHash string
+	var claimHWClass, claimHardwareIdentity, claimEngine, claimBuildHash, claimBuildIdentityPolicy, claimRuntimeProfileID string
 	err = tx.QueryRow(ctx, `
-		SELECT supplier_id,COALESCE(hw_class,''),COALESCE(engine,''),COALESCE(build_hash,'')
+		SELECT supplier_id,COALESCE(hw_class,''),COALESCE(hardware_identity,''),COALESCE(engine,''),
+		       COALESCE(build_hash,''),COALESCE(build_identity_policy,''),COALESCE(runtime_profile_id,'')
 		  FROM workers WHERE id=$1 FOR UPDATE`, workerID).
-		Scan(&claimSupplierID, &claimHWClass, &claimEngine, &claimBuildHash)
+		Scan(&claimSupplierID, &claimHWClass, &claimHardwareIdentity, &claimEngine, &claimBuildHash,
+			&claimBuildIdentityPolicy, &claimRuntimeProfileID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return errNotFound
 	}
@@ -173,13 +179,22 @@ func (s *Store) StartTask(ctx context.Context, taskID, workerID uuid.UUID, claim
 		isRedundancy        bool
 		hedgedFrom          *uuid.UUID
 		attempt             int16
+		frozenHWClass       string
+		frozenHardware      string
+		frozenEngine        string
+		frozenBuildHash     string
+		frozenBuildPolicy   string
 	)
 	err = tx.QueryRow(ctx, `
 		SELECT job_id,status,claimed_by,worker_id,execution_worker_id,execution_supplier_id,started_at,
-		       COALESCE(is_redundancy,false),hedged_from,COALESCE(retry_count,0)
+		       COALESCE(is_redundancy,false),hedged_from,COALESCE(retry_count,0),
+		       COALESCE(execution_hw_class,''),COALESCE(execution_hardware_identity,''),
+		       COALESCE(execution_engine,''),COALESCE(execution_build_hash,''),
+		       COALESCE(execution_build_identity_policy,'')
 		  FROM tasks WHERE id=$1 AND retry_count=$2 FOR UPDATE`, taskID, claimAttempt).
 		Scan(&jobID, &status, &claimedBy, &taskWorkerID, &executionWorkerID, &executionSupplierID, &startedAt,
-			&isRedundancy, &hedgedFrom, &attempt)
+			&isRedundancy, &hedgedFrom, &attempt, &frozenHWClass, &frozenHardware, &frozenEngine, &frozenBuildHash,
+			&frozenBuildPolicy)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return errNotFound
 	}
@@ -190,9 +205,19 @@ func (s *Store) StartTask(ctx context.Context, taskID, workerID uuid.UUID, claim
 		return errNotFound
 	}
 
-	var parentStatus, jobCurrency string
-	if err := tx.QueryRow(ctx, `SELECT status,currency FROM jobs WHERE id=$1 FOR UPDATE`, jobID).
-		Scan(&parentStatus, &jobCurrency); err != nil {
+	var parentStatus, jobCurrency, placementRuntimeID, placementEngine, placementBuild, placementBuildPolicy, placementHardware string
+	var placementVersion int
+	if err := tx.QueryRow(ctx, `
+		SELECT status,currency,
+		       COALESCE(NULLIF(placement_requirement->>'version','')::int,1),
+		       COALESCE(placement_requirement->>'runtime_id',''),
+		       COALESCE(placement_requirement->>'engine',''),
+		       COALESCE(placement_requirement->>'engine_build_hash',''),
+		       COALESCE(placement_requirement->>'engine_build_identity_policy',''),
+		       COALESCE(placement_requirement->>'hardware_identity','')
+		  FROM jobs WHERE id=$1 FOR UPDATE`, jobID).
+		Scan(&parentStatus, &jobCurrency, &placementVersion, &placementRuntimeID,
+			&placementEngine, &placementBuild, &placementBuildPolicy, &placementHardware); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return errNotFound
 		}
@@ -206,6 +231,19 @@ func (s *Store) StartTask(ctx context.Context, taskID, workerID uuid.UUID, claim
 	}
 
 	dynamicTiebreak := isRedundancy && hedgedFrom != nil
+	if placementVersion >= placementRequirementVersion &&
+		(claimRuntimeProfileID != placementRuntimeID || claimEngine != placementEngine ||
+			claimBuildHash != placementBuild || claimBuildIdentityPolicy != placementBuildPolicy ||
+			claimHardwareIdentity != placementHardware) {
+		return errNotFound
+	}
+	if placementVersion >= placementRequirementVersion && (status == "running" || !dynamicTiebreak) &&
+		(frozenHWClass != claimHWClass || frozenHardware != claimHardwareIdentity ||
+			frozenEngine != claimEngine || frozenBuildHash != claimBuildHash ||
+			frozenBuildPolicy != claimBuildIdentityPolicy ||
+			executionSupplierID == nil || *executionSupplierID != claimSupplierID) {
+		return errNotFound
+	}
 	if status == "running" {
 		if taskWorkerID == nil || *taskWorkerID != workerID ||
 			executionWorkerID == nil || *executionWorkerID != workerID || executionSupplierID == nil {
@@ -261,9 +299,11 @@ func (s *Store) StartTask(ctx context.Context, taskID, workerID uuid.UUID, claim
 	ct, err := tx.Exec(ctx, `
 		UPDATE tasks SET status='running',started_at=now(),worker_id=$2,
 		       execution_worker_id=$2,execution_supplier_id=$3,
-		       execution_hw_class=$4,execution_engine=$5,execution_build_hash=$6
-		 WHERE id=$1 AND claimed_by=$2 AND retry_count=$7 AND status='queued'`,
-		taskID, workerID, claimSupplierID, claimHWClass, claimEngine, claimBuildHash, claimAttempt)
+		       execution_hw_class=$4,execution_hardware_identity=NULLIF($5,''),
+		       execution_engine=$6,execution_build_hash=$7,execution_build_identity_policy=$8
+		 WHERE id=$1 AND claimed_by=$2 AND retry_count=$9 AND status='queued'`,
+		taskID, workerID, claimSupplierID, claimHWClass, claimHardwareIdentity, claimEngine, claimBuildHash,
+		claimBuildIdentityPolicy, claimAttempt)
 	if err != nil {
 		return err
 	}
@@ -288,8 +328,10 @@ type CommitTaskInfo struct {
 	// receipt and the verification work plan will be reconciled against.
 	VerificationClass        string
 	HWClass                  string
+	hardwareIdentity         string
 	engine                   string
 	buildHash                string
+	buildIdentityPolicy      string
 	jobType                  string // parent job's job_type, for honeypot answer lookup
 	jobMaxTokens             uint32 // bounded projection of frozen workload job_type.max_tokens
 	resultMaxBytes           int64
@@ -309,6 +351,7 @@ type CommitTaskInfo struct {
 	peerSupplierID           uuid.UUID
 	peerEngine               string
 	peerBuildHash            string
+	peerBuildIdentityPolicy  string
 }
 
 func (s *Store) CompleteTaskTx(ctx context.Context, taskID, workerID uuid.UUID, c TaskCommit) (*CommitTaskInfo, error) {
@@ -328,10 +371,28 @@ func (s *Store) completeTaskTx(ctx context.Context, taskID, workerID uuid.UUID, 
 	var stagedJobID uuid.UUID
 	var stagedResultKey string
 	err = tx.QueryRow(ctx, `
-		SELECT job_id,COALESCE(result_key,'')
-		  FROM tasks
-		 WHERE id=$1 AND claimed_by=$2 AND execution_worker_id=$2 AND retry_count=$3
-		   AND status IN ('running','queued','verifying')
+		SELECT t.job_id,COALESCE(t.result_key,'')
+		  FROM tasks t
+		  JOIN jobs j ON j.id=t.job_id
+		  JOIN workers w ON w.id=$2
+		 WHERE t.id=$1 AND t.claimed_by=$2 AND t.execution_worker_id=$2 AND t.retry_count=$3
+		   AND t.status IN ('running','queued','verifying')
+		   AND (
+		     COALESCE(NULLIF(j.placement_requirement->>'version','')::int,1)<3
+		     OR (
+		       COALESCE(w.runtime_profile_id,'')=COALESCE(j.placement_requirement->>'runtime_id','')
+		       AND COALESCE(w.engine,'')=COALESCE(j.placement_requirement->>'engine','')
+		       AND COALESCE(w.build_hash,'')=COALESCE(j.placement_requirement->>'engine_build_hash','')
+		       AND COALESCE(w.build_identity_policy,'')=COALESCE(j.placement_requirement->>'engine_build_identity_policy','')
+		       AND COALESCE(w.hardware_identity,'')=COALESCE(j.placement_requirement->>'hardware_identity','')
+		       AND w.supplier_id=t.execution_supplier_id
+		       AND COALESCE(w.hw_class,'')=COALESCE(t.execution_hw_class,'')
+		       AND COALESCE(w.engine,'')=COALESCE(t.execution_engine,'')
+		       AND COALESCE(w.build_hash,'')=COALESCE(t.execution_build_hash,'')
+		       AND COALESCE(w.build_identity_policy,'')=COALESCE(t.execution_build_identity_policy,'')
+		       AND COALESCE(w.hardware_identity,'')=COALESCE(t.execution_hardware_identity,'')
+		     )
+		   )
 		 FOR UPDATE`, taskID, workerID, c.Attempt).Scan(&stagedJobID, &stagedResultKey)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, errNotFound
@@ -380,7 +441,8 @@ func (s *Store) completeTaskTx(ctx context.Context, taskID, workerID uuid.UUID, 
 		        COALESCE(t.input_ref,''),
 		        COALESCE(t.result_key,''),
 		        t.execution_worker_id,t.execution_supplier_id,t.execution_hw_class,
-		        t.execution_engine,t.execution_build_hash,j.job_type,
+		        COALESCE(t.execution_hardware_identity,''),
+		        t.execution_engine,t.execution_build_hash,t.execution_build_identity_policy,j.job_type,
 		        COALESCE((j.workload_decision #>> '{binding,job_type,max_tokens}')::bigint,0),
 		        COALESCE(j.model_ref,''), COALESCE(j.min_memory_gb,0),
 		        COALESCE(t.chunk_index,0), COALESCE(j.split_size,0),
@@ -390,7 +452,8 @@ func (s *Store) completeTaskTx(ctx context.Context, taskID, workerID uuid.UUID, 
 	 WHERE t.id = $1 AND t.execution_worker_id=$2`,
 		taskID, workerID,
 	).Scan(&info.JobID, &info.IsHoneypot, &info.IsRedundancy, &info.VerificationClass, &info.InputRef,
-		&info.ResultKey, &info.WorkerID, &info.SupplierID, &info.HWClass, &info.engine, &info.buildHash, &info.jobType, &jobMaxTokens,
+		&info.ResultKey, &info.WorkerID, &info.SupplierID, &info.HWClass, &info.hardwareIdentity, &info.engine, &info.buildHash,
+		&info.buildIdentityPolicy, &info.jobType, &jobMaxTokens,
 		&info.ModelRef, &info.MinMemoryGB, &info.ChunkIndex, &info.SplitSize,
 		&info.ExpectedOutputRecords, &info.Attempt, &info.ResultSHA256)
 	if err != nil {
@@ -514,13 +577,14 @@ func (s *Store) RequeueTask(ctx context.Context, taskID uuid.UUID) error {
 }
 
 type ChunkResult struct {
-	TaskID     uuid.UUID
-	WorkerID   uuid.UUID
-	SupplierID uuid.UUID
-	ResultRef  string
-	Artifact   *VerificationArtifact
-	Engine     string
-	BuildHash  string
+	TaskID              uuid.UUID
+	WorkerID            uuid.UUID
+	SupplierID          uuid.UUID
+	ResultRef           string
+	Artifact            *VerificationArtifact
+	Engine              string
+	BuildHash           string
+	BuildIdentityPolicy string
 }
 
 func (s *Store) ChunkResults(ctx context.Context, jobID uuid.UUID, chunkIndex int) ([]ChunkResult, error) {
@@ -530,6 +594,7 @@ func (s *Store) ChunkResults(ctx context.Context, jobID uuid.UUID, chunkIndex in
 		        t.result_ref,
 		        COALESCE(vw.input_snapshot->>'engine',t.execution_engine,''),
 		        COALESCE(vw.input_snapshot->>'build_hash',t.execution_build_hash,''),
+		        COALESCE(vw.input_snapshot->>'build_identity_policy',t.execution_build_identity_policy,''),
 		        vw.artifact_key,vw.artifact_sha256,vw.artifact_bytes
 		 FROM tasks t
 		 LEFT JOIN verification_work vw
@@ -551,7 +616,8 @@ func (s *Store) ChunkResults(ctx context.Context, jobID uuid.UUID, chunkIndex in
 		var artifactKey, artifactSHA *string
 		var artifactBytes *int64
 		if err := rows.Scan(&cr.TaskID, &cr.WorkerID, &cr.SupplierID, &cr.ResultRef,
-			&cr.Engine, &cr.BuildHash, &artifactKey, &artifactSHA, &artifactBytes); err != nil {
+			&cr.Engine, &cr.BuildHash, &cr.BuildIdentityPolicy,
+			&artifactKey, &artifactSHA, &artifactBytes); err != nil {
 			return nil, err
 		}
 		if artifactKey != nil || artifactSHA != nil || artifactBytes != nil {
@@ -608,12 +674,104 @@ func lockLiveJobForDynamicTaskTx(ctx context.Context, tx pgx.Tx, jobID uuid.UUID
 	return nil
 }
 
+// lockDynamicPeerWorkerTx establishes the process-wide dynamic dispatch lock
+// order: candidate worker, then reserve/task/job. It must be called before any
+// dynamic-task writer takes a reserve, task, or job row lock. Claim and Start
+// already begin with the worker row, so the shared order avoids worker<->job
+// deadlocks while serializing registration with pin publication.
+func lockDynamicPeerWorkerTx(ctx context.Context, tx pgx.Tx, peer uuid.UUID) error {
+	var locked uuid.UUID
+	if err := tx.QueryRow(ctx, `SELECT id FROM workers WHERE id=$1 FOR UPDATE`, peer).Scan(&locked); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrNoSupply
+		}
+		return err
+	}
+	return nil
+}
+
+// dynamicPeerClaimEligibleTx is the last, transactional eligibility boundary
+// for a task that will be born pinned to peer. Selection happens before this
+// transaction and is necessarily advisory: either the anchor or the proposed
+// peer can re-register between selection and insertion. Every writer locks the
+// peer before taking reserve/task/job locks, then calls this helper while those
+// facts are stable. Most importantly, this runs before
+// consumeEconomicReserveTx, so an identity/cell mismatch cannot consume the
+// one frozen hedge/tiebreak reserve and leave behind an unclaimable task.
+func dynamicPeerClaimEligibleTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	jobID, anchorTaskID, peer uuid.UUID,
+) (bool, error) {
+	var eligible bool
+	err := tx.QueryRow(ctx, `
+		SELECT EXISTS (
+		 SELECT 1
+		   FROM jobs j
+		   JOIN tasks anchor ON anchor.id=$2 AND anchor.job_id=j.id
+		   JOIN workers nw ON nw.id=$3
+		   JOIN suppliers ns ON ns.id=nw.supplier_id
+		  WHERE j.id=$1
+		    AND j.status IN ('queued','running','verifying')
+		    AND nw.last_seen_at>now()-interval '60 seconds'
+		    AND ns.status='active'
+		    AND NOT COALESCE(nw.throttled,false)
+		    AND NOT COALESCE(nw.unsandboxed_opt_in,false)
+		    AND COALESCE(nw.effective_memory_gb,nw.memory_gb,0)>=COALESCE(j.min_memory_gb,0)
+		    AND (j.hw_classes IS NULL OR nw.hw_class=ANY(j.hw_classes))
+		    AND (j.data_residency IS NULL OR ns.data_country=ANY(j.data_residency))
+		    AND COALESCE(j.min_reputation,0)<=ns.reputation
+		    AND (j.tier<>'trusted' OR (ns.reputation>=0.80 AND ns.completed_tasks>=500))
+		    AND COALESCE(j.offered_rate_usd_hr,1e9)>=COALESCE(nw.min_payout_usd_hr,0)
+		    AND nw.id IS DISTINCT FROM anchor.execution_worker_id
+		    AND nw.supplier_id IS DISTINCT FROM anchor.execution_supplier_id
+		    AND (
+		      COALESCE(NULLIF(j.placement_requirement->>'version','')::int,1)<3
+		      OR (
+		        j.placement_requirement->>'version'='3'
+		        -- Bind both sides to the accepted placement. The anchor tuple is
+		        -- immutable after claim; the peer tuple is locked above.
+		        AND COALESCE(anchor.execution_hw_class,'')=COALESCE(nw.hw_class,'')
+		        AND COALESCE(anchor.execution_engine,'')=COALESCE(j.placement_requirement->>'engine','')
+		        AND COALESCE(anchor.execution_engine,'')=COALESCE(nw.engine,'')
+		        AND COALESCE(anchor.execution_build_hash,'')=COALESCE(j.placement_requirement->>'engine_build_hash','')
+		        AND COALESCE(anchor.execution_build_hash,'')=COALESCE(nw.build_hash,'')
+		        AND COALESCE(anchor.execution_build_identity_policy,'')=COALESCE(j.placement_requirement->>'engine_build_identity_policy','')
+		        AND COALESCE(anchor.execution_build_identity_policy,'')=COALESCE(nw.build_identity_policy,'')
+		        AND COALESCE(anchor.execution_hardware_identity,'')=COALESCE(j.placement_requirement->>'hardware_identity','')
+		        AND COALESCE(anchor.execution_hardware_identity,'')=COALESCE(nw.hardware_identity,'')
+		        AND COALESCE(anchor.runtime_cell_id,'')=COALESCE(j.placement_requirement->>'runtime_cell_id','')
+		        AND COALESCE(anchor.runtime_id,'')=COALESCE(j.placement_requirement->>'runtime_id','')
+		        AND COALESCE(anchor.model_kind,'')=COALESCE(j.placement_requirement->>'model_kind','')
+		        AND COALESCE(nw.runtime_profile_id,'')=COALESCE(j.placement_requirement->>'runtime_id','')
+		        AND COALESCE(j.placement_requirement->>'runtime_matrix_sha256','')=$4
+		        AND EXISTS (
+		          SELECT 1 FROM worker_authorized_capabilities wac
+		           WHERE wac.worker_id=nw.id
+		             AND wac.job_type=j.job_type
+		             AND wac.model_ref=COALESCE(j.model_ref,'')
+		             AND wac.matrix_sha256=$4
+		             AND wac.authorized_at>=now()-interval '7 days'
+		             AND wac.cell_id=j.placement_requirement->>'runtime_cell_id'
+		             AND wac.runtime_id=j.placement_requirement->>'runtime_id'
+		             AND wac.model_kind=j.placement_requirement->>'model_kind'
+		        )
+		      )
+		    )
+`+supplierNotLinkedToBuyerSQL("ns")+`
+		)`, jobID, anchorTaskID, peer, generatedRuntimeMatrixSHA256).Scan(&eligible)
+	return eligible, err
+}
+
 func (s *Store) InsertTiebreakTask(ctx context.Context, jobID, primaryTaskID, peerWorker uuid.UUID, inputRef string, chunkIndex int) (uuid.UUID, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return uuid.Nil, err
 	}
 	defer tx.Rollback(ctx)
+	if err := lockDynamicPeerWorkerTx(ctx, tx, peerWorker); err != nil {
+		return uuid.Nil, err
+	}
 
 	if err := lockEconomicReserveTx(ctx, tx, jobID); err != nil {
 		if errors.Is(err, ErrEconomicReserveExhausted) {
@@ -648,9 +806,24 @@ func (s *Store) InsertTiebreakTask(ctx context.Context, jobID, primaryTaskID, pe
 	if err := lockLiveJobForDynamicTaskTx(ctx, tx, jobID); err != nil {
 		return uuid.Nil, err
 	}
+	cloneFrozen, currentUniform, err := currentUniformCloneTaskEconomics(
+		ctx, tx, jobID, primaryTaskID, inputRef, chunkIndex)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	eligible, err := dynamicPeerClaimEligibleTx(ctx, tx, jobID, primaryTaskID, peerWorker)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	if !eligible {
+		return uuid.Nil, ErrNoSupply
+	}
 	frozen, err := consumeEconomicReserveTx(ctx, tx, jobID)
 	if err != nil {
 		return uuid.Nil, err
+	}
+	if currentUniform {
+		frozen = cloneFrozen
 	}
 	frozenClass, err := frozenTiebreakClassForAnchorTx(ctx, tx, primaryTaskID)
 	if err != nil {
@@ -662,17 +835,18 @@ func (s *Store) InsertTiebreakTask(ctx context.Context, jobID, primaryTaskID, pe
 	if _, err := tx.Exec(ctx,
 		`INSERT INTO tasks
 		   (id, job_id, status, is_honeypot, is_redundancy, verification_class, retry_count,
-		    input_ref, input_depth_band, result_key, chunk_index, hedged_from,expected_output_records,
-		    verification_hw_class,verification_engine,verification_build_hash,
+		    input_ref, input_sha256, input_depth_band, result_key, chunk_index, hedged_from,expected_output_records,
+		    verification_hw_class,verification_engine,verification_build_hash,verification_build_identity_policy,
 		    claimed_by, claimed_at, visible_at,
 		    economic_buyer_charge_usd,economic_supplier_payout_usd,
 		    economic_buyer_charge_nanos,economic_supplier_payout_nanos)
 		 VALUES ($1,$2,'queued',false,true,'REDUNDANT',0,$3,
+		         (SELECT input_sha256 FROM tasks WHERE id=$6),
 		         (SELECT input_depth_band FROM tasks WHERE id=$6),$4,$5,$6,
 		         (SELECT expected_output_records FROM tasks WHERE id=$6),
-		         $7,$8,$9,$10,now(),now(),$11,$12,$13,$14)`,
+		         $7,$8,$9,$10,$11,now(),now(),$12,$13,$14,$15)`,
 		id, jobID, inputRef, resultKey, chunkIndex, primaryTaskID,
-		frozenClass.HWClass, frozenClass.Engine, frozenClass.BuildHash,
+		frozenClass.HWClass, frozenClass.Engine, frozenClass.BuildHash, frozenClass.BuildIdentityPolicy,
 		peerWorker, frozen.BuyerChargeUSD, frozen.SupplierPayoutUSD,
 		frozen.BuyerChargeNanos, frozen.SupplierPayoutNanos,
 	); err != nil {
@@ -784,6 +958,7 @@ func (s *Store) JobTaskReceipts(ctx context.Context, jobID uuid.UUID) ([]TaskRec
 		`SELECT t.id, COALESCE(t.chunk_index,0), t.status, t.is_honeypot,
 		        COALESCE(vw.input_snapshot->>'engine',t.execution_engine,''),
 		        COALESCE(vw.input_snapshot->>'build_hash',t.execution_build_hash,''),
+		        COALESCE(vw.input_snapshot->>'build_identity_policy',t.execution_build_identity_policy,''),
 		        COALESCE((SELECT ve.kind FROM verification_events ve
 		                  WHERE ve.task_id = t.id ORDER BY ve.created_at DESC LIMIT 1), ''),
 		        COALESCE(t.verification_outcome,''),
@@ -814,7 +989,7 @@ func (s *Store) JobTaskReceipts(ctx context.Context, jobID uuid.UUID) ([]TaskRec
 			chunk                        int
 			status                       string
 			isHoneypot                   bool
-			engine, build                string
+			engine, build, buildPolicy   string
 			kind, verdict                string
 			cellID, runtimeID, matrixSHA string
 			modelKind                    string
@@ -825,13 +1000,13 @@ func (s *Store) JobTaskReceipts(ctx context.Context, jobID uuid.UUID) ([]TaskRec
 			frozenCharge                 *float64
 			billedCharge                 float64
 		)
-		if err := rows.Scan(&taskID, &chunk, &status, &isHoneypot, &engine, &build, &kind, &verdict,
+		if err := rows.Scan(&taskID, &chunk, &status, &isHoneypot, &engine, &build, &buildPolicy, &kind, &verdict,
 			&cellID, &runtimeID, &matrixSHA, &modelKind,
 			&verificationClass, &verificationSelected,
 			&expectedRecords, &reportedTokens, &frozenCharge, &billedCharge); err != nil {
 			return nil, err
 		}
-		tr := taskReceiptRowWithRuntime(chunk, status, isHoneypot, engine, build,
+		tr := taskReceiptRowWithRuntimePolicy(chunk, status, isHoneypot, engine, build, buildPolicy,
 			kind, verdict, cellID, runtimeID, matrixSHA, modelKind)
 		tr.VerificationClass = verificationClass
 		tr.VerificationSelected = verificationSelected
@@ -1044,6 +1219,9 @@ func (s *Store) InsertHedgeTask(ctx context.Context, jobID, primaryTaskID, peerW
 		return uuid.Nil, err
 	}
 	defer tx.Rollback(ctx)
+	if err := lockDynamicPeerWorkerTx(ctx, tx, peerWorker); err != nil {
+		return uuid.Nil, err
+	}
 
 	if err := lockEconomicReserveTx(ctx, tx, jobID); err != nil {
 		if errors.Is(err, ErrEconomicReserveExhausted) {
@@ -1082,9 +1260,24 @@ func (s *Store) InsertHedgeTask(ctx context.Context, jobID, primaryTaskID, peerW
 	if err := lockLiveJobForDynamicTaskTx(ctx, tx, jobID); err != nil {
 		return uuid.Nil, err
 	}
+	cloneFrozen, currentUniform, err := currentUniformCloneTaskEconomics(
+		ctx, tx, jobID, primaryTaskID, inputRef, chunkIndex)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	eligible, err := dynamicPeerClaimEligibleTx(ctx, tx, jobID, primaryTaskID, peerWorker)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	if !eligible {
+		return uuid.Nil, ErrNoSupply
+	}
 	frozen, err := consumeEconomicReserveTx(ctx, tx, jobID)
 	if err != nil {
 		return uuid.Nil, err
+	}
+	if currentUniform {
+		frozen = cloneFrozen
 	}
 
 	id := uuid.New()
@@ -1092,11 +1285,12 @@ func (s *Store) InsertHedgeTask(ctx context.Context, jobID, primaryTaskID, peerW
 	_, err = tx.Exec(ctx,
 		`INSERT INTO tasks
 		   (id, job_id, status, is_honeypot, is_redundancy, verification_class, retry_count,
-		    input_ref, input_depth_band, result_key, chunk_index, hedged_from,expected_output_records,
+		    input_ref, input_sha256, input_depth_band, result_key, chunk_index, hedged_from,expected_output_records,
 		    claimed_by, claimed_at, visible_at,
 		    economic_buyer_charge_usd,economic_supplier_payout_usd,
 		    economic_buyer_charge_nanos,economic_supplier_payout_nanos)
 		 VALUES ($1,$2,'queued',false,false,'SAMPLED',0,$3,
+		         (SELECT input_sha256 FROM tasks WHERE id=$6),
 		         (SELECT input_depth_band FROM tasks WHERE id=$6),$4,$5,$6,
 		         (SELECT expected_output_records FROM tasks WHERE id=$6),
 		         $7, now(), now(),$8,$9,$10,$11)`,

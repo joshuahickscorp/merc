@@ -10,10 +10,10 @@ import (
 // shape.
 //
 // Two jobs can ask for the same model, the same input, the same parameters and
-// the same output shape, and still be different purchases: one frozen onto
-// candle's embed cell and one onto llama.cpp's. A reuse key derived from the
-// binding alone collides across them, and the second buyer is served the first
-// runtime's bytes at the reuse price with a receipt naming a cell that never ran.
+// the same output shape, and still be different purchases when they freeze
+// different runtime authorities. A reuse key derived from the binding alone
+// collides across them, and the second buyer can be served the first runtime's
+// bytes at the reuse price with a receipt naming a cell that never ran.
 //
 // This is asserted at SOURCE rather than through behaviour, and the reason is
 // worth stating rather than hiding: `batchExactReuseEnabled` is a compile-time
@@ -25,21 +25,23 @@ import (
 // is flipped back.
 func TestBatchReuseIdentityBindsRuntimeAuthorityNotJustRequestShape(t *testing.T) {
 	// First the property itself, so the source assertion below is anchored to a
-	// real difference rather than to a spelling.
-	base, err := buildWorkloadDecision(jobSubmit{
-		JobType:     JobType{Type: "embed"},
-		Model:       ModelRef{Kind: "hf", Ref: "all-minilm-l6-v2"},
-		Tier:        "batch",
-		Constraints: JobConstraints{MaxDurationSecs: 3600},
-	}, strings.Repeat("a", 64))
+	// real difference rather than to a spelling. Production intentionally has no
+	// currently bindable lane, so build one decision under the explicit TEST_ONLY
+	// combined-token authority and derive a second frozen authority projection in
+	// memory. This is a digest property, not an assertion that either alternate
+	// cell is a production route.
+	base, err := buildWorkloadDecision(
+		testOnlyCombinedTokenSubmit(t), strings.Repeat("a", 64),
+	)
 	mustf(t, err, "build workload decision: %v")
-	directed, err := buildWorkloadDecisionDirected(jobSubmit{
-		JobType:     JobType{Type: "embed"},
-		Model:       ModelRef{Kind: "hf", Ref: "all-minilm-l6-v2"},
-		Tier:        "batch",
-		Constraints: JobConstraints{MaxDurationSecs: 3600},
-	}, strings.Repeat("a", 64), llamaEmbedCell)
-	mustf(t, err, "build directed workload decision: %v")
+	directed := base
+	directed.RuntimeCandidates = append(
+		[]WorkloadRuntimeCandidate(nil), base.RuntimeCandidates...,
+	)
+	directed.RuntimeCandidates[0].CellID = "TEST_ONLY-alternate-runtime-cell"
+	directed.RuntimeCandidates[0].RuntimeID = "TEST_ONLY_alternate_runtime"
+	directed.RuntimeCandidates[0].Engine = "TEST_ONLY-alternate-engine"
+	directed.DirectedCellID = directed.RuntimeCandidates[0].CellID
 
 	baseBinding, err := workloadBindingDigest(base.Binding)
 	must(t, err)

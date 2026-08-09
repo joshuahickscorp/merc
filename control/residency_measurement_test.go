@@ -169,9 +169,14 @@ func TestServiceLeaseOfferCannotAdvertiseMoreWarmThanMeasured(t *testing.T) {
 }
 
 func TestOutOfRangeResidencyIsRefusedNotClamped(t *testing.T) {
+	// Residency bounds need one admissible model for the positive controls. The
+	// production projection is honestly empty, so use the scoped TEST_ONLY
+	// combined-token model without changing checked-in evidence.
+	sub := testOnlyCombinedTokenSubmit(t)
+	modelID := sub.Model.Ref
 	// Pure validation: no database required.
 	overRSS := ResidentModel{
-		ModelID: "all-minilm-l6-v2",
+		ModelID: modelID,
 		// One byte past the operational ceiling.
 		RSSDeltaBytes: maxResidencyRSSDeltaBytes + 1,
 		LoadMS:        100,
@@ -185,7 +190,7 @@ func TestOutOfRangeResidencyIsRefusedNotClamped(t *testing.T) {
 		t.Fatal("rss_delta_bytes below operational min was accepted")
 	}
 	overLoad := ResidentModel{
-		ModelID:       "all-minilm-l6-v2",
+		ModelID:       modelID,
 		RSSDeltaBytes: 1,
 		LoadMS:        maxBenchmarkLoadMS + 1,
 	}
@@ -196,15 +201,14 @@ func TestOutOfRangeResidencyIsRefusedNotClamped(t *testing.T) {
 	// In-range values still pass, including a negative delta inside the bound
 	// (RSS noise around a small model is real; clamping it to zero would invent data).
 	// Only models with a bindable advertised cell (or a service-lease alias) may
-	// be warm: llama and media are lifecycle-present but unbound, so they are
-	// refused as resident models and cannot serve as the in-range fixture here.
+	// be warm. The positive control therefore uses the explicitly scoped model.
 	if err := validateHeartbeatResidentModels([]ResidentModel{{
-		ModelID: "all-minilm-l6-v2", RSSDeltaBytes: -1024, LoadMS: 50,
+		ModelID: modelID, RSSDeltaBytes: -1024, LoadMS: 50,
 	}}); err != nil {
 		t.Fatalf("in-range residency rejected: %v", err)
 	}
 	if err := validateHeartbeatResidentModels([]ResidentModel{{
-		ModelID: "all-minilm-l6-v2", RSSDeltaBytes: maxResidencyRSSDeltaBytes, LoadMS: maxBenchmarkLoadMS,
+		ModelID: modelID, RSSDeltaBytes: maxResidencyRSSDeltaBytes, LoadMS: maxBenchmarkLoadMS,
 	}}); err != nil {
 		t.Fatalf("in-range residency at operational max rejected: %v", err)
 	}
@@ -214,7 +218,7 @@ func TestOutOfRangeResidencyIsRefusedNotClamped(t *testing.T) {
 	workerID := seedResidencyTestWorker(t, ctx, store, pool)
 	err := store.HeartbeatTx(ctx, workerID, WorkerResources{
 		ResidentModels: []ResidentModel{{
-			ModelID: "all-minilm-l6-v2", RSSDeltaBytes: maxResidencyRSSDeltaBytes + 1, LoadMS: 10,
+			ModelID: modelID, RSSDeltaBytes: maxResidencyRSSDeltaBytes + 1, LoadMS: 10,
 		}},
 	})
 	if err == nil {

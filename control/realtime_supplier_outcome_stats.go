@@ -60,7 +60,7 @@ const realtimeAuthorizeCandidatesCTE = `
 			       COALESCE(st.refund_count,0)::int AS refund_count,
 			       -- verified_outcome_cost: base ask, then divide by delivered and
 			       -- kept rates when measured (same arithmetic as
-			       -- ExpectedVerifiedOutcomeUSDPerUnit). Unmeasured rates leave the
+			       -- ExpectedSupplierLiabilityUSDPerVerifiedUnit). Unmeasured rates leave the
 			       -- base ask unchanged rather than inventing a coefficient.
 			       (
 			         (c.supplier_input_usd_per_million_tokens + c.supplier_output_usd_per_million_tokens)

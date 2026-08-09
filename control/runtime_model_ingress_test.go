@@ -1,40 +1,33 @@
 package main
 
 import (
-	"bytes"
-	"context"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
-
-	"github.com/google/uuid"
 )
 
-func TestCreateJobRejectsExplicitNoncanonicalModelKindBeforeSideEffects(t *testing.T) {
-	// Only candle's hf cell is advertised for MiniLM today. Naming gguf is still
-	// a 400 until a gguf cell is promoted into the advertised set — the wire-kind
-	// fix accepts any advertised kind, not any kind that exists in the document.
-	_, herr := (&Server{}).createJob(context.Background(), uuid.New(), jobSubmit{
-		JobType: JobType{Type: "embed"},
-		Model:   ModelRef{Kind: "gguf", Ref: "all-minilm-l6-v2"},
+func TestNormalizeJobRejectsExplicitNoncanonicalModelKindBeforeSideEffects(t *testing.T) {
+	installTestOnlyCombinedTokenAuthority(t)
+	// The TEST_ONLY current batch cell is gguf. Naming hf is still a 400: the
+	// wire-kind fix accepts any advertised kind, not any kind in the document.
+	_, herr := normalizeAndValidateJobSubmit(jobSubmit{
+		JobType: JobType{Type: "batch_infer"},
+		Model:   ModelRef{Kind: "hf", Ref: "llama-3.2-1b-instruct-q4"},
 	})
 	if herr == nil || herr.status != http.StatusBadRequest ||
-		!strings.Contains(herr.msg, `no advertised cell serving model.kind="gguf"`) {
+		!strings.Contains(herr.msg, `no advertised cell serving model.kind="hf"`) {
 		t.Fatalf("createJob mismatch result=%v, want unadvertised-kind 400", herr)
 	}
 }
 
-func TestQuoteRejectsExplicitNoncanonicalModelKindBeforeSideEffects(t *testing.T) {
-	body := []byte(`{"job_type":{"type":"embed"},"model":{"kind":"gguf","ref":"all-minilm-l6-v2"},"input":"{\"text\":\"x\"}\n"}`)
-	req := httptest.NewRequest(http.MethodPost, "/v1/quote", bytes.NewReader(body))
-	req = req.WithContext(context.WithValue(req.Context(), ctxBuyer, &AuthResult{BuyerID: uuid.New()}))
-	rec := httptest.NewRecorder()
-
-	(&Server{}).handleQuote(rec, req)
-
-	if rec.Code != http.StatusBadRequest ||
-		!strings.Contains(rec.Body.String(), `no advertised cell serving model.kind=\"gguf\"`) {
-		t.Fatalf("quote mismatch status=%d body=%s, want unadvertised-kind 400", rec.Code, rec.Body.String())
+func TestExplicitNoncanonicalModelKindNeverReachesPlacement(t *testing.T) {
+	installTestOnlyCombinedTokenAuthority(t)
+	_, herr := normalizeAndValidateJobSubmit(jobSubmit{
+		JobType: JobType{Type: "batch_infer", MaxTokens: 16},
+		Model:   ModelRef{Kind: "hf", Ref: "llama-3.2-1b-instruct-q4"},
+	})
+	if herr == nil || herr.status != http.StatusBadRequest ||
+		!strings.Contains(herr.msg, `no advertised cell serving model.kind="hf"`) {
+		t.Fatalf("placement mismatch result=%v, want unadvertised-kind 400", herr)
 	}
 }

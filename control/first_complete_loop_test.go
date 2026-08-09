@@ -16,7 +16,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// The first complete loop, end to end, through the PUBLIC API.
+// A complete mechanics loop, end to end, through the PUBLIC API.
 //
 //	a stranger signs up
 //	  -> receives a funded sandbox account and an API key
@@ -41,31 +41,20 @@ import (
 // test except the supplier and worker credential a real supplier would be issued,
 // and every assertion below is read back out of the control plane.
 //
-// What it does NOT claim: it is not candidate-bound. It runs against the tree, not
-// against an immutable image at an exact commit, so it cannot mint CANARY_PROVEN.
-// That distinction is the whole of scripts/go-closure-canary-rehearsal.sh and it is
-// not smuggled in here.
+// What it does NOT claim: production admission. The checked-in batch receipt
+// measures decode-output tokens while settlement uses combined input-plus-output
+// tokens, so this test installs the one explicit in-memory TEST_ONLY authority
+// that matches those semantics. It is also not candidate-bound. It cannot mint
+// CANARY_PROVEN or establish a currently sellable production lane.
 func TestFirstCompleteLoopThroughThePublicAPI(t *testing.T) {
-	// No longer gated on the pricing-authority defect. It used to refuse here with
-	//
-	//	physical pricing decision lacks executable composite authority: modeled
-	//	supplier gross 0.102978 USD/hr is below the admission ceiling 0.104733
-	//	USD/hr, so a worker admitted at that ceiling could not earn it
-	//
-	// and under that, once the arithmetic was exact enough to see them, two further
-	// defects: a sub-second task duration truncated to a whole integer second, and a
-	// supplier floor derived from the USD reference price while the entitlement was
-	// denominated in the settlement currency. All three are fixed; the floor and the
-	// entitlement are now one expression evaluated once, and the admission half of
-	// this loop is asserted without any hardware at all by
-	// TestAStrangerCanBeAdmittedForASubMicroJob.
-	//
-	// What remains gating this test is only hardware: a built agent binary and a
-	// real engine. Both skips are honest and both are named.
+	installBoundCataloguePublicationAuthorityForTest(t)
+	installTestOnlyCombinedTokenAuthority(t)
+	// What remains gating this mechanics test is hardware: a built agent binary
+	// and a real engine. Both skips are honest and named.
 	agentBinaryPath(t)
-	// candle is the embed runtime below, and it needs no HTTP engine — the agent
-	// loads the model in-process. The llama.cpp URL is passed through to the agent
-	// config for the cells that do need it and is not a precondition for this run.
+	// candle is the in-process runtime below, so it needs no HTTP engine. The
+	// llama.cpp URL is passed through to the agent config for cells that do need it
+	// and is not a precondition for this run.
 	llamaURL := os.Getenv("MERC_LLAMA_EMBED_URL")
 
 	strangerDeploymentInputs(t)
@@ -111,13 +100,6 @@ func TestFirstCompleteLoopThroughThePublicAPI(t *testing.T) {
 		<-workersDone
 	})
 
-	// The verification floor. Merc refuses a job it cannot verify — "no usable
-	// honeypot is seeded for this workload" — which is the right answer and was hit
-	// for real during the first Metal embed run. seedDemo installs the governed
-	// embed honeypot AND its input object, so the probe the verifier fetches
-	// actually exists.
-	mustf(t, seedDemo(ctx, pool, artifacts.storage), "seed the verification floor: %v")
-
 	// --- the supply side: a real agent, enrolled, on a real runtime -----------
 	agent := launchAgent(t, ctx, store, pool, srv.URL, "candle", "candle_metal", llamaURL)
 	waitForEnrolment(t, ctx, pool, agent)
@@ -146,22 +128,11 @@ func TestFirstCompleteLoopThroughThePublicAPI(t *testing.T) {
 	t.Logf("stranger %s funded with $%.2f and holding an API key", email, credit)
 
 	// --- the project ----------------------------------------------------------
-	corpus := strings.Join([]string{
-		`{"id":"0","text":"A verifiable compute network settles every task against a receipt."}`,
-		`{"id":"1","text":"A stranger should not have to understand GPUs."}`,
-		`{"id":"2","text":"The cheapest verified outcome is not the cheapest attempt."}`,
-	}, "\n") + "\n"
-
 	const ceiling = 1.00
+	submitBody := testOnlyBatchPublicRequest(strangerBatchCorpus, ceiling)
 	submit := postJSONWithHeaders(t, srv.URL+"/v1/jobs", apiKey, map[string]string{
 		"Idempotency-Key": uuid.NewString(),
-	}, map[string]any{
-		"job_type": map[string]any{"type": "embed"},
-		"model":    map[string]any{"kind": "hf", "ref": "all-minilm-l6-v2"},
-		"tier":     "batch",
-		"input":    corpus,
-		"max_usd":  ceiling,
-	})
+	}, submitBody)
 	if submit.status != http.StatusOK && submit.status != http.StatusCreated &&
 		submit.status != http.StatusAccepted {
 		t.Fatalf("a stranger could not submit a project: HTTP %d: %s",
@@ -284,7 +255,9 @@ func TestFirstCompleteLoopThroughThePublicAPI(t *testing.T) {
 	// The decision Merc took is recorded, including where it placed the work.
 	var routedCell, basis, mode, modeReason string
 	if err := pool.QueryRow(loopCtx, `
-		SELECT routed_cell_id, selection_basis, execution_mode, execution_mode_reason
+		SELECT routed_cell_id,
+		       COALESCE(NULLIF(selection_basis_v3, ''), selection_basis),
+		       execution_mode, execution_mode_reason
 		  FROM runtime_shadow_selections WHERE job_id=$1`, jobID).
 		Scan(&routedCell, &basis, &mode, &modeReason); err != nil {
 		t.Fatalf("the API path recorded no runtime decision for this job: %v", err)
@@ -373,10 +346,10 @@ type firstLoopReceipt struct {
 
 func firstCompleteLoopReceiptPath() string {
 	// A repeatable test must not rewrite a tracked historical receipt with fresh
-	// random buyer, supplier, and job IDs. An operator who wants to preserve an
-	// output supplies an explicit path in the controlled evidence run; ordinary CI
-	// writes beside its other ignored artifacts so a passing test leaves its source
-	// tree exactly as it found it.
+	// random buyer, supplier, and job IDs. An operator may choose an explicit
+	// diagnostic path, but writeFirstLoopReceipt refuses evidence/ while this loop
+	// uses synthetic performance authority. Ordinary CI writes beside its other
+	// ignored artifacts so a passing test leaves its source tree unchanged.
 	path := strings.TrimSpace(os.Getenv("MERC_FIRST_COMPLETE_LOOP_RECEIPT_PATH"))
 	if path == "" {
 		path = filepath.Join("..", ".artifacts", "canary", "first-complete-loop.json")
@@ -387,6 +360,12 @@ func firstCompleteLoopReceiptPath() string {
 func writeFirstLoopReceipt(t *testing.T, loop firstLoopReceipt) {
 	t.Helper()
 	path := firstCompleteLoopReceiptPath()
+	// A mechanics run backed by synthetic performance authority must never write
+	// into evidence/, even when an operator supplied the old controlled-run path.
+	// Refuse before creating a directory or writing any bytes.
+	if strings.Contains(filepath.ToSlash(path), "/evidence/") || strings.HasPrefix(filepath.ToSlash(path), "evidence/") {
+		t.Fatalf("TEST_ONLY combined-token mechanics receipt may not be written under evidence/: %s", path)
+	}
 	dir := filepath.Dir(path)
 	mustf(t, os.MkdirAll(dir, 0o755), "create receipt directory: %v")
 	payload := map[string]any{
@@ -396,7 +375,11 @@ func writeFirstLoopReceipt(t *testing.T, loop firstLoopReceipt) {
 		"runtime_matrix_sha256": generatedRuntimeMatrixSHA256,
 		"loop":                  loop,
 		"candidate_bound":       false,
+		"authority_class":       "TEST_ONLY",
+		"production_admission":  false,
 		"limitations": []string{
+			"Admission uses an in-memory TEST_ONLY combined-token benchmark authority; " +
+				"this receipt cannot establish a sellable production lane.",
 			"Runs against the working tree, not an immutable image at an exact " +
 				"commit, so it cannot mint CANARY_PROVEN however complete the loop is.",
 			"One buyer, one supplier, one job, one hardware class. Not a fleet claim.",
@@ -404,23 +387,9 @@ func writeFirstLoopReceipt(t *testing.T, loop firstLoopReceipt) {
 				"not exercised: no payment intent, no capture, no payout.",
 		},
 	}
-	// Default path is outside evidence/; only enforce the bound writer when the
-	// destination is under evidence/ (operator-run path).
-	if strings.Contains(filepath.ToSlash(path), "/evidence/") || strings.HasPrefix(filepath.ToSlash(path), "evidence/") {
-		id, bin, err := DefaultBoundIdentity("..", "control/first_complete_loop_test.go",
-			"embedded loop receipt", "embedded loop events")
-		mustf(t, err, "identity: %v")
-		if err := WriteBoundEvidenceJSON(EvidenceWriteRequest{
-			RepoRoot: "..", Path: path, Payload: payload,
-			Identity: id, BuildBinaryPath: bin,
-		}); err != nil {
-			t.Fatalf("write receipt: %v", err)
-		}
-	} else {
-		body, err := json.MarshalIndent(payload, "", "  ")
-		mustf(t, err, "render receipt: %v")
-		mustf(t, os.WriteFile(path, append(body, '\n'), 0o644), "write receipt: %v")
-	}
+	body, err := json.MarshalIndent(payload, "", "  ")
+	mustf(t, err, "render receipt: %v")
+	mustf(t, os.WriteFile(path, append(body, '\n'), 0o644), "write receipt: %v")
 	t.Logf("first-complete-loop receipt written to %s", path)
 }
 

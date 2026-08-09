@@ -293,6 +293,29 @@ func TestObservedOutputSettlementMinBillableFloor(t *testing.T) {
 	}
 }
 
+func TestObservedOutputSettlementNeverRoundsPositiveNanoEntitlementToZero(t *testing.T) {
+	got := settleObservedOutputTokensWithSchedule(
+		0, 0,
+		10_000, 2, true,
+		1, 9,
+		1, 9,
+		0, true,
+		EconomicSchedule{}, 1,
+	)
+	if got.BilledChargeNanos != minBillableSettlementNanos {
+		t.Fatalf("billed nanos=%d, want exact minimum %d",
+			got.BilledChargeNanos, minBillableSettlementNanos)
+	}
+	if got.SupplierPayoutNanos != 1 {
+		t.Fatalf("positive supplier entitlement rounded to %d nanos, want ceil to 1",
+			got.SupplierPayoutNanos)
+	}
+	if got.SupplierPayoutNanos > got.BilledChargeNanos ||
+		got.SupplierPayoutNanos > 2 {
+		t.Fatalf("ceiled supplier payout escaped frozen bounds: %+v", got)
+	}
+}
+
 // This is the exact recovery regression that blocked every generative finalize:
 // verification work snapshots deliberately do not duplicate job max_tokens, so
 // rebuilt CommitTaskInfo has jobMaxTokens=0. Planning and apply must both load
@@ -305,29 +328,25 @@ func TestObservedOutputSettlementMinBillableFloor(t *testing.T) {
 // max_tokens path stays covered even if ordinary admission later changes.
 func TestObservedOutputSettlementRecoverySnapshotPlannerAndApplyAgree(t *testing.T) {
 	installSettlementCurrencyForTest(t, "usd")
-	ctx, store, pool := openMoneyPathStore(t)
-	f := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{TaskCount: 1})
+	installTestOnlyCombinedTokenAuthority(t)
+	installBoundCataloguePublicationAuthorityForTest(t)
+	pinBoardClockForPublication(t)
+	ctx, store, pool := openIsolatedMoneyPathStore(t)
+	schedule, err := BuildCataloguePriceSchedule()
+	mustf(t, err, "build current catalogue schedule: %v")
+	_, err = store.ApplyRepricing(ctx, schedule)
+	mustf(t, err, "publish current catalogue schedule: %v")
+	f := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{TaskCount: 2})
 
 	const directedBatchCell = "candle-metal-llama1-infer"
-	sub := jobSubmit{
-		JobType: JobType{Type: "batch_infer", MaxTokens: 100},
-		Model:   ModelRef{Kind: "gguf", Ref: "llama-3.2-1b-instruct-q4"},
-		Constraints: JobConstraints{
-			MaxDurationSecs: 3600,
-		},
-		Tier: "batch",
-	}
+	sub := testOnlyCombinedTokenSubmit(t)
+	sub.JobType.MaxTokens = 100
 	workload, err := buildWorkloadDecisionDirected(sub, strings.Repeat("c", 64), directedBatchCell)
 	mustf(t, err, "build directed batch workload: %v")
 	if workload.Binding.JobType.MaxTokens != 100 {
 		t.Fatalf("directed batch lost max_tokens: %+v", workload.Binding.JobType)
 	}
 	jobDepth := testInputDepthProfile(1)
-	jobDepthAccumulator := newInputDepthAccumulator()
-	jobDepthAccumulator.addBody(strings.Repeat("x", 3000))
-	if jobDepth, err = jobDepthAccumulator.profile(); err != nil {
-		t.Fatalf("build long job depth fixture: %v", err)
-	}
 	compute, err := newDistributedComputePlan(
 		workload,
 		1,
@@ -335,7 +354,7 @@ func TestObservedOutputSettlementRecoverySnapshotPlannerAndApplyAgree(t *testing
 		jobDepth,
 		1,
 		1,
-		0,
+		1,
 		0,
 		quoteTimeFromETABands(60, 0, false),
 		"static",
@@ -345,9 +364,17 @@ func TestObservedOutputSettlementRecoverySnapshotPlannerAndApplyAgree(t *testing
 		[]string{"single local regression fixture"},
 	)
 	mustf(t, err, "build compute plan: %v")
-	authority := catalogueAuthorityFixtureInStore(
-		t, ctx, pool, workload, f.Plan.Schedule.Currency, f.Plan.Input.SupplierShare,
-	)
+	authority, err := store.LoadCataloguePriceAuthority(ctx, workload.Binding.Model.Ref)
+	mustf(t, err, "load current catalogue authority: %v")
+	economicInput := f.Plan.Input
+	economicInput.ExtraTaskReserve = 1
+	economicInput.SupplierShare = authority.SupplierShare
+	economicSchedule := f.Plan.Schedule
+	economicSchedule.Currency = authority.SettlementCurrency
+	f.Plan = BuildEconomicPlan(economicInput, economicSchedule)
+	if !f.Plan.Executable {
+		t.Fatalf("build exact-clone economic plan: %s", f.Plan.BlockReason)
+	}
 	placement := placementForPricingFixture(t, workload, authority)
 	pricing, err := newDistributedPricingDecision(
 		workload, compute, placement, f.Plan, authority, sub.Tier, "",
@@ -357,17 +384,28 @@ func TestObservedOutputSettlementRecoverySnapshotPlannerAndApplyAgree(t *testing
 	must(t, err)
 	verificationPolicy, err := json.Marshal(sub.Verification)
 	must(t, err)
-	tasks := makeTasks(f, 1)
+	tasks := makeTasks(f, 2)
+	tasks[0].InputRef = "money/batch-input-" + f.JobID.String()
+	tasks[0].InputSHA256 = workload.Binding.InputSHA256
 	tasks[0].ExpectedOutputRecords = 1
-	f.TaskIDs = []uuid.UUID{tasks[0].ID}
+	tasks[1].IsRedundancy = true
+	tasks[1].InputRef = tasks[0].InputRef
+	tasks[1].InputSHA256 = tasks[0].InputSHA256
+	tasks[1].InputDepthBand = tasks[0].InputDepthBand
+	tasks[1].ChunkIndex = tasks[0].ChunkIndex
+	tasks[1].ExpectedOutputRecords = tasks[0].ExpectedOutputRecords
+	f.TaskIDs = []uuid.UUID{tasks[0].ID, tasks[1].ID}
 	job := &jobRow{
 		ID: f.JobID, BuyerID: f.BuyerID,
 		JobType: "batch_infer", ModelRef: "llama-3.2-1b-instruct-q4",
 		InputRef: "money/batch-input-" + f.JobID.String(), OutputRef: "money/batch-output-" + f.JobID.String(),
 		Tier: sub.Tier, VerificationPolicy: verificationPolicy,
-		EstimatedUSD: f.Plan.InitialBuyerChargeUSD, TaskCount: 1,
+		EstimatedUSD: f.Plan.InitialBuyerChargeUSD, TaskCount: 2,
 		MinMemoryGB: float32(workload.MinimumMemoryGB), MaxDurationSecs: 3600,
-		JobTypeSpec: jobTypeSpec, SplitSize: 1,
+		HWClasses:     append([]string(nil), placement.HWClasses...),
+		DataResidency: append([]string(nil), workload.Binding.Constraints.DataResidency...),
+		MinReputation: workload.Binding.MinReputation,
+		JobTypeSpec:   jobTypeSpec, SplitSize: 1,
 		OfferedRateUsdHr: placement.OfferedRateUsdHr, ETASecs: compute.ETAP50Secs,
 		ETARawSecs:           compute.ETAP50Secs,
 		EconomicInputRecords: 1, EconomicInputBytes: 4096,
@@ -379,15 +417,25 @@ func TestObservedOutputSettlementRecoverySnapshotPlannerAndApplyAgree(t *testing
 	if _, err := pool.Exec(ctx, `UPDATE jobs SET status='running' WHERE id=$1`, f.JobID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `
-		UPDATE tasks
-		   SET status='running', claimed_by=$2, claimed_at=now(), worker_id=$2,
-		       execution_worker_id=$2, execution_supplier_id=$3,
-		       execution_hw_class='apple_silicon_max',
-		       execution_engine='candle', execution_build_hash='deadbeefdeadbeef'
-		 WHERE id=$1`, tasks[0].ID, f.WorkerID, f.SupplierID); err != nil {
-		t.Fatal(err)
+	exactWorker := currentIdentityWorkerCapability(
+		f.WorkerID, f.SupplierID, placement, job,
+	)
+	// BenchResult is float32 on the worker wire while the frozen conservative
+	// floor is float64. Advance one representable step so serialization cannot
+	// round an exactly-authoritative rate a few nanounits below its floor.
+	exactWorker.Benchmarks[0].TPS = math.Nextafter32(
+		exactWorker.Benchmarks[0].TPS, float32(math.Inf(1)),
+	)
+	mustf(t, store.UpsertWorker(ctx, exactWorker), "register exact current worker: %v")
+	claimed, err := store.ClaimTasksTx(ctx, WorkerAuth{
+		WorkerID: f.WorkerID, SupplierID: f.SupplierID,
+	})
+	mustf(t, err, "claim exact primary: %v")
+	if claimed == nil || claimed.TaskID != tasks[0].ID {
+		t.Fatalf("claimed task=%+v, want primary %s", claimed, tasks[0].ID)
 	}
+	mustf(t, store.StartTask(ctx, tasks[0].ID, f.WorkerID, 0),
+		"start exact primary: %v")
 
 	commit := commitFor(f, tasks[0].ID, 0)
 	commit.TokensUsed = 5
@@ -434,17 +482,39 @@ func TestObservedOutputSettlementRecoverySnapshotPlannerAndApplyAgree(t *testing
 	wantRebate := settled.RebateUSD
 	preLedgerReceipts, err := store.JobTaskReceipts(ctx, f.JobID)
 	mustf(t, err, "pre-ledger task receipts: %v")
-	if len(preLedgerReceipts) != 1 ||
-		preLedgerReceipts[0].BilledBuyerChargeUSD == nil ||
-		*preLedgerReceipts[0].BilledBuyerChargeUSD != settled.BilledCharge {
+	observedReceipt := func(receipts []TaskReceipt, observed int64) *TaskReceipt {
+		t.Helper()
+		var match *TaskReceipt
+		for i := range receipts {
+			if receipts[i].ObservedOutputTokens == nil ||
+				*receipts[i].ObservedOutputTokens != observed {
+				continue
+			}
+			if match != nil {
+				t.Fatalf("multiple receipts reported %d observed tokens: %+v", observed, receipts)
+			}
+			match = &receipts[i]
+		}
+		if match == nil {
+			t.Fatalf("no receipt reported %d observed tokens: %+v", observed, receipts)
+		}
+		return match
+	}
+	if len(preLedgerReceipts) != 2 {
+		t.Fatalf("pre-ledger receipts=%d, want primary plus exact clone: %+v",
+			len(preLedgerReceipts), preLedgerReceipts)
+	}
+	preLedgerPrimary := observedReceipt(preLedgerReceipts, 5)
+	if preLedgerPrimary.BilledBuyerChargeUSD == nil ||
+		*preLedgerPrimary.BilledBuyerChargeUSD != settled.BilledCharge {
 		t.Fatalf("pre-ledger receipt billed diverged from settlement: got=%+v want billed=%.6f",
 			preLedgerReceipts, settled.BilledCharge)
 	}
 	if wantRebate > 0 {
-		if preLedgerReceipts[0].OutputTokenRebateUSD == nil ||
-			*preLedgerReceipts[0].OutputTokenRebateUSD != wantRebate {
+		if preLedgerPrimary.OutputTokenRebateUSD == nil ||
+			*preLedgerPrimary.OutputTokenRebateUSD != wantRebate {
 			t.Fatalf("pre-ledger receipt rebate diverged: got=%v want %.6f",
-				preLedgerReceipts[0].OutputTokenRebateUSD, wantRebate)
+				preLedgerPrimary.OutputTokenRebateUSD, wantRebate)
 		}
 	}
 	preLedgerInvoice := InvoiceView{JobID: f.JobID}
@@ -484,11 +554,10 @@ func TestObservedOutputSettlementRecoverySnapshotPlannerAndApplyAgree(t *testing
 	).Scan(&durationDepthBand); err != nil {
 		t.Fatalf("read finalized task duration depth band: %v", err)
 	}
-	// The fixture deliberately makes the job p90 long while the original task
-	// chunk is short. A duration must follow immutable task geometry, not job
-	// aggregate authority.
-	if compute.InputDepthProfile.P90DepthBand != inputDepthBandLong {
-		t.Fatalf("fixture job p90=%q, want long", compute.InputDepthProfile.P90DepthBand)
+	// Current one-primary economics require the whole-input task and its clone to
+	// carry the same depth authority. Finalization must retain that exact band.
+	if compute.InputDepthProfile.P90DepthBand != inputDepthBandShort {
+		t.Fatalf("fixture job p90=%q, want short", compute.InputDepthProfile.P90DepthBand)
 	}
 	if durationDepthBand == nil || *durationDepthBand != inputDepthBandShort {
 		t.Fatalf("finalized task duration depth band=%v, want short", durationDepthBand)
@@ -514,16 +583,19 @@ func TestObservedOutputSettlementRecoverySnapshotPlannerAndApplyAgree(t *testing
 	}
 	receipts, err := store.JobTaskReceipts(ctx, f.JobID)
 	mustf(t, err, "task receipts: %v")
-	if len(receipts) != 1 || receipts[0].OutputTokenCeiling == nil ||
-		*receipts[0].OutputTokenCeiling != 100 ||
-		receipts[0].ObservedOutputTokens == nil || *receipts[0].ObservedOutputTokens != 5 {
+	if len(receipts) != 2 {
+		t.Fatalf("receipts=%d, want primary plus exact clone: %+v", len(receipts), receipts)
+	}
+	primaryReceipt := observedReceipt(receipts, 5)
+	if primaryReceipt.OutputTokenCeiling == nil ||
+		*primaryReceipt.OutputTokenCeiling != 100 {
 		t.Fatalf("receipt did not preserve frozen 100/5 evidence: %+v", receipts)
 	}
 	invoice := InvoiceView{JobID: f.JobID}
 	mustf(t, store.attachObservedOutputInvoiceEvidence(ctx, &invoice), "invoice evidence: %v")
-	if invoice.OutputTokenCeiling == nil || *invoice.OutputTokenCeiling != 100 ||
+	if invoice.OutputTokenCeiling == nil || *invoice.OutputTokenCeiling != 200 ||
 		invoice.ObservedOutputTokens == nil || *invoice.ObservedOutputTokens != 5 {
-		t.Fatalf("invoice did not preserve frozen 100/5 evidence: %+v", invoice)
+		t.Fatalf("invoice did not preserve frozen 200/5 clone-aware evidence: %+v", invoice)
 	}
 
 	// A negative durable observation is corrupt. Money holds its existing
@@ -535,8 +607,13 @@ func TestObservedOutputSettlementRecoverySnapshotPlannerAndApplyAgree(t *testing
 	}
 	receipts, err = store.JobTaskReceipts(ctx, f.JobID)
 	mustf(t, err, "task receipts after corrupt observation: %v")
-	if len(receipts) != 1 || receipts[0].ObservedOutputTokens != nil {
-		t.Fatalf("receipt advertised corrupt observation: %+v", receipts)
+	if len(receipts) != 2 {
+		t.Fatalf("receipts=%d after corrupt observation, want two: %+v", len(receipts), receipts)
+	}
+	for _, receipt := range receipts {
+		if receipt.ObservedOutputTokens != nil {
+			t.Fatalf("receipt advertised corrupt observation: %+v", receipts)
+		}
 	}
 	invoice = InvoiceView{JobID: f.JobID}
 	mustf(t, store.attachObservedOutputInvoiceEvidence(ctx, &invoice), "invoice corrupt evidence: %v")

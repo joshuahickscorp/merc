@@ -79,6 +79,7 @@ func TestUngovernedClassRefusesToPrice(t *testing.T) {
 // is durable and audited, while catalogue publication has no loss-making
 // bypass.
 func TestNegativeContributionCannotBePublishedOrEnvironmentSubsidized(t *testing.T) {
+	installBoundCataloguePublicationAuthorityForTest(t)
 	b := repricingBenchmarks[0]
 
 	// A price low enough that the supplier cannot cover electricity.
@@ -101,12 +102,15 @@ func TestNegativeContributionCannotBePublishedOrEnvironmentSubsidized(t *testing
 	}
 }
 
-// The shipped board must actually clear the gate: if it does not, the catalogue
-// silently stops repricing and nobody notices.
-func TestShippedBoardPublishesAViablePrice(t *testing.T) {
+// Schedule mechanics still clear the viability gate when both physical inputs
+// are explicitly installed by the test-only authority seam. This proves the
+// production refusal is missing authority, not an unreachable implementation.
+func TestBoundTestAuthorityPublishesAViablePrice(t *testing.T) {
+	installBoundCataloguePublicationAuthorityForTest(t)
+	pinBoardClockForPublication(t)
 	results := PublishedCatalogueResults()
 	if len(results) == 0 {
-		t.Fatal("the shipped price board publishes no prices at all")
+		t.Fatal("the BOUND test authority publishes no prices at all")
 	}
 	for _, r := range results {
 		var b measuredThroughput
@@ -129,5 +133,29 @@ func TestShippedBoardPublishesAViablePrice(t *testing.T) {
 			t.Fatalf("%s publishes with non-positive platform contribution $%.6f/hr",
 				r.ModelID, m.CXGrossUSDHr)
 		}
+	}
+}
+
+func TestPublicationViabilityUsesGovernedSeventyPercentThroughput(t *testing.T) {
+	installBoundCataloguePublicationAuthorityForTest(t)
+	b := repricingBenchmarks[0]
+	const supplierShare = 0.97
+	power := sustainedWattsByHWClass[b.HWClass].Watts()
+	electricityUSDHr := power / 1000 * defaultElectricityUSDPerKWh
+	observedBreakEvenPrice := electricityUSDHr /
+		(b.UnitsPerSec * 3600 / 1000 * supplierShare)
+	price := observedBreakEvenPrice * 1.2
+	observedGross := b.UnitsPerSec * 3600 / 1000 * price * supplierShare
+	if observedGross <= electricityUSDHr {
+		t.Fatalf("test fixture does not clear observed-rate viability: gross=%v electricity=%v",
+			observedGross, electricityUSDHr)
+	}
+	err := governPublishedPrice(b, price, supplierShare)
+	if err == nil {
+		t.Fatal("publication used the observed rate instead of its governed 0.70 conservative rate")
+	}
+	var negative errNegativeContribution
+	if !errors.As(err, &negative) || negative.Margins.SupplierNetUSDHr >= 0 {
+		t.Fatalf("70%% conservative-rate refusal=%v", err)
 	}
 }

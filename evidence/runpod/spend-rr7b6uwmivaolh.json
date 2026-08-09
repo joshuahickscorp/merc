@@ -22,7 +22,7 @@
     "Spend is derived from RunPod's advertised cost per hour and the pod's observed lifetime, not from an invoice. It is what Merc believes it spent; the provider's own billing is the authority.",
     "Storage and network egress are not included."
   ],
-  "binding_status": "UNBOUND",
+  "binding_status": "WITHDRAWN",
   "missing_identity_fields": [
     "source_commit",
     "build_digest",

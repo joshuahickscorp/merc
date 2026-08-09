@@ -86,6 +86,187 @@ func TestFrozenRuntimeCellEconomicsSurvivesBenchmarkRevalidation(t *testing.T) {
 	}
 }
 
+// Historical replay must use the cell/provider classification that admission
+// froze. CloudBacked is activation/economics authority in the runtime document,
+// and changing it after acceptance must affect new decisions without rewriting
+// an old one.
+func TestFrozenRuntimeCellEconomicsSurvivesCurrentCellProviderReclassification(t *testing.T) {
+	workload, compute, placement, economic, settled := distributedPricingFixture(t)
+	if settled.RuntimeCell == nil {
+		t.Fatal("fixture froze no runtime-cell economics")
+	}
+	if settled.ProviderCost.Status != pricingCostNotApplicable ||
+		settled.RuntimeCell.StartupResidency.Status != pricingCostNotApplicable {
+		t.Fatalf("fixture is not accepted community/owned supply: provider=%+v startup=%+v",
+			settled.ProviderCost, settled.RuntimeCell.StartupResidency)
+	}
+	before := settled
+
+	savedAuthority := runtimeAuthority
+	edited := runtimeAuthority
+	edited.Runtimes = append([]authorityRuntimeProfile(nil), runtimeAuthority.Runtimes...)
+	found := false
+	for i := range edited.Runtimes {
+		edited.Runtimes[i].Cells = append([]authorityCell(nil), edited.Runtimes[i].Cells...)
+		for j := range edited.Runtimes[i].Cells {
+			if edited.Runtimes[i].Cells[j].ID == placement.RuntimeCellID {
+				edited.Runtimes[i].Cells[j].CloudBacked = true
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("accepted cell %q is absent from runtime authority", placement.RuntimeCellID)
+	}
+	runtimeAuthority = edited
+	savedAuthoritySHA := generatedRuntimeAuthorityFileSHA256
+	generatedRuntimeAuthorityFileSHA256 = strings.Repeat("f", 64)
+	if generatedRuntimeAuthorityFileSHA256 == savedAuthoritySHA {
+		generatedRuntimeAuthorityFileSHA256 = strings.Repeat("e", 64)
+	}
+	t.Cleanup(func() {
+		runtimeAuthority = savedAuthority
+		generatedRuntimeAuthorityFileSHA256 = savedAuthoritySHA
+	})
+
+	if err := ValidateDistributedPricingDecisionSnapshot(
+		settled, workload, compute, placement, economic,
+	); err != nil {
+		t.Fatalf("historical pricing inherited current provider reclassification: %v", err)
+	}
+	if !reflect.DeepEqual(before, settled) {
+		t.Fatal("historical validation mutated the accepted pricing decision")
+	}
+
+	current, err := distributedPricingDecisionAtRate(
+		workload, compute, placement, economic, settled.Catalogue,
+		settled.Tier, settled.OriginQuotePricingDecisionSHA256,
+		settled.ExpectedSupplierUnitsPerSec,
+	)
+	mustf(t, err, "build decision under current provider classification: %v")
+	if reflect.DeepEqual(current.ProviderCost, settled.ProviderCost) ||
+		reflect.DeepEqual(current.RuntimeCell.StartupResidency, settled.RuntimeCell.StartupResidency) {
+		t.Fatalf("authority mutation did not change new economics; historical test is vacuous: current provider=%+v startup=%+v",
+			current.ProviderCost, current.RuntimeCell.StartupResidency)
+	}
+}
+
+func TestLegacyV1FrozenRuntimeCellSerializedSnapshotReplaysWithoutCurrentAuthority(t *testing.T) {
+	workload, compute, placement, economic, pricing := distributedPricingFixture(t)
+	if pricing.RuntimeCell == nil {
+		t.Fatal("fixture froze no runtime-cell economics")
+	}
+	legacyBlock := *pricing.RuntimeCell
+	legacyBlock.Version = frozenRuntimeCellEconomicsLegacyVersion
+	legacyBlock.RuntimeAuthoritySHA256 = ""
+	legacyBlock.SupplyClass = ""
+	legacyBlock.ProviderRateAuthority = FrozenProviderRateAuthority{}
+	// V1 used the original named-cost vocabulary for the narrower delivery
+	// subtotal. Preserve that historical semantic value, not the v2 projection's
+	// renamed platform-delivery status.
+	switch legacyBlock.PlatformDeliveryCostStatus {
+	case platformDeliveryRefused:
+		legacyBlock.PlatformDeliveryCostStatus = frozenVOCostRefused
+	case platformDeliveryComplete:
+		legacyBlock.PlatformDeliveryCostStatus = frozenVOCostComplete
+	case platformDeliveryPartial:
+		legacyBlock.PlatformDeliveryCostStatus = frozenVOCostPartial
+	}
+	legacyBlock.EvidenceIdentity = append([]string(nil), legacyBlock.EvidenceIdentity...)
+	filtered := legacyBlock.EvidenceIdentity[:0]
+	for _, identity := range legacyBlock.EvidenceIdentity {
+		if strings.HasPrefix(identity, "runtime_authority_sha256:") ||
+			strings.HasPrefix(identity, "supply_class:") ||
+			strings.HasPrefix(identity, "provider_rate_") {
+			continue
+		}
+		filtered = append(filtered, identity)
+	}
+	legacyBlock.EvidenceIdentity = filtered
+	legacyBlock.Digest = ""
+	var err error
+	legacyBlock.Digest, err = digestFrozenRuntimeCellEconomics(&legacyBlock)
+	must(t, err)
+	legacyDecision := pricing
+	legacyDecision.RuntimeCell = &legacyBlock
+
+	// Serialize the exact pre-v2 shape: the enriched authority fields do not
+	// exist in the stored JSON at all, rather than being present as zero values.
+	raw, err := json.Marshal(legacyDecision)
+	must(t, err)
+	var decisionObject map[string]json.RawMessage
+	must(t, json.Unmarshal(raw, &decisionObject))
+	var cellObject map[string]json.RawMessage
+	must(t, json.Unmarshal(decisionObject["runtime_cell"], &cellObject))
+	delete(cellObject, "runtime_authority_sha256")
+	delete(cellObject, "supply_class")
+	delete(cellObject, "provider_rate_authority")
+	decisionObject["runtime_cell"], err = json.Marshal(cellObject)
+	must(t, err)
+	raw, err = json.Marshal(decisionObject)
+	must(t, err)
+	if strings.Contains(string(raw), "runtime_authority_sha256") ||
+		strings.Contains(string(raw), "provider_rate_authority") {
+		t.Fatal("legacy wire fixture still carries v2 runtime authority fields")
+	}
+	var reloaded PricingDecision
+	must(t, json.Unmarshal(raw, &reloaded))
+
+	// Today's cell is now cloud-backed. V1 did not carry enough raw authority to
+	// re-derive that classification, so replay must retain its digest-intact
+	// accepted provider/startup components instead of borrowing this change.
+	savedAuthority := runtimeAuthority
+	edited := runtimeAuthority
+	edited.Runtimes = append([]authorityRuntimeProfile(nil), runtimeAuthority.Runtimes...)
+	for i := range edited.Runtimes {
+		edited.Runtimes[i].Cells = append([]authorityCell(nil), edited.Runtimes[i].Cells...)
+		for j := range edited.Runtimes[i].Cells {
+			if edited.Runtimes[i].Cells[j].ID == placement.RuntimeCellID {
+				edited.Runtimes[i].Cells[j].CloudBacked = true
+			}
+		}
+	}
+	runtimeAuthority = edited
+	t.Cleanup(func() { runtimeAuthority = savedAuthority })
+
+	if err := ValidateDistributedPricingDecisionSnapshot(
+		reloaded, workload, compute, placement, economic,
+	); err != nil {
+		t.Fatalf("legacy v1 serialized economics inherited current runtime authority: %v", err)
+	}
+}
+
+func TestLegacyPlacementV1RejectsEnrichedRuntimeCellV2(t *testing.T) {
+	workload, compute, placement, economic, current := distributedPricingFixture(t)
+	if current.RuntimeCell == nil || current.RuntimeCell.Version != frozenRuntimeCellEconomicsVersion {
+		t.Fatal("current fixture lacks enriched runtime-cell economics v2")
+	}
+	legacyPlacement := placement
+	legacyPlacement.Version = 1
+	legacyPlacement.PerformanceAuthority = nil
+	legacyPlacement.HWClasses = append(
+		[]string(nil), workload.Binding.Constraints.HWClasses...)
+
+	legacy, err := distributedPricingDecisionAtRate(
+		workload, compute, legacyPlacement, economic, current.Catalogue,
+		current.Tier, current.OriginQuotePricingDecisionSHA256,
+		current.ExpectedSupplierUnitsPerSec,
+	)
+	mustf(t, err, "build legacy pricing decision: %v")
+	if legacy.RuntimeCell != nil {
+		t.Fatal("legacy placement minted runtime-cell economics from missing v2 placement authority")
+	}
+
+	impossible := legacy
+	impossible.RuntimeCell = current.RuntimeCell
+	err = ValidateDistributedPricingDecisionSnapshot(
+		impossible, workload, compute, legacyPlacement, economic)
+	if err == nil || !strings.Contains(err.Error(),
+		"enriched economics requires placement-v2") {
+		t.Fatalf("legacy placement accepted impossible runtime-cell v2 pairing: %v", err)
+	}
+}
+
 // The same inputs produce the same decision, byte for byte, every time.
 //
 // This is the property the whole freeze rests on: the validator rebuilds and
@@ -247,6 +428,18 @@ func TestFrozenRuntimeCellCostSumRefusesUnknownAsZero(t *testing.T) {
 	// True net is refused while anything is unknown.
 	if len(f.UnknownCategories) > 0 && f.MercTrueNetUSD != nil {
 		t.Fatalf("true net was published with unknown categories %v", f.UnknownCategories)
+	}
+}
+
+func TestCloudStartupResidencyRemainsUnknownWithoutFrozenDuration(t *testing.T) {
+	component := frozenStartupResidencyComponent("vllm-cuda-llama1-infer")
+	if component.Status != pricingCostUnknown {
+		t.Fatalf("cloud startup/residency status = %q, want unknown", component.Status)
+	}
+	for _, required := range []string{"execution seconds only", "pod-startup", "minimum-billing"} {
+		if !strings.Contains(component.Basis, required) {
+			t.Fatalf("cloud startup/residency refusal does not name %q: %s", required, component.Basis)
+		}
 	}
 }
 

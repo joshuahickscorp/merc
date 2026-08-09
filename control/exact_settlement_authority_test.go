@@ -223,10 +223,12 @@ func TestTamperedTaskEconomicNanosRefusedAtSettlement(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestExactPolicyExactTaskEconomicsFailureRefusesPricing(t *testing.T) {
+	supplierShare := supplierShareForTest(
+		t, "batch_infer", "llama-3.2-1b-instruct-q4")
 	// Build a real exact-policy plan so ValidateEconomicPlanSnapshot accepts it.
 	economic := BuildEconomicPlan(EconomicPlanInput{
 		BaseComputeUSD: 0.01, BaseComputeNanos: 10_000_000,
-		InitialTaskCount: 4, ExtraTaskReserve: 2, SupplierShare: 0.97,
+		InitialTaskCount: 4, ExtraTaskReserve: 2, SupplierShare: supplierShare,
 	}, testChargeBatchSchedule())
 	if economic.EconomicRoundingPolicy != economicRoundingPolicy ||
 		economic.SupplierPayoutPerTaskNanos <= 0 {
@@ -234,7 +236,7 @@ func TestExactPolicyExactTaskEconomicsFailureRefusesPricing(t *testing.T) {
 			economic.EconomicRoundingPolicy, economic.SupplierPayoutPerTaskNanos)
 	}
 
-	workload, compute, _ := computePlanFixture(t)
+	workload, compute, _ := pricingComputePlanFixture(t)
 	// Align compute total tasks with the economic plan for the composite check.
 	// computePlanFixture uses InitialTaskCount 4 with ExtraTaskReserve 2 for its
 	// own economic; the compute plan total is independent of our economic above
@@ -247,7 +249,7 @@ func TestExactPolicyExactTaskEconomicsFailureRefusesPricing(t *testing.T) {
 				float64(NanosPerMajorUnit))),
 			InitialTaskCount: compute.TotalInitialTasks,
 			ExtraTaskReserve: economicExtraTaskReserve(compute.PrimaryTasks),
-			SupplierShare:    0.97,
+			SupplierShare:    supplierShare,
 		}, testChargeBatchSchedule())
 	}
 	// Money-sum agreement for ValidateComputePlanEconomicSnapshot.

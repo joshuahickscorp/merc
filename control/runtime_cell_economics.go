@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// Per-cell verified-outcome economics as a SELECTOR projection.
+// Per-cell supplier-liability and partial platform economics as a selector projection.
 //
 // This is not a PricingDecision and never freezes money. Settlement continues
 // to use the cancelled closed form from exactTaskEconomics:
@@ -23,9 +23,10 @@ import (
 // to see — duration, throughput, catalogue supplier rate, reliability,
 // provider/energy/storage knowledge, buyer price, and the structural refusal
 // of true net — without becoming a second pricing authority. The selector
-// ranks on VerifiedOutcomeUSDPerUnit (catalogue supplier × reliability). Any
-// duration-sensitive platform partial is reported beside that figure, never
-// as a rewrite of supplier entitlement.
+// exposes SupplierLiabilityUSDPerVerifiedUnit (the eventual accepted supplier
+// payout) beside separate reliability observations and duration-sensitive
+// platform partials. It is explicitly a supplier-liability proxy and never a
+// complete cost or a rewrite of settlement.
 
 const cellEconomicsProjectionSchemaVersion = 1
 const cellEconomicsProjectionKind = "runtime_cell_economics_projection"
@@ -60,17 +61,20 @@ type CellEconomicsKnowledge = CostCategoryKnowledge
 // MoneyUSD is set only when Knowledge is KNOWN or DEFAULTED and a dollar amount
 // is attributable. Zero with Knowledge==KNOWN is valid for a non-money base.
 type CellEconomicsTerm struct {
-	Name         string                 `json:"name"`
-	Knowledge    CellEconomicsKnowledge `json:"knowledge"`
-	MoneyUSD     float64                `json:"money_usd,omitempty"`
-	NonMoney     float64                `json:"non_money,omitempty"`
-	NonMoneyUnit string                 `json:"non_money_unit,omitempty"`
-	Source       string                 `json:"source,omitempty"`
-	Basis        string                 `json:"basis,omitempty"`
-	WouldRequire string                 `json:"would_require,omitempty"`
+	Name      string                 `json:"name"`
+	Knowledge CellEconomicsKnowledge `json:"knowledge"`
+	Currency  string                 `json:"currency,omitempty"`
+	// MoneyUSD is a legacy wire name for a settlement-major-unit amount. Currency
+	// is authoritative and must be present whenever money is populated.
+	MoneyUSD     float64 `json:"money_usd,omitempty"`
+	NonMoney     float64 `json:"non_money,omitempty"`
+	NonMoneyUnit string  `json:"non_money_unit,omitempty"`
+	Source       string  `json:"source,omitempty"`
+	Basis        string  `json:"basis,omitempty"`
+	WouldRequire string  `json:"would_require,omitempty"`
 	// Defect is set when the governing authority itself is flagged defective
-	// (e.g. provider rate derived from a withdrawn receipt). The term may still
-	// carry a number for test continuity; it must not be treated as governed.
+	// (e.g. provider rate derived from a withdrawn receipt). A defective term
+	// remains UNKNOWN and carries provenance, never canonical money.
 	Defect string `json:"defect,omitempty"`
 }
 
@@ -78,14 +82,20 @@ type CellEconomicsTerm struct {
 //
 // Conservation of authority:
 //   - One canonical PricingDecision freezes buyer/supplier money at acceptance.
-//   - This projection is re-derivable from MeasuredCellCost + catalogue + cell
-//     authority. Re-deriving it never mutates a frozen PricingDecision.
-//   - VerifiedOutcomeUSDPerUnit uses the cancelled supplier form × reliability.
-//     Duration enters only partial platform terms (provider, energy) and the
-//     admission hourly display rate — never supplier entitlement per unit.
+//   - This projection is re-derivable from MeasuredSupplierLiabilityProxy +
+//     catalogue + cell authority. Re-deriving it never mutates a frozen
+//     PricingDecision.
+//   - SupplierLiabilityUSDPerVerifiedUnit is the eventual accepted payout only.
+//     Reliability gates eligibility but never multiplies money for unpaid
+//     attempts. Duration enters only partial platform terms (provider, energy)
+//     and the admission hourly display rate — never supplier entitlement/unit.
 type CellEconomicsProjection struct {
 	SchemaVersion int    `json:"schema_version"`
 	Kind          string `json:"kind"`
+	// Currency is the settlement-major-unit authority for every legacy `_usd`
+	// money field below. The wire names are retained for compatibility; they do
+	// not authorize relabelling a CAD amount as USD.
+	Currency string `json:"currency"`
 
 	// Identity: model contract · runtime cell · hardware class.
 	ModelContract CellEconomicsModelContract `json:"model_contract"`
@@ -127,28 +137,30 @@ type CellEconomicsProjection struct {
 	TerminalAttempts      int     `json:"terminal_attempts"`
 	TerminalFails         int     `json:"terminal_fails"`
 
-	// Verified-outcome cost the selector ranks on: supplier per unit adjusted
-	// for retries, verification failures and terminal failures. Duration does
-	// not appear in this expression under the cancelled settlement form, so two
-	// cells on one model with equal reliability tie here by construction.
-	VerifiedOutcomeUSDPerUnit float64 `json:"verified_outcome_usd_per_unit"`
-	VerifiedOutcomeOK         bool    `json:"verified_outcome_ok"`
-	VerifiedOutcomeBasis      string  `json:"verified_outcome_basis"`
+	// Measured supplier-liability proxy: the payable entitlement for the one
+	// eventual accepted unit. Rejected verification attempts and terminal
+	// failures receive no supplier settlement, so their reliability burden is
+	// reported separately above and never capitalized into payable liability.
+	// This contains no platform-side costs and cannot authorize a total-cost
+	// selection while those costs are unknown.
+	SupplierLiabilityUSDPerVerifiedUnit float64 `json:"supplier_liability_proxy_usd_per_verified_unit"`
+	SupplierLiabilityAvailable          bool    `json:"supplier_liability_proxy_available"`
+	SupplierLiabilityBasis              string  `json:"supplier_liability_proxy_basis"`
 
 	// Duration-sensitive platform partials. These MAY differ across cells of
 	// the same model. They are not supplier entitlement and must not be
-	// presented as full verified-outcome cost or as true net.
+	// presented as complete platform cost or as true net.
 	ProviderCost    CellEconomicsTerm `json:"provider_cost"`
 	EnergyPartial   CellEconomicsTerm `json:"energy_usd_per_unit_partial"`
 	StorageTransfer CellEconomicsTerm `json:"storage_and_transfer"`
 	Utilization     CellEconomicsTerm `json:"utilization"`
 
-	// PlatformDeliveryUSDPerUnit is the cell-resolved platform cost of one
-	// verified unit: verified-outcome supplier cost + provider per unit when
-	// provider is KNOWN. Under cell_resolved_platform_v1 this is the figure
-	// that can differ across cells of one model. When provider is N/A or
-	// unknown, it equals VerifiedOutcome (equal-reliability cells still tie).
-	// It never rewrites supplier entitlement.
+	// PlatformDeliveryUSDPerUnit is only the known cell-resolved partial for one
+	// verified unit: supplier liability plus provider per unit when provider is
+	// KNOWN. PlatformDeliveryOK is true only when every named platform component
+	// is known or not applicable. The partial may still be populated when OK is
+	// false so the known money is not lost, but it must not be presented as a
+	// complete platform-delivery cost. It never rewrites supplier entitlement.
 	PlatformDeliveryUSDPerUnit float64 `json:"platform_delivery_usd_per_unit,omitempty"`
 	PlatformDeliveryOK         bool    `json:"platform_delivery_ok"`
 	PlatformDeliveryBasis      string  `json:"platform_delivery_basis,omitempty"`
@@ -169,23 +181,27 @@ type CellEconomicsProjection struct {
 	DurationCanDifferentiate []string `json:"duration_can_differentiate"`
 }
 
-// ProjectCellEconomics binds one MeasuredCellCost into a full projection.
+// ProjectCellEconomics binds one MeasuredSupplierLiabilityProxy into a full projection.
 //
-// catalogue may be zero-valued: when SupplierUSDPerUnit is already measured
-// from frozen task payouts, the catalogue is only needed for buyer price and
-// the admission hourly display. When both measured supplier and catalogue are
-// absent, verified-outcome cost is refused (ok=false), never invented as zero.
+// catalogue may be zero-valued: supplier liability comes only from frozen task
+// payouts. A catalogue price is denominated in settlement input units, while a
+// measured proxy is denominated in accepted output records; without the frozen
+// job geometry there is no honest conversion between them. The catalogue is
+// therefore descriptive here and never a fallback liability authority.
 func ProjectCellEconomics(
-	cost MeasuredCellCost,
+	cost MeasuredSupplierLiabilityProxy,
 	catalogue CataloguePriceAuthority,
 	tier string,
 ) CellEconomicsProjection {
 	if tier == "" {
 		tier = "batch"
 	}
+	buyerPricePer1K, settlementCurrency, buyerPriceKnown :=
+		cellEconomicsSettlementPrice(catalogue)
 	p := CellEconomicsProjection{
 		SchemaVersion: cellEconomicsProjectionSchemaVersion,
 		Kind:          cellEconomicsProjectionKind,
+		Currency:      settlementCurrency,
 		ModelContract: CellEconomicsModelContract{
 			ModelID:              firstNonEmpty(catalogue.ModelID, cost.ModelRef),
 			JobType:              firstNonEmpty(catalogue.JobType, cost.JobType),
@@ -195,7 +211,7 @@ func ProjectCellEconomics(
 			ScheduleSHA256:       catalogue.ScheduleSHA256,
 			BoardSHA256:          catalogue.BoardSHA256,
 			PriceFormula:         catalogue.PriceFormula,
-			SettlementCurrency:   catalogue.SettlementCurrency,
+			SettlementCurrency:   settlementCurrency,
 		},
 		CellID:    cost.CellID,
 		RuntimeID: cost.RuntimeID,
@@ -208,7 +224,7 @@ func ProjectCellEconomics(
 		MedianMsPerUnit: cost.MedianMsPerUnit,
 		Measured:        cost.Measured,
 
-		BuyerPricePer1KUnits:                   catalogue.ReferencePricePer1K,
+		BuyerPricePer1KUnits:                   buyerPricePer1K,
 		SupplierEntitlementPolicy:              supplierEntitlementPolicyCancelled,
 		DurationCancelsFromSupplierEntitlement: true,
 
@@ -217,7 +233,7 @@ func ProjectCellEconomics(
 		VerificationFails:   cost.VerificationFails,
 		TerminalAttempts:    cost.TerminalAttempts,
 		TerminalFails:       cost.TerminalFails,
-		UnknownComponents:   append([]string(nil), cost.Unknown...),
+		UnknownComponents:   append([]string(nil), cost.UnknownPlatformCostComponents...),
 		DurationCanDifferentiate: []string{
 			"admission_expected_supplier_usd_hr",
 			"median_ms_per_unit",
@@ -225,11 +241,11 @@ func ProjectCellEconomics(
 			"provider_cost_when_cloud_backed",
 			"platform_delivery_usd_per_unit_when_provider_known",
 			"energy_usd_per_unit_partial",
-			"capacity_more_throughput_at_equal_price",
+			"capacity_more_throughput_at_equal_supplier_liability",
 		},
 	}
 	if p.UnknownComponents == nil {
-		p.UnknownComponents = unknownCostComponents()
+		p.UnknownComponents = unknownPlatformCostComponents()
 	}
 
 	// Measured throughput from median ms/unit. Zero median is not infinite rate.
@@ -238,23 +254,10 @@ func ProjectCellEconomics(
 		p.AdmissionUnitsPerSec = p.MeasuredUnitsPerSec
 	}
 
-	// Supplier per unit: prefer the frozen money-path measurement (already the
-	// cancelled form). Fall back to the catalogue closed form only when the
-	// measurement is empty and the catalogue is complete — still cancelled.
+	// Supplier per accepted output: only the frozen money-path measurement has
+	// the matching denominator. Do not substitute catalogue price/1k here: text
+	// catalogue units are token-like input units, not output records.
 	p.SupplierUSDPerUnit = cost.SupplierUSDPerUnit
-	if p.SupplierUSDPerUnit <= 0 &&
-		catalogue.ReferencePricePer1K > 0 && catalogue.SupplierShare > 0 {
-		// units/1000 × price × share — no unitsPerSec.
-		p.SupplierUSDPerUnit = catalogue.ReferencePricePer1K / 1000.0 *
-			catalogue.SupplierShare * tierMultiplier(tier)
-		p.BuyerPricePer1KUnits = catalogue.ReferencePricePer1K
-	}
-
-	// Admission hourly display: duration-sensitive, not settlement.
-	if p.AdmissionUnitsPerSec > 0 && p.BuyerPricePer1KUnits > 0 && catalogue.SupplierShare > 0 {
-		p.AdmissionExpectedSupplierUSDHr = expectedSupplierUSDHr(
-			p.AdmissionUnitsPerSec, p.BuyerPricePer1KUnits, catalogue.SupplierShare, tier)
-	}
 
 	// Reliability rates.
 	p.VerificationPassRate = 1.0
@@ -269,27 +272,53 @@ func ProjectCellEconomics(
 		p.ReliabilityMultiplier = (1 + cost.RetryRate) / p.VerificationPassRate / p.TerminalDeliveredRate
 	}
 
-	// Selector ranking cost: same expression as MeasuredCellCost.ExpectedVerifiedOutcomeUSDPerUnit.
-	if vo, ok := cost.ExpectedVerifiedOutcomeUSDPerUnit(); ok {
-		p.VerifiedOutcomeUSDPerUnit = vo
-		p.VerifiedOutcomeOK = true
-	} else if p.SupplierUSDPerUnit > 0 && p.VerificationPassRate > 0 && p.TerminalDeliveredRate > 0 {
-		vo := p.SupplierUSDPerUnit * p.ReliabilityMultiplier
-		if !math.IsNaN(vo) && !math.IsInf(vo, 0) {
-			p.VerifiedOutcomeUSDPerUnit = vo
-			p.VerifiedOutcomeOK = true
-		}
+	// Supplier-liability proxy: the settlement liability for the eventual
+	// accepted unit. Retry, rejection and terminal-failure rates remain explicit
+	// reliability evidence above; those attempts are unpaid and do not multiply
+	// supplier liability.
+	currencyMatches := cellEconomicsSupplierCurrencyMatches(
+		cost.Currency, settlementCurrency, catalogue)
+	if !currencyMatches {
+		// This projection has exactly one money unit. Preserve the refusal reason
+		// below, but do not retain a numeric payout that belongs to another unit:
+		// downstream gross arithmetic must have no mismatched operands to reach for.
+		p.SupplierUSDPerUnit = 0
 	}
-	p.VerifiedOutcomeBasis = "supplier_usd_per_unit × (1+retry_rate) / verification_pass_rate / terminal_delivered_rate; " +
-		"supplier_usd_per_unit is catalogue units×price×share (duration cancelled)"
+	if liability, ok := eligibleMeasuredSupplierLiability(cost); ok && currencyMatches {
+		p.SupplierLiabilityUSDPerVerifiedUnit = liability
+		p.SupplierLiabilityAvailable = true
+	}
+	p.Measured = p.SupplierLiabilityAvailable
+	// Active-hour payout projection: both factors share the accepted-output
+	// denominator measured on this cell. It is descriptive, not settlement and
+	// not the quote admission ceiling. Refused/under-sampled reliability never
+	// gets an earnings display merely because it carried a raw duration.
+	if p.SupplierLiabilityAvailable && p.AdmissionUnitsPerSec > 0 && p.SupplierUSDPerUnit > 0 {
+		p.AdmissionExpectedSupplierUSDHr =
+			p.AdmissionUnitsPerSec * p.SupplierUSDPerUnit * 3600
+	}
+	p.SupplierLiabilityBasis = "eventual accepted supplier payout per verified unit in model_contract.settlement_currency; rejected verification attempts and terminal failures are unpaid; " +
+		"supplier_usd_per_unit is frozen task payout divided by accepted output records (duration cancelled); " +
+		"catalogue input-unit geometry remains in the frozen PricingDecision; availability requires the same strict sample, reliability, runtime/build, and exact-geometry authority as selector/promotion; " +
+		"reliability burden and platform costs excluded"
+	if !currencyMatches {
+		p.SupplierLiabilityBasis = fmt.Sprintf(
+			"REFUSED: measured payout currency %q conflicts with catalogue settlement currency %q",
+			cost.Currency, catalogue.SettlementCurrency)
+	}
+	if !buyerPriceKnown {
+		p.UnknownComponents = append(p.UnknownComponents,
+			"buyer_settlement_price_per_1k")
+	}
 
 	// Provider cost: duration-sensitive for cloud-backed cells. Never invent a
 	// rate; surface the withdrawn-receipt DEFECT when that is the governing row.
-	p.ProviderCost = projectProviderCostTerm(cost.CellID, cost.HWClass, cost.MedianMsPerUnit)
+	p.ProviderCost = projectProviderCostTerm(
+		cost.CellID, cost.HWClass, cost.MedianMsPerUnit, catalogue)
 
 	// Energy partial from measured duration × governed watts × defaulted kWh.
-	// ASSUMED watts stay ASSUMED; never presented as full verified-outcome cost.
-	p.EnergyPartial = projectEnergyPartialTerm(cost.HWClass, cost.MedianMsPerUnit)
+	// ASSUMED watts stay ASSUMED; never presented as complete platform cost.
+	p.EnergyPartial = projectEnergyPartialTerm(cost.HWClass, cost.MedianMsPerUnit, catalogue)
 
 	// Storage/transfer and utilization: unknown without attributed bytes / meter.
 	p.StorageTransfer = CellEconomicsTerm{
@@ -302,26 +331,32 @@ func ProjectCellEconomics(
 		Name:         "utilization",
 		Knowledge:    CategoryUnknown,
 		WouldRequire: "a production utilization signal (busy fraction of the placement over the billable window), not a default of 1.0",
-		Basis:        "absent on MeasuredCellCost; admission display rates are while-executing only",
+		Basis:        "absent on MeasuredSupplierLiabilityProxy; admission display rates are while-executing only",
 	}
 
-	// Cell-resolved platform delivery for the selector. Supplier settlement
-	// stays cancelled; this figure adds provider when it is KNOWN so a faster
-	// cloud cell can surface a real cost win. N/A provider leaves delivery equal
-	// to verified-outcome (equal-reliability cells still tie).
+	// Cell-resolved known platform partial. Supplier settlement stays cancelled;
+	// this figure adds provider when it is KNOWN. Completeness is decided below
+	// only after every named platform component has been classified.
 	p.EntitlementResolution = cellEntitlementResolutionCellResolved
-	if p.VerifiedOutcomeOK {
+	if p.SupplierLiabilityAvailable {
 		switch p.ProviderCost.Knowledge {
 		case CategoryKnown:
-			p.PlatformDeliveryUSDPerUnit = p.VerifiedOutcomeUSDPerUnit + p.ProviderCost.MoneyUSD
+			if !sameCellEconomicsCurrency(p.Currency, p.ProviderCost.Currency) {
+				p.PlatformDeliveryOK = false
+				p.PlatformDeliveryBasis = fmt.Sprintf(
+					"provider cost currency %q does not match supplier-liability currency %q; platform delivery refused",
+					p.ProviderCost.Currency, p.Currency)
+				break
+			}
+			p.PlatformDeliveryUSDPerUnit = p.SupplierLiabilityUSDPerVerifiedUnit + p.ProviderCost.MoneyUSD
 			p.PlatformDeliveryOK = true
-			p.PlatformDeliveryBasis = "verified_outcome_usd_per_unit + provider_cost per unit " +
+			p.PlatformDeliveryBasis = "supplier_liability_proxy_usd_per_verified_unit + provider_cost per unit " +
 				"(cell_resolved_platform_v1); provider is duration-sensitive and does not cancel"
 		case CategoryNotApplicable:
-			p.PlatformDeliveryUSDPerUnit = p.VerifiedOutcomeUSDPerUnit
+			p.PlatformDeliveryUSDPerUnit = p.SupplierLiabilityUSDPerVerifiedUnit
 			p.PlatformDeliveryOK = true
-			p.PlatformDeliveryBasis = "verified_outcome_usd_per_unit only; provider not applicable " +
-				"on owned/community supply so platform delivery equals supplier verified-outcome"
+			p.PlatformDeliveryBasis = "supplier_liability_proxy_usd_per_verified_unit only; provider not applicable " +
+				"on owned/community supply; other platform components remain separately unknown"
 		default:
 			// Unknown/assumed provider: refuse to invent a complete platform delivery.
 			p.PlatformDeliveryOK = false
@@ -332,6 +367,11 @@ func ProjectCellEconomics(
 
 	// True net: structurally unavailable while any named category is unknown.
 	blocking := projectionBlockingCategories(p)
+	if p.PlatformDeliveryOK && len(blocking) > 0 {
+		p.PlatformDeliveryOK = false
+		p.PlatformDeliveryBasis += "; known partial only: complete platform delivery refused while " +
+			strings.Join(blocking, ", ") + " remain UNKNOWN or ASSUMED"
+	}
 	p.MercTrueNet = MercTrueNetContribution{
 		Unavailable: ptrUnavailable(unavailable(
 			"merc_true_net_contribution",
@@ -349,9 +389,105 @@ func ProjectCellEconomics(
 	return p
 }
 
+// cellEconomicsSettlementPrice returns the buyer price in its settlement
+// currency. A reference price may stand in only for a same-currency legacy
+// authority. Once the schedule names a different settlement currency, a
+// missing settlement price is an unknown, never an invitation to subtract USD
+// reference money from CAD supplier payouts.
+func cellEconomicsSettlementPrice(
+	catalogue CataloguePriceAuthority,
+) (price float64, currency string, ok bool) {
+	referenceCurrency := strings.ToLower(strings.TrimSpace(catalogue.ReferenceCurrency))
+	if referenceCurrency == "" {
+		referenceCurrency = catalogueReferenceCurrency
+	}
+	currency = strings.ToLower(strings.TrimSpace(catalogue.SettlementCurrency))
+	if currency == "" {
+		currency = referenceCurrency
+	}
+	// The catalogue reference unit is a system-wide USD authority. Accepting a
+	// caller-provided alternative here would let an incomplete projection invent
+	// a second reference currency that canonical pricing can never publish.
+	if referenceCurrency != catalogueReferenceCurrency {
+		return 0, currency, false
+	}
+	parsed, err := ParseCurrency(currency)
+	if err != nil || parsed.Code() != currency ||
+		catalogue.ReferencePricePer1K <= 0 ||
+		math.IsNaN(catalogue.ReferencePricePer1K) ||
+		math.IsInf(catalogue.ReferencePricePer1K, 0) {
+		return 0, currency, false
+	}
+
+	if currency == referenceCurrency {
+		// Legacy same-currency projection fixtures predate the append-only catalogue
+		// and name only the USD reference price. Preserve that narrow compatibility
+		// path. If a settlement price or FX rate is supplied, however, it must agree
+		// with identity FX; an explicit mismatch is an authority refusal, not a
+		// reason to fall back to the reference number.
+		if catalogue.ReferenceToSettlementRate != 0 &&
+			(!finiteNonNegative(catalogue.ReferenceToSettlementRate) ||
+				math.Abs(catalogue.ReferenceToSettlementRate-1) > 1e-12) {
+			return 0, currency, false
+		}
+		if catalogue.SettlementPricePer1K == 0 {
+			return catalogue.ReferencePricePer1K, currency, true
+		}
+		want := ceilPricePer1K(catalogue.ReferencePricePer1K)
+		if !finiteNonNegative(catalogue.SettlementPricePer1K) ||
+			catalogue.SettlementPricePer1K <= 0 ||
+			math.Abs(catalogue.SettlementPricePer1K-want) > 1e-10 {
+			return 0, currency, false
+		}
+		return catalogue.SettlementPricePer1K, currency, true
+	}
+
+	// Cross-currency money exists only under the complete append-only catalogue
+	// and frozen FX authority. A positive CAD number supplied by a caller is not
+	// provenance and must not become a buyer-minus-supplier operand.
+	if err := validateCataloguePriceAuthority(catalogue); err != nil {
+		return 0, currency, false
+	}
+	return catalogue.SettlementPricePer1K, currency, true
+}
+
+// cellEconomicsSupplierCurrencyMatches binds the legacy `_usd` payout field to
+// the projection's actual settlement currency. Blank currency survives only on
+// the historical same-currency USD fixture path. It can never be inferred as a
+// cross-currency payout.
+func cellEconomicsSupplierCurrencyMatches(
+	rawCurrency, settlementCurrency string,
+	catalogue CataloguePriceAuthority,
+) bool {
+	settlement, err := ParseCurrency(settlementCurrency)
+	if err != nil || settlement.Code() != settlementCurrency {
+		return false
+	}
+	rawCurrency = strings.TrimSpace(rawCurrency)
+	if rawCurrency != "" {
+		measured, err := ParseCurrency(rawCurrency)
+		return err == nil && measured.Equal(settlement)
+	}
+	referenceCurrency := strings.ToLower(strings.TrimSpace(catalogue.ReferenceCurrency))
+	if referenceCurrency == "" {
+		referenceCurrency = catalogueReferenceCurrency
+	}
+	return settlementCurrency == referenceCurrency &&
+		referenceCurrency == catalogueReferenceCurrency
+}
+
+func sameCellEconomicsCurrency(a, b string) bool {
+	ca, err := ParseCurrency(a)
+	if err != nil {
+		return false
+	}
+	cb, err := ParseCurrency(b)
+	return err == nil && ca.Equal(cb)
+}
+
 // ProjectCellEconomicsMap projects every measured cell in a hardware class map.
 func ProjectCellEconomicsMap(
-	costs map[string]MeasuredCellCost,
+	costs map[string]MeasuredSupplierLiabilityProxy,
 	catalogue CataloguePriceAuthority,
 	tier string,
 ) map[string]CellEconomicsProjection {
@@ -362,28 +498,34 @@ func ProjectCellEconomicsMap(
 	return out
 }
 
-// VerifiedOutcomeCostsTie reports whether two projections have the same
-// selector ranking cost within pricesTieWithin. Used to pin the census
-// prediction: without undoing cancellation, equal-reliability cells on one
-// model still tie on verified-outcome cost even when duration differs.
-func VerifiedOutcomeCostsTie(a, b CellEconomicsProjection) bool {
-	if !a.VerifiedOutcomeOK || !b.VerifiedOutcomeOK {
+// SupplierLiabilityProxiesTie reports whether two projections have the same
+// supplier-liability proxy within pricesTieWithin. This permits only an
+// equal-liability throughput comparison, not a total-cost claim.
+func SupplierLiabilityProxiesTie(a, b CellEconomicsProjection) bool {
+	if !a.SupplierLiabilityAvailable || !b.SupplierLiabilityAvailable {
 		return false
 	}
-	if a.VerifiedOutcomeUSDPerUnit <= 0 || b.VerifiedOutcomeUSDPerUnit <= 0 {
+	if !sameCellEconomicsCurrency(a.Currency, b.Currency) {
 		return false
 	}
-	mid := (a.VerifiedOutcomeUSDPerUnit + b.VerifiedOutcomeUSDPerUnit) / 2
+	if a.SupplierLiabilityUSDPerVerifiedUnit <= 0 || b.SupplierLiabilityUSDPerVerifiedUnit <= 0 {
+		return false
+	}
+	mid := (a.SupplierLiabilityUSDPerVerifiedUnit + b.SupplierLiabilityUSDPerVerifiedUnit) / 2
 	if mid <= 0 {
 		return false
 	}
-	frac := math.Abs(a.VerifiedOutcomeUSDPerUnit-b.VerifiedOutcomeUSDPerUnit) / mid
+	frac := math.Abs(a.SupplierLiabilityUSDPerVerifiedUnit-b.SupplierLiabilityUSDPerVerifiedUnit) / mid
 	return frac < pricesTieWithin
 }
 
 // projectProviderCostTerm maps provider_cost_authority into a projection term.
 // A withdrawn-receipt rate is surfaced as Defect, never silently as governed.
-func projectProviderCostTerm(cellID, hwClass string, medianMsPerUnit float64) CellEconomicsTerm {
+func projectProviderCostTerm(
+	cellID, hwClass string,
+	medianMsPerUnit float64,
+	catalogue CataloguePriceAuthority,
+) CellEconomicsTerm {
 	term := CellEconomicsTerm{Name: "provider_cost"}
 	if strings.TrimSpace(cellID) == "" {
 		term.Knowledge = CategoryUnknown
@@ -422,51 +564,63 @@ func projectProviderCostTerm(cellID, hwClass string, medianMsPerUnit float64) Ce
 		term.Basis = "cloud-backed cell has no resolvable governed provider rate"
 		return term
 	}
-	defect := ""
-	if strings.Contains(rate.Provenance, "DEFECT") || strings.Contains(rate.Provenance, "withdrawn") {
-		defect = rate.Provenance
+	if rate.AuthorityStatus != providerRateAuthorityGoverned {
+		term.Knowledge = CategoryUnknown
+		term.WouldRequire = "a governed provider rate bound to a citable provider price or invoice receipt"
+		term.Basis = fmt.Sprintf("provider rate authority status is %q; only %s may enter the selector projection",
+			rate.AuthorityStatus, providerRateAuthorityGoverned)
+		term.Defect = rate.Provenance
+		term.Source = rate.Provenance
+		return term
 	}
 	if expectedSeconds <= 0 {
 		term.Knowledge = CategoryUnknown
 		term.WouldRequire = "positive median_ms_per_unit so provider cost can be modeled as rate × duration"
 		term.Basis = fmt.Sprintf("governed rate $%.4f/hr available but duration is unmeasured", rate.CostPerHrUSD)
-		term.Defect = defect
 		term.Source = rate.Provenance
 		return term
 	}
-	nanos, err := providerCostNanos(rate.CostPerHrUSD, expectedSeconds)
+	ratePerHr, currencyBasis, err := providerRateInSettlementCurrency(rate, catalogue)
+	if err != nil {
+		term.Knowledge = CategoryUnknown
+		term.WouldRequire = "a provider rate and frozen catalogue FX authority in the projection's settlement currency"
+		term.Basis = "provider currency conversion refused: " + err.Error()
+		term.Source = rate.Provenance
+		return term
+	}
+	nanos, err := providerCostNanos(ratePerHr, expectedSeconds)
 	if err != nil {
 		term.Knowledge = CategoryUnknown
 		term.Basis = "provider cost model refused: " + err.Error()
-		term.Defect = defect
 		term.Source = rate.Provenance
 		return term
 	}
-	// Knowledge is KNOWN only when the rate is not DEFECT-flagged. A defective
-	// authority still emits the number for continuity but must not be read as
-	// governed true-net input.
-	knowledge := CategoryKnown
-	if defect != "" {
-		knowledge = CategoryAssumed
-	}
-	term.Knowledge = knowledge
-	term.MoneyUSD = nanosToEconomicUSD(nanos)
+	term.Knowledge = CategoryKnown
+	term.Currency = catalogue.SettlementCurrency
+	// This is a re-derivable per-unit selector projection, not a NUMERIC(12,6)
+	// ledger column. Preserve nano-major-unit precision so sub-micro provider
+	// differences remain visible instead of collapsing distinct durations to
+	// the same six-decimal amount.
+	term.MoneyUSD = float64(nanos) / float64(NanosPerMajorUnit)
 	term.Source = rate.Provenance
 	term.Basis = fmt.Sprintf(
-		"cloud provider $%.4f/hr × %.6fs per unit (median_ms_per_unit=%.4f); duration-sensitive platform cost, not supplier entitlement",
-		rate.CostPerHrUSD, expectedSeconds, medianMsPerUnit)
-	term.Defect = defect
+		"cloud provider %.6f %s/hr × %.6fs per unit (median_ms_per_unit=%.4f); %s; duration-sensitive platform cost, not supplier entitlement",
+		ratePerHr, catalogue.SettlementCurrency, expectedSeconds, medianMsPerUnit, currencyBasis)
 	return term
 }
 
 // projectEnergyPartialTerm models watts × duration × defaulted electricity.
 // ASSUMED watts stay ASSUMED. The dollar figure is always at most DEFAULTED
 // because electricity is defaultElectricityUSDPerKWh, not a metered invoice.
-func projectEnergyPartialTerm(hwClass string, medianMsPerUnit float64) CellEconomicsTerm {
+func projectEnergyPartialTerm(
+	hwClass string,
+	medianMsPerUnit float64,
+	catalogue CataloguePriceAuthority,
+) CellEconomicsTerm {
 	term := CellEconomicsTerm{Name: "energy_usd_per_unit_partial"}
 	if medianMsPerUnit <= 0 {
 		term.Knowledge = CategoryUnknown
-		term.WouldRequire = "positive median_ms_per_unit from MeasuredCellCost"
+		term.WouldRequire = "positive median_ms_per_unit from MeasuredSupplierLiabilityProxy"
 		return term
 	}
 	entry, ok := sustainedWattsByHWClass[hwClass]
@@ -479,19 +633,40 @@ func projectEnergyPartialTerm(hwClass string, medianMsPerUnit float64) CellEcono
 	seconds := medianMsPerUnit / 1000.0
 	joules := entry.Watts() * seconds
 	usd := joules / 3.6e6 * defaultElectricityUSDPerKWh
+	currency := firstNonEmpty(catalogue.SettlementCurrency, catalogueReferenceCurrency)
+	moneyMajor := usd
+	fxBasis := "USD reference electricity policy"
+	if currency != catalogueReferenceCurrency {
+		if err := validateCataloguePriceAuthority(catalogue); err != nil ||
+			catalogue.ReferenceCurrency != catalogueReferenceCurrency {
+			term.Knowledge = CategoryUnknown
+			term.NonMoney = joules
+			term.NonMoneyUnit = "joules_per_unit"
+			term.WouldRequire = "a valid frozen USD-reference-to-settlement FX authority"
+			term.Basis = fmt.Sprintf(
+				"%.6f J is attributable, but USD electricity cannot be relabelled as %s without frozen FX: %v",
+				joules, currency, err)
+			return term
+		}
+		moneyMajor = usd * catalogue.ReferenceToSettlementRate
+		fxBasis = fmt.Sprintf("frozen fx_revision=%s schedule_sha256=%s",
+			catalogue.FXRevision, catalogue.ScheduleSHA256)
+	}
 	knowledge := CategoryDefaulted
 	if entry.Kind() == wattKindAssumed {
 		knowledge = CategoryAssumed
 	}
 	term.Knowledge = knowledge
-	term.MoneyUSD = usd
+	term.Currency = currency
+	term.MoneyUSD = moneyMajor
 	term.NonMoney = joules
 	term.NonMoneyUnit = "joules_per_unit"
 	term.Source = entry.Provenance() + " + control/pricing.go:defaultElectricityUSDPerKWh"
 	term.Basis = fmt.Sprintf(
-		"%.1f W (%s) × %.6fs/unit × $%.2f/kWh; PARTIAL energy only — not full verified-outcome cost; "+
+		"%.1f W (%s) × %.6fs/unit × $%.2f USD/kWh converted to %.12g %s/unit using %s; PARTIAL energy only — not complete platform cost; "+
 			"package boundary and electricity are not a metered invoice",
-		entry.Watts(), entry.Kind(), seconds, defaultElectricityUSDPerKWh)
+		entry.Watts(), entry.Kind(), seconds, defaultElectricityUSDPerKWh,
+		moneyMajor, currency, fxBasis)
 	return term
 }
 
@@ -514,13 +689,13 @@ func projectionBlockingCategories(p CellEconomicsProjection) []string {
 }
 
 // cellEconomicsConfidence scales with sample count toward 1.0 at and above
-// minCellCostSamples. Under-sampled cells stay low so a reader cannot treat
+// minSupplierLiabilitySamples. Under-sampled cells stay low so a reader cannot treat
 // three tasks as a fleet claim.
-func cellEconomicsConfidence(cost MeasuredCellCost) float64 {
+func cellEconomicsConfidence(cost MeasuredSupplierLiabilityProxy) float64 {
 	if cost.Samples <= 0 {
 		return 0
 	}
-	c := float64(cost.Samples) / float64(minCellCostSamples)
+	c := float64(cost.Samples) / float64(minSupplierLiabilitySamples)
 	if c > 1 {
 		c = 1
 	}
@@ -539,10 +714,10 @@ func cellEconomicsConfidence(cost MeasuredCellCost) float64 {
 }
 
 func cellEconomicsEvidenceAuthority(
-	cost MeasuredCellCost, catalogue CataloguePriceAuthority, p CellEconomicsProjection,
+	cost MeasuredSupplierLiabilityProxy, catalogue CataloguePriceAuthority, p CellEconomicsProjection,
 ) []string {
 	auth := []string{
-		"control/runtime_cell_cost.go#MeasuredCellCost",
+		"control/runtime_cell_cost.go#MeasuredSupplierLiabilityProxy",
 		"control/pricing_decision.go#exactTaskEconomics",
 		"docs/PROGRAMME.md#throughput-cancels",
 	}

@@ -2,54 +2,224 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"math"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"testing"
 	"time"
 )
 
-// cohort-shaped actuals read from evidence/perf/selector/paired-cohort-embed.json.
-//
-// That artifact is binding_status=UNBOUND with seven of the eight producer
-// identity fields missing, so these timings cannot say which candle build or
-// which llama.cpp build produced them. They are carried with SourceBinding set
-// to UNBOUND so the comparison can exercise its decision structure without the
-// result being mistaken for an engine verdict. The bound replacement is
-// evidence/perf/selector/engine-parity-metal-embed-*.json.
-func cohortEmbedCosts(t *testing.T) map[string]MeasuredCellCost {
+// syntheticUnboundEmbedCosts is arithmetic-only test data. It is intentionally
+// UNBOUND and has no evidence path, producer identity, settlement observation,
+// or verification run. Pure tests may exercise selector arithmetic with it; no
+// receipt writer may relabel these rows or derive BOUND authority from them.
+func syntheticUnboundEmbedCosts(t *testing.T) map[string]MeasuredSupplierLiabilityProxy {
 	t.Helper()
-	const supplier = 0.0060625
-	return map[string]MeasuredCellCost{
+	const supplier = miniLMSupplierUSDPerUnit
+	return map[string]MeasuredSupplierLiabilityProxy{
 		candleEmbedCell: {
 			CellID: candleEmbedCell, RuntimeID: "candle_metal", Engine: "candle",
 			JobType: "embed", ModelRef: "all-minilm-l6-v2", HWClass: "apple_silicon_ultra",
-			Samples: minCellCostSamples, Units: 640, MedianMsPerUnit: 0.21875,
+			HardwareIdentity: "Apple M3 Ultra",
+			Samples:          minSupplierLiabilitySamples, Units: 640, MedianMsPerUnit: 0.21875,
 			SupplierUSDPerUnit: supplier, VerificationSamples: 20, TerminalAttempts: 20,
-			Measured: true, SourceBinding: BindingUnbound, Unknown: unknownCostComponents(),
+			Measured: true, SourceBinding: BindingUnbound, UnknownPlatformCostComponents: unknownPlatformCostComponents(),
 		},
 		llamaEmbedCell: {
 			CellID: llamaEmbedCell, RuntimeID: "llama_cpp_metal", Engine: "llama_cpp",
 			JobType: "embed", ModelRef: "all-minilm-l6-v2", HWClass: "apple_silicon_ultra",
-			Samples: minCellCostSamples, Units: 640, MedianMsPerUnit: 0.28125,
+			HardwareIdentity: "Apple M3 Ultra",
+			Samples:          minSupplierLiabilitySamples, Units: 640, MedianMsPerUnit: 0.28125,
 			SupplierUSDPerUnit: supplier, VerificationSamples: 20, TerminalAttempts: 20,
-			Measured: true, SourceBinding: BindingUnbound, Unknown: unknownCostComponents(),
+			Measured: true, SourceBinding: BindingUnbound, UnknownPlatformCostComponents: unknownPlatformCostComponents(),
 		},
 	}
 }
 
-// boundEmbedCosts reads the interleaved engine-parity measurement and returns
-// cost rows that may rule on the prior claim, because every timing in them
-// traces to a named merc-agent binary, a named llama-server binary, and two
-// named weight digests.
-//
-// Returns nil when the receipt is absent or not BOUND. Callers fall back to the
-// cohort fixture, which exercises the same decision structure and is refused a
-// verdict -- the point of the gate is that the fallback stays visibly weaker
-// rather than silently standing in for a measurement.
-func boundEmbedCosts(t *testing.T) map[string]MeasuredCellCost {
+// syntheticUnboundLatencies copies only the latency-shaped fields needed by the
+// comparison API. It deliberately preserves UNBOUND rather than turning a unit
+// fixture into a latency receipt.
+func syntheticUnboundLatencies(costs map[string]MeasuredSupplierLiabilityProxy) map[string]GovernedLatencyActual {
+	out := make(map[string]GovernedLatencyActual, len(costs))
+	for id, cost := range costs {
+		out[id] = GovernedLatencyActual{
+			CellID: id, RuntimeID: cost.RuntimeID, Engine: cost.Engine, HWClass: cost.HWClass,
+			HardwareIdentity: cost.HardwareIdentity,
+			Samples:          cost.Samples, Units: cost.Units, MedianMsPerUnit: cost.MedianMsPerUnit,
+			SourceBinding: BindingUnbound,
+		}
+	}
+	return out
+}
+
+// loadCohortEmbedActuals is the only path from the historical paired-cohort
+// receipt into this comparison harness. WITHDRAWN/invalidated evidence is
+// terminal, and UNBOUND evidence is citation-only: neither returns rankable
+// rows. Only a BOUND, valid receipt can supply actuals to a governed decision.
+func loadCohortEmbedActuals(path string) (map[string]MeasuredSupplierLiabilityProxy, string, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, "", err
+	}
+	var doc struct {
+		BindingStatus string                                    `json:"binding_status"`
+		Validity      string                                    `json:"validity"`
+		MeasuredCost  map[string]MeasuredSupplierLiabilityProxy `json:"measured_cost"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return nil, "", err
+	}
+
+	status := strings.ToUpper(strings.TrimSpace(doc.BindingStatus))
+	validity := strings.ToUpper(strings.TrimSpace(doc.Validity))
+	if status == BindingWithdrawn || (validity != "" && validity != "VALID") {
+		return nil, BindingWithdrawn, nil
+	}
+	switch status {
+	case BindingUnbound, BindingSuperseded:
+		return nil, status, nil
+	case BindingBound:
+		if len(doc.MeasuredCost) == 0 {
+			return nil, status, fmt.Errorf("BOUND cohort receipt has no measured_cost rows")
+		}
+		for id, row := range doc.MeasuredCost {
+			row.SourceBinding = BindingBound
+			doc.MeasuredCost[id] = row
+		}
+		return doc.MeasuredCost, status, nil
+	default:
+		return nil, status, fmt.Errorf("missing or invalid binding_status %q", doc.BindingStatus)
+	}
+}
+
+func cohortReceiptPath() string {
+	return filepath.Join("..", "evidence", "perf", "selector", "paired-cohort-embed.json")
+}
+
+func requireRankableCohortActuals(path string) (map[string]MeasuredSupplierLiabilityProxy, error) {
+	costs, status, err := loadCohortEmbedActuals(path)
+	if err != nil {
+		return nil, err
+	}
+	// This authority id has been withdrawn. A replacement must use a new path;
+	// manually relabelling this file BOUND cannot resurrect it.
+	if filepath.Clean(path) == filepath.Clean(cohortReceiptPath()) {
+		return nil, fmt.Errorf("paired cohort authority id is terminally WITHDRAWN (current status %s); it cannot order actual_winner and a replacement requires a new path", status)
+	}
+	if status != BindingBound {
+		return nil, fmt.Errorf("paired cohort is %s and citation-only; it cannot order actual_winner", status)
+	}
+	return requireBoundGovernedActuals(costs)
+}
+
+func requireBoundGovernedActuals(costs map[string]MeasuredSupplierLiabilityProxy) (map[string]MeasuredSupplierLiabilityProxy, error) {
+	if actualsBinding(costs) != BindingBound {
+		return nil, fmt.Errorf("governed actuals are not BOUND and cannot order actual_winner")
+	}
+	return costs, nil
+}
+
+func requireBoundGovernedInputs(
+	costs map[string]MeasuredSupplierLiabilityProxy,
+	latencies map[string]GovernedLatencyActual,
+) error {
+	if _, err := requireBoundGovernedActuals(costs); err != nil {
+		return err
+	}
+	if status := latencyActualsBinding(latencies); status != BindingBound {
+		return fmt.Errorf("governed latency actuals are %s, not BOUND", status)
+	}
+	if status := governedActualsBinding(costs, latencies); status != BindingBound {
+		return fmt.Errorf("combined governed actuals are %s, not BOUND", status)
+	}
+	return nil
+}
+
+func TestLoadCohortEmbedActualsKeepsNonAuthoritativeEvidenceOutOfRanking(t *testing.T) {
+	row := MeasuredSupplierLiabilityProxy{
+		CellID: candleEmbedCell, Samples: minSupplierLiabilitySamples, Units: 640,
+		MedianMsPerUnit: 0.2, SupplierUSDPerUnit: miniLMSupplierUSDPerUnit,
+		VerificationSamples: 20, TerminalAttempts: 20, Measured: true,
+	}
+	tests := []struct {
+		name       string
+		binding    string
+		validity   string
+		wantStatus string
+		wantRows   bool
+	}{
+		{name: "withdrawn binding", binding: BindingWithdrawn, validity: "WITHDRAWN", wantStatus: BindingWithdrawn},
+		{name: "invalidated validity overrides bound label", binding: BindingBound, validity: "INVALIDATED_PENDING_RERUN", wantStatus: BindingWithdrawn},
+		{name: "unbound is citation only", binding: BindingUnbound, validity: "VALID", wantStatus: BindingUnbound},
+		{name: "superseded is terminal", binding: BindingSuperseded, validity: "VALID", wantStatus: BindingSuperseded},
+		{name: "bound valid rows may rank", binding: BindingBound, validity: "VALID", wantStatus: BindingBound, wantRows: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "cohort.json")
+			raw, err := json.Marshal(map[string]any{
+				"binding_status": tc.binding,
+				"validity":       tc.validity,
+				"measured_cost":  map[string]MeasuredSupplierLiabilityProxy{candleEmbedCell: row},
+			})
+			must(t, err)
+			must(t, os.WriteFile(path, raw, 0o644))
+
+			costs, status, err := loadCohortEmbedActuals(path)
+			must(t, err)
+			if status != tc.wantStatus {
+				t.Fatalf("status = %q, want %q", status, tc.wantStatus)
+			}
+			if tc.wantRows {
+				if len(costs) != 1 || costs[candleEmbedCell].SourceBinding != BindingBound {
+					t.Fatalf("BOUND rows not admitted with bound source: %+v", costs)
+				}
+			} else if len(costs) != 0 {
+				t.Fatalf("non-authoritative receipt returned rankable rows: %+v", costs)
+			}
+		})
+	}
+}
+
+func TestWeakestEvidenceBindingPreservesTerminalStates(t *testing.T) {
+	tests := []struct {
+		statuses []string
+		want     string
+	}{
+		{statuses: []string{BindingBound, BindingBound}, want: BindingBound},
+		{statuses: []string{BindingBound, ""}, want: BindingUnbound},
+		{statuses: []string{BindingBound, BindingSuperseded}, want: BindingSuperseded},
+		{statuses: []string{BindingUnbound, BindingWithdrawn}, want: BindingWithdrawn},
+	}
+	for _, tc := range tests {
+		if got := weakestEvidenceBinding(tc.statuses...); got != tc.want {
+			t.Fatalf("weakestEvidenceBinding(%v) = %q, want %q", tc.statuses, got, tc.want)
+		}
+	}
+}
+
+func TestWithdrawnPairedCohortCannotOrderActualWinner(t *testing.T) {
+	costs, status, err := loadCohortEmbedActuals(cohortReceiptPath())
+	must(t, err)
+	if status != BindingWithdrawn {
+		t.Fatalf("paired cohort status = %q, want %s", status, BindingWithdrawn)
+	}
+	if len(costs) != 0 {
+		t.Fatalf("withdrawn cohort returned rankable rows: %+v", costs)
+	}
+	if _, err := requireRankableCohortActuals(cohortReceiptPath()); err == nil ||
+		!strings.Contains(err.Error(), "cannot order actual_winner") {
+		t.Fatalf("withdrawn cohort did not terminate governed comparison construction: %v", err)
+	}
+}
+
+// boundEmbedLatencies reads the interleaved engine-parity measurement into a
+// latency-only type. That harness never observed settlement, retries, rejected
+// payouts, or terminal attempts, so this function has no supplier-liability or
+// reliability fields to populate. Its BOUND status can rule on latency only.
+func boundEmbedLatencies(t *testing.T) map[string]GovernedLatencyActual {
 	t.Helper()
 	raw, err := os.ReadFile(filepath.Join("..", "evidence", "perf", "selector",
 		"engine-parity-metal-embed-latest.json"))
@@ -77,29 +247,31 @@ func boundEmbedCosts(t *testing.T) map[string]MeasuredCellCost {
 	if !strings.EqualFold(doc.BindingStatus, BindingBound) || !doc.Quality.Passes {
 		return nil
 	}
-	byArm := map[string]string{
-		"candle_metal":    candleEmbedCell,
-		"llama_cpp_metal": llamaEmbedCell,
+	byArm := map[string]struct {
+		cell   string
+		engine string
+	}{
+		"candle_metal":    {cell: candleEmbedCell, engine: "candle"},
+		"llama_cpp_metal": {cell: llamaEmbedCell, engine: "llama_cpp"},
 	}
-	const supplier = 0.0060625
-	out := map[string]MeasuredCellCost{}
-	for arm, cell := range byArm {
+	out := map[string]GovernedLatencyActual{}
+	for arm, expected := range byArm {
 		a, ok := doc.Arms[arm]
-		if !ok || a.MsPerUnit <= 0 || a.N < minCellCostSamples {
+		if !ok || !strings.EqualFold(a.Engine, expected.engine) ||
+			a.MsPerUnit <= 0 || math.IsNaN(a.MsPerUnit) || math.IsInf(a.MsPerUnit, 0) ||
+			a.N < governedLatencyMinSamples || len(a.RawSamples) != a.N || doc.Batch <= 0 {
 			return nil
 		}
-		out[cell] = MeasuredCellCost{
-			CellID: cell, RuntimeID: arm, Engine: a.Engine,
-			JobType: "embed", ModelRef: "all-minilm-l6-v2", HWClass: "apple_silicon_ultra",
+		for _, sample := range a.RawSamples {
+			if sample <= 0 || math.IsNaN(sample) || math.IsInf(sample, 0) {
+				return nil
+			}
+		}
+		out[expected.cell] = GovernedLatencyActual{
+			CellID: expected.cell, RuntimeID: arm, Engine: expected.engine,
+			HWClass: "apple_silicon_ultra",
 			Samples: a.N, Units: int64(a.N * doc.Batch), MedianMsPerUnit: a.MsPerUnit,
-			SupplierUSDPerUnit: supplier,
-			// The parity harness embeds and times; it does not run the
-			// verification contract that a chain task would, so reliability is
-			// recorded as clean rather than measured. Equal on both arms, which
-			// is what keeps the cost tie a tie.
-			VerificationSamples: a.N, TerminalAttempts: a.N,
-			Measured: true, SourceBinding: BindingBound,
-			Unknown: unknownCostComponents(),
+			SourceBinding: BindingBound,
 		}
 	}
 	return out
@@ -108,20 +280,233 @@ func boundEmbedCosts(t *testing.T) map[string]MeasuredCellCost {
 func catalogueMinilm() CataloguePriceAuthority {
 	return CataloguePriceAuthority{
 		ModelID: "all-minilm-l6-v2", JobType: "embed",
-		ReferencePricePer1K: 0.00625, SupplierShare: 0.97,
+		ReferencePricePer1K: miniLMReferencePricePer1K, SupplierShare: miniLMSupplierShare,
+	}
+}
+
+func governedComparisonShadowFixture() ShadowSelection {
+	return ShadowSelection{
+		JobType: "embed", ModelRef: "all-minilm-l6-v2",
+		RoutedCellID: candleEmbedCell, ShadowCellID: candleEmbedCell,
+		SelectionBasis:   selectionBasisLadder,
+		RuntimeMatrixSHA: generatedRuntimeMatrixSHA256,
+		Considered: []shadowCandidate{
+			{CellID: candleEmbedCell, RuntimeID: "candle_metal", Engine: "candle",
+				Lifecycle: runtimeLifecycleActive, Routable: true,
+				QualityTier: "OUTCOME_EQUIVALENT", Verification: "cosine"},
+			{CellID: llamaEmbedCell, RuntimeID: "llama_cpp_metal", Engine: "llama_cpp",
+				Lifecycle: "REAL_RUNTIME_PROVEN", Routable: false,
+				QualityTier: "UNPROVEN", Verification: "cosine"},
+		},
+	}
+}
+
+func TestBuildGovernedComparisonRequiresExplicitPriceAndShare(t *testing.T) {
+	costs := syntheticUnboundEmbedCosts(t)
+	latencies := syntheticUnboundLatencies(costs)
+	shadow := governedComparisonShadowFixture()
+
+	tests := []struct {
+		name      string
+		catalogue CataloguePriceAuthority
+		want      string
+	}{
+		{
+			name: "missing reference price",
+			catalogue: CataloguePriceAuthority{
+				ModelID: "all-minilm-l6-v2", JobType: "embed", SupplierShare: miniLMSupplierShare,
+			},
+			want: "no explicit positive catalogue reference price",
+		},
+		{
+			name: "missing supplier share",
+			catalogue: CataloguePriceAuthority{
+				ModelID: "all-minilm-l6-v2", JobType: "embed", ReferencePricePer1K: miniLMReferencePricePer1K,
+			},
+			want: "no explicit positive supplier share",
+		},
+		{
+			name: "non-finite reference price",
+			catalogue: CataloguePriceAuthority{
+				ModelID: "all-minilm-l6-v2", JobType: "embed",
+				ReferencePricePer1K: math.NaN(), SupplierShare: miniLMSupplierShare,
+			},
+			want: "no explicit positive catalogue reference price",
+		},
+		{
+			name: "non-finite supplier share",
+			catalogue: CataloguePriceAuthority{
+				ModelID: "all-minilm-l6-v2", JobType: "embed",
+				ReferencePricePer1K: miniLMReferencePricePer1K, SupplierShare: math.Inf(1),
+			},
+			want: "no explicit positive supplier share",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := BuildGovernedComparison(shadow, costs, latencies, tc.catalogue, nil, false)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error = %v, want refusal containing %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestGovernedComparisonKeepsCADBuyerAndSupplierMoneyInOneCurrency(t *testing.T) {
+	const fx = 1.37
+	settlementPrice := ceilPricePer1K(miniLMReferencePricePer1K * fx)
+	supplierCADPerUnit := settlementPrice / 1000 * miniLMSupplierShare
+	costs := syntheticUnboundEmbedCosts(t)
+	for id, cost := range costs {
+		cost.Currency = "cad"
+		cost.SupplierUSDPerUnit = supplierCADPerUnit
+		costs[id] = cost
+	}
+	catalogue := catalogueMinilm()
+	catalogue.Version = 2
+	catalogue.PriceSource = "market_board"
+	catalogue.ScheduleVersion = 2
+	catalogue.ScheduleSHA256 = strings.Repeat("c", 64)
+	catalogue.BoardSHA256 = strings.Repeat("d", 64)
+	catalogue.ReferenceCurrency = "usd"
+	catalogue.SettlementCurrency = "cad"
+	catalogue.SettlementPricePer1K = settlementPrice
+	catalogue.ReferenceToSettlementRate = fx
+	catalogue.FXRevision = "test-cad-fx"
+	catalogue.PriceFormula = "test frozen CAD authority"
+	must(t, validateCataloguePriceAuthority(catalogue))
+
+	comparison, err := BuildGovernedComparison(
+		governedComparisonShadowFixture(), costs, syntheticUnboundLatencies(costs),
+		catalogue, nil, false,
+	)
+	must(t, err)
+	for id, row := range comparison.Cells {
+		if row.Currency != "cad" || math.Abs(row.BuyerPricePer1K-settlementPrice) > 1e-15 {
+			t.Fatalf("cell %s mixed buyer currency/price: %+v", id, row)
+		}
+		if row.MercGrossPlatformAvailable || row.MercGrossPlatformUSDUnit != 0 ||
+			!strings.Contains(row.MercGrossPlatformBasis, "input/output") {
+			t.Fatalf("cell %s invented denominatorless CAD gross: %+v", id, row)
+		}
+	}
+	if comparison.Decision.Currency != "cad" {
+		t.Fatalf("decision currency = %q, want cad", comparison.Decision.Currency)
+	}
+	if got := comparison.CostComparison["currency"]; got != "cad" {
+		t.Fatalf("comparison cost currency = %v, want cad", got)
+	}
+	usdDecision := comparison.Decision
+	usdDecision.Currency = "usd"
+	usdDecision.AuthorityDigest = ""
+	usdDigest, err := digestGovernedDecision(usdDecision)
+	must(t, err)
+	if usdDigest == comparison.Decision.AuthorityDigest {
+		t.Fatal("decision authority digest does not bind its money currency")
+	}
+}
+
+func TestBuildGovernedComparisonRefusesSupplierCurrencyMismatchBeforeRanking(t *testing.T) {
+	shadow := governedComparisonShadowFixture()
+	costs := syntheticUnboundEmbedCosts(t)
+	wrong := costs[llamaEmbedCell]
+	wrong.Currency = "cad"
+	costs[llamaEmbedCell] = wrong
+	_, err := BuildGovernedComparison(
+		shadow, costs, syntheticUnboundLatencies(costs), catalogueMinilm(), nil, false)
+	if err == nil || !strings.Contains(err.Error(), "cross-currency ranking is refused") {
+		t.Fatalf("USD/CAD proxies reached governed ranking: %v", err)
+	}
+}
+
+func TestBuildGovernedComparisonNoDecisionDoesNotDivergeOrPassQuality(t *testing.T) {
+	tests := []struct {
+		name        string
+		mutate      func(*MeasuredSupplierLiabilityProxy)
+		wantQuality string
+	}{
+		{
+			name: "missing reliability evidence",
+			mutate: func(row *MeasuredSupplierLiabilityProxy) {
+				row.VerificationSamples = 0
+				row.TerminalAttempts = 0
+			},
+			wantQuality: "UNVERIFIED_INSUFFICIENT_RELIABILITY_EVIDENCE",
+		},
+		{
+			name: "verification failure",
+			mutate: func(row *MeasuredSupplierLiabilityProxy) {
+				row.VerificationFails = 1
+			},
+			wantQuality: "VERIFICATION_FAILURES",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			costs := syntheticUnboundEmbedCosts(t)
+			row := costs[llamaEmbedCell]
+			tc.mutate(&row)
+			costs[llamaEmbedCell] = row
+			cmp, err := BuildGovernedComparison(
+				governedComparisonShadowFixture(), costs, syntheticUnboundLatencies(costs),
+				catalogueMinilm(), nil, false)
+			must(t, err)
+			if cmp.Decision.ActualWinner != "" || cmp.Decision.ActualBasis != "" {
+				t.Fatalf("incomplete cohort produced an actual decision: %+v", cmp.Decision)
+			}
+			if cmp.Decision.Diverged {
+				t.Fatal("no decision was reported as a divergence")
+			}
+			if cmp.Decision.SupplierLiabilityHWClass != "" || cmp.HWClass != "" {
+				t.Fatalf("incomplete cohort invented hardware scope: decision=%q receipt=%q",
+					cmp.Decision.SupplierLiabilityHWClass, cmp.HWClass)
+			}
+			if !strings.Contains(cmp.Decision.QualityOutcome, tc.wantQuality) {
+				t.Fatalf("quality = %q, want %q", cmp.Decision.QualityOutcome, tc.wantQuality)
+			}
+			if cmp.Decision.EconomicsRefusal == "" {
+				t.Fatal("incomplete cohort has no selection refusal")
+			}
+		})
+	}
+}
+
+func TestBuildGovernedComparisonRefusesMixedSupplierLiabilityHardwareScope(t *testing.T) {
+	costs := syntheticUnboundEmbedCosts(t)
+	row := costs[llamaEmbedCell]
+	row.HWClass = "nvidia_48gb"
+	costs[llamaEmbedCell] = row
+	_, err := BuildGovernedComparison(
+		governedComparisonShadowFixture(), costs, syntheticUnboundLatencies(costs),
+		catalogueMinilm(), nil, false)
+	if err == nil || !strings.Contains(err.Error(), "hardware scope is mixed") {
+		t.Fatalf("mixed hardware scope error = %v", err)
+	}
+}
+
+func TestBuildGovernedComparisonRefusesLatencyScopeMismatch(t *testing.T) {
+	costs := syntheticUnboundEmbedCosts(t)
+	latencies := syntheticUnboundLatencies(costs)
+	row := latencies[llamaEmbedCell]
+	row.Engine = "candle"
+	latencies[llamaEmbedCell] = row
+	_, err := BuildGovernedComparison(
+		governedComparisonShadowFixture(), costs, latencies, catalogueMinilm(), nil, false)
+	if err == nil || !strings.Contains(err.Error(), "latency engine") {
+		t.Fatalf("latency scope mismatch error = %v", err)
 	}
 }
 
 // TestDecideMeasuredShadowNamesThroughputOnCostTie pins the honesty rule: a
-// cost-tie must not claim MEASURED_VERIFIED_OUTCOME_COST, and the faster cell
-// wins on MORE_THROUGHPUT_AT_EQUAL_PRICE.
+// equal supplier liability must not claim a complete cost result, and the
+// faster cell may win on MORE_THROUGHPUT_AT_EQUAL_SUPPLIER_LIABILITY.
 func TestDecideMeasuredShadowNamesThroughputOnCostTie(t *testing.T) {
-	costs := cohortEmbedCosts(t)
+	costs := syntheticUnboundEmbedCosts(t)
 	cells := []string{candleEmbedCell, llamaEmbedCell}
-	d := decideMeasuredShadow(costs, cells, candleEmbedCell)
-	if d.Basis != selectionBasisThroughputEqualPrice {
+	d := decideMeasuredSupplierLiabilityShadow(costs, cells, candleEmbedCell)
+	if d.Basis != selectionBasisThroughputEqualLiability {
 		t.Fatalf("basis = %q, want %s (cost ties; throughput decides)",
-			d.Basis, selectionBasisThroughputEqualPrice)
+			d.Basis, selectionBasisThroughputEqualLiability)
 	}
 	if d.Winner != candleEmbedCell {
 		t.Fatalf("winner = %q, want candle (faster on the governed chain: 0.21875 vs 0.28125 ms/unit)",
@@ -140,17 +525,17 @@ func TestDecideMeasuredShadowNamesThroughputOnCostTie(t *testing.T) {
 // declare a winner over a gap far below what this host can resolve. That is a
 // manufactured selection, and on a cost tie it is the only term deciding.
 func TestDecideMeasuredShadowRefusesAWinnerOnAnAbsolutelyTinyGap(t *testing.T) {
-	const supplier = 0.0060625
-	costs := map[string]MeasuredCellCost{
+	const supplier = miniLMSupplierUSDPerUnit
+	costs := map[string]MeasuredSupplierLiabilityProxy{
 		candleEmbedCell: {
-			CellID: candleEmbedCell, Samples: minCellCostSamples, Measured: true,
+			CellID: candleEmbedCell, Samples: minSupplierLiabilitySamples, Measured: true,
 			MedianMsPerUnit: 0.109, SupplierUSDPerUnit: supplier,
-			VerificationSamples: 20,
+			VerificationSamples: 20, TerminalAttempts: 20,
 		},
 		llamaEmbedCell: {
-			CellID: llamaEmbedCell, Samples: minCellCostSamples, Measured: true,
+			CellID: llamaEmbedCell, Samples: minSupplierLiabilitySamples, Measured: true,
 			MedianMsPerUnit: 0.100, SupplierUSDPerUnit: supplier,
-			VerificationSamples: 20,
+			VerificationSamples: 20, TerminalAttempts: 20,
 		},
 	}
 	// Sanity: the gap really is outside the ratio band, so only the absolute
@@ -160,7 +545,7 @@ func TestDecideMeasuredShadowRefusesAWinnerOnAnAbsolutelyTinyGap(t *testing.T) {
 		t.Fatalf("gap ratio %.4f is inside the %.4f band; this test no longer exercises the absolute floor",
 			ratio, latencyNoiseFraction)
 	}
-	d := decideMeasuredShadow(costs, []string{candleEmbedCell, llamaEmbedCell}, candleEmbedCell)
+	d := decideMeasuredSupplierLiabilityShadow(costs, []string{candleEmbedCell, llamaEmbedCell}, candleEmbedCell)
 	if d.Basis != selectionBasisTieNoDecision {
 		t.Fatalf("basis = %q, want %s; a 0.009 ms gap is not capacity",
 			d.Basis, selectionBasisTieNoDecision)
@@ -180,17 +565,17 @@ func TestDecideMeasuredShadowRefusesAWinnerOnAnAbsolutelyTinyGap(t *testing.T) {
 // from the engine parity receipt, which is why this case is worth pinning: at
 // that scale the absolute floor alone would hand out a winner.
 func TestDecideMeasuredShadowRefusesAWinnerOnAProportionallyTinyGap(t *testing.T) {
-	const supplier = 0.0060625
-	costs := map[string]MeasuredCellCost{
+	const supplier = miniLMSupplierUSDPerUnit
+	costs := map[string]MeasuredSupplierLiabilityProxy{
 		candleEmbedCell: {
-			CellID: candleEmbedCell, Samples: minCellCostSamples, Measured: true,
+			CellID: candleEmbedCell, Samples: minSupplierLiabilitySamples, Measured: true,
 			MedianMsPerUnit: 3.02, SupplierUSDPerUnit: supplier,
-			VerificationSamples: 20,
+			VerificationSamples: 20, TerminalAttempts: 20,
 		},
 		llamaEmbedCell: {
-			CellID: llamaEmbedCell, Samples: minCellCostSamples, Measured: true,
+			CellID: llamaEmbedCell, Samples: minSupplierLiabilitySamples, Measured: true,
 			MedianMsPerUnit: 3.00, SupplierUSDPerUnit: supplier,
-			VerificationSamples: 20,
+			VerificationSamples: 20, TerminalAttempts: 20,
 		},
 	}
 	// Sanity: the gap clears the absolute floor, so only the ratio band can
@@ -199,7 +584,7 @@ func TestDecideMeasuredShadowRefusesAWinnerOnAProportionallyTinyGap(t *testing.T
 		t.Fatalf("gap is inside the %.4f ms absolute floor; this test no longer exercises the ratio band",
 			latencyNoiseAbsMs)
 	}
-	d := decideMeasuredShadow(costs, []string{candleEmbedCell, llamaEmbedCell}, candleEmbedCell)
+	d := decideMeasuredSupplierLiabilityShadow(costs, []string{candleEmbedCell, llamaEmbedCell}, candleEmbedCell)
 	if d.Basis != selectionBasisTieNoDecision {
 		t.Fatalf("basis = %q, want %s; 0.7%% of a 3 ms measurement is drift, not capacity",
 			d.Basis, selectionBasisTieNoDecision)
@@ -212,20 +597,20 @@ func TestDecideMeasuredShadowRefusesAWinnerOnAProportionallyTinyGap(t *testing.T
 // TestDecideMeasuredShadowRecordsTrueTie refuses to manufacture a winner when
 // cost and latency both tie.
 func TestDecideMeasuredShadowRecordsTrueTie(t *testing.T) {
-	const supplier = 0.0060625
-	costs := map[string]MeasuredCellCost{
+	const supplier = miniLMSupplierUSDPerUnit
+	costs := map[string]MeasuredSupplierLiabilityProxy{
 		candleEmbedCell: {
-			CellID: candleEmbedCell, Samples: minCellCostSamples, Measured: true,
+			CellID: candleEmbedCell, Samples: minSupplierLiabilitySamples, Measured: true,
 			MedianMsPerUnit: 0.25, SupplierUSDPerUnit: supplier,
-			VerificationSamples: 20,
+			VerificationSamples: 20, TerminalAttempts: 20,
 		},
 		llamaEmbedCell: {
-			CellID: llamaEmbedCell, Samples: minCellCostSamples, Measured: true,
+			CellID: llamaEmbedCell, Samples: minSupplierLiabilitySamples, Measured: true,
 			MedianMsPerUnit: 0.25, SupplierUSDPerUnit: supplier,
-			VerificationSamples: 20,
+			VerificationSamples: 20, TerminalAttempts: 20,
 		},
 	}
-	d := decideMeasuredShadow(costs, []string{candleEmbedCell, llamaEmbedCell}, candleEmbedCell)
+	d := decideMeasuredSupplierLiabilityShadow(costs, []string{candleEmbedCell, llamaEmbedCell}, candleEmbedCell)
 	if d.Basis != selectionBasisTieNoDecision {
 		t.Fatalf("basis = %q, want %s", d.Basis, selectionBasisTieNoDecision)
 	}
@@ -234,36 +619,40 @@ func TestDecideMeasuredShadowRecordsTrueTie(t *testing.T) {
 	}
 }
 
-// TestDecideMeasuredShadowStrictCostWin keeps the cost basis when one cell is
-// genuinely cheaper (reliability can do that).
-func TestDecideMeasuredShadowStrictCostWin(t *testing.T) {
-	costs := map[string]MeasuredCellCost{
+// TestDecideMeasuredShadowRefusesVerificationFailedCell proves an unpaid
+// rejected result does not inflate supplier liability and cannot remain in the
+// measured cohort merely by setting Measured=true.
+func TestDecideMeasuredShadowRefusesVerificationFailedCell(t *testing.T) {
+	costs := map[string]MeasuredSupplierLiabilityProxy{
 		candleEmbedCell: {
-			CellID: candleEmbedCell, Samples: minCellCostSamples, Measured: true,
-			MedianMsPerUnit: 0.3, SupplierUSDPerUnit: 0.0060625,
-			VerificationSamples: 20,
+			CellID: candleEmbedCell, Samples: minSupplierLiabilitySamples, Measured: true,
+			MedianMsPerUnit: 0.3, SupplierUSDPerUnit: miniLMSupplierUSDPerUnit,
+			VerificationSamples: 20, TerminalAttempts: 20,
 		},
 		llamaEmbedCell: {
-			CellID: llamaEmbedCell, Samples: minCellCostSamples, Measured: true,
-			MedianMsPerUnit: 0.2, SupplierUSDPerUnit: 0.0060625,
-			// 25% verification failures → cost × 4/3, strictly more expensive.
-			VerificationSamples: 40, VerificationFails: 10,
+			CellID: llamaEmbedCell, Samples: minSupplierLiabilitySamples, Measured: true,
+			MedianMsPerUnit: 0.2, SupplierUSDPerUnit: miniLMSupplierUSDPerUnit,
+			VerificationSamples: 40, VerificationFails: 10, TerminalAttempts: 40,
 		},
 	}
-	d := decideMeasuredShadow(costs, []string{candleEmbedCell, llamaEmbedCell}, candleEmbedCell)
-	if d.Basis != selectionBasisMeasuredCost {
-		t.Fatalf("basis = %q, want %s", d.Basis, selectionBasisMeasuredCost)
+	failedPayable, ok := costs[llamaEmbedCell].ExpectedSupplierLiabilityUSDPerVerifiedUnit()
+	if !ok || math.Abs(failedPayable-miniLMSupplierUSDPerUnit) > 1e-15 {
+		t.Fatalf("verification failure changed payable supplier liability: got=%v ok=%v", failedPayable, ok)
 	}
-	if d.Winner != candleEmbedCell {
-		t.Fatalf("winner = %q, want candle (cheaper verified outcome despite slower)", d.Winner)
+	if _, ok := measuredSupplierLiability(costs, llamaEmbedCell); ok {
+		t.Fatal("verification-failed cell remained eligible as measured supplier liability")
+	}
+	d := decideMeasuredSupplierLiabilityShadow(costs, []string{candleEmbedCell, llamaEmbedCell}, candleEmbedCell)
+	if d.Basis != "" || d.Winner != "" {
+		t.Fatalf("verification-failed cohort produced a decision: %+v", d)
 	}
 }
 
 // TestRankedByMeasuredCostDoesNotClaimCostWinOnTie is the integration point:
-// ShadowSelection.rankedByMeasuredCost must surface the throughput basis.
+// ShadowSelection.rankedByMeasuredSupplierLiability must surface the throughput basis.
 func TestRankedByMeasuredCostDoesNotClaimCostWinOnTie(t *testing.T) {
-	costs := cohortEmbedCosts(t)
-	byHW := map[string]map[string]MeasuredCellCost{
+	costs := syntheticUnboundEmbedCosts(t)
+	byHW := map[string]map[string]MeasuredSupplierLiabilityProxy{
 		"apple_silicon_ultra": costs,
 	}
 	s := ShadowSelection{
@@ -277,40 +666,44 @@ func TestRankedByMeasuredCostDoesNotClaimCostWinOnTie(t *testing.T) {
 				Lifecycle: "REAL_RUNTIME_PROVEN", Routable: false, QualityTier: "UNPROVEN"},
 		},
 	}
-	out := s.rankedByMeasuredCost(byHW)
-	if out.SelectionBasis != selectionBasisThroughputEqualPrice {
-		t.Fatalf("selection_basis = %q, want %s", out.SelectionBasis, selectionBasisThroughputEqualPrice)
+	out := s.rankedByMeasuredSupplierLiability(byHW)
+	if out.SelectionBasis != selectionBasisThroughputEqualLiability {
+		t.Fatalf("selection_basis = %q, want %s", out.SelectionBasis, selectionBasisThroughputEqualLiability)
 	}
 	if out.ShadowCellID != candleEmbedCell {
 		t.Fatalf("shadow = %q, want candle", out.ShadowCellID)
 	}
-	if out.CostHWClass != "apple_silicon_ultra" {
-		t.Fatalf("hw = %q", out.CostHWClass)
+	if out.SupplierLiabilityHWClass != "apple_silicon_ultra" {
+		t.Fatalf("hw = %q", out.SupplierLiabilityHWClass)
+	}
+	if out.SupplierLiabilityHardwareIdentity != "Apple M3 Ultra" {
+		t.Fatalf("hardware identity = %q", out.SupplierLiabilityHardwareIdentity)
 	}
 	// Measured fields populated on candidates.
 	for _, c := range out.Considered {
-		if !c.CostMeasured || c.VerifiedUSDPerUnit <= 0 || c.MedianMsPerUnit <= 0 {
+		if !c.SupplierLiabilityMeasured || c.SupplierLiabilityUSDPerVerifiedUnit <= 0 || c.MedianMsPerUnit <= 0 {
 			t.Fatalf("candidate not fully measured: %+v", c)
 		}
 	}
 }
 
-// TestGovernedComparisonWillNotRuleOnPriorFromUnboundActuals pins the rule that
-// cost the prior lane its headline: an artifact that cannot name the binary it
-// timed cannot overturn a claim about which binary is faster.
+// TestGovernedComparisonKeepsSyntheticInputsUnbound pins the evidence boundary:
+// arithmetic fixtures may exercise comparison structure, but remain UNBOUND in
+// every output and cannot rule on the latency prior or reach a receipt writer.
 //
-// The cohort actuals really do put candle ahead, 0.21875 against 0.28125 ms per
-// unit. Ruling FALSIFIED on them would still be wrong, because the file they
-// come from is missing source_commit, build_digest, model_artifact_digest and
-// raw_samples -- it is one unnameable number contradicting another. The
-// comparison records UNRESOLVED_UNBOUND_ACTUALS and leaves the prior standing
-// until a bound measurement rules on it.
-//
-// The shadow ranking is still allowed to run: ordering two cells for a decision
-// that promotes nothing is a weaker act than publishing an engine verdict, and
-// the receipt carries the provenance either way.
-func TestGovernedComparisonWillNotRuleOnPriorFromUnboundActuals(t *testing.T) {
-	costs := cohortEmbedCosts(t)
+// The synthetic rows put candle ahead, 0.21875 against 0.28125 ms per unit.
+// Those numbers are useful for the pure arithmetic test below, but their
+// UNBOUND label cannot authorize the arithmetic winner or overturn a prior claim.
+func TestGovernedComparisonKeepsSyntheticInputsUnbound(t *testing.T) {
+	costs := syntheticUnboundEmbedCosts(t)
+	latencies := syntheticUnboundLatencies(costs)
+	if binding := actualsBinding(costs); binding != BindingUnbound {
+		t.Fatalf("synthetic actuals binding = %q, want %s", binding, BindingUnbound)
+	}
+	if err := requireBoundGovernedInputs(costs, latencies); err == nil ||
+		!strings.Contains(err.Error(), "cannot order actual_winner") {
+		t.Fatalf("UNBOUND actuals did not stop before comparison construction: %v", err)
+	}
 	shadow := ShadowSelection{
 		JobType: "embed", ModelRef: "all-minilm-l6-v2",
 		RoutedCellID: candleEmbedCell, ShadowCellID: candleEmbedCell,
@@ -328,32 +721,22 @@ func TestGovernedComparisonWillNotRuleOnPriorFromUnboundActuals(t *testing.T) {
 			{CellID: "vllm-cuda-minilm-embed", Reason: "no matched identity and quality on paid CUDA; not eligible"},
 		},
 	}
-	cmp, err := BuildGovernedComparison(shadow, costs, catalogueMinilm(), map[string]any{
-		"note": "test fixture; live writer records real uptime",
+	cmp, err := BuildGovernedComparison(shadow, costs, latencies, catalogueMinilm(), map[string]any{
+		"note": "synthetic arithmetic fixture; no evidence authority",
 	}, true)
 	must(t, err)
-
-	// The actuals favour candle, and that is still not a verdict.
-	status, _ := cmp.PriorThroughputClaim["status"].(string)
-	if status != "UNRESOLVED_UNBOUND_ACTUALS" {
-		t.Fatalf("prior claim status = %q, want UNRESOLVED_UNBOUND_ACTUALS; "+
-			"the cohort artifact cannot name which candle or llama.cpp build it timed", status)
+	if s, _ := cmp.PriorThroughputClaim["status"].(string); s != "UNRESOLVED_UNBOUND_ACTUALS" {
+		t.Fatalf("synthetic actuals status = %q, want UNRESOLVED_UNBOUND_ACTUALS", s)
 	}
-	if binding, _ := cmp.ActualsBinding["status"].(string); binding != BindingUnbound {
-		t.Fatalf("actuals_binding = %q, want UNBOUND", binding)
+	if s, _ := cmp.ActualsBinding["status"].(string); s != BindingUnbound {
+		t.Fatalf("combined synthetic binding = %q, want %s", s, BindingUnbound)
 	}
-
-	// A bound actual with the same numbers may rule, so the gate is provenance
-	// and not a blanket refusal to ever decide.
-	bound := cohortEmbedCosts(t)
-	for id, c := range bound {
-		c.SourceBinding = BindingBound
-		bound[id] = c
+	if cmp.Decision.SupplierLiabilityHWClass != "apple_silicon_ultra" {
+		t.Fatalf("exact common hardware scope = %q, want apple_silicon_ultra",
+			cmp.Decision.SupplierLiabilityHWClass)
 	}
-	boundCmp, err := BuildGovernedComparison(shadow, bound, catalogueMinilm(), nil, true)
-	must(t, err)
-	if s, _ := boundCmp.PriorThroughputClaim["status"].(string); s != "FALSIFIED_CANDLE_FASTER_ON_GOVERNED_CONTRACT" {
-		t.Fatalf("bound actuals status = %q, want FALSIFIED once provenance exists", s)
+	if cmp.Decision.QualityOutcome != "UNRESOLVED_UNBOUND_RELIABILITY_ACTUALS" {
+		t.Fatalf("synthetic cohort claimed authoritative quality = %q", cmp.Decision.QualityOutcome)
 	}
 
 	// Predicted winner under the prior is llama; actual is candle.
@@ -361,13 +744,13 @@ func TestGovernedComparisonWillNotRuleOnPriorFromUnboundActuals(t *testing.T) {
 		t.Fatalf("predicted winner = %q, want llama under 2.1× prior", cmp.Decision.PredictedWinner)
 	}
 	if cmp.Decision.ActualWinner != candleEmbedCell {
-		t.Fatalf("actual winner = %q, want candle", cmp.Decision.ActualWinner)
+		t.Fatalf("arithmetic winner = %q, want candle", cmp.Decision.ActualWinner)
 	}
-	if cmp.Decision.ActualBasis != selectionBasisThroughputEqualPrice {
+	if cmp.Decision.ActualBasis != selectionBasisThroughputEqualLiability {
 		t.Fatalf("actual basis = %q", cmp.Decision.ActualBasis)
 	}
-	if !strings.Contains(cmp.Decision.SelectionReason, "more throughput at equal price") {
-		t.Fatalf("selection reason does not name throughput-at-equal-price: %q",
+	if !strings.Contains(cmp.Decision.SelectionReason, "more throughput at equal supplier liability") {
+		t.Fatalf("selection reason does not name throughput-at-equal-supplier-liability: %q",
 			cmp.Decision.SelectionReason)
 	}
 	if strings.Contains(strings.ToLower(cmp.Decision.SelectionReason), "cheaper") {
@@ -375,16 +758,21 @@ func TestGovernedComparisonWillNotRuleOnPriorFromUnboundActuals(t *testing.T) {
 	}
 
 	// Cost ties; cost regret on the predicted winner is ~0 (catalogue form).
-	if math.Abs(cmp.Decision.CostRegretUSD) > 1e-12 {
+	if math.Abs(cmp.Decision.SupplierLiabilityPredictionErrorUSD) > 1e-12 {
 		// Predicted cost uses catalogue; actual also cancelled form at equal
 		// reliability — should be zero. If not, surface the number.
-		t.Logf("cost regret on predicted winner = %.17f (expected ~0)", cmp.Decision.CostRegretUSD)
+		t.Logf("supplier-liability prediction error = %.17f (expected ~0)", cmp.Decision.SupplierLiabilityPredictionErrorUSD)
 	}
 	candle := cmp.Cells[candleEmbedCell]
 	llama := cmp.Cells[llamaEmbedCell]
-	if math.Abs(candle.ActualPhysicalCostUSDUnit-llama.ActualPhysicalCostUSDUnit) > 1e-12 {
-		t.Fatalf("actual costs must tie: candle=%v llama=%v",
-			candle.ActualPhysicalCostUSDUnit, llama.ActualPhysicalCostUSDUnit)
+	if candle.LatencySourceBinding != BindingUnbound || candle.SupplierLiabilitySourceBinding != BindingUnbound ||
+		llama.LatencySourceBinding != BindingUnbound || llama.SupplierLiabilitySourceBinding != BindingUnbound {
+		t.Fatalf("synthetic cell rows escaped UNBOUND: candle=%+v llama=%+v", candle, llama)
+	}
+	if math.Abs(candle.ActualSupplierLiabilityUSDPerVerifiedUnit-llama.ActualSupplierLiabilityUSDPerVerifiedUnit) > 1e-12 {
+		t.Fatalf("actual supplier liabilities must tie: candle=%v llama=%v",
+			candle.ActualSupplierLiabilityUSDPerVerifiedUnit,
+			llama.ActualSupplierLiabilityUSDPerVerifiedUnit)
 	}
 	if candle.BuyerPricePer1K != llama.BuyerPricePer1K ||
 		candle.SupplierEntitlementUSDUnit != llama.SupplierEntitlementUSDUnit {
@@ -401,7 +789,7 @@ func TestGovernedComparisonWillNotRuleOnPriorFromUnboundActuals(t *testing.T) {
 			llama.LatencyRegretMsPerUnit)
 	}
 	t.Logf("llama latency regret (predicted−actual) = %.6f ms/unit; cost regret = %.12e USD/unit",
-		llama.LatencyRegretMsPerUnit, llama.CostRegretUSDPerUnit)
+		llama.LatencyRegretMsPerUnit, llama.SupplierLiabilityPredictionErrorUSDPerUnit)
 
 	// Absolute delta, not ratio-led.
 	delta, _ := cmp.LatencyComparison["absolute_delta_ms_per_unit"].(float64)
@@ -421,10 +809,68 @@ func TestGovernedComparisonWillNotRuleOnPriorFromUnboundActuals(t *testing.T) {
 	}
 }
 
+func TestBoundEngineParityReceiptIsLatencyOnlyAndCannotAuthorizeSelection(t *testing.T) {
+	latencies := boundEmbedLatencies(t)
+	if len(latencies) != 2 {
+		t.Fatalf("BOUND engine-parity latency rows = %d, want 2", len(latencies))
+	}
+	if status := latencyActualsBinding(latencies); status != BindingBound {
+		t.Fatalf("latency binding = %q, want %s", status, BindingBound)
+	}
+
+	// The arithmetic fixture deliberately prefers Candle; the independent BOUND
+	// latency receipt currently prefers llama.cpp. If Build accidentally copied
+	// the latency receipt into the selector proxy, this winner would flip.
+	costs := syntheticUnboundEmbedCosts(t)
+	_, err := BuildGovernedComparison(
+		governedComparisonShadowFixture(), costs, latencies, catalogueMinilm(), nil, true)
+	if err == nil || !strings.Contains(err.Error(), "latency hardware") {
+		t.Fatalf("legacy BOUND latency without exact device identity entered selector authority: %v", err)
+	}
+	if err := requireBoundGovernedInputs(costs, latencies); err == nil {
+		t.Fatal("latency-only receipt passed the BOUND governed-input writer gate")
+	}
+}
+
+func TestBoundLatencyWithoutSupplierActualsProducesNoSelectionOrQualityVerdict(t *testing.T) {
+	latencies := boundEmbedLatencies(t)
+	if len(latencies) != 2 {
+		t.Fatalf("BOUND engine-parity latency rows = %d, want 2", len(latencies))
+	}
+	cmp, err := BuildGovernedComparison(
+		governedComparisonShadowFixture(), nil, latencies, catalogueMinilm(), nil, true)
+	must(t, err)
+	if cmp.Decision.ActualWinner != "" || cmp.Decision.ActualBasis != "" || cmp.Decision.Diverged {
+		t.Fatalf("latency-only input produced a selector decision: %+v", cmp.Decision)
+	}
+	if cmp.Decision.QualityOutcome != "UNVERIFIED_INSUFFICIENT_RELIABILITY_EVIDENCE" {
+		t.Fatalf("latency-only input produced quality outcome %q", cmp.Decision.QualityOutcome)
+	}
+	if cmp.Decision.SupplierLiabilityHWClass != "" || cmp.HWClass != "" {
+		t.Fatalf("latency-only input invented supplier-liability HW scope: decision=%q receipt=%q",
+			cmp.Decision.SupplierLiabilityHWClass, cmp.HWClass)
+	}
+	if got, _ := cmp.ActualsBinding["status"].(string); got != BindingUnbound {
+		t.Fatalf("latency-only combined binding = %q, want %s", got, BindingUnbound)
+	}
+	if status, _ := cmp.PriorThroughputClaim["status"].(string); strings.Contains(status, "UNBOUND") || status == "UNVERIFIED_NO_ACTUAL" {
+		t.Fatalf("BOUND latency did not remain available for latency-prior evaluation: %q", status)
+	}
+	for id, row := range cmp.Cells {
+		if row.ActualLatencyMsPerUnit <= 0 || row.LatencySourceBinding != BindingBound {
+			t.Fatalf("cell %q lost BOUND latency: %+v", id, row)
+		}
+		if row.ActualSupplierLiabilityUSDPerVerifiedUnit != 0 ||
+			row.SupplierLiabilitySourceBinding != BindingUnbound {
+			t.Fatalf("cell %q latency minted supplier actual: %+v", id, row)
+		}
+	}
+}
+
 // TestGovernedComparisonNoPriorKeepsLadderPrediction covers the path where we
 // do not inject the 2.1× prior: predicted equals the ladder shadow choice.
 func TestGovernedComparisonNoPriorKeepsLadderPrediction(t *testing.T) {
-	costs := cohortEmbedCosts(t)
+	costs := syntheticUnboundEmbedCosts(t)
 	shadow := ShadowSelection{
 		JobType: "embed", ModelRef: "all-minilm-l6-v2",
 		RoutedCellID: candleEmbedCell, ShadowCellID: candleEmbedCell,
@@ -436,7 +882,7 @@ func TestGovernedComparisonNoPriorKeepsLadderPrediction(t *testing.T) {
 				Lifecycle: "REAL_RUNTIME_PROVEN", Routable: false, QualityTier: "UNPROVEN", Verification: "cosine"},
 		},
 	}
-	cmp, err := BuildGovernedComparison(shadow, costs, catalogueMinilm(), nil, false)
+	cmp, err := BuildGovernedComparison(shadow, costs, syntheticUnboundLatencies(costs), catalogueMinilm(), nil, false)
 	must(t, err)
 	if cmp.Decision.PredictedWinner != candleEmbedCell {
 		t.Fatalf("predicted = %q", cmp.Decision.PredictedWinner)
@@ -449,34 +895,25 @@ func TestGovernedComparisonNoPriorKeepsLadderPrediction(t *testing.T) {
 	if math.Abs(cmp.Decision.LatencyRegretMs) > 1e-12 {
 		t.Fatalf("without prior, latency regret should be ~0, got %v", cmp.Decision.LatencyRegretMs)
 	}
-	if math.Abs(cmp.Decision.CostRegretUSD) > 1e-12 {
-		t.Fatalf("cost regret should be ~0, got %v", cmp.Decision.CostRegretUSD)
+	if math.Abs(cmp.Decision.SupplierLiabilityPredictionErrorUSD) > 1e-12 {
+		t.Fatalf("supplier-liability prediction error should be ~0, got %v",
+			cmp.Decision.SupplierLiabilityPredictionErrorUSD)
 	}
 }
 
-// TestEconomicSelectorTwoCases proves the selector is economic, not speed-only.
+// TestEconomicSelectorTwoCases exercises selector arithmetic only. Every row is
+// an unmistakably UNBOUND unit fixture; this test is not evidence and cannot be
+// used by either receipt writer.
 //
-// Case A (live latencies, equal reliability): llama.cpp is faster at equal
-// verified-outcome cost → MORE_THROUGHPUT_AT_EQUAL_PRICE picks llama; selection
-// latency/cost regret both 0.
+// Case A (synthetic latencies, equal reliability): the faster arm may win at equal
+// measured supplier liability; this is a throughput claim, not a cost claim.
 //
-// Case B (same live latencies; faster cell has verification failures so its
-// verified-outcome cost rises): the slower cell is strictly cheaper per verified
-// outcome → MEASURED_VERIFIED_OUTCOME_COST picks the slower cell. A speed-only
-// selector would pick the faster cell and pay positive cost regret.
-//
-// Case B is constructed: the reliability differential is injected on top of live
-// (or cohort) latencies so the projection, not a hardcoded engine preference,
-// decides. That is the only honest way to show the slower-wins branch on a host
-// where both arms currently pass verification equally.
+// Case B gives the faster fixture verification failures. Rejected work is
+// unpaid, so the failure must not inflate supplier liability; it makes that arm
+// ineligible and the comparison refuses to select.
 func TestEconomicSelectorTwoCases(t *testing.T) {
-	live := boundEmbedCosts(t)
-	source := "evidence/perf/selector/engine-parity-metal-embed-latest.json (BOUND)"
-	if live == nil {
-		live = cohortEmbedCosts(t)
-		source = "evidence/perf/selector/paired-cohort-embed.json (UNBOUND cohort fallback)"
-	}
-	t.Logf("latency source: %s", source)
+	live := syntheticUnboundEmbedCosts(t)
+	t.Log("source: synthetic UNBOUND selector arithmetic fixture")
 
 	cells := []string{candleEmbedCell, llamaEmbedCell}
 	candleMs := live[candleEmbedCell].MedianMsPerUnit
@@ -485,7 +922,7 @@ func TestEconomicSelectorTwoCases(t *testing.T) {
 		t.Fatal("missing median_ms_per_unit on live/cohort costs")
 	}
 
-	// ── Case A: equal reliability, faster wins at equal price ──────────────
+	// ── Case A: equal reliability, faster wins at equal supplier liability ─
 	caseA := cloneMeasuredCosts(live)
 	// Force equal clean verification so cost ties by construction.
 	for id, c := range caseA {
@@ -495,18 +932,18 @@ func TestEconomicSelectorTwoCases(t *testing.T) {
 		c.TerminalFails = 0
 		caseA[id] = c
 	}
-	dA := decideMeasuredShadow(caseA, cells, candleEmbedCell)
+	dA := decideMeasuredSupplierLiabilityShadow(caseA, cells, candleEmbedCell)
 	wantAWinner := candleEmbedCell
 	if llamaMs < candleMs && !latenciesTie(llamaMs, candleMs) {
 		wantAWinner = llamaEmbedCell
 	} else if candleMs < llamaMs && !latenciesTie(llamaMs, candleMs) {
 		wantAWinner = candleEmbedCell
 	}
-	if dA.Basis != selectionBasisThroughputEqualPrice && dA.Basis != selectionBasisTieNoDecision {
-		t.Fatalf("case A basis = %q, want throughput-at-equal-price or tie", dA.Basis)
+	if dA.Basis != selectionBasisThroughputEqualLiability && dA.Basis != selectionBasisTieNoDecision {
+		t.Fatalf("case A basis = %q, want throughput-at-equal-liability or tie", dA.Basis)
 	}
 	if dA.Winner != wantAWinner && dA.Basis != selectionBasisTieNoDecision {
-		t.Fatalf("case A winner = %q, want %q (faster at equal VO cost)", dA.Winner, wantAWinner)
+		t.Fatalf("case A winner = %q, want %q (faster at equal supplier liability)", dA.Winner, wantAWinner)
 	}
 	// Selection regret on the measured axes.
 	latRegA, costRegA := selectionRegretFromCosts(caseA, dA.Winner)
@@ -519,9 +956,10 @@ func TestEconomicSelectorTwoCases(t *testing.T) {
 	t.Logf("case A: winner=%s basis=%s lat_regret=%.6f ms/unit cost_regret=%.6e USD/unit (faster=%s)",
 		dA.Winner, dA.Basis, latRegA, costRegA, wantAWinner)
 
-	// ── Case B: slower cell cheaper on verified-outcome cost ────────────────
-	// Make the FASTER cell fail verification 25% of the time so VO cost × 4/3.
-	// The slower cell stays clean. Selector must pick slower if it is economic.
+	// ── Case B: unequal liability refuses a total-cost decision ─────────────
+	// Make the FASTER cell fail verification 25% of the time. The failed work is
+	// unpaid, so payable supplier liability must remain unchanged while the arm
+	// becomes ineligible for measured selection.
 	caseB := cloneMeasuredCosts(live)
 	fasterID := wantAWinner
 	slowerID := candleEmbedCell
@@ -541,20 +979,20 @@ func TestEconomicSelectorTwoCases(t *testing.T) {
 		c.TerminalAttempts = 40
 		c.TerminalFails = 0
 		if id == fasterID {
-			c.VerificationFails = 10 // 25% fail → reliability multiplies cost
+			c.VerificationFails = 10
 		} else {
 			c.VerificationFails = 0
 		}
 		caseB[id] = c
 	}
-	// Confirm construction: faster is more expensive per verified outcome.
-	fastVO, okF := caseB[fasterID].ExpectedVerifiedOutcomeUSDPerUnit()
-	slowVO, okS := caseB[slowerID].ExpectedVerifiedOutcomeUSDPerUnit()
+	// Confirm construction: verification failure does not invent a payout.
+	fastVO, okF := caseB[fasterID].ExpectedSupplierLiabilityUSDPerVerifiedUnit()
+	slowVO, okS := caseB[slowerID].ExpectedSupplierLiabilityUSDPerVerifiedUnit()
 	if !okF || !okS {
 		t.Fatal("case B VO costs unavailable")
 	}
-	if !(slowVO < fastVO) || costsTieUSD(slowVO, fastVO) {
-		t.Fatalf("case B construction failed: slower VO=%v faster VO=%v (need slower strictly cheaper)",
+	if !supplierLiabilitiesTieUSD(slowVO, fastVO) {
+		t.Fatalf("verification failure changed payable supplier liability: slower=%v faster=%v",
 			slowVO, fastVO)
 	}
 	if !(caseB[fasterID].MedianMsPerUnit < caseB[slowerID].MedianMsPerUnit) {
@@ -562,40 +1000,19 @@ func TestEconomicSelectorTwoCases(t *testing.T) {
 			caseB[fasterID].MedianMsPerUnit, caseB[slowerID].MedianMsPerUnit)
 	}
 
-	dB := decideMeasuredShadow(caseB, cells, fasterID /* routed = speed-preferring */)
-	if dB.Basis != selectionBasisMeasuredCost {
-		t.Fatalf("case B basis = %q, want %s (VO cost must decide)", dB.Basis, selectionBasisMeasuredCost)
+	dB := decideMeasuredSupplierLiabilityShadow(caseB, cells, fasterID /* routed = speed-preferring */)
+	if dB.Basis != "" || dB.Winner != "" {
+		t.Fatalf("case B selected with an ineligible verification-failed arm: %+v", dB)
 	}
-	if dB.Winner != slowerID {
-		t.Fatalf("case B winner = %q, want slower cell %q (cheaper verified outcome)", dB.Winner, slowerID)
+	if _, ok := measuredSupplierLiability(caseB, fasterID); ok {
+		t.Fatal("verification-failed arm remained eligible for measured selection")
 	}
-	latRegB, costRegB := selectionRegretFromCosts(caseB, dB.Winner)
-	// Cost regret must be 0 (picked cheapest). Latency regret is positive
-	// because the cheaper cell is slower — that is the economic trade the
-	// selector is allowed to make.
-	if costRegB > 1e-12 {
-		t.Fatalf("case B cost selection regret = %v, want 0 (picked cheapest VO)", costRegB)
-	}
-	if latRegB <= 0 {
-		t.Fatalf("case B latency selection regret = %v, want >0 (accepted slower for cheaper VO)", latRegB)
-	}
-	// Counterfactual: always-faster selector would pick fasterID and pay cost regret.
-	alwaysFastCostRegret := fastVO - slowVO
-	if alwaysFastCostRegret <= 0 {
-		t.Fatal("always-faster counterfactual has no cost regret to expose")
-	}
-	t.Logf("case B: winner=%s (slower) basis=%s lat_regret=%.6f ms/unit cost_regret=%.6e; "+
-		"always-faster would pay cost_regret=%.6e USD/unit",
-		dB.Winner, dB.Basis, latRegB, costRegB, alwaysFastCostRegret)
-
-	// Projection explanation: not a hardcoded engine preference.
-	if dB.Winner == slowerID && dB.Basis == selectionBasisMeasuredCost {
-		t.Logf("case B deciding term is verified-outcome cost (reliability-adjusted), not engine id")
-	}
+	t.Logf("case B: selection refused; failed=%s payable_liability_unchanged=%.6e USD/unit",
+		fasterID, fastVO)
 }
 
-func cloneMeasuredCosts(in map[string]MeasuredCellCost) map[string]MeasuredCellCost {
-	out := make(map[string]MeasuredCellCost, len(in))
+func cloneMeasuredCosts(in map[string]MeasuredSupplierLiabilityProxy) map[string]MeasuredSupplierLiabilityProxy {
+	out := make(map[string]MeasuredSupplierLiabilityProxy, len(in))
 	for k, v := range in {
 		out[k] = v
 	}
@@ -604,7 +1021,7 @@ func cloneMeasuredCosts(in map[string]MeasuredCellCost) map[string]MeasuredCellC
 
 // selectionRegretFromCosts is chosen − best_available on latency (ms/unit) and
 // verified-outcome cost (USD/unit). Absolute units only.
-func selectionRegretFromCosts(costs map[string]MeasuredCellCost, chosen string) (latMs, costUSD float64) {
+func selectionRegretFromCosts(costs map[string]MeasuredSupplierLiabilityProxy, chosen string) (latMs, costUSD float64) {
 	ch, ok := costs[chosen]
 	if !ok || !ch.Measured {
 		return 0, 0
@@ -618,13 +1035,13 @@ func selectionRegretFromCosts(costs map[string]MeasuredCellCost, chosen string) 
 	if ch.MedianMsPerUnit > 0 && bestMs > 0 {
 		latMs = ch.MedianMsPerUnit - bestMs
 	}
-	chVO, okCh := ch.ExpectedVerifiedOutcomeUSDPerUnit()
+	chVO, okCh := ch.ExpectedSupplierLiabilityUSDPerVerifiedUnit()
 	if !okCh {
 		return latMs, 0
 	}
 	bestVO := chVO
 	for _, c := range costs {
-		if vo, ok := c.ExpectedVerifiedOutcomeUSDPerUnit(); ok && vo < bestVO {
+		if vo, ok := c.ExpectedSupplierLiabilityUSDPerVerifiedUnit(); ok && vo < bestVO {
 			bestVO = vo
 		}
 	}
@@ -632,22 +1049,27 @@ func selectionRegretFromCosts(costs map[string]MeasuredCellCost, chosen string) 
 	return latMs, costUSD
 }
 
-// TestWriteGovernedComparisonReceipt is env-gated. Set
-// MERC_GOVERNED_COMPARISON_RECEIPT=1 to emit the bound receipt under
-// evidence/perf/selector/governed-candle-vs-llama-shadow-decision.json.
+// TestWriteGovernedComparisonReceipt is an env-gated legacy writer. It fails
+// closed while the independent supplier-liability cohort and this output
+// authority id are WITHDRAWN. A replacement must use new BOUND inputs and a new
+// output path rather than relabel either historical artifact.
 func TestWriteGovernedComparisonReceipt(t *testing.T) {
 	if os.Getenv("MERC_GOVERNED_COMPARISON_RECEIPT") != "1" {
 		t.Skip("MERC_GOVERNED_COMPARISON_RECEIPT is not 1; receipt writer is env-gated")
 	}
-	// Prefer the bound interleaved measurement. The cohort fixture only stands
-	// in when no bound receipt exists, and it is refused a verdict when it does.
-	costs := boundEmbedCosts(t)
-	actualsSource := "evidence/perf/selector/engine-parity-metal-embed-latest.json (BOUND interleaved parity)"
-	if costs == nil {
-		costs = cohortEmbedCosts(t)
-		actualsSource = "evidence/perf/selector/paired-cohort-embed.json (UNBOUND cohort; verdict withheld)"
+	latencies := boundEmbedLatencies(t)
+	if latencies == nil {
+		t.Fatal("governed comparison latency actuals unavailable: engine-parity receipt is absent, invalid, or not BOUND")
 	}
-	t.Logf("actuals source: %s", actualsSource)
+	// The latency receipt cannot supply money or reliability. The only historical
+	// settlement/verification cohort at this authority id is WITHDRAWN, so this
+	// writer fails here until a new BOUND authority path exists.
+	costs, err := requireRankableCohortActuals(cohortReceiptPath())
+	mustf(t, err, "governed comparison supplier-liability actuals unavailable: %v")
+	mustf(t, requireBoundGovernedInputs(costs, latencies),
+		"governed comparison inputs unavailable: %v")
+	t.Log("latency source: evidence/perf/selector/engine-parity-metal-embed-latest.json (BOUND latency only)")
+	t.Log("supplier-liability source: evidence/perf/selector/paired-cohort-embed.json (independent BOUND settlement/verification required)")
 	// Plan a real shadow selection so eligibility / exclusions are live.
 	withActivationRestored(t)
 	decision, err := buildWorkloadDecision(jobSubmit{
@@ -660,7 +1082,7 @@ func TestWriteGovernedComparisonReceipt(t *testing.T) {
 	shadow, err := planShadowSelection(decision)
 	must(t, err)
 	// Apply measured ranking the same way createJob would after costs exist.
-	shadow = shadow.rankedByMeasuredCost(map[string]map[string]MeasuredCellCost{
+	shadow = shadow.rankedByMeasuredSupplierLiability(map[string]map[string]MeasuredSupplierLiabilityProxy{
 		"apple_silicon_ultra": costs,
 	})
 
@@ -673,7 +1095,7 @@ func TestWriteGovernedComparisonReceipt(t *testing.T) {
 		"goos_goarch":  "darwin/arm64",
 	}
 
-	cmp, err := BuildGovernedComparison(shadow, costs, catalogueMinilm(), hostLoad, true)
+	cmp, err := BuildGovernedComparison(shadow, costs, latencies, catalogueMinilm(), hostLoad, true)
 	must(t, err)
 
 	// Serialise as map for the bound writer.
@@ -686,390 +1108,43 @@ func TestWriteGovernedComparisonReceipt(t *testing.T) {
 	must(t, os.MkdirAll(dir, 0o755))
 	path := filepath.Join(dir, "governed-candle-vs-llama-shadow-decision.json")
 
-	// The bound writer would stamp BOUND from THIS harness's identity, which
-	// names who ran the arithmetic. The timings came out of
-	// evidence/perf/selector/paired-cohort-embed.json, which is UNBOUND and
-	// missing source_commit, build_digest, model_artifact_digest and
-	// raw_samples -- it cannot name which candle build or which llama.cpp build
-	// it timed. Stamping this document BOUND would launder that gap into
-	// authority the numbers never had, so the receipt takes the binding of its
-	// weakest input and says why in the payload.
-	if actualsBinding(costs) != BindingBound {
-		payload["binding_status"] = BindingUnbound
-		payload["unbound_reason"] = "actuals read from an UNBOUND cohort artifact " +
-			"(evidence/perf/selector/paired-cohort-embed.json, missing source_commit, build_digest, " +
-			"model_artifact_digest, image_digest, corpus_digest, exact_config, raw_samples); " +
-			"the decision structure is exercised, the engine ordering is not established"
-		writePlainJSON(t, path, payload)
-		t.Logf("wrote UNBOUND governed comparison %s (actuals cannot name their producer)", path)
-	} else if id, bin, err := DefaultBoundIdentity("..",
+	// Evidence admission above guarantees that derived comparison authority can
+	// never be minted from UNBOUND or WITHDRAWN actuals.
+	id, bin, err := DefaultBoundIdentity("..",
 		"control/runtime_governed_comparison_test.go",
 		"governed embed comparison candle vs llama.cpp + one shadow decision; predictedFromPrior=true",
-		"actuals from a BOUND cell-cost measurement"); err == nil {
-		if werr := WriteBoundEvidenceJSON(EvidenceWriteRequest{
-			RepoRoot: "..", Path: path, Payload: payload,
-			Identity: id, BuildBinaryPath: bin,
-		}); werr != nil {
-			t.Logf("bound writer failed (%v); writing plain JSON", werr)
-			writePlainJSON(t, path, payload)
-		}
-	} else {
-		t.Logf("bound identity unavailable (%v); writing plain JSON", err)
-		writePlainJSON(t, path, payload)
-	}
+		"latency from a BOUND engine-parity receipt; supplier liability/reliability from an independent BOUND settlement/verification cohort")
+	mustf(t, err, "bound identity unavailable; evidence was not written: %v")
+	mustf(t, WriteBoundEvidenceJSON(EvidenceWriteRequest{
+		RepoRoot: "..", Path: path, Payload: payload,
+		Identity: id, BuildBinaryPath: bin,
+	}), "bound evidence write refused: %v; a withdrawn authority is sticky — use a new authority path/id")
 	t.Logf("wrote governed comparison + shadow decision %s", path)
 	t.Logf("predicted_winner=%s actual_winner=%s basis=%s prediction_cost_regret=%.6e prediction_latency_regret_ms=%.6f selection_cost_regret=%.6e selection_latency_regret_ms=%.6f promoted=%v",
 		cmp.Decision.PredictedWinner, cmp.Decision.ActualWinner, cmp.Decision.ActualBasis,
-		cmp.Decision.CostRegretUSD, cmp.Decision.LatencyRegretMs,
-		cmp.Decision.SelectionCostRegretUSD, cmp.Decision.SelectionLatencyRegretMs,
+		cmp.Decision.SupplierLiabilityPredictionErrorUSD, cmp.Decision.LatencyRegretMs,
+		cmp.Decision.SelectionSupplierLiabilityRegretUSD, cmp.Decision.SelectionLatencyRegretMs,
 		cmp.Decision.Promoted)
 }
 
-// TestWriteEconomicSelectorProofReceipt is env-gated. Set
-// MERC_ECONOMIC_SELECTOR_PROOF_RECEIPT=1 to emit the dual-case proof under
-// evidence/perf/selector/economic-selector-candle-vs-llama-proof.json.
-//
-// The proof reuses live bound latencies from engine-parity-metal-embed-latest.json
-// and constructs the reliability branch that shows the slower cell can win.
+// TestWriteEconomicSelectorProofReceipt is env-gated and intentionally fail-closed.
+// The former writer combined BOUND latency with a constructed reliability branch
+// and could stamp the derived arithmetic BOUND. A replacement proof requires a
+// new authority path backed by an observed settlement/verification cohort.
 func TestWriteEconomicSelectorProofReceipt(t *testing.T) {
 	if os.Getenv("MERC_ECONOMIC_SELECTOR_PROOF_RECEIPT") != "1" {
 		t.Skip("MERC_ECONOMIC_SELECTOR_PROOF_RECEIPT is not 1; receipt writer is env-gated")
 	}
-	live := boundEmbedCosts(t)
-	actualsSource := "evidence/perf/selector/engine-parity-metal-embed-latest.json"
-	actualsBound := live != nil
-	if live == nil {
-		live = cohortEmbedCosts(t)
-		actualsSource = "evidence/perf/selector/paired-cohort-embed.json"
+	latencies := boundEmbedLatencies(t)
+	if latencies == nil {
+		t.Fatal("economic selector latency actuals unavailable: engine-parity receipt is absent, invalid, or not BOUND")
 	}
-
-	// Bootstrap interval on paired (or arm) latency delta from the bound receipt.
-	bootstrap := map[string]any{
-		"unit": "interleaved_pair_delta_ms_per_unit (llama − candle)",
-		"note": "percentile CI via resampling with replacement over timed pairs",
-	}
-	if raw, err := os.ReadFile(filepath.Join("..", "evidence", "perf", "selector",
-		"engine-parity-metal-embed-latest.json")); err == nil {
-		var doc struct {
-			Comparison struct {
-				Paired []float64 `json:"paired_deltas_ms_per_unit"`
-				Delta  float64   `json:"delta_ms_per_unit_p50"`
-				MDE    float64   `json:"mde_ms_per_unit_approx"`
-				Faster string    `json:"faster_arm"`
-			} `json:"comparison"`
-			Arms map[string]struct {
-				P50 float64   `json:"ms_per_unit_p50"`
-				P95 float64   `json:"ms_per_unit_p95"`
-				P99 float64   `json:"ms_per_unit_p99"`
-				Raw []float64 `json:"raw_ms_per_unit"`
-			} `json:"arms"`
-			TimedPairs int `json:"timed_pairs"`
-			Warmup     int `json:"warmup_per_arm"`
-			Batch      int `json:"batch"`
-		}
-		if json.Unmarshal(raw, &doc) == nil && len(doc.Comparison.Paired) >= 30 {
-			lo, hi := bootstrapPercentileCI(doc.Comparison.Paired, 50, 2000, 0.95)
-			bootstrap = map[string]any{
-				"unit":                      "interleaved_pair_delta_ms_per_unit (llama − candle)",
-				"n_pairs":                   len(doc.Comparison.Paired),
-				"warmup_per_arm_discarded":  doc.Warmup,
-				"batch":                     doc.Batch,
-				"observed_p50_delta_ms":     doc.Comparison.Delta,
-				"bootstrap_p50_ci_95_lo_ms": lo,
-				"bootstrap_p50_ci_95_hi_ms": hi,
-				"mde_ms_per_unit_approx":    doc.Comparison.MDE,
-				"faster_arm":                doc.Comparison.Faster,
-				"candle_p50_p95_p99_ms": []float64{
-					doc.Arms["candle_metal"].P50, doc.Arms["candle_metal"].P95, doc.Arms["candle_metal"].P99,
-				},
-				"llama_p50_p95_p99_ms": []float64{
-					doc.Arms["llama_cpp_metal"].P50, doc.Arms["llama_cpp_metal"].P95, doc.Arms["llama_cpp_metal"].P99,
-				},
-				"absolute_delta_p50_ms": math.Abs(doc.Comparison.Delta),
-				"ci_width_ms":           hi - lo,
-				"power_note": "if |observed_p50| is not well above MDE and CI excludes 0, " +
-					"the interval is wide and a ranking claim is refused",
-			}
-		}
-	}
-
-	// Case A: equal reliability on live latencies.
-	caseACosts := cloneMeasuredCosts(live)
-	for id, c := range caseACosts {
-		c.VerificationSamples, c.VerificationFails = 40, 0
-		c.TerminalAttempts, c.TerminalFails = 40, 0
-		caseACosts[id] = c
-	}
-	dA := decideMeasuredShadow(caseACosts, []string{candleEmbedCell, llamaEmbedCell}, candleEmbedCell)
-	latA, costA := selectionRegretFromCosts(caseACosts, dA.Winner)
-
-	// Case B: inject verification failures on the faster arm.
-	caseBCosts := cloneMeasuredCosts(live)
-	fasterID := dA.Winner
-	if dA.Basis == selectionBasisTieNoDecision {
-		// Prefer llama as "faster" label when tied for construction clarity.
-		if caseBCosts[llamaEmbedCell].MedianMsPerUnit <= caseBCosts[candleEmbedCell].MedianMsPerUnit {
-			fasterID = llamaEmbedCell
-		} else {
-			fasterID = candleEmbedCell
-		}
-	}
-	slowerID := candleEmbedCell
-	if fasterID == candleEmbedCell {
-		slowerID = llamaEmbedCell
-	}
-	for id, c := range caseBCosts {
-		c.VerificationSamples, c.TerminalAttempts, c.TerminalFails = 40, 40, 0
-		if id == fasterID {
-			c.VerificationFails = 10
-		} else {
-			c.VerificationFails = 0
-		}
-		caseBCosts[id] = c
-	}
-	dB := decideMeasuredShadow(caseBCosts, []string{candleEmbedCell, llamaEmbedCell}, fasterID)
-	latB, costB := selectionRegretFromCosts(caseBCosts, dB.Winner)
-	fastVO, _ := caseBCosts[fasterID].ExpectedVerifiedOutcomeUSDPerUnit()
-	slowVO, _ := caseBCosts[slowerID].ExpectedVerifiedOutcomeUSDPerUnit()
-
-	// Full governed comparison on case A (live equal-reliability) with prior.
-	withActivationRestored(t)
-	decision, err := buildWorkloadDecision(jobSubmit{
-		JobType:     JobType{Type: "embed"},
-		Model:       ModelRef{Kind: "hf", Ref: "all-minilm-l6-v2"},
-		Tier:        "batch",
-		Constraints: JobConstraints{MaxDurationSecs: 3600},
-	}, strings.Repeat("e", 64))
+	costs, err := requireRankableCohortActuals(cohortReceiptPath())
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("BOUND economic selector proof refused: %v; latency-only evidence cannot supply payout or reliability", err)
 	}
-	shadow, err := planShadowSelection(decision)
-	if err != nil {
-		t.Fatal(err)
+	if err := requireBoundGovernedInputs(costs, latencies); err != nil {
+		t.Fatalf("BOUND economic selector proof refused: %v", err)
 	}
-	shadow = shadow.rankedByMeasuredCost(map[string]map[string]MeasuredCellCost{
-		"apple_silicon_ultra": caseACosts,
-	})
-	loadAvg, _ := runSysctlLoadavg()
-	hostLoad := map[string]any{
-		"captured_at":  time.Now().UTC().Format(time.RFC3339Nano),
-		"load_average": loadAvg,
-		"hw_class":     "apple_silicon_ultra",
-		"goos_goarch":  "darwin/arm64",
-	}
-	cmp, err := BuildGovernedComparison(shadow, caseACosts, catalogueMinilm(), hostLoad, true)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Sampling parameters: embed has no temperature; pin identity binding.
-	sampling := map[string]any{
-		"workload":              "embed",
-		"temperature":           "n/a (deterministic embedding; no sampling)",
-		"top_p":                 "n/a",
-		"max_tokens":            "n/a",
-		"batch":                 8,
-		"interleave":            "candle_then_llama_per_pair",
-		"warmup_per_arm":        5,
-		"timed_pairs":           48,
-		"prompt_identity_bound": "EMBED_BENCH_CORPUS in merc-agent + corpus_digest on producer_identity",
-		"model_identity_bound":  "safetensors sha256 (candle) + F16 GGUF sha256 (llama) in model_artifact_digest",
-	}
-
-	payload := map[string]any{
-		"schema_version": 1,
-		"kind":           "economic_selector_cell_selection_proof",
-		"claim_class":    "cell_selection_proof",
-		"measured_at":    time.Now().UTC().Format(time.RFC3339Nano),
-		"title":          "Economic selector: Candle vs llama.cpp on one governed MiniLM embed contract",
-		"actuals_source": actualsSource,
-		"actuals_bound":  actualsBound,
-		"methodology": map[string]any{
-			"sampling_parameters": sampling,
-			"bootstrap":           bootstrap,
-			"energy": map[string]any{
-				"measured": false,
-				"reason": "powermetrics requires privileges not available in this lane; " +
-					"no joules are reported as measured. Energy is not modelled as measured.",
-			},
-			"warmup_discarded": 5,
-			"steady_state":     "warmup discarded per arm; timed interleaved pairs only",
-		},
-		"cells": cmp.Cells,
-		"shadow_selector_decision_case_a_equal_reliability": map[string]any{
-			"predicted_winner":                     cmp.Decision.PredictedWinner,
-			"predicted_basis":                      cmp.Decision.PredictedBasis,
-			"actual_winner":                        dA.Winner,
-			"actual_basis":                         dA.Basis,
-			"selection_latency_regret_ms_per_unit": latA,
-			"selection_cost_regret_usd_per_unit":   costA,
-			"prediction_latency_regret_ms":         cmp.Decision.LatencyRegretMs,
-			"prediction_cost_regret_usd":           cmp.Decision.CostRegretUSD,
-			"quality":                              cmp.Decision.QualityOutcome,
-			"confidence":                           cmp.Decision.Confidence,
-			"deciding_term":                        dA.Basis,
-			"selection_reason":                     selectionReasonFor(dA.Basis, dA.Winner, cmp.Cells),
-		},
-		"case_b_slower_wins_on_verified_outcome_cost": map[string]any{
-			"construction": "same live latencies; faster cell VerificationFails=10/40 (25%); " +
-				"slower cell clean. Verified-outcome cost = supplier × 1/pass_rate.",
-			"faster_cell":                          fasterID,
-			"slower_cell":                          slowerID,
-			"faster_median_ms_per_unit":            caseBCosts[fasterID].MedianMsPerUnit,
-			"slower_median_ms_per_unit":            caseBCosts[slowerID].MedianMsPerUnit,
-			"faster_verified_outcome_usd_per_unit": fastVO,
-			"slower_verified_outcome_usd_per_unit": slowVO,
-			"actual_winner":                        dB.Winner,
-			"actual_basis":                         dB.Basis,
-			"selection_latency_regret_ms_per_unit": latB,
-			"selection_cost_regret_usd_per_unit":   costB,
-			"always_faster_counterfactual": map[string]any{
-				"would_choose":                         fasterID,
-				"selection_cost_regret_usd_per_unit":   fastVO - slowVO,
-				"selection_latency_regret_ms_per_unit": 0.0,
-				"note":                                 "a selector that always picks the faster engine pays this cost regret on case B",
-			},
-			"deciding_term": dB.Basis,
-			"selection_reason": selectionReasonFor(dB.Basis, dB.Winner, map[string]GovernedComparisonCell{
-				fasterID: {CellID: fasterID},
-				slowerID: {CellID: slowerID},
-			}),
-		},
-		"tie_break_constants_audited": map[string]any{
-			"latencyNoiseFraction":      latencyNoiseFraction,
-			"latencyNoiseAbsMs":         latencyNoiseAbsMs,
-			"pricesTieWithin":           pricesTieWithin,
-			"priorThroughputClaimRatio": priorThroughputClaimRatio,
-			"note": "true ties retain the routed cell (TIE_NO_DECISION) so sort order " +
-				"cannot manufacture a divergence; that is a constant, not a candle/llama preference. " +
-				"No engine-id constant preference exists in decideMeasuredShadow.",
-		},
-		"cost_tie_authority": cmp.CostTie,
-		"does_not_prove": []string{
-			"does not claim Merc beats vLLM (different hardware, different lane)",
-			"does not claim cross-supplier or network results; this is cell selection on one Mac",
-			"does not measure joules (no privileged powermetrics in this lane)",
-			"does not establish true net contribution (unknown cost categories remain)",
-			"does not promote any cell or change routing",
-			"case B reliability differential is constructed on top of live latencies, not observed production fail rates",
-			"does not establish fleet multi-host behaviour",
-		},
-		"governed_comparison_excerpt": map[string]any{
-			"latency_comparison": cmp.LatencyComparison,
-			"cost_comparison":    cmp.CostComparison,
-			"actuals_binding":    cmp.ActualsBinding,
-			"prior_claim":        cmp.PriorThroughputClaim,
-		},
-	}
-
-	// Per-cell table rows for the report.
-	table := map[string]any{}
-	for id, row := range cmp.Cells {
-		table[id] = map[string]any{
-			"predicted_latency_ms_per_unit":        row.PredictedLatencyMsPerUnit,
-			"actual_latency_ms_per_unit":           row.ActualLatencyMsPerUnit,
-			"predicted_verified_outcome_usd_unit":  row.PredictedPhysicalCostUSDUnit,
-			"actual_verified_outcome_usd_unit":     row.ActualPhysicalCostUSDUnit,
-			"quality_tier":                         row.QualityTier,
-			"supplier_entitlement_usd_per_unit":    row.SupplierEntitlementUSDUnit,
-			"buyer_price_per_1k":                   row.BuyerPricePer1K,
-			"merc_true_net":                        "UNAVAILABLE: " + row.MercTrueNetReason,
-			"merc_gross_platform_usd_per_unit":     row.MercGrossPlatformUSDUnit,
-			"prediction_latency_error_ms_per_unit": row.LatencyRegretMsPerUnit,
-			"prediction_cost_error_usd_per_unit":   row.CostRegretUSDPerUnit,
-			"confidence":                           row.Confidence,
-		}
-	}
-	payload["per_cell_table"] = table
-
-	dir := filepath.Join("..", "evidence", "perf", "selector")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(dir, "economic-selector-candle-vs-llama-proof.json")
-
-	if !actualsBound {
-		payload["binding_status"] = BindingUnbound
-		payload["unbound_reason"] = "actuals not BOUND; dual-case structure exercised without engine verdict authority"
-		writePlainJSON(t, path, payload)
-		t.Logf("wrote UNBOUND economic selector proof %s", path)
-		return
-	}
-	if id, bin, err := DefaultBoundIdentity("..",
-		"control/runtime_governed_comparison_test.go#TestWriteEconomicSelectorProofReceipt",
-		"dual-case economic selector proof: case A equal-reliability throughput; case B reliability-adjusted VO cost; selection regret = chosen − best_available",
-		"actuals from BOUND engine-parity-metal-embed-latest.json raw_ms_per_unit; case B verification fails constructed"); err == nil {
-		if werr := WriteBoundEvidenceJSON(EvidenceWriteRequest{
-			RepoRoot: "..", Path: path, Payload: payload,
-			Identity: id, BuildBinaryPath: bin,
-		}); werr != nil {
-			t.Logf("bound writer failed (%v); writing plain JSON", werr)
-			writePlainJSON(t, path, payload)
-		} else {
-			t.Logf("wrote BOUND economic selector proof %s", path)
-		}
-	} else {
-		t.Logf("bound identity unavailable (%v); writing plain JSON", err)
-		writePlainJSON(t, path, payload)
-	}
-	t.Logf("caseA winner=%s basis=%s sel_lat_reg=%.6f sel_cost_reg=%.6e", dA.Winner, dA.Basis, latA, costA)
-	t.Logf("caseB winner=%s basis=%s sel_lat_reg=%.6f sel_cost_reg=%.6e always_fast_cost_reg=%.6e",
-		dB.Winner, dB.Basis, latB, costB, fastVO-slowVO)
-}
-
-// bootstrapPercentileCI resamples xs with replacement and returns a
-// (1-alpha)-ish percentile CI for the given percentile of the sample
-// (e.g. percentile=50 for the median). Uses a fixed LCG so the receipt is
-// reproducible for a given sample vector.
-func bootstrapPercentileCI(xs []float64, percentile float64, nBoot int, level float64) (lo, hi float64) {
-	if len(xs) == 0 || nBoot < 1 {
-		return 0, 0
-	}
-	// Simple LCG — no external rand dependency in tests.
-	var state uint64 = 0xC0FFEE42
-	next := func() uint64 {
-		state = state*6364136223846793005 + 1
-		return state
-	}
-	stats := make([]float64, nBoot)
-	tmp := make([]float64, len(xs))
-	for b := 0; b < nBoot; b++ {
-		for i := range tmp {
-			tmp[i] = xs[next()%uint64(len(xs))]
-		}
-		stats[b] = pctFloat(tmp, percentile)
-	}
-	sort.Float64s(stats)
-	alpha := (1 - level) / 2
-	loIdx := int(math.Floor(alpha * float64(nBoot)))
-	hiIdx := int(math.Ceil((1-alpha)*float64(nBoot))) - 1
-	if loIdx < 0 {
-		loIdx = 0
-	}
-	if hiIdx >= nBoot {
-		hiIdx = nBoot - 1
-	}
-	return stats[loIdx], stats[hiIdx]
-}
-
-func pctFloat(xs []float64, p float64) float64 {
-	if len(xs) == 0 {
-		return 0
-	}
-	cp := append([]float64(nil), xs...)
-	sort.Float64s(cp)
-	if p <= 0 {
-		return cp[0]
-	}
-	if p >= 100 {
-		return cp[len(cp)-1]
-	}
-	rank := (p / 100) * float64(len(cp)-1)
-	lo := int(math.Floor(rank))
-	hi := int(math.Ceil(rank))
-	if lo == hi {
-		return cp[lo]
-	}
-	w := rank - float64(lo)
-	return cp[lo]*(1-w) + cp[hi]*w
+	t.Fatal("BOUND economic selector proof refused: the dual-case reliability branch is constructed, not observed; run a real settlement/verification cohort and use a new authority path")
 }

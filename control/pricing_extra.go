@@ -5,7 +5,7 @@ import "context"
 type SeedHoneypot struct {
 	InputRef    string // the seeded honeypot object key (always under "honeypots/...")
 	KnownAnswer []byte // the measured known answer (may be nil for a class-blind seed)
-	AnswerClass string // "engine|build_hash" the answer was produced under ("" = class-blind)
+	AnswerClass string // "engine|build_hash|build_identity_policy" the answer was produced under
 }
 
 func (s *Store) AvailableSeedHoneypots(ctx context.Context, jobType, modelRef string, maxTokens uint32, limit int) ([]SeedHoneypot, error) {

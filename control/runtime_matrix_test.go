@@ -4,13 +4,17 @@ import (
 	"math"
 	"strings"
 	"testing"
+	"time"
 )
 
 func productionMetalCapability() WorkerCapability {
 	return WorkerCapability{
-		HWClass:  "apple_silicon_pro",
-		Engine:   "candle",
-		MemoryGB: 36,
+		HWClass:             "apple_silicon_ultra",
+		Engine:              "candle",
+		BuildHash:           "97acc6fe17daca56",
+		BuildIdentityPolicy: currentEngineBuildIdentityPolicy,
+		HardwareIdentity:    testOnlyHardwareIdentity,
+		MemoryGB:            36,
 		SupportedJobs: []string{
 			"embed", "batch_infer",
 		},
@@ -18,9 +22,58 @@ func productionMetalCapability() WorkerCapability {
 			"all-minilm-l6-v2", "llama-3.2-1b-instruct-q4",
 		},
 		Benchmarks: []BenchResult{
-			{JobType: "embed", ModelID: "all-minilm-l6-v2", EPS: 10, ThermalOK: true},
-			{JobType: "batch_infer", ModelID: "llama-3.2-1b-instruct-q4", TPS: 10, ThermalOK: true},
+			{JobType: "embed", ModelID: "all-minilm-l6-v2", EPS: 3000, ThermalOK: true,
+				Unit: "token_like_input_units", UnitScope: performanceUnitScopeTokenLikeInputGeometry,
+				MeasuredUnix: uint64(runtimeCellPerformanceNow().Unix())},
+			{JobType: "batch_infer", ModelID: "llama-3.2-1b-instruct-q4", TPS: 200, ThermalOK: true,
+				Unit: "tokens", UnitScope: performanceUnitScopeTokenLikeInputPlusOutputTokens,
+				MeasuredUnix: uint64(runtimeCellPerformanceNow().Unix())},
 		},
+	}
+}
+
+func TestAdvertisedWorkerRequiresExactBenchmarkedBuildAndDevice(t *testing.T) {
+	installTestOnlyCombinedTokenAuthority(t)
+	base := productionMetalCapability()
+	_, _, benchmark, err := currentRuntimeCellBenchmarkIdentity("candle-metal-llama1-infer")
+	mustf(t, err, "resolve TEST_ONLY exact worker identity: %v")
+	base.HWClass = benchmark.HWClass
+	base.BuildHash = benchmark.EngineBuildHash
+	base.HardwareIdentity = benchmark.HardwareIdentity
+	if _, err := projectWorkerRuntimeCapabilities(base); err != nil {
+		t.Fatalf("exact benchmarked worker was refused: %v", err)
+	}
+	for _, tc := range []struct {
+		name   string
+		mutate func(*WorkerCapability)
+		want   string
+	}{
+		{"missing build", func(c *WorkerCapability) { c.BuildHash = "" }, "build_hash"},
+		{"wrong build", func(c *WorkerCapability) { c.BuildHash = "0000000000000000" }, "does not exactly match"},
+		{"missing build policy", func(c *WorkerCapability) { c.BuildIdentityPolicy = "" }, "build_identity_policy"},
+		{"retired build policy", func(c *WorkerCapability) { c.BuildIdentityPolicy = "source_only_v0" }, "build_identity_policy"},
+		{"missing device", func(c *WorkerCapability) { c.HardwareIdentity = "" }, "hardware_identity"},
+		{"wrong device", func(c *WorkerCapability) { c.HardwareIdentity = "Apple M1 Ultra" }, "does not exactly match"},
+		{"missing cell benchmark", func(c *WorkerCapability) { c.Benchmarks = nil }, "requires a fresh matching worker benchmark"},
+		{"wrong benchmark unit", func(c *WorkerCapability) { c.Benchmarks[1].UnitScope = performanceUnitScopeDecodeOutputTokens }, "unit/scope"},
+		{"thermal failure", func(c *WorkerCapability) { c.Benchmarks[1].ThermalOK = false }, "not thermally valid"},
+		{"stale benchmark", func(c *WorkerCapability) {
+			c.Benchmarks[1].MeasuredUnix = uint64(runtimeCellPerformanceNow().Add(-8 * 24 * time.Hour).Unix())
+		}, "not fresh"},
+		{"future benchmark", func(c *WorkerCapability) {
+			c.Benchmarks[1].MeasuredUnix = uint64(runtimeCellPerformanceNow().Add(time.Hour).Unix())
+		}, "not fresh"},
+		{"below governed floor", func(c *WorkerCapability) { c.Benchmarks[1].TPS = 1 }, "below governed conservative floor"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mutant := base
+			mutant.Benchmarks = append([]BenchResult(nil), base.Benchmarks...)
+			tc.mutate(&mutant)
+			if _, err := projectWorkerRuntimeCapabilities(mutant); err == nil ||
+				!strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("mutant worker error=%v, want %q refusal", err, tc.want)
+			}
+		})
 	}
 }
 
@@ -129,9 +182,9 @@ func TestWorkerRuntimeProjectionRejectsHostileTelemetryAndIdentity(t *testing.T)
 }
 
 func TestAdvertisedRuntimeJobModelIsExactNotCartesian(t *testing.T) {
-	// Only bindable-authority cells are advertised. After the llama1 re-measure
-	// that is embed + batch_infer; media cells remain lifecycle-routable but
-	// stand on unbound authority and must not pass ordinary admission.
+	installBoundCataloguePublicationAuthorityForTest(t)
+	// Exercise the catalogue shape under explicit TEST_ONLY exact authorities;
+	// checked-in production currently advertises no cell.
 	allowed := [][2]string{
 		{"embed", "all-minilm-l6-v2"},
 		{"batch_infer", "llama-3.2-1b-instruct-q4"},
@@ -159,6 +212,7 @@ func TestAdvertisedRuntimeJobModelIsExactNotCartesian(t *testing.T) {
 }
 
 func TestGeneratedRuntimeModelRefOwnsInternalWireKind(t *testing.T) {
+	installBoundCataloguePublicationAuthorityForTest(t)
 	for _, tc := range []struct {
 		job, model, kind string
 	}{
@@ -175,6 +229,7 @@ func TestGeneratedRuntimeModelRefOwnsInternalWireKind(t *testing.T) {
 }
 
 func TestNormalizeAdvertisedRuntimeModelRefOwnsBuyerIngressKind(t *testing.T) {
+	installBoundCataloguePublicationAuthorityForTest(t)
 	t.Run("omitted kind is canonicalized", func(t *testing.T) {
 		got, err := normalizeAdvertisedRuntimeModelRef("embed", ModelRef{Ref: "all-minilm-l6-v2"})
 		mustf(t, err, "omitted kind rejected: %v")
@@ -303,6 +358,7 @@ func TestWorkerRegistrationProjectsBuiltinMediaCell(t *testing.T) {
 }
 
 func TestHeartbeatLoadedModelsStayInsideProductionProjection(t *testing.T) {
+	installBoundCataloguePublicationAuthorityForTest(t)
 	// Only models with a bindable advertised cell may be warm. After the llama1
 	// re-measure both MiniLM and Llama generation are in the catalogue; media
 	// models remain unbound and a heartbeat naming them is refused.
@@ -329,6 +385,7 @@ func TestHeartbeatLoadedModelsStayInsideProductionProjection(t *testing.T) {
 }
 
 func TestHeartbeatResidentModelsRefuseOutOfRangeMeasurements(t *testing.T) {
+	installBoundCataloguePublicationAuthorityForTest(t)
 	if err := validateHeartbeatResidentModels([]ResidentModel{{
 		ModelID: "all-minilm-l6-v2", RSSDeltaBytes: 1 << 20, LoadMS: 100,
 	}}); err != nil {
@@ -361,6 +418,7 @@ func productionCatalogRows() []ModelRow {
 }
 
 func TestAdvertisedRuntimeCatalogFailsClosedOnDrift(t *testing.T) {
+	installBoundCataloguePublicationAuthorityForTest(t)
 	mustf(t, validateAdvertisedRuntimeCatalogRows(productionCatalogRows()), "valid production catalog rejected: %v")
 
 	t.Run("missing row", func(t *testing.T) {

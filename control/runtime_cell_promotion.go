@@ -25,38 +25,30 @@ import (
 // because the opposite rule would let a cell promote itself:
 //
 //   - measured on the SAME hardware class, or the comparison is of two machines;
-//   - both sides above minCellCostSamples, or the winner is sampling noise;
-//   - zero verification failures for the challenger, because a cheaper unit that
-//     fails verification is not a cheaper unit;
-//   - a margin, not merely "less", because two costs within noise of each other
-//     do not justify moving production traffic;
+//   - both sides above minSupplierLiabilitySamples, or the winner is sampling noise;
+//   - zero retries plus complete clean verification and terminal evidence for
+//     both sides: the accepted supplier payout does not price reliability, and
+//     a retried, rejected, or failed attempt cannot be converted into fictional
+//     supplier money;
+//   - unequal supplier liability can never masquerade as total-cost evidence
+//     while any platform-cost component is unknown;
 //   - the incumbent must be the cell currently ROUTED, so a promotion is always
 //     argued against what buyers are actually getting;
 //   - a rollback target names the exact policy revision to return to.
 
-// promotionCostMarginFraction is how much cheaper a challenger must be.
-//
-// Ten percent. Below that the difference is not distinguishable from thermal
-// state, page-cache residency and queue depth on a shared host, and a selector
-// that reshuffles production traffic for a 2% paper win spends more in cold
-// starts than it saves.
-const promotionCostMarginFraction = 0.10
-
 // promotionGateVersion is bound into every receipt. A receipt produced under one
 // gate must never be read as though it had cleared a later, stricter one.
-const promotionGateVersion = "cell-promotion-gate-v2"
+const promotionGateVersion = "cell-promotion-gate-v4"
 
 // promotionThroughputMarginFraction is how much FASTER a challenger must be to be
-// promoted when the two cells cost the same per unit.
+// promoted when the two cells have equal supplier liability per verified unit.
 //
 // This arm exists because the first real cohort found that they always do. The
 // supplier payout is priced per MODEL — catalogue price times units times the
-// supplier share — so two cells serving one model at one price have identical
-// verified-outcome cost per unit by construction, and the regret between them is
-// structurally zero however fast either one is. Forty real executions measured
-// exactly that: 0.194 USD/unit on both cells, mean regret 0.000.
+// supplier share — so two equally reliable cells serving one model have
+// identical supplier liability per verified unit by construction.
 //
-// So a promotion between same-price cells cannot be a COST argument, and calling
+// So a promotion between equal-liability cells cannot be a COST argument, and calling
 // it one would be inventing a saving. It is a CAPACITY argument: the faster cell
 // delivers more verified units per host-hour, which pays the supplier more per
 // hour at the same buyer price and gives Merc more throughput per machine. The
@@ -69,12 +61,21 @@ const promotionThroughputMarginFraction = 0.25
 
 // Promotion bases. Every receipt records exactly one.
 const (
-	// promotionBasisCost is a cheaper verified unit.
-	promotionBasisCost = "CHEAPER_VERIFIED_UNIT"
-	// promotionBasisThroughput is the same verified unit produced faster at the
-	// same price. A capacity gain, not a saving.
-	promotionBasisThroughput = "MORE_THROUGHPUT_AT_EQUAL_PRICE"
+	// promotionBasisSupplierLiabilityOnly records an unequal-liability proxy that
+	// cannot authorize a total-cost promotion.
+	promotionBasisSupplierLiabilityOnly = "SUPPLIER_LIABILITY_PROXY_ONLY_COST_REFUSED"
+	// promotionBasisThroughput is the same verified unit produced faster at equal
+	// supplier liability. A capacity gain, not a cost saving.
+	promotionBasisThroughput = "MORE_THROUGHPUT_AT_EQUAL_SUPPLIER_LIABILITY"
 )
+
+// The current observation model has independently aggregated cell executions
+// plus a shadow decision that names two considered cells. It does not persist a
+// matched incumbent/challenger execution pair, a shared input/cohort digest, or
+// a durable join proving both measurements came from that same input. Reporting
+// the aggregates remains useful; treating them as paired causal evidence does
+// not. Version 4 therefore refuses every promotion until that authority exists.
+const promotionMatchedPairAuthorityRefusal = "promotion cannot pass: no durable matched incumbent/challenger execution-pair authority binds both cells to the same input/cohort digest; shadow consideration plus independently aggregated jobs is not matched-pair evidence"
 
 // pricesTieWithin is the fraction inside which two per-unit costs are the same
 // number for this purpose. Not exact equality: the two costs are computed from
@@ -91,30 +92,47 @@ type CellPromotionScope struct {
 	JobType       string `json:"job_type"`
 	ModelRef      string `json:"model_ref"`
 	ModelRevision string `json:"model_revision"`
+	Tier          string `json:"tier"`
 	QualityTier   string `json:"quality_tier"`
 	Verification  string `json:"verification_contract"`
 	HWClass       string `json:"hw_class"`
-	LatencyClass  string `json:"latency_class"`
-	RuntimeID     string `json:"runtime_id"`
-	CellID        string `json:"cell_id"`
+	// HardwareIdentity is the exact measured device generation/model. HWClass
+	// remains the capacity family, but cannot stand in for physical identity.
+	HardwareIdentity string `json:"hardware_identity"`
+	LatencyClass     string `json:"latency_class"`
+	RuntimeID        string `json:"runtime_id"`
+	CellID           string `json:"cell_id"`
+
+	// These fields are derived by EvaluateCellPromotion from the current
+	// append-only catalogue/runtime policy and bound into the receipt. They are
+	// not operator-supplied filters: accepting caller guesses here would let an
+	// evaluation claim an epoch different from the one it actually queried.
+	Currency                string    `json:"currency"`
+	CatalogueScheduleSHA256 string    `json:"catalogue_schedule_sha256"`
+	RuntimeMatrixSHA256     string    `json:"runtime_matrix_sha256"`
+	SelectionPolicy         string    `json:"selection_policy"`
+	PolicyRevision          int64     `json:"policy_revision"`
+	ObservedAfter           time.Time `json:"observed_after"`
+	ObservedBefore          time.Time `json:"observed_before"`
 }
 
 // CellPromotionEvidence is the measured argument for one promotion.
 type CellPromotionEvidence struct {
-	GateVersion    string             `json:"gate_version"`
-	EvaluatedAt    time.Time          `json:"evaluated_at"`
-	Scope          CellPromotionScope `json:"scope"`
-	IncumbentCell  string             `json:"incumbent_cell"`
-	ChallengerCost MeasuredCellCost   `json:"challenger_cost"`
-	IncumbentCost  MeasuredCellCost   `json:"incumbent_cost"`
+	GateVersion                 string                         `json:"gate_version"`
+	EvaluatedAt                 time.Time                      `json:"evaluated_at"`
+	Scope                       CellPromotionScope             `json:"scope"`
+	IncumbentCell               string                         `json:"incumbent_cell"`
+	ChallengerSupplierLiability MeasuredSupplierLiabilityProxy `json:"challenger_supplier_liability_proxy"`
+	IncumbentSupplierLiability  MeasuredSupplierLiabilityProxy `json:"incumbent_supplier_liability_proxy"`
 
-	ChallengerVerifiedUSDPerUnit float64 `json:"challenger_verified_usd_per_unit"`
-	IncumbentVerifiedUSDPerUnit  float64 `json:"incumbent_verified_usd_per_unit"`
-	SavingFraction               float64 `json:"saving_fraction"`
-	RequiredMarginFraction       float64 `json:"required_margin_fraction"`
+	ChallengerSupplierLiabilityUSDPerVerifiedUnit float64 `json:"challenger_supplier_liability_usd_per_verified_unit"`
+	IncumbentSupplierLiabilityUSDPerVerifiedUnit  float64 `json:"incumbent_supplier_liability_usd_per_verified_unit"`
+	SupplierLiabilityReductionFraction            float64 `json:"supplier_liability_reduction_fraction"`
+	RequiredMarginFraction                        float64 `json:"required_margin_fraction"`
 
-	// Basis names which argument this promotion makes: a cheaper verified unit, or
-	// the same unit produced faster at the same price. They are not
+	// Basis names which argument this evaluation makes: an incomplete unequal-
+	// liability proxy that must refuse, or the same unit produced faster at equal
+	// supplier liability. They are not
 	// interchangeable, and a receipt that did not say which would let a capacity
 	// gain be read as a saving.
 	Basis                  string  `json:"basis"`
@@ -129,7 +147,7 @@ type CellPromotionEvidence struct {
 	// Regret is the recorded selector regret for this scope. A promotion argued
 	// without it would be arguing from a benchmark; with it, the argument is that
 	// production decisions have been measurably paying for the wrong cell.
-	Regret SelectorRegret `json:"selector_regret"`
+	LiabilityRegret SelectorLiabilityRegret `json:"selector_supplier_liability_regret"`
 
 	// RollbackTargetRevision is the activation revision to return to, resolved
 	// before the promotion is applied rather than after something breaks.
@@ -145,13 +163,40 @@ type CellPromotionEvidence struct {
 	// round-trip at a time is how a gate gets worn down.
 	Refusals []string `json:"refusals"`
 
-	// UnknownCostComponents restates what the cost comparison does not contain.
+	// UnknownPlatformCostComponents restates what the proxy does not contain.
 	// A promotion receipt that hid this would be claiming a total-cost win.
-	UnknownCostComponents []string `json:"unknown_cost_components"`
+	UnknownPlatformCostComponents []string `json:"unknown_platform_cost_components"`
 }
 
 // Passed reports whether every rule held.
 func (e CellPromotionEvidence) Passed() bool { return len(e.Refusals) == 0 }
+
+// validateMeasuredProxyCurrentExecutionIdentity prevents historical or
+// directed observations from lending authority to a different current engine
+// build or device. Logical model/cell identity is insufficient: supplier
+// duration and the active-hour floor are physical properties of these exact
+// bytes on this exact machine generation.
+func validateMeasuredProxyCurrentExecutionIdentity(
+	proxy MeasuredSupplierLiabilityProxy, cellID string,
+) error {
+	profile, _, benchmark, err := currentRuntimeCellBenchmarkIdentity(cellID)
+	if err != nil {
+		return err
+	}
+	if proxy.Engine != profile.Engine ||
+		proxy.ExecutionBuildHash != benchmark.EngineBuildHash ||
+		proxy.ExecutionBuildIdentityPolicy != benchmark.EngineBuildIdentityPolicy ||
+		proxy.HWClass != benchmark.HWClass ||
+		proxy.HardwareIdentity != benchmark.HardwareIdentity {
+		return fmt.Errorf(
+			"observations bind execution %s/%s@%s on %s/%s, current cell %s binds %s/%s@%s on %s/%s",
+			proxy.Engine, proxy.ExecutionBuildHash, proxy.ExecutionBuildIdentityPolicy, proxy.HWClass,
+			proxy.HardwareIdentity, cellID, profile.Engine,
+			benchmark.EngineBuildHash, benchmark.EngineBuildIdentityPolicy,
+			benchmark.HWClass, benchmark.HardwareIdentity)
+	}
+	return nil
+}
 
 // Digest is the receipt identity: a SHA-256 over the canonical evidence.
 //
@@ -230,75 +275,163 @@ func (s *Store) EvaluateCellPromotion(
 	if scope.CellID == incumbentCell {
 		return CellPromotionEvidence{}, fmt.Errorf("challenger and incumbent are the same cell %q", scope.CellID)
 	}
+	now = now.UTC()
 	activation := currentActivation()
+	scope.RuntimeMatrixSHA256 = generatedRuntimeMatrixSHA256
+	scope.SelectionPolicy = shadowSelectionPolicy
+	scope.PolicyRevision = activation.PolicyRevision
+	scope.ObservedBefore = now
+	scope.ObservedAfter = now.Add(-supplierLiabilityObservationWindow)
+
+	// Currency and catalogue schedule are derived from immutable jobs/shadow
+	// decisions in the otherwise exact bounded cohort, never accepted from the
+	// operator and never re-read from today's mutable model pointer. More than
+	// one economic epoch is a refusal rather than an invitation to pool them.
+	epochScope := supplierLiabilityScope{
+		JobType: scope.JobType, ModelRef: scope.ModelRef, HWClass: scope.HWClass,
+		HardwareIdentity: scope.HardwareIdentity,
+		Tier:             scope.Tier, RuntimeMatrixSHA256: scope.RuntimeMatrixSHA256,
+		ModelRevision: scope.ModelRevision, QualityTier: scope.QualityTier,
+		Verification: scope.Verification, LatencyClass: scope.LatencyClass,
+		SelectionPolicy: scope.SelectionPolicy, PolicyRevision: scope.PolicyRevision,
+		ObservedAfter: scope.ObservedAfter, ObservedBefore: scope.ObservedBefore,
+	}
+	currency, schedule, epochErr := s.resolveSupplierLiabilityEconomicEpoch(ctx, epochScope)
+	if epochErr == nil {
+		scope.Currency = currency
+		scope.CatalogueScheduleSHA256 = schedule
+	}
 	evidence := CellPromotionEvidence{
 		GateVersion:   promotionGateVersion,
-		EvaluatedAt:   now.UTC(),
+		EvaluatedAt:   now,
 		Scope:         scope,
 		IncumbentCell: incumbentCell,
-		// Overwritten once the arithmetic says which argument is available.
-		Basis:                  promotionBasisCost,
-		RequiredMarginFraction: promotionCostMarginFraction,
-		RuntimeMatrixSHA256:    generatedRuntimeMatrixSHA256,
-		PolicyRevision:         activation.PolicyRevision,
-		RollbackTargetRevision: activation.PolicyRevision,
-		UnknownCostComponents:  unknownCostComponents(),
+		// Overwritten only when equal liability makes the throughput arm available.
+		Basis:                         promotionBasisSupplierLiabilityOnly,
+		RequiredMarginFraction:        0,
+		RuntimeMatrixSHA256:           generatedRuntimeMatrixSHA256,
+		PolicyRevision:                activation.PolicyRevision,
+		RollbackTargetRevision:        activation.PolicyRevision,
+		UnknownPlatformCostComponents: unknownPlatformCostComponents(),
 	}
-
-	costScope := cellCostScope{JobType: scope.JobType, ModelRef: scope.ModelRef, HWClass: scope.HWClass}
-	regret, costs, err := s.SelectorRegretForScope(ctx, costScope)
-	if err != nil {
-		return CellPromotionEvidence{}, err
-	}
-	evidence.Regret = regret
-	evidence.ChallengerCost = costs[scope.CellID]
-	evidence.IncumbentCost = costs[incumbentCell]
 
 	refuse := func(format string, args ...any) {
 		evidence.Refusals = append(evidence.Refusals, fmt.Sprintf(format, args...))
 	}
+	refuse("%s", promotionMatchedPairAuthorityRefusal)
+	if epochErr != nil {
+		refuse("%v", epochErr)
+	}
 
-	challengerCost, challengerOK := measuredCost(costs, scope.CellID)
-	incumbentCost, incumbentOK := measuredCost(costs, incumbentCell)
-	evidence.ChallengerVerifiedUSDPerUnit = challengerCost
-	evidence.IncumbentVerifiedUSDPerUnit = incumbentCost
+	liabilityScope := supplierLiabilityScope{
+		JobType: scope.JobType, ModelRef: scope.ModelRef, HWClass: scope.HWClass,
+		HardwareIdentity: scope.HardwareIdentity,
+		Tier:             scope.Tier, Currency: scope.Currency,
+		CatalogueScheduleSHA256: scope.CatalogueScheduleSHA256,
+		RuntimeMatrixSHA256:     scope.RuntimeMatrixSHA256,
+		ModelRevision:           scope.ModelRevision,
+		QualityTier:             scope.QualityTier, Verification: scope.Verification,
+		LatencyClass: scope.LatencyClass, SelectionPolicy: scope.SelectionPolicy,
+		PolicyRevision: scope.PolicyRevision,
+		ObservedAfter:  scope.ObservedAfter, ObservedBefore: scope.ObservedBefore,
+		IncumbentCell: incumbentCell, ChallengerCell: scope.CellID,
+	}
+	liabilities := map[string]MeasuredSupplierLiabilityProxy{}
+	var regret SelectorLiabilityRegret
+	if err := liabilityScope.validate(); err != nil {
+		refuse("%v", err)
+	} else {
+		var err error
+		regret, liabilities, err = s.SelectorLiabilityRegretForScope(ctx, liabilityScope)
+		if err != nil {
+			return CellPromotionEvidence{}, err
+		}
+	}
+	evidence.LiabilityRegret = regret
+	evidence.ChallengerSupplierLiability = liabilities[scope.CellID]
+	evidence.IncumbentSupplierLiability = liabilities[incumbentCell]
+	evidence.UnknownPlatformCostComponents = unresolvedPlatformCostComponents(
+		evidence.ChallengerSupplierLiability, evidence.IncumbentSupplierLiability)
+
+	challengerLiability, challengerOK := measuredSupplierLiability(liabilities, scope.CellID)
+	incumbentLiability, incumbentOK := measuredSupplierLiability(liabilities, incumbentCell)
+	evidence.ChallengerSupplierLiabilityUSDPerVerifiedUnit = challengerLiability
+	evidence.IncumbentSupplierLiabilityUSDPerVerifiedUnit = incumbentLiability
 
 	if !challengerOK {
-		refuse("challenger %s has no measured verified-outcome cost on %s (%d of %d samples needed)",
-			scope.CellID, scope.HWClass, evidence.ChallengerCost.Samples, minCellCostSamples)
+		refuse("challenger %s has no measured supplier-liability proxy in the exact promotion scope on %s/%s (%d of %d samples needed; authority refusals=%v)",
+			scope.CellID, scope.HWClass, scope.HardwareIdentity, evidence.ChallengerSupplierLiability.Samples,
+			minSupplierLiabilitySamples, evidence.ChallengerSupplierLiability.AuthorityRefusals)
 	}
 	if !incumbentOK {
-		refuse("incumbent %s has no measured verified-outcome cost on %s (%d of %d samples needed)",
-			incumbentCell, scope.HWClass, evidence.IncumbentCost.Samples, minCellCostSamples)
+		refuse("incumbent %s has no measured supplier-liability proxy in the exact promotion scope on %s/%s (%d of %d samples needed; authority refusals=%v)",
+			incumbentCell, scope.HWClass, scope.HardwareIdentity, evidence.IncumbentSupplierLiability.Samples,
+			minSupplierLiabilitySamples, evidence.IncumbentSupplierLiability.AuthorityRefusals)
 	}
-	if evidence.ChallengerCost.VerificationFails > 0 {
-		refuse("challenger %s failed verification %d of %d times; a cheaper rejected unit is not cheaper",
-			scope.CellID, evidence.ChallengerCost.VerificationFails, evidence.ChallengerCost.VerificationSamples)
+	if evidence.ChallengerSupplierLiability.Samples > 0 &&
+		evidence.ChallengerSupplierLiability.RuntimeID != scope.RuntimeID {
+		refuse("challenger observations bind runtime %s, promotion scope claims %s",
+			evidence.ChallengerSupplierLiability.RuntimeID, scope.RuntimeID)
 	}
-	if evidence.ChallengerCost.TerminalFails > 0 {
+	for role, observed := range map[string]struct {
+		cellID string
+		proxy  MeasuredSupplierLiabilityProxy
+	}{
+		"challenger": {scope.CellID, evidence.ChallengerSupplierLiability},
+		"incumbent":  {incumbentCell, evidence.IncumbentSupplierLiability},
+	} {
+		proxy := observed.proxy
+		if proxy.Samples > 0 && (proxy.HWClass != scope.HWClass ||
+			proxy.HardwareIdentity != scope.HardwareIdentity) {
+			refuse("%s observations bind hardware %s/%s, promotion scope claims %s/%s",
+				role, proxy.HWClass, proxy.HardwareIdentity,
+				scope.HWClass, scope.HardwareIdentity)
+		}
+		if proxy.Samples == 0 {
+			continue
+		}
+		if err := validateMeasuredProxyCurrentExecutionIdentity(
+			proxy, observed.cellID); err != nil {
+			refuse("%s observations cannot bind current execution identity for %s: %v",
+				role, observed.cellID, err)
+		}
+	}
+	if incumbentRuntime := promotionRuntimeForCell(activation, scope.JobType, scope.ModelRef, incumbentCell); evidence.IncumbentSupplierLiability.Samples > 0 &&
+		evidence.IncumbentSupplierLiability.RuntimeID != incumbentRuntime {
+		refuse("incumbent observations bind runtime %s, current authority binds %s",
+			evidence.IncumbentSupplierLiability.RuntimeID, incumbentRuntime)
+	}
+	if evidence.ChallengerSupplierLiability.RetryRate != 0 {
+		refuse("challenger %s observed retry rate %g; accepted supplier payout does not price retry burden and no governed reliability threshold authorizes it",
+			scope.CellID, evidence.ChallengerSupplierLiability.RetryRate)
+	}
+	if evidence.ChallengerSupplierLiability.VerificationFails > 0 {
+		refuse("challenger %s failed verification %d of %d times; accepted supplier payout does not establish reliability of a rejected outcome",
+			scope.CellID, evidence.ChallengerSupplierLiability.VerificationFails, evidence.ChallengerSupplierLiability.VerificationSamples)
+	}
+	if evidence.ChallengerSupplierLiability.TerminalFails > 0 {
 		refuse("challenger %s failed outright on %d of %d terminal attempts; work that never "+
-			"produced a result is not cheap work",
-			scope.CellID, evidence.ChallengerCost.TerminalFails,
-			evidence.ChallengerCost.TerminalAttempts)
+			"produced a result is ineligible, not an extra supplier payment",
+			scope.CellID, evidence.ChallengerSupplierLiability.TerminalFails,
+			evidence.ChallengerSupplierLiability.TerminalAttempts)
 	}
-	if evidence.ChallengerCost.VerificationSamples == 0 {
-		refuse("challenger %s has no verified sample; cost without a verification outcome is unproven",
+	if evidence.ChallengerSupplierLiability.VerificationSamples == 0 {
+		refuse("challenger %s has no verified sample; supplier liability without a verification outcome is unproven",
 			scope.CellID)
 	}
 	if challengerOK && incumbentOK {
-		evidence.SavingFraction = (incumbentCost - challengerCost) / incumbentCost
+		evidence.SupplierLiabilityReductionFraction = (incumbentLiability - challengerLiability) / incumbentLiability
 		// Which argument is even available decides which margin applies. A tie on
-		// price is the normal case for two cells serving one model, so treating it
-		// as a failed cost argument would refuse every same-price promotion on the
+		// liability is the normal case for two cells serving one model, so treating it
+		// as a failed cost argument would refuse every equal-liability promotion on the
 		// grounds that it saved nothing — when what it offers is capacity.
-		tied := evidence.SavingFraction > -pricesTieWithin &&
-			evidence.SavingFraction < pricesTieWithin
+		tied := supplierLiabilitiesTieUSD(challengerLiability, incumbentLiability)
 		switch {
 		case tied:
 			evidence.Basis = promotionBasisThroughput
 			evidence.RequiredMarginFraction = promotionThroughputMarginFraction
 			gain := 0.0
-			if in, out := evidence.ChallengerCost.MedianMsPerUnit, evidence.IncumbentCost.MedianMsPerUnit; in > 0 && out > 0 {
+			if in, out := evidence.ChallengerSupplierLiability.MedianMsPerUnit, evidence.IncumbentSupplierLiability.MedianMsPerUnit; in > 0 && out > 0 {
 				gain = (out - in) / out
 			}
 			evidence.ThroughputGainFraction = gain
@@ -312,22 +445,23 @@ func (s *Store) EvaluateCellPromotion(
 				if gain < 0 {
 					speed = fmt.Sprintf("%.2f%% SLOWER per unit", -gain*100)
 				}
-				refuse("challenger %s costs the same per unit (%.2f%% apart) and is %s; a "+
-					"same-price promotion has to buy capacity because it cannot buy a saving",
-					scope.CellID, evidence.SavingFraction*100, speed)
+				refuse("challenger %s has equal supplier liability per verified unit (%.2f%% apart) and is %s; an "+
+					"equal-liability promotion has to buy capacity and makes no total-cost claim",
+					scope.CellID, evidence.SupplierLiabilityReductionFraction*100, speed)
 			}
 		default:
-			evidence.Basis = promotionBasisCost
-			if evidence.SavingFraction < promotionCostMarginFraction {
-				refuse("challenger %s saves %.2f%%, below the required %.0f%% margin",
-					scope.CellID, evidence.SavingFraction*100, promotionCostMarginFraction*100)
-			}
+			evidence.Basis = promotionBasisSupplierLiabilityOnly
+			evidence.RequiredMarginFraction = 0
+			refuse("cost-based promotion refused: challenger supplier-liability proxy differs by %.2f%%, but platform-cost components remain unknown (%v)",
+				evidence.SupplierLiabilityReductionFraction*100, evidence.UnknownPlatformCostComponents)
 		}
 	}
-	// Cost is not the only contract. A cheaper cell that is slower per unit is a
-	// legitimate trade for batch work, whose deadline absorbs it, and is not a
-	// trade at all where latency IS the product.
-	if in, out := evidence.ChallengerCost.MedianMsPerUnit, evidence.IncumbentCost.MedianMsPerUnit; in > 0 && out > 0 {
+	// Latency is an independent contract. Unequal supplier liability has already
+	// refused the total-cost arm above; for latency-sensitive traffic, a slower
+	// challenger adds a second refusal rather than being treated as a trade. The
+	// ratio is still output-normalised and therefore must not be reported unless
+	// both rows cleared the same exact-geometry gate as the liability comparison.
+	if in, out := evidence.ChallengerSupplierLiability.MedianMsPerUnit, evidence.IncumbentSupplierLiability.MedianMsPerUnit; challengerOK && incumbentOK && in > 0 && out > 0 {
 		evidence.LatencyRatio = in / out
 		if evidence.LatencyRatio > 1 && scopeIsLatencySensitive(scope.LatencyClass) {
 			refuse("challenger %s is %.0f%% slower per unit (%.3f ms vs %.3f ms) and %s is a "+
@@ -335,9 +469,9 @@ func (s *Store) EvaluateCellPromotion(
 				scope.CellID, (evidence.LatencyRatio-1)*100, in, out, scope.LatencyClass)
 		}
 	}
-	if regret.ScoredDecisions == 0 {
-		refuse("no recorded selector decision for %s scored both cells; a promotion needs production decisions, not a benchmark",
-			costScope)
+	if regret.ExactPairScoredDecisions == 0 {
+		refuse("no recorded selector decision for %s routed the incumbent and scored the exact incumbent/challenger pair under this policy epoch; a promotion needs production decisions about this pair, not an unrelated decision or benchmark",
+			liabilityScope)
 	}
 
 	// The scope must describe a cell this authority actually declares, with the
@@ -365,6 +499,19 @@ func scopeIsLatencySensitive(latencyClass string) bool {
 	return TrafficClassForWorkload(latencyClass, 0) == TrafficInteractive
 }
 
+func promotionRuntimeForCell(
+	activation *runtimeActivation, jobType, modelRef, cellID string,
+) string {
+	for _, profile := range activation.profiles() {
+		for _, cell := range profile.Cells {
+			if cell.ID == cellID && cell.Job == jobType && cell.Model == modelRef {
+				return profile.RuntimeID
+			}
+		}
+	}
+	return ""
+}
+
 // verifyPromotionScopeAgainstAuthority checks the scope against the runtime
 // authority: the challenger must exist, declare the claimed contracts, and be
 // reachable by directed routing (that is how it earned measurements at all), and
@@ -373,6 +520,29 @@ func verifyPromotionScopeAgainstAuthority(
 	activation *runtimeActivation, scope CellPromotionScope, incumbentCell string,
 	refuse func(string, ...any),
 ) error {
+	wantRevision := modelRevisionFor(scope.ModelRef)
+	if wantRevision == "" {
+		refuse("model %s has no declared artifact revision authority", scope.ModelRef)
+	} else if scope.ModelRevision != wantRevision {
+		refuse("model %s authority binds revision %s, scope claims %s",
+			scope.ModelRef, wantRevision, scope.ModelRevision)
+	}
+	for role, cellID := range map[string]string{
+		"challenger": scope.CellID,
+		"incumbent":  incumbentCell,
+	} {
+		_, _, summary, err := currentRuntimeCellBenchmarkIdentity(cellID)
+		if err != nil {
+			refuse("%s %s lacks current exact benchmark identity: %v", role, cellID, err)
+			continue
+		}
+		if summary.HWClass != scope.HWClass ||
+			summary.HardwareIdentity != scope.HardwareIdentity {
+			refuse("%s %s current benchmark binds hardware %s/%s, scope claims %s/%s",
+				role, cellID, summary.HWClass, summary.HardwareIdentity,
+				scope.HWClass, scope.HardwareIdentity)
+		}
+	}
 	var challengerFound, incumbentFound bool
 	for _, profile := range activation.profiles() {
 		for _, cell := range profile.Cells {
@@ -394,13 +564,29 @@ func verifyPromotionScopeAgainstAuthority(
 					refuse("challenger %s sells verification %s, scope claims %s",
 						cell.ID, cell.Verification, scope.Verification)
 				}
+				if !containsString(profile.Hardware.Platforms, scope.HWClass) {
+					refuse("challenger %s runtime %s does not declare hardware class %s",
+						cell.ID, profile.RuntimeID, scope.HWClass)
+				}
 				if !cell.ReachableByDirectedRouting(profile) {
 					refuse("challenger %s is not reachable by directed routing, so its measurements cannot be attributed to it",
 						cell.ID)
 				}
 			case incumbentCell:
 				incumbentFound = true
-				if !cell.Routable(profile) {
+				if tier := cell.qualityTierFor(profile); tier != scope.QualityTier {
+					refuse("incumbent %s sells quality tier %s, scope claims %s",
+						cell.ID, tier, scope.QualityTier)
+				}
+				if cell.Verification != scope.Verification {
+					refuse("incumbent %s sells verification %s, scope claims %s",
+						cell.ID, cell.Verification, scope.Verification)
+				}
+				if !containsString(profile.Hardware.Platforms, scope.HWClass) {
+					refuse("incumbent %s runtime %s does not declare hardware class %s",
+						cell.ID, profile.RuntimeID, scope.HWClass)
+				}
+				if !activation.cellRoutable(profile, cell) {
 					refuse("incumbent %s is not routable; a promotion must be argued against the cell buyers are served by",
 						cell.ID)
 				}

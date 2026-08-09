@@ -11,6 +11,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -188,6 +189,10 @@ type Quote struct {
 
 	bareID        uuid.UUID // quotes.id primary key (the <uuid> inside QuoteID); not on the wire
 	etaRawP50Secs int       // pre-calibration learner input; persisted separately, never a buyer promise
+	// activationPolicyRevision is the database epoch refreshed before this new
+	// quote was classified. InsertQuote rechecks it under the shared policy lock
+	// so a cross-replica quarantine cannot race the durable quote write.
+	activationPolicyRevision int64
 }
 
 func serviceTierSemantics(tier string) string {
@@ -202,6 +207,36 @@ func serviceTierSemantics(tier string) string {
 }
 
 const quoteTTL = 15 * time.Minute
+
+// placementQuoteCurrentUseBoundary names the next wall-clock transition in a
+// frozen placement's monetary performance posture. A MEASURED snapshot uses
+// the 0.70 admission haircut only through its revalidation boundary; a STALE
+// snapshot has already crossed that transition and has no further clock-only
+// boundary under the current policy.
+func placementQuoteCurrentUseBoundary(
+	placement PlacementRequirement,
+) (time.Time, bool, error) {
+	if placement.PerformanceAuthority == nil {
+		return time.Time{}, false, errors.New(
+			"placement has no frozen runtime performance authority")
+	}
+	performance := placement.PerformanceAuthority.Performance
+	switch performance.Status {
+	case cellThroughputMeasured:
+		measuredAt, err := time.Parse(time.RFC3339, strings.TrimSpace(performance.BenchmarkedAt))
+		if err != nil {
+			return time.Time{}, false, fmt.Errorf(
+				"placement benchmarked_at is not RFC3339: %w", err)
+		}
+		return measuredAt.UTC().Add(benchmarkRevalidationWindow), true, nil
+	case cellThroughputStale:
+		return time.Time{}, false, nil
+	default:
+		return time.Time{}, false, fmt.Errorf(
+			"placement performance posture %q has no quote-expiry policy",
+			performance.Status)
+	}
+}
 
 type QuoteExecution struct {
 	RecommendedSplitSize int     `json:"recommended_split_size"`
@@ -313,7 +348,7 @@ type QuoteBudget struct {
 }
 
 const (
-	claimableWorkerPredicateVersion = 1
+	claimableWorkerPredicateVersion = 3
 	placementRequirementVersion     = claimableWorkerPredicateVersion
 )
 
@@ -322,19 +357,26 @@ const (
 // every worker/supplier predicate that can make an otherwise-capable device
 // unable to claim the accepted job.
 type PlacementRequirement struct {
-	Version             int      `json:"version"`
-	JobType             string   `json:"job_type"`
-	ModelRef            string   `json:"model_ref"`
-	ModelKind           string   `json:"model_kind"`
-	RuntimeCellID       string   `json:"runtime_cell_id"`
-	RuntimeID           string   `json:"runtime_id"`
-	Engine              string   `json:"engine"`
-	RuntimeMatrixSHA256 string   `json:"runtime_matrix_sha256"`
-	MinMemoryGB         float32  `json:"min_memory_gb"`
-	HWClasses           []string `json:"hw_classes,omitempty"`
-	DataResidency       []string `json:"data_residency,omitempty"`
-	MinReputation       float32  `json:"min_reputation"`
-	TrustedOnly         bool     `json:"trusted_only"`
+	Version                   int      `json:"version"`
+	JobType                   string   `json:"job_type"`
+	ModelRef                  string   `json:"model_ref"`
+	ModelKind                 string   `json:"model_kind"`
+	RuntimeCellID             string   `json:"runtime_cell_id"`
+	RuntimeID                 string   `json:"runtime_id"`
+	Engine                    string   `json:"engine"`
+	EngineBuildHash           string   `json:"engine_build_hash,omitempty"`
+	EngineBuildIdentityPolicy string   `json:"engine_build_identity_policy,omitempty"`
+	HardwareIdentity          string   `json:"hardware_identity,omitempty"`
+	RuntimeMatrixSHA256       string   `json:"runtime_matrix_sha256"`
+	MinMemoryGB               float32  `json:"min_memory_gb"`
+	HWClasses                 []string `json:"hw_classes,omitempty"`
+	DataResidency             []string `json:"data_residency,omitempty"`
+	MinReputation             float32  `json:"min_reputation"`
+	TrustedOnly               bool     `json:"trusted_only"`
+	// PerformanceAuthority freezes the exact receipt summary, measured hardware,
+	// observed rate, haircut, and performance-policy revision accepted by a v2
+	// placement. Legacy v1 rows omit it and retain their historical validator.
+	PerformanceAuthority *FrozenRuntimeCellPerformance `json:"performance_authority,omitempty"`
 	// OfferedRateUsdHr is retained on the wire for compatibility. Its exact
 	// meaning is the modeled supplier ask admission ceiling in USD/hour, not
 	// guaranteed realized hourly pay.
@@ -353,6 +395,26 @@ func placementRequirementFor(
 		)
 	}
 	candidate := workload.RuntimeCandidates[0]
+	_, performance, err := admissionUnitsPerSec(
+		workload.RuntimeJobType, workload.Binding.Model.Ref,
+		admissionCellsForWorkload(workload), time.Now(),
+	)
+	if err != nil {
+		return PlacementRequirement{}, fmt.Errorf(
+			"%w: resolving current runtime performance authority: %v",
+			errQuotePhysicalAuthorityUnavailable, err)
+	}
+	boundHWClasses, err := performanceBoundHardwareClasses(
+		performance, sub.Constraints.HWClasses)
+	if err != nil {
+		return PlacementRequirement{}, err
+	}
+	frozenPerformance, err := freezeRuntimeCellPerformance(performance)
+	if err != nil {
+		return PlacementRequirement{}, fmt.Errorf(
+			"%w: freezing current runtime performance authority: %v",
+			errQuotePhysicalAuthorityUnavailable, err)
+	}
 	// Placement model_kind is the frozen cell's artifact format, not the buyer's
 	// declaration. Claim matching already uses the cell's kind; capacity and
 	// worker filters must agree or a directed/multi-kind freeze would look for
@@ -362,29 +424,40 @@ func placementRequirementFor(
 		modelKind = sub.Model.Kind
 	}
 	out := PlacementRequirement{
-		Version:             placementRequirementVersion,
-		JobType:             workload.RuntimeJobType,
-		ModelRef:            sub.Model.Ref,
-		ModelKind:           modelKind,
-		RuntimeCellID:       candidate.CellID,
-		RuntimeID:           candidate.RuntimeID,
-		Engine:              candidate.Engine,
-		RuntimeMatrixSHA256: generatedRuntimeMatrixSHA256,
-		MinMemoryGB:         float32(workload.MinimumMemoryGB),
-		HWClasses:           append([]string(nil), sub.Constraints.HWClasses...),
-		DataResidency:       append([]string(nil), sub.Constraints.DataResidency...),
-		MinReputation:       sub.MinReputation,
-		TrustedOnly:         sub.Tier == "trusted",
-		OfferedRateUsdHr:    offeredRateUsdHr,
+		Version:                   placementRequirementVersion,
+		JobType:                   workload.RuntimeJobType,
+		ModelRef:                  sub.Model.Ref,
+		ModelKind:                 modelKind,
+		RuntimeCellID:             candidate.CellID,
+		RuntimeID:                 candidate.RuntimeID,
+		Engine:                    candidate.Engine,
+		EngineBuildHash:           performance.EngineBuildHash,
+		EngineBuildIdentityPolicy: performance.EngineBuildIdentityPolicy,
+		HardwareIdentity:          performance.HardwareIdentity,
+		RuntimeMatrixSHA256:       generatedRuntimeMatrixSHA256,
+		MinMemoryGB:               float32(workload.MinimumMemoryGB),
+		HWClasses:                 boundHWClasses,
+		DataResidency:             append([]string(nil), sub.Constraints.DataResidency...),
+		MinReputation:             sub.MinReputation,
+		TrustedOnly:               sub.Tier == "trusted",
+		PerformanceAuthority:      frozenPerformance,
+		OfferedRateUsdHr:          offeredRateUsdHr,
 	}
-	if err := validatePlacementRequirement(out, workload); err != nil {
-		return PlacementRequirement{}, err
+	if err := validateCurrentPlacementRequirement(out, workload); err != nil {
+		return PlacementRequirement{}, fmt.Errorf(
+			"%w: validating current placement authority: %v",
+			errQuotePhysicalAuthorityUnavailable, err)
 	}
 	return out, nil
 }
 
+// validatePlacementRequirement validates the immutable placement against the
+// immutable workload it was accepted with. It is deliberately a historical
+// validator: a later capability-matrix release must not make an accepted quote
+// or job unreadable. New admission must use validateCurrentPlacementRequirement
+// as well, which additionally consults today's matrix and receipt authority.
 func validatePlacementRequirement(p PlacementRequirement, workload WorkloadDecision) error {
-	if p.Version != placementRequirementVersion {
+	if p.Version != 1 && p.Version != 2 && p.Version != placementRequirementVersion {
 		return fmt.Errorf("unsupported placement requirement version %d", p.Version)
 	}
 	if len(workload.RuntimeCandidates) != 1 {
@@ -398,15 +471,47 @@ func validatePlacementRequirement(p PlacementRequirement, workload WorkloadDecis
 	if wantKind == "" {
 		wantKind = binding.Model.Kind
 	}
+	hardwareMatches := sameStrings(p.HWClasses, binding.Constraints.HWClasses)
+	if p.Version >= 2 {
+		if err := validateFrozenRuntimeCellPerformance(p.PerformanceAuthority); err != nil {
+			return fmt.Errorf("placement performance authority: %w", err)
+		}
+		performance := p.PerformanceAuthority.Performance
+		hardwareMatches = sameStrings(p.HWClasses, []string{performance.MeasuredOnHWClass}) &&
+			(len(binding.Constraints.HWClasses) == 0 ||
+				slices.Contains(binding.Constraints.HWClasses, performance.MeasuredOnHWClass)) &&
+			performance.CellID == candidate.CellID &&
+			performance.RuntimeProfileID == candidate.RuntimeID &&
+			performance.JobType == workload.RuntimeJobType &&
+			performance.ModelID == binding.Model.Ref
+		if p.Version == placementRequirementVersion {
+			hardwareMatches = hardwareMatches &&
+				engineBuildHashPattern.MatchString(p.EngineBuildHash) &&
+				p.EngineBuildHash == performance.EngineBuildHash &&
+				historicalEngineBuildIdentityPolicyMatches(
+					p.EngineBuildIdentityPolicy,
+					performance.EngineBuildIdentityPolicy,
+				) &&
+				validCanonicalHardwareIdentity(p.HardwareIdentity) &&
+				p.HardwareIdentity == performance.HardwareIdentity &&
+				p.PerformanceAuthority.Version == frozenRuntimeCellPerformanceVersion
+		} else if p.EngineBuildHash != "" || p.EngineBuildIdentityPolicy != "" ||
+			p.HardwareIdentity != "" ||
+			p.PerformanceAuthority.Version != frozenRuntimeCellPerformanceLegacyVersion {
+			return errors.New("legacy placement requirement carries a future build/hardware authority")
+		}
+	} else if p.PerformanceAuthority != nil {
+		return errors.New("legacy placement requirement carries a future performance authority")
+	}
 	if p.JobType != workload.RuntimeJobType ||
 		p.ModelRef != binding.Model.Ref ||
 		p.ModelKind != wantKind ||
 		p.RuntimeCellID != candidate.CellID ||
 		p.RuntimeID != candidate.RuntimeID ||
 		p.Engine != candidate.Engine ||
-		p.RuntimeMatrixSHA256 != generatedRuntimeMatrixSHA256 ||
+		!validSHA256(p.RuntimeMatrixSHA256) ||
 		p.MinMemoryGB != float32(workload.MinimumMemoryGB) ||
-		!sameStrings(p.HWClasses, binding.Constraints.HWClasses) ||
+		!hardwareMatches ||
 		!sameStrings(p.DataResidency, binding.Constraints.DataResidency) ||
 		p.MinReputation != binding.MinReputation ||
 		p.TrustedOnly != (binding.Tier == "trusted") ||
@@ -416,6 +521,17 @@ func validatePlacementRequirement(p PlacementRequirement, workload WorkloadDecis
 		return errors.New("placement requirement conflicts with frozen workload authority")
 	}
 	return nil
+}
+
+// validateCurrentPlacementRequirement is the new-write counterpart to the
+// self-contained validator above. Keeping this check at ingress lets historical
+// replay retain the matrix identity it actually accepted while ensuring no new
+// job can enter under a superseded matrix or performance projection.
+func validateCurrentPlacementRequirement(p PlacementRequirement, workload WorkloadDecision) error {
+	if err := validatePlacementRequirement(p, workload); err != nil {
+		return err
+	}
+	return validateCurrentPlacementPerformanceAuthority(p)
 }
 
 func sameStrings(a, b []string) bool {
@@ -434,19 +550,22 @@ func sameStrings(a, b []string) bool {
 // empty exact-runtime fields preserve the legacy diagnostic wrappers; quotes
 // and planner calls always use PlacementRequirement.supplyRequirements().
 type QuoteSupplyRequirements struct {
-	JobType       string
-	ModelRef      string
-	ModelKind     string
-	RuntimeCellID string
-	RuntimeID     string
-	Engine        string
-	MatrixSHA256  string
-	MinMemoryGB   float32
-	HWClasses     []string
-	DataResidency []string
-	MinReputation float32
-	TrustedOnly   bool
-	OfferedRate   *float32
+	JobType                   string
+	ModelRef                  string
+	ModelKind                 string
+	RuntimeCellID             string
+	RuntimeID                 string
+	Engine                    string
+	EngineBuildHash           string
+	EngineBuildIdentityPolicy string
+	HardwareIdentity          string
+	MatrixSHA256              string
+	MinMemoryGB               float32
+	HWClasses                 []string
+	DataResidency             []string
+	MinReputation             float32
+	TrustedOnly               bool
+	OfferedRate               *float32
 }
 
 func (p PlacementRequirement) supplyRequirements() QuoteSupplyRequirements {
@@ -454,11 +573,13 @@ func (p PlacementRequirement) supplyRequirements() QuoteSupplyRequirements {
 	return QuoteSupplyRequirements{
 		JobType: p.JobType, ModelRef: p.ModelRef, ModelKind: p.ModelKind,
 		RuntimeCellID: p.RuntimeCellID, RuntimeID: p.RuntimeID, Engine: p.Engine,
-		MatrixSHA256:  p.RuntimeMatrixSHA256,
-		MinMemoryGB:   p.MinMemoryGB,
-		HWClasses:     append([]string(nil), p.HWClasses...),
-		DataResidency: append([]string(nil), p.DataResidency...),
-		MinReputation: p.MinReputation, TrustedOnly: p.TrustedOnly,
+		EngineBuildHash: p.EngineBuildHash, EngineBuildIdentityPolicy: p.EngineBuildIdentityPolicy,
+		HardwareIdentity: p.HardwareIdentity,
+		MatrixSHA256:     p.RuntimeMatrixSHA256,
+		MinMemoryGB:      p.MinMemoryGB,
+		HWClasses:        append([]string(nil), p.HWClasses...),
+		DataResidency:    append([]string(nil), p.DataResidency...),
+		MinReputation:    p.MinReputation, TrustedOnly: p.TrustedOnly,
 		OfferedRate: &offered,
 	}
 }
@@ -496,9 +617,16 @@ func (s *Server) quoteInitialEconomicTaskCounts(ctx context.Context, sub jobSubm
 	return redundancy, honeypots, primaryTasks + redundancy + honeypots, nil
 }
 
-var errQuoteVerificationUnavailable = errors.New("quote verification authority is unavailable")
+var (
+	errQuoteVerificationUnavailable      = errors.New("quote verification authority is unavailable")
+	errQuotePhysicalAuthorityUnavailable = errors.New("quote physical authority is unavailable")
+	errBoundQuoteExpired                 = errors.New("bound quote expired")
+)
 
 func (s *Server) buildQuoteWithSchedule(ctx context.Context, buyerID uuid.UUID, sub jobSubmit, inputBytes []byte, workload WorkloadDecision, schedule EconomicSchedule) (Quote, error) {
+	if err := validateCurrentUniformCanaryAuthority(s.canary.Enabled); err != nil {
+		return Quote{}, fmt.Errorf("%w: %w", errQuotePhysicalAuthorityUnavailable, err)
+	}
 	jobType := sub.JobType.Type
 	tier := sub.Tier
 	var scan QuoteInputScan
@@ -526,18 +654,20 @@ func (s *Server) buildQuoteWithSchedule(ctx context.Context, buyerID uuid.UUID, 
 	}
 	catalogue, err := s.store.LoadCataloguePriceAuthority(ctx, sub.Model.Ref)
 	if err != nil {
-		return Quote{}, fmt.Errorf("resolving catalogue price authority: %w", err)
+		return Quote{}, fmt.Errorf("%w: resolving catalogue price authority: %v",
+			errQuotePhysicalAuthorityUnavailable, err)
 	}
 	offeredRate64, err := supplierAdmissionCeilingUSDHr(
 		catalogue, jobType, tier, admissionCellsForWorkload(workload),
+		sub.Constraints.HWClasses,
 	)
 	if err != nil {
-		return Quote{}, fmt.Errorf("deriving supplier admission ceiling: %w", err)
+		return Quote{}, fmt.Errorf("%w: deriving supplier admission ceiling: %v", errQuotePhysicalAuthorityUnavailable, err)
 	}
 	offeredRate := float32(offeredRate64)
 	placement, err := placementRequirementFor(sub, workload, offeredRate)
 	if err != nil {
-		return Quote{}, fmt.Errorf("building placement requirement: %w", err)
+		return Quote{}, fmt.Errorf("%w: building placement requirement: %v", errQuotePhysicalAuthorityUnavailable, err)
 	}
 	supply := placement.supplyRequirements()
 
@@ -579,6 +709,11 @@ func (s *Server) buildQuoteWithSchedule(ctx context.Context, buyerID uuid.UUID, 
 		s.quoteInitialEconomicTaskCounts(ctx, sub, tasks)
 	if economicCountErr != nil {
 		return Quote{}, economicCountErr
+	}
+	if err := validateQuoteUniformTaskEconomicAuthority(
+		sub, inputBytes, tasks, redundancyTasks, honeypotTasks,
+	); err != nil {
+		return Quote{}, fmt.Errorf("%w: %w", errQuotePhysicalAuthorityUnavailable, err)
 	}
 	baseComputeUSD := expected
 	if tasks > 0 && initialEconomicTasks > 0 {
@@ -742,12 +877,44 @@ func (s *Server) buildQuoteWithSchedule(ctx context.Context, buyerID uuid.UUID, 
 		amount := float64(*fixed.TrueNetContributionNanos) / float64(NanosPerMajorUnit)
 		trueNetContribution = &amount
 	}
+	quoteNow := time.Now().UTC()
+	quoteExpiresAt := quoteNow.Add(quoteTTL)
+	currentUseValidUntil, err := canonicalCatalogueTimestamp(
+		"quote catalogue current_use_valid_until", catalogue.CurrentUseValidUntil,
+	)
+	if err != nil {
+		return Quote{}, fmt.Errorf("%w: %v", errQuotePhysicalAuthorityUnavailable, err)
+	}
+	if !currentUseValidUntil.After(quoteNow) {
+		return Quote{}, fmt.Errorf(
+			"%w: catalogue physical authority expires at %s and cannot bind a new quote at %s",
+			errQuotePhysicalAuthorityUnavailable,
+			currentUseValidUntil.Format(time.RFC3339), quoteNow.Format(time.RFC3339))
+	}
+	if currentUseValidUntil.Before(quoteExpiresAt) {
+		quoteExpiresAt = currentUseValidUntil
+	}
+	placementValidUntil, hasPlacementBoundary, err := placementQuoteCurrentUseBoundary(placement)
+	if err != nil {
+		return Quote{}, fmt.Errorf("%w: %v", errQuotePhysicalAuthorityUnavailable, err)
+	}
+	if hasPlacementBoundary {
+		if !placementValidUntil.After(quoteNow) {
+			return Quote{}, fmt.Errorf(
+				"%w: placement performance authority changes posture at %s and cannot bind a new quote at %s",
+				errQuotePhysicalAuthorityUnavailable,
+				placementValidUntil.Format(time.RFC3339), quoteNow.Format(time.RFC3339))
+		}
+		if placementValidUntil.Before(quoteExpiresAt) {
+			quoteExpiresAt = placementValidUntil
+		}
+	}
 
 	return Quote{
 		QuoteID:       "q_" + bareID.String(),
 		bareID:        bareID,
 		etaRawP50Secs: rawP50,
-		ExpiresAt:     time.Now().Add(quoteTTL).UTC(),
+		ExpiresAt:     quoteExpiresAt,
 		InputSHA256:   hex.EncodeToString(sum[:]),
 		JobType:       jobType,
 		Model:         sub.Model.Ref,
@@ -905,7 +1072,21 @@ func (s *Server) handleQuote(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid quote request json: "+err.Error())
 		return
 	}
-	normalized, herr := s.normalizeWorkloadRequest(sub)
+	normalized, herr := s.normalizeWorkloadRequest(sub, false)
+	if herr != nil {
+		writeErr(w, herr.status, herr.msg)
+		return
+	}
+	sub = normalized
+	activation, err := s.store.activationForNewAdmission(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusServiceUnavailable, err.Error())
+		return
+	}
+	// The first pass preserves the API's pure request-validation boundary. Run
+	// the authority-dependent normalizer again after refreshing so no kind or
+	// model decision from the formerly cached activation survives.
+	normalized, herr = s.normalizeWorkloadRequest(sub)
 	if herr != nil {
 		writeErr(w, herr.status, herr.msg)
 		return
@@ -959,18 +1140,28 @@ func (s *Server) handleQuote(w http.ResponseWriter, r *http.Request) {
 	q, err := s.buildQuoteWithSchedule(r.Context(), auth.BuyerID, sub, inputBytes, workload, schedule)
 	if err != nil {
 		status := http.StatusInternalServerError
-		if errors.Is(err, errQuoteVerificationUnavailable) {
+		if errors.Is(err, errQuoteVerificationUnavailable) ||
+			errors.Is(err, errQuotePhysicalAuthorityUnavailable) ||
+			errors.Is(err, errCataloguePhysicalAuthorityUnavailable) {
 			status = http.StatusServiceUnavailable
 		}
 		writeErr(w, status, err.Error())
 		return
 	}
+	q.activationPolicyRevision = activation.PolicyRevision
 	if !q.Economics.Executable {
 		writeErr(w, http.StatusConflict, "quote is not executable: "+q.Economics.BlockReason)
 		return
 	}
 	if err := s.store.InsertQuote(r.Context(), auth.BuyerID, q); err != nil {
-		writeErr(w, http.StatusInternalServerError, "persisting quote: "+err.Error())
+		status := http.StatusInternalServerError
+		if errors.Is(err, errActivationAdmissionUnavailable) ||
+			errors.Is(err, errActivationAdmissionStale) ||
+			errors.Is(err, errCataloguePhysicalAuthorityUnavailable) ||
+			errors.Is(err, errQuotePhysicalAuthorityUnavailable) {
+			status = http.StatusServiceUnavailable
+		}
+		writeErr(w, status, "persisting quote: "+err.Error())
 		return
 	}
 	metrics.quotes.Add(1) // observability (Plane D D21): a quote was priced + persisted
@@ -1003,12 +1194,16 @@ const claimableWorkerPredicateSQL = `
 	AND COALESCE(s.reputation,0) >= $6
 	AND (NOT $7 OR (COALESCE(s.reputation,0) >= 0.80 AND COALESCE(s.completed_tasks,0) >= 500))
 	AND ($9::real IS NULL OR COALESCE(w.min_payout_usd_hr,0) <= $9)
+	AND ($14 = '' OR COALESCE(w.build_hash,'') = $14)
+	AND ($15 = '' OR COALESCE(w.build_identity_policy,'') = $15)
+	AND ($16 = '' OR COALESCE(w.hardware_identity,'') = $16)
 	AND EXISTS (
 	  SELECT 1 FROM worker_authorized_capabilities wac
 	   WHERE wac.worker_id = w.id
 	     AND wac.job_type = $1
 	     AND wac.model_ref = $2
 	     AND wac.matrix_sha256 = $8
+	     AND wac.authorized_at >= now() - interval '7 days'
 	     AND ($10 = '' OR (
 	       wac.model_kind = $10
 	       AND wac.cell_id = $11
@@ -1039,6 +1234,7 @@ func supplyRequirementQueryArgs(req QuoteSupplyRequirements) []any {
 		req.JobType, req.ModelRef, req.MinMemoryGB, nullStrSlice(req.HWClasses),
 		nullStrSlice(req.DataResidency), req.MinReputation, req.TrustedOnly,
 		req.MatrixSHA256, offered, req.ModelKind, req.RuntimeCellID, req.RuntimeID, req.Engine,
+		req.EngineBuildHash, req.EngineBuildIdentityPolicy, req.HardwareIdentity,
 	}
 }
 
@@ -1095,6 +1291,7 @@ func (s *Store) WarmEligibleWorkerCountFor(ctx context.Context, jobType, modelRe
 }
 
 func (s *Store) InsertQuote(ctx context.Context, buyerID uuid.UUID, q Quote) error {
+	activationRevision := activationAdmissionRevision(q.activationPolicyRevision)
 	if err := RequireSettlementCurrency(q.Currency); err != nil {
 		return fmt.Errorf("refusing quote outside the settlement currency: %w", err)
 	}
@@ -1104,8 +1301,9 @@ func (s *Store) InsertQuote(ctx context.Context, buyerID uuid.UUID, q Quote) err
 			q.Economics.Schedule.Currency, q.Currency,
 		)
 	}
-	if err := validatePlacementRequirement(q.Placement, q.Workload); err != nil {
-		return fmt.Errorf("refusing quote without valid placement authority: %w", err)
+	if err := validateCurrentPlacementRequirement(q.Placement, q.Workload); err != nil {
+		return fmt.Errorf("%w: refusing quote without valid placement authority: %v",
+			errQuotePhysicalAuthorityUnavailable, err)
 	}
 	if err := ValidateWorkloadDecisionSnapshot(q.Workload); err != nil {
 		return fmt.Errorf("refusing quote without valid workload decision: %w", err)
@@ -1117,6 +1315,12 @@ func (s *Store) InsertQuote(ctx context.Context, buyerID uuid.UUID, q Quote) err
 		ctx, s, q.Pricing, q.Workload, q.ComputePlan, q.Placement, q.Economics,
 	); err != nil {
 		return fmt.Errorf("refusing quote without valid composite pricing authority: %w", err)
+	}
+	if err := validateCurrentUniformTaskEconomicAuthority(
+		q.Workload, q.ComputePlan, q.Economics, q.Pricing, nil,
+	); err != nil {
+		return fmt.Errorf("%w: refusing quote without exact task-economic authority: %w",
+			errQuotePhysicalAuthorityUnavailable, err)
 	}
 	if q.etaRawP50Secs <= 0 || q.Time.P50Secs < q.etaRawP50Secs ||
 		q.ComputePlan.ETAP50Secs != q.Time.P50Secs ||
@@ -1166,7 +1370,36 @@ func (s *Store) InsertQuote(ctx context.Context, buyerID uuid.UUID, q Quote) err
 	if q.SLA != nil {
 		slaSecs, slaPremium = &q.SLA.GuaranteedSecs, &q.SLA.PremiumUSD
 	}
-	_, err = s.pool.Exec(ctx,
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("%w: begin quote admission: %v", errActivationAdmissionUnavailable, err)
+	}
+	defer tx.Rollback(ctx)
+	if err := guardActivationAdmissionTx(ctx, tx, activationRevision); err != nil {
+		return err
+	}
+	if durableAdmissionPhysicalRecheckHook != nil {
+		durableAdmissionPhysicalRecheckHook()
+	}
+	if err := validateCurrentPlacementRequirement(q.Placement, q.Workload); err != nil {
+		return fmt.Errorf("%w: refusing quote at durable placement ingress: %v",
+			errQuotePhysicalAuthorityUnavailable, err)
+	}
+	if err := validateCurrentCataloguePriceAuthorityFrom(ctx, tx, q.Pricing.Catalogue); err != nil {
+		return fmt.Errorf("%w: refusing quote at durable ingress: %v",
+			errCataloguePhysicalAuthorityUnavailable, err)
+	}
+	if err := validateCurrentPlacementCataloguePhysicalAuthority(
+		q.Placement, q.Pricing.Catalogue,
+	); err != nil {
+		return fmt.Errorf("%w: refusing quote whose price does not bind its placement: %v",
+			errCataloguePhysicalAuthorityUnavailable, err)
+	}
+	if err := validateCurrentCatalogueModelPointerFrom(ctx, tx, q.Pricing.Catalogue); err != nil {
+		return fmt.Errorf("%w: refusing quote after catalogue pointer changed: %v",
+			errCataloguePhysicalAuthorityUnavailable, err)
+	}
+	_, err = tx.Exec(ctx,
 		`INSERT INTO quotes
 		   (id, buyer_id, job_type, model_ref, tier, records, input_bytes,
 		    estimated_tokens, malformed_records, split_size, task_count, eligible_now,
@@ -1193,7 +1426,10 @@ func (s *Store) InsertQuote(ctx context.Context, buyerID uuid.UUID, q Quote) err
 		placementBlob, placementSHA256, pricingBlob, pricingSHA256,
 		q.Currency,
 	)
-	return err
+	if err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func quoteIDToUUID(handle string) (uuid.UUID, error) {

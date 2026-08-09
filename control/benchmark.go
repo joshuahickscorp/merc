@@ -10,6 +10,7 @@ func (s *Store) CandidateWorkers(ctx context.Context, jobType, modelRef string, 
 	rows, err := s.pool.Query(ctx,
 		`SELECT w.id, w.supplier_id, COALESCE(w.hw_class,''),
 		        COALESCE(w.engine,''), COALESCE(w.build_hash,''),
+		        COALESCE(w.build_identity_policy,''),COALESCE(w.hardware_identity,''),
 		        COALESCE(w.effective_memory_gb, w.memory_gb, 0),
 		        s.reputation, w.last_seen_at, s.tier,
 		        COALESCE(w.throttled, false),
@@ -29,7 +30,17 @@ func (s *Store) CandidateWorkers(ctx context.Context, jobType, modelRef string, 
 		        -- column default (true) through COALESCE, so a worker that predates
 		        -- this column (or a fresh registration whose benchmarks haven't
 		        -- landed yet) is NOT penalized for a measurement it never had.
-		        NOT COALESCE(w.thermal_ok, true)
+		        NOT COALESCE(w.thermal_ok, true),
+		        COALESCE(ARRAY(
+		          SELECT DISTINCT wac.cell_id || chr(31) || wac.runtime_id || chr(31) || wac.model_kind
+		            FROM worker_authorized_capabilities wac
+		           WHERE wac.worker_id=w.id
+		             AND wac.job_type=$1
+		             AND wac.model_ref=$3
+		             AND wac.matrix_sha256=$4
+		             AND wac.authorized_at>=now()-interval '7 days'
+		           ORDER BY 1
+		        ),ARRAY[]::text[])
 		 FROM workers w JOIN suppliers s ON s.id = w.supplier_id
 		 WHERE w.last_seen_at IS NOT NULL
 		   AND w.last_seen_at > now() - interval '60 seconds'
@@ -44,6 +55,7 @@ func (s *Store) CandidateWorkers(ctx context.Context, jobType, modelRef string, 
 		        AND wac.job_type = $1
 		        AND wac.model_ref = $3
 		        AND wac.matrix_sha256 = $4
+		        AND wac.authorized_at >= now() - interval '7 days'
 		   )`,
 		jobType, minMemGB, modelRef, generatedRuntimeMatrixSHA256,
 	)
@@ -59,8 +71,10 @@ func (s *Store) CandidateWorkers(ctx context.Context, jobType, modelRef string, 
 			tierRaw int16
 			tps     float32
 		)
-		if err := rows.Scan(&m.ID, &m.SupplierID, &m.HWClass, &m.Engine, &m.BuildHash, &m.MemoryGB, &m.Reputation,
-			&m.LastSeen, &tierRaw, &m.Throttled, &tps, &m.Warm, &m.ThermalDegraded); err != nil {
+		if err := rows.Scan(&m.ID, &m.SupplierID, &m.HWClass, &m.Engine, &m.BuildHash,
+			&m.BuildIdentityPolicy, &m.HardwareIdentity, &m.MemoryGB, &m.Reputation,
+			&m.LastSeen, &tierRaw, &m.Throttled, &tps, &m.Warm, &m.ThermalDegraded,
+			&m.AuthorizedRuntimeKeys); err != nil {
 			return nil, err
 		}
 		m.Tier = int(tierRaw)
@@ -123,26 +137,30 @@ func (s *Store) FleetRateSnapshotFor(
 }
 
 type WorkerProfile struct {
-	WorkerID   uuid.UUID     `json:"worker_id"`
-	SupplierID uuid.UUID     `json:"supplier_id"`
-	HWClass    string        `json:"hw_class"`
-	Engine     string        `json:"engine"`
-	BuildHash  string        `json:"build_hash"`
-	MemoryGB   float32       `json:"memory_gb"`
-	BwGbps     float32       `json:"bw_gbps"`
-	Version    string        `json:"version"`
-	Benchmarks []BenchResult `json:"benchmarks"`
+	WorkerID            uuid.UUID     `json:"worker_id"`
+	SupplierID          uuid.UUID     `json:"supplier_id"`
+	HWClass             string        `json:"hw_class"`
+	HardwareIdentity    string        `json:"hardware_identity,omitempty"`
+	Engine              string        `json:"engine"`
+	BuildHash           string        `json:"build_hash"`
+	BuildIdentityPolicy string        `json:"build_identity_policy,omitempty"`
+	MemoryGB            float32       `json:"memory_gb"`
+	BwGbps              float32       `json:"bw_gbps"`
+	Version             string        `json:"version"`
+	Benchmarks          []BenchResult `json:"benchmarks"`
 }
 
 func (s *Store) GetWorkerProfile(ctx context.Context, workerID uuid.UUID) (*WorkerProfile, error) {
 	var p WorkerProfile
 	err := s.pool.QueryRow(ctx,
 		`SELECT id, supplier_id, COALESCE(hw_class,''),
-		        COALESCE(engine,''), COALESCE(build_hash,''),
+		        COALESCE(hardware_identity,''),COALESCE(engine,''), COALESCE(build_hash,''),
+		        COALESCE(build_identity_policy,''),
 		        COALESCE(memory_gb,0), COALESCE(bw_gbps,0), COALESCE(version,'')
 		 FROM workers WHERE id = $1`,
 		workerID,
-	).Scan(&p.WorkerID, &p.SupplierID, &p.HWClass, &p.Engine, &p.BuildHash,
+	).Scan(&p.WorkerID, &p.SupplierID, &p.HWClass, &p.HardwareIdentity, &p.Engine, &p.BuildHash,
+		&p.BuildIdentityPolicy,
 		&p.MemoryGB, &p.BwGbps, &p.Version)
 	if err != nil {
 		return nil, err

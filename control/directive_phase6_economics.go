@@ -427,8 +427,8 @@ func metalLocalCategoryInventory() []DirectiveCostCategory {
 		{
 			Name:         dirCatUtilization,
 			Knowledge:    CategoryUnknown,
-			WouldRequire: "a production utilization signal on MeasuredCellCost (busy fraction of the placement over the billable window), not a default of 1.0",
-			Notes:        "absent today — no production utilization meter on MeasuredCellCost or the energy harness",
+			WouldRequire: "a production utilization signal on MeasuredSupplierLiabilityProxy (busy fraction of the placement over the billable window), not a default of 1.0",
+			Notes:        "absent today — no production utilization meter on MeasuredSupplierLiabilityProxy or the energy harness",
 		},
 		{
 			Name:      dirCatProviderSupplierRate,
@@ -453,7 +453,7 @@ func metalLocalCategoryInventory() []DirectiveCostCategory {
 		{
 			Name:         dirCatRetries,
 			Knowledge:    CategoryUnknown,
-			WouldRequire: "task.retry_count rollup on the same workload (RetryRate on MeasuredCellCost)",
+			WouldRequire: "task.retry_count rollup on the same workload (RetryRate on MeasuredSupplierLiabilityProxy)",
 			Notes:        "energy harness is a single llama-cli invocation; no retry observations",
 		},
 		{

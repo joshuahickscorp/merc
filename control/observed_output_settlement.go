@@ -83,7 +83,7 @@ func settlementInputUnitsForComputePlan(plan ComputePlan) float64 {
 //	unusedShare     = outputUnitShare * (1 - observed/ceilingTokens)
 //	billedCharge    = round(frozenCharge * (1 - unusedShare))
 //	billedCharge    = max(billedCharge, minBillable)   // still never above freeze
-//	supplierPayout' = round(frozenPayout * billedCharge / frozenCharge)
+//	supplierPayout' = ceil(frozenPayout * billedCharge / frozenCharge)
 //	// then clamp so contribution floor still holds under the frozen schedule
 //
 // Missing plan inputs, non-generative work (estimatedOut == 0), a zero
@@ -206,9 +206,17 @@ func settleObservedOutputTokensWithSchedule(
 		if billedNanos > frozenChargeNanos {
 			billedNanos = frozenChargeNanos
 		}
-		// Scale supplier proportionally in nanos.
+		// Scale supplier proportionally in nanos. Supplier-directed money rounds
+		// up: rounding a positive entitlement fraction to zero would breach the
+		// exact per-task floor even though the task performed paid input work.
 		if frozenChargeNanos > 0 {
-			payoutNanos = int64(math.Round(float64(frozenPayoutNanos) * float64(billedNanos) / float64(frozenChargeNanos)))
+			var err error
+			payoutNanos, err = mulDiv(
+				frozenPayoutNanos, billedNanos, frozenChargeNanos, true,
+			)
+			if err != nil {
+				return out
+			}
 		}
 		if payoutNanos < 0 {
 			payoutNanos = 0
@@ -422,7 +430,11 @@ func clampSettlementToContributionFloorNanos(
 		mid := (lo + hi) / 2
 		supplier := int64(0)
 		if frozenCharge > 0 {
-			supplier = int64(math.Round(float64(frozenPayout) * float64(mid) / float64(frozenCharge)))
+			var err error
+			supplier, err = mulDiv(frozenPayout, mid, frozenCharge, true)
+			if err != nil {
+				supplier = min(frozenPayout, mid)
+			}
 		}
 		if supplier > mid {
 			supplier = mid
@@ -439,7 +451,11 @@ func clampSettlementToContributionFloorNanos(
 	}
 	supplier := int64(0)
 	if frozenCharge > 0 {
-		supplier = int64(math.Round(float64(frozenPayout) * float64(best) / float64(frozenCharge)))
+		var err error
+		supplier, err = mulDiv(frozenPayout, best, frozenCharge, true)
+		if err != nil {
+			supplier = min(frozenPayout, best)
+		}
 	}
 	if supplier > best {
 		supplier = best

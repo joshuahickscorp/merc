@@ -99,29 +99,33 @@ func TestProjectDeclarationCannotSupplyCompilerTopology(t *testing.T) {
 }
 
 func TestProjectDeclarationResolvesExactAdvertisedContract(t *testing.T) {
+	// Exact contract resolution needs a routable authority by definition. Use
+	// the scoped TEST_ONLY combined-token lane; production remains correctly
+	// empty until a real current receipt binds.
+	installTestOnlyCombinedTokenAuthority(t)
 	contracts, err := advertisedProjectRuntimeContracts()
 	must(t, err)
 	var contract ProjectRuntimeContract
 	for _, candidate := range contracts {
-		if candidate.WorkloadKind == "embeddings" {
+		if candidate.WorkloadKind == "batch_inference" {
 			contract = candidate
 			break
 		}
 	}
 	if contract.RuntimeID == "" {
-		t.Fatal("no advertised embeddings contract")
+		t.Fatal("no scoped TEST_ONLY batch-inference contract")
 	}
 	root := t.TempDir()
 	declaration := projectDeclarationFixture()
 	declaration.Steps = []ProjectIRStep{{
-		ID: "embed", Kind: contract.WorkloadKind,
-		Inputs: []string{"project://input"}, Outputs: []string{"project://vectors"},
+		ID: "infer", Kind: contract.WorkloadKind,
+		Inputs: []string{"project://input"}, Outputs: []string{"project://completions"},
 		RuntimeContract: contract.RuntimeContractSHA256, ModelContract: contract.ModelContractSHA256,
 		ResourceEstimate: ProjectIRResourceEstimate{State: "BOUNDED_PROBE_REQUIRED"}, Parallelism: "INDEPENDENT",
 		CheckpointPolicy: "NOT_APPLICABLE", Verification: contract.Verification,
 	}}
 	writeDeclarationFixture(t, root, declaration)
-	writeProjectFixture(t, root, "pipeline.py", "embedding")
+	writeProjectFixture(t, root, "pipeline.py", "batch inference")
 	ir, err := compileProject(projectCompileOptions{Root: root})
 	must(t, err)
 	if len(ir.Steps) != 1 || ir.Steps[0].RuntimeID != contract.RuntimeID || ir.Steps[0].ModelID != contract.ModelID {
@@ -250,30 +254,31 @@ func TestRenderWorkPlanRefusesCombinatorialDecomposition(t *testing.T) {
 }
 
 func TestDeclaredStepProbeIsScopedToItsInputArtifact(t *testing.T) {
+	installTestOnlyCombinedTokenAuthority(t)
 	contracts, err := advertisedProjectRuntimeContracts()
 	must(t, err)
 	var contract ProjectRuntimeContract
 	for _, candidate := range contracts {
-		if candidate.WorkloadKind == "embeddings" {
+		if candidate.WorkloadKind == "batch_inference" {
 			contract = candidate
 			break
 		}
 	}
 	if contract.RuntimeID == "" {
-		t.Fatal("no embeddings contract")
+		t.Fatal("no scoped TEST_ONLY batch-inference contract")
 	}
 	root := t.TempDir()
 	declaration := projectDeclarationFixture()
 	declaration.Steps = []ProjectIRStep{{
-		ID: "embed", Kind: "embeddings", Inputs: []string{"project://samples/input.jsonl"},
-		Outputs: []string{"project://vectors"}, RuntimeContract: contract.RuntimeContractSHA256,
+		ID: "infer", Kind: contract.WorkloadKind, Inputs: []string{"project://samples/input.jsonl"},
+		Outputs: []string{"project://completions"}, RuntimeContract: contract.RuntimeContractSHA256,
 		ModelContract:    contract.ModelContractSHA256,
 		ResourceEstimate: ProjectIRResourceEstimate{State: "BOUNDED_PROBE_REQUIRED"},
 		Parallelism:      "INDEPENDENT", CheckpointPolicy: "NOT_APPLICABLE", Verification: contract.Verification,
 	}}
 	writeDeclarationFixture(t, root, declaration)
-	writeProjectFixture(t, root, "pipeline.py", "embedding")
-	input := "{\"text\":\"alpha\"}\n{\"text\":\"beta\"}\n"
+	writeProjectFixture(t, root, "pipeline.py", "batch inference")
+	input := "{\"prompt\":\"alpha\"}\n{\"prompt\":\"beta\"}\n"
 	writeProjectFixture(t, root, "samples/input.jsonl", input)
 	proposal, err := compileProject(projectCompileOptions{Root: root})
 	must(t, err)

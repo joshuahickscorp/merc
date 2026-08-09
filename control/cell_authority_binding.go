@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -38,6 +39,81 @@ const (
 // Free strings such as "working-tree-before-media-authority" fail here without
 // consulting git, so a non-object can never become a bindable commit by shape.
 var hexObjectName = regexp.MustCompile(`(?i)^[0-9a-f]{7,64}$`)
+
+// engineBuildHashPattern is the source-bound execution identity emitted by the
+// agent benchmark harness and advertised by a worker. It is deliberately not a
+// generic digest: the agent contract is exactly 16 lowercase hexadecimal
+// characters, and accepting a free string here would let an unmeasured engine
+// build inherit another build's active-hour throughput floor.
+var engineBuildHashPattern = regexp.MustCompile(`^[0-9a-f]{16}$`)
+
+const (
+	currentEngineBuildIdentityPolicy  = "merc_agent_running_executable_sha256_v1"
+	externalRunnerBuildIdentityPolicy = "merc_external_runner_artifact_config_sha256_v1"
+)
+
+func validCurrentEngineBuildIdentityPolicy(policy string) bool {
+	return policy == currentEngineBuildIdentityPolicy ||
+		policy == externalRunnerBuildIdentityPolicy
+}
+
+// historicalEngineBuildIdentityPolicyMatches lets snapshots written before
+// the policy tag was introduced remain self-contained and readable. Empty is
+// only accepted when every frozen copy is empty; all current admission paths
+// separately require validCurrentEngineBuildIdentityPolicy, so an unversioned
+// short hash can never become current authority again.
+func historicalEngineBuildIdentityPolicyMatches(
+	policy string,
+	copies ...string,
+) bool {
+	if policy != "" && !validCurrentEngineBuildIdentityPolicy(policy) {
+		return false
+	}
+	for _, copy := range copies {
+		if copy != policy {
+			return false
+		}
+	}
+	return true
+}
+
+func requiredEngineBuildIdentityPolicy(
+	profile authorityRuntimeProfile,
+	cell authorityCell,
+) string {
+	if profile.Engine == "candle" && cell.Job != "media_transcode" {
+		return currentEngineBuildIdentityPolicy
+	}
+	return externalRunnerBuildIdentityPolicy
+}
+
+// Current Apple benchmark authority binds the performance-relevant machine
+// configuration, not merely a marketing generation. A same-brand lower-core
+// or different-memory SKU must not inherit another device's floor.
+var currentAppleHardwareIdentityPattern = regexp.MustCompile(
+	`^apple_silicon_v1\|brand=[A-Za-z0-9 ._-]+\|model=[A-Za-z0-9,._-]+\|memory_bytes=[1-9][0-9]*\|cpu_cores=[1-9][0-9]*\|gpu_cores=[1-9][0-9]*$`,
+)
+
+const maxHardwareIdentityBytes = 128
+
+// canonicalHardwareIdentity preserves the receipt/worker display identity but
+// removes representation ambiguity. Exact generation remains visible (for
+// example Apple M1 Ultra != Apple M3 Ultra); only repeated/edge whitespace is
+// normalized. Producers must send the canonical form so comparison never
+// silently repairs an authority-bearing value.
+func canonicalHardwareIdentity(raw string) string {
+	return strings.Join(strings.Fields(raw), " ")
+}
+
+func validCanonicalHardwareIdentity(raw string) bool {
+	return raw != "" && len(raw) <= maxHardwareIdentityBytes &&
+		raw == canonicalHardwareIdentity(raw)
+}
+
+func validCurrentHardwareIdentity(raw string) bool {
+	return validCanonicalHardwareIdentity(raw) &&
+		currentAppleHardwareIdentityPattern.MatchString(raw)
+}
 
 // weightArtifactSuffixes mark model weight bytes rather than documentation.
 // A docs-only builtin cell (media contracts) does not need a weight digest on
@@ -91,16 +167,23 @@ func cellAuthorityBindable(profile authorityRuntimeProfile, cell authorityCell) 
 			"authority %q cites profile_revision %q but profile %q is at %q",
 			path, rev, profile.RuntimeID, profile.Revision)
 	}
-	if needsWeightArtifactDigest(cell.Model) {
+	exactPins, err := exactWeightDigestsForCell(cell, runtimeAuthorityModels)
+	if err != nil {
+		return false, fmt.Sprintf(
+			"authority %q cannot resolve exact weight pins for cell %q: %v",
+			path, cell.ID, err)
+	}
+	if len(exactPins) > 0 {
 		if len(receipt.ModelArtifactSHA256s) == 0 {
 			return false, fmt.Sprintf(
-				"authority %q omits the model artifact digest that the authority pins for %q",
-				path, cell.Model)
+				"authority %q omits the exact %q model artifact digest that cell %q pins for %q",
+				path, wireKindFor(cell, runtimeAuthorityModels[cell.Model].WireKind), cell.ID, cell.Model)
 		}
-		if !modelArtifactDigestsBound(cell.Model, receipt.ModelArtifactSHA256s) {
+		if missing := missingArtifactDigests(exactPins, receipt.ModelArtifactSHA256s); len(missing) > 0 {
 			return false, fmt.Sprintf(
-				"authority %q model artifact digests do not match the pinned artifacts for %q",
-				path, cell.Model)
+				"authority %q model artifact identity omits exact %q weight pin(s) %v for cell %q; a sibling format pinned for model %q is not authority for this cell",
+				path, wireKindFor(cell, runtimeAuthorityModels[cell.Model].WireKind),
+				missing, cell.ID, cell.Model)
 		}
 	}
 	// BOUND is the programme bar. A receipt that only has a real merc_source_commit
@@ -114,7 +197,46 @@ func cellAuthorityBindable(profile authorityRuntimeProfile, cell authorityCell) 
 			"authority %q is not BOUND (binding_status=%s); ordinary routing requires BOUND producer identity",
 			path, status)
 	}
+	if !engineBuildHashPattern.MatchString(receipt.EngineBuildHash) {
+		return false, fmt.Sprintf(
+			"authority %q has engine_build_hash %q; current benchmark authority requires the exact 16-character lowercase hexadecimal execution build identity",
+			path, receipt.EngineBuildHash)
+	}
+	requiredBuildPolicy := requiredEngineBuildIdentityPolicy(profile, cell)
+	if receipt.EngineBuildIdentityPolicy != requiredBuildPolicy {
+		return false, fmt.Sprintf(
+			"authority %q has engine_build_identity_policy %q; current benchmark authority requires %q",
+			path, receipt.EngineBuildIdentityPolicy, requiredBuildPolicy)
+	}
+	if !validCurrentHardwareIdentity(receipt.HardwareIdentity) {
+		return false, fmt.Sprintf(
+			"authority %q has hardware_identity %q; current benchmark authority requires an exact canonical Apple configuration fingerprint",
+			path, receipt.HardwareIdentity)
+	}
 	return true, ""
+}
+
+// currentRuntimeCellBenchmarkIdentity resolves the one current benchmark
+// summary for an exact cell. It returns only current bindable authority and is
+// therefore never used by historical snapshot replay.
+func currentRuntimeCellBenchmarkIdentity(
+	cellID string,
+) (authorityRuntimeProfile, authorityCell, benchmarkReceiptSummary, error) {
+	for _, profile := range runtimeAuthority.Runtimes {
+		for _, cell := range profile.Cells {
+			if cell.ID != cellID {
+				continue
+			}
+			if ok, reason := cellAuthorityBindable(profile, cell); !ok {
+				return authorityRuntimeProfile{}, authorityCell{}, benchmarkReceiptSummary{},
+					fmt.Errorf("runtime cell %q benchmark authority is not current-bindable: %s", cellID, reason)
+			}
+			path := cell.benchmarkAuthorityFor(profile)
+			return profile, cell, benchmarkAuthorityManifest[path], nil
+		}
+	}
+	return authorityRuntimeProfile{}, authorityCell{}, benchmarkReceiptSummary{},
+		fmt.Errorf("runtime cell %q is absent from current runtime authority", cellID)
 }
 
 // authorityValidityRefusal returns a short reason when validity forbids routing.
@@ -196,6 +318,91 @@ func isWeightArtifactPath(path string) bool {
 		}
 	}
 	return false
+}
+
+// exactWeightDigestsForCell returns the complete, deterministic set of weight
+// bytes the selected runtime cell actually loads.
+//
+// A model id is not a sufficient artifact identity. all-minilm-l6-v2 is the
+// concrete counterexample: Candle loads its safetensors while llama.cpp loads a
+// sibling GGUF. Both are canonical artifacts for the logical model, but only
+// one wire-kind set is authority for either cell. Callers must therefore resolve
+// the cell's wire kind first and require every selected weight pin, which also
+// prevents one shard of a multi-shard model from standing in for the full set.
+//
+// The models argument keeps this helper usable by document validation and tests
+// that operate on an immutable authority projection rather than package globals.
+func exactWeightDigestsForCell(
+	cell authorityCell, models map[string]authorityModel,
+) ([]string, error) {
+	model, ok := models[cell.Model]
+	if !ok {
+		return nil, fmt.Errorf("cell %q names undefined model %q", cell.ID, cell.Model)
+	}
+	kind := wireKindFor(cell, model.WireKind)
+	artifacts := model.artifactsFor(kind)
+	if len(artifacts) == 0 {
+		return nil, fmt.Errorf(
+			"cell %q serves model %q as %q, which resolves no artifacts",
+			cell.ID, cell.Model, kind)
+	}
+
+	modelHasWeights := false
+	for _, artifact := range model.Artifacts {
+		if isWeightArtifactPath(artifact.Path) {
+			modelHasWeights = true
+			break
+		}
+	}
+
+	seen := make(map[string]struct{}, len(artifacts))
+	pins := make([]string, 0, len(artifacts))
+	for _, artifact := range artifacts {
+		if !isWeightArtifactPath(artifact.Path) {
+			continue
+		}
+		digest := strings.ToLower(strings.TrimSpace(artifact.SHA256))
+		if !validSHA256(digest) {
+			return nil, fmt.Errorf(
+				"cell %q selected %q weight artifact %q with invalid SHA-256 pin %q",
+				cell.ID, kind, artifact.Path, artifact.SHA256)
+		}
+		if _, duplicate := seen[digest]; duplicate {
+			continue
+		}
+		seen[digest] = struct{}{}
+		pins = append(pins, digest)
+	}
+	if len(pins) == 0 && modelHasWeights {
+		return nil, fmt.Errorf(
+			"cell %q selects %q artifacts for weight-bearing model %q but that format has no weight pin",
+			cell.ID, kind, cell.Model)
+	}
+	sort.Strings(pins)
+	return pins, nil
+}
+
+// missingArtifactDigests returns every required digest absent from cited. The
+// cited receipt may cover several arms of one comparison and therefore contain
+// additional exact pins; extras do not let a sibling format replace the full
+// selected set.
+func missingArtifactDigests(required, cited []string) []string {
+	citedSet := make(map[string]struct{}, len(cited))
+	for _, digest := range cited {
+		digest = strings.ToLower(strings.TrimSpace(digest))
+		if digest != "" {
+			citedSet[digest] = struct{}{}
+		}
+	}
+	var missing []string
+	for _, digest := range required {
+		digest = strings.ToLower(strings.TrimSpace(digest))
+		if _, ok := citedSet[digest]; !ok {
+			missing = append(missing, digest)
+		}
+	}
+	sort.Strings(missing)
+	return missing
 }
 
 // modelArtifactDigestsBound reports whether the receipt cites at least one

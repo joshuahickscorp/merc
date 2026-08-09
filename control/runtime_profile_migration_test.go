@@ -592,7 +592,8 @@ func TestUpsertWorkerEnforcesTheGovernedProfile(t *testing.T) {
 	good := WorkerCapability{
 		WorkerID: uuid.New(), SupplierID: supplierID,
 		Engine: "candle", HWClass: "apple_silicon_ultra", MemoryGB: 96,
-		BuildHash: "abc", AgentVersion: "1", OSVersion: "macOS",
+		BuildHash: "0123456789abcdef", HardwareIdentity: "TEST_ONLY Apple M3 Ultra",
+		AgentVersion: "1", OSVersion: "macOS",
 		SupportedJobs:   []string{"embed"},
 		SupportedModels: []string{"all-minilm-l6-v2"},
 	}

@@ -23,6 +23,7 @@ func embedSubmit() jobSubmit {
 // choice. The directed field must stay empty on the path a buyer can reach, or
 // every job would carry a claim about routing authority that nobody made.
 func TestOrdinaryAdmissionRecordsNoDirectedCell(t *testing.T) {
+	installBoundCataloguePublicationAuthorityForTest(t)
 	decision, err := buildWorkloadDecision(embedSubmit(), strings.Repeat("a", 64))
 	mustf(t, err, "build decision: %v")
 	if decision.DirectedCellID != "" {
@@ -39,6 +40,7 @@ func TestOrdinaryAdmissionRecordsNoDirectedCell(t *testing.T) {
 // onto either cell, with the choice frozen into the decision rather than applied
 // and forgotten.
 func TestDirectedRoutingReachesEitherEmbedCell(t *testing.T) {
+	installBoundCataloguePublicationAuthorityForTest(t)
 	for _, cellID := range []string{candleEmbedCell, llamaEmbedCell} {
 		decision, err := buildWorkloadDecisionDirected(
 			embedSubmit(), strings.Repeat("b", 64), cellID)
@@ -74,6 +76,7 @@ func TestDirectedRoutingReachesEitherEmbedCell(t *testing.T) {
 // Directed routing is a choice of runtime, never a licence to run a model on a
 // cell that does not serve it.
 func TestDirectedRoutingRefusesACellThatDoesNotServeTheWorkload(t *testing.T) {
+	installBoundCataloguePublicationAuthorityForTest(t)
 	// The llama.cpp GENERATION cell, asked to serve an embed workload.
 	_, err := buildWorkloadDecisionDirected(
 		embedSubmit(), strings.Repeat("c", 64), llamaInferCell)
@@ -121,8 +124,8 @@ func TestDirectedSetIsASupersetThatDoesNotWidenTheCatalogue(t *testing.T) {
 			t.Errorf("advertised cell %q is not reachable by directed routing", capability.ID)
 		}
 	}
-	if len(advertisedRuntimeCapabilities()) != 2 {
-		t.Fatalf("the advertised catalogue has %d cells, want the 2 bindable candle cells (embed + batch_infer)",
+	if len(advertisedRuntimeCapabilities()) != 0 {
+		t.Fatalf("the production advertised catalogue has %d cells, want zero while every checked-in execution credential is historical-only",
 			len(advertisedRuntimeCapabilities()))
 	}
 	// The llama.cpp embed cell is nameable and NOT sellable, which is exactly the
@@ -144,6 +147,7 @@ func TestDirectedSetIsASupersetThatDoesNotWidenTheCatalogue(t *testing.T) {
 // would resolve to the advertised cell and be rejected as tampered — turning
 // every directed job into a validation failure at read time.
 func TestStoredDirectedDecisionValidatesAsItself(t *testing.T) {
+	installBoundCataloguePublicationAuthorityForTest(t)
 	decision, err := buildWorkloadDecisionDirected(
 		embedSubmit(), strings.Repeat("e", 64), llamaEmbedCell)
 	must(t, err)

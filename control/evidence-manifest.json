@@ -25,6 +25,7 @@
     "throughput": {
       "candle_metal": {
         "unit": "tokens",
+        "unit_scope": "decode_output_tokens",
         "precision": "Q4_K_M GGUF",
         "operating_batch": 1,
         "units_per_sec_at_operating_batch": 225.9,
@@ -51,6 +52,7 @@
     "throughput": {
       "candle_metal": {
         "unit": "tokens",
+        "unit_scope": "decode_output_tokens",
         "precision": "Q4_K_M GGUF",
         "operating_batch": 1,
         "units_per_sec_at_operating_batch": 226.1,
@@ -63,6 +65,9 @@
     "profile_revision": "r9",
     "harness": "merc-agent bench-batch (candle-metal-llama1-infer re-measure)",
     "binding_status": "BOUND",
+    "validity": "SUPERSEDED",
+    "engine_build_hash": "97acc6fe17daca56",
+    "hardware_identity": "Apple M3 Ultra",
     "model_artifact_sha256s": [
       "3f5a22426976ab26cfe84dba63c1d08391717abb1af893e10f1b2968d862dcc1",
       "6b9e4e7fb171f92fd137b777cc2714bf87d11576700a1dcd7a399e7bbe39537b"
@@ -82,6 +87,7 @@
     "throughput": {
       "candle_metal": {
         "unit": "media_work_units",
+        "unit_scope": "single_object_input_byte_quarters",
         "precision": "libx264 threads=1, +bitexact, fixed 320x180/24fps/400kbps output",
         "operating_batch": 1,
         "units_per_sec_at_operating_batch": 14423.640930216638,
@@ -108,6 +114,7 @@
     "throughput": {
       "candle_metal": {
         "unit": "pixels",
+        "unit_scope": "declared_output_pixels_per_scene",
         "precision": "builtin deterministic P6 rasterizer",
         "operating_batch": 1,
         "units_per_sec_at_operating_batch": 148271490,
@@ -147,6 +154,7 @@
     "throughput": {
       "llama_cpp_metal": {
         "unit": "tokens",
+        "unit_scope": "decode_output_tokens",
         "precision": "Q4_K_M GGUF",
         "operating_batch": 1,
         "units_per_sec_at_operating_batch": 330.5,
@@ -200,6 +208,7 @@
     "throughput": {
       "candle_metal": {
         "unit": "embeddings",
+        "unit_scope": "completed_embedding_records",
         "precision": "none (fp32 safetensors)",
         "operating_batch": 128,
         "units_per_sec_at_operating_batch": 2380.345428289974,
@@ -209,6 +218,7 @@
       },
       "llama_cpp_metal": {
         "unit": "embeddings",
+        "unit_scope": "completed_embedding_records",
         "precision": "F16 GGUF",
         "operating_batch": 128,
         "units_per_sec_at_operating_batch": 3962.6336034425385,
@@ -281,6 +291,7 @@
     "throughput": {
       "candle_metal": {
         "unit": "embeddings",
+        "unit_scope": "completed_embedding_records",
         "precision": "none (fp32 safetensors)",
         "operating_batch": 128,
         "units_per_sec_at_operating_batch": 3502.239600140549,
@@ -290,6 +301,7 @@
       },
       "llama_cpp_metal": {
         "unit": "embeddings",
+        "unit_scope": "completed_embedding_records",
         "precision": "F16 GGUF",
         "operating_batch": 128,
         "units_per_sec_at_operating_batch": 1304.6990489437055,

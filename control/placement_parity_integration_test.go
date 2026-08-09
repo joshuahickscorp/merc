@@ -16,6 +16,10 @@ func TestPlacementSnapshotAndClaimSharePayoutAndRuntimeEligibility(t *testing.T)
 	job := validJobRow(t, fixture, tasks)
 
 	candidate := job.WorkloadDecision.RuntimeCandidates[0]
+	placement := job.PlacementRequirement
+	if len(placement.HWClasses) != 1 {
+		t.Fatalf("placement hardware classes=%v, want one exact benchmarked class", placement.HWClasses)
+	}
 	// Every worker starts unaffordable, so the floor has to be stated relative to
 	// what this job actually offers. It used to be the literal 10, which only
 	// exceeded the offered rate while that rate came from a hardcoded throughput
@@ -25,9 +29,11 @@ func TestPlacementSnapshotAndClaimSharePayoutAndRuntimeEligibility(t *testing.T)
 	for _, workerID := range []uuid.UUID{fixture.WorkerID, fixture.OtherWorkerID} {
 		if _, err := pool.Exec(ctx, `
 			UPDATE workers
-			   SET min_payout_usd_hr=$3,engine=$2,last_seen_at=now(),throttled=false
+			   SET min_payout_usd_hr=$3,engine=$2,last_seen_at=now(),throttled=false,
+			       hw_class=$4,build_hash=$5,hardware_identity=$6
 			 WHERE id=$1`,
-			workerID, candidate.Engine, unaffordableFloor); err != nil {
+			workerID, candidate.Engine, unaffordableFloor, placement.HWClasses[0],
+			placement.EngineBuildHash, placement.HardwareIdentity); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := pool.Exec(ctx, `
@@ -55,9 +61,10 @@ func TestPlacementSnapshotAndClaimSharePayoutAndRuntimeEligibility(t *testing.T)
 		if _, err := pool.Exec(ctx, `
 			INSERT INTO workers (
 			  id,supplier_id,hw_class,memory_gb,effective_memory_gb,last_seen_at,
-			  throttled,min_payout_usd_hr,engine,build_hash
-			) VALUES ($1,$2,'apple_silicon_max',64,64,now(),false,$4,$3,'deadbeefdeadbeef')`,
-			workerID, supplierID, candidate.Engine, unaffordableFloor); err != nil {
+			  throttled,min_payout_usd_hr,engine,build_hash,hardware_identity
+			) VALUES ($1,$2,$5,64,64,now(),false,$4,$3,$6,$7)`,
+			workerID, supplierID, candidate.Engine, unaffordableFloor,
+			placement.HWClasses[0], placement.EngineBuildHash, placement.HardwareIdentity); err != nil {
 			t.Fatal(err)
 		}
 		bindWorkerToGovernedProfile(t, pool, ctx, workerID)
@@ -86,9 +93,10 @@ func TestPlacementSnapshotAndClaimSharePayoutAndRuntimeEligibility(t *testing.T)
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO workers (
 		  id,supplier_id,hw_class,memory_gb,effective_memory_gb,last_seen_at,
-		  throttled,min_payout_usd_hr,engine,build_hash
-		) VALUES ($1,$2,'apple_silicon_max',64,64,now(),false,0,$3,'deadbeefdeadbeef')`,
-		decoyWorkerID, decoySupplierID, candidate.Engine); err != nil {
+		  throttled,min_payout_usd_hr,engine,build_hash,hardware_identity
+		) VALUES ($1,$2,$4,64,64,now(),false,0,$3,$5,$6)`,
+		decoyWorkerID, decoySupplierID, candidate.Engine, placement.HWClasses[0],
+		placement.EngineBuildHash, placement.HardwareIdentity); err != nil {
 		t.Fatal(err)
 	}
 	bindWorkerToGovernedProfile(t, pool, ctx, decoyWorkerID)
@@ -120,7 +128,7 @@ func TestPlacementSnapshotAndClaimSharePayoutAndRuntimeEligibility(t *testing.T)
 	})
 
 	mustf(t, store.SubmitJobTx(ctx, job, tasks), "submit placement-parity job: %v")
-	placement, err := placementRequirementFor(jobSubmit{
+	rebuiltPlacement, err := placementRequirementFor(jobSubmit{
 		JobType:       job.WorkloadDecision.Binding.JobType,
 		Model:         job.WorkloadDecision.Binding.Model,
 		Constraints:   job.WorkloadDecision.Binding.Constraints,
@@ -128,6 +136,7 @@ func TestPlacementSnapshotAndClaimSharePayoutAndRuntimeEligibility(t *testing.T)
 		MinReputation: job.WorkloadDecision.Binding.MinReputation,
 	}, job.WorkloadDecision, job.OfferedRateUsdHr)
 	must(t, err)
+	placement = rebuiltPlacement
 	strict := placement.supplyRequirements()
 	relaxed := strict
 	relaxed.OfferedRate = nil
@@ -158,9 +167,40 @@ func TestPlacementSnapshotAndClaimSharePayoutAndRuntimeEligibility(t *testing.T)
 		t.Fatalf("claim engine ignored the same payout floor: %+v", claimed)
 	}
 
+	for _, tc := range []struct {
+		name, build, hardware string
+	}{
+		{"missing build", "", placement.HardwareIdentity},
+		{"wrong build", "0000000000000000", placement.HardwareIdentity},
+		{"missing device", placement.EngineBuildHash, ""},
+		{"wrong device", placement.EngineBuildHash, "Apple M1 Ultra"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := pool.Exec(ctx, `
+				UPDATE workers
+				   SET min_payout_usd_hr=$2,build_hash=$3,hardware_identity=$4
+				 WHERE id=$1`, fixture.WorkerID, job.OfferedRateUsdHr/2, tc.build, tc.hardware); err != nil {
+				t.Fatal(err)
+			}
+			if n, err := store.EligibleWorkerCountFor(ctx, job.JobType, job.ModelRef, strict); err != nil {
+				t.Fatal(err)
+			} else if n != 0 {
+				t.Fatalf("quote capacity counted %d workers with %s", n, tc.name)
+			}
+			if claimed, err := store.ClaimTasksTx(ctx, WorkerAuth{
+				WorkerID: fixture.WorkerID, SupplierID: fixture.SupplierID,
+			}); err != nil {
+				t.Fatal(err)
+			} else if claimed != nil {
+				t.Fatalf("claim accepted worker with %s: %+v", tc.name, claimed)
+			}
+		})
+	}
 	if _, err := pool.Exec(ctx, `
-		UPDATE workers SET min_payout_usd_hr=$2 WHERE id=$1`,
-		fixture.WorkerID, job.OfferedRateUsdHr/2); err != nil {
+		UPDATE workers
+		   SET min_payout_usd_hr=$2,build_hash=$3,hardware_identity=$4
+		 WHERE id=$1`, fixture.WorkerID, job.OfferedRateUsdHr/2,
+		placement.EngineBuildHash, placement.HardwareIdentity); err != nil {
 		t.Fatal(err)
 	}
 	if n, err := store.EligibleWorkerCountFor(ctx, job.JobType, job.ModelRef, strict); err != nil {

@@ -133,12 +133,16 @@ func validateJobClaimAuthority(j *jobRow) error {
 		return err
 	}
 	binding := j.WorkloadDecision.Binding
+	hardwareMatches := sameStrings(j.HWClasses, binding.Constraints.HWClasses)
+	if j.PlacementRequirement.Version >= 2 {
+		hardwareMatches = sameStrings(j.HWClasses, j.PlacementRequirement.HWClasses)
+	}
 	if j.JobType != j.WorkloadDecision.RuntimeJobType ||
 		j.JobType != binding.JobType.Type ||
 		j.ModelRef != binding.Model.Ref ||
 		j.Tier != binding.Tier ||
 		math.Abs(float64(j.MinMemoryGB)-j.WorkloadDecision.MinimumMemoryGB) > 0.000001 ||
-		!sameStrings(j.HWClasses, binding.Constraints.HWClasses) ||
+		!hardwareMatches ||
 		!sameStrings(j.DataResidency, binding.Constraints.DataResidency) ||
 		j.MinReputation != binding.MinReputation ||
 		j.MaxDurationSecs != binding.Constraints.MaxDurationSecs ||
@@ -152,6 +156,20 @@ func validateJobClaimAuthority(j *jobRow) error {
 }
 
 func (s *Store) SubmitJobTx(ctx context.Context, j *jobRow, tasks []taskRow) error {
+	if j == nil {
+		return errors.New("cannot submit a nil job")
+	}
+	// CopyFrom persists the task's own job_id. Prove the entire obligation set
+	// belongs to this new job before validating or reserving anything; otherwise
+	// a direct caller could create a funded job/reserve while attaching its paid
+	// tasks to an unrelated existing job.
+	for _, task := range tasks {
+		if task.JobID != j.ID {
+			return fmt.Errorf("task %s belongs to job %s, want submitted job %s",
+				task.ID, task.JobID, j.ID)
+		}
+	}
+	activationRevision := activationAdmissionRevision(j.activationPolicyRevision)
 	hasWebhook := j.WebhookID != uuid.Nil || j.WebhookURL != "" || j.WebhookSigningSecretSealed != ""
 	if hasWebhook && (j.WebhookID == uuid.Nil || j.WebhookURL == "" ||
 		!strings.HasPrefix(j.WebhookSigningSecretSealed, "enc:")) {
@@ -159,6 +177,12 @@ func (s *Store) SubmitJobTx(ctx context.Context, j *jobRow, tasks []taskRow) err
 	}
 	if err := ValidateWorkloadDecisionSnapshot(j.WorkloadDecision); err != nil {
 		return fmt.Errorf("refusing job without valid workload decision: %w", err)
+	}
+	if err := validateCurrentPlacementRequirement(
+		j.PlacementRequirement, j.WorkloadDecision,
+	); err != nil {
+		return fmt.Errorf("%w: refusing new job without current placement authority: %v",
+			errQuotePhysicalAuthorityUnavailable, err)
 	}
 	if err := validateJobClaimAuthority(j); err != nil {
 		return fmt.Errorf("refusing job without consistent claim authority: %w", err)
@@ -212,6 +236,17 @@ func (s *Store) SubmitJobTx(ctx context.Context, j *jobRow, tasks []taskRow) err
 			primaryTasks, redundancyTasks, honeypotTasks,
 			j.ComputePlan.PrimaryTasks, j.ComputePlan.RedundancyTasks, j.ComputePlan.HoneypotTasks,
 		)
+	}
+	if err := validateCurrentUniformTaskEconomicAuthority(
+		j.WorkloadDecision, j.ComputePlan, j.EconomicPlan, j.PricingDecision, tasks,
+	); err != nil {
+		return fmt.Errorf("%w: refusing new job without exact task-economic authority: %w",
+			errQuotePhysicalAuthorityUnavailable, err)
+	}
+	if j.PricingDecision.TaskEconomicPolicy == uniformSinglePrimaryTaskEconomicsV1 &&
+		j.EconomicInputSource != economicInputSourceSubmitStream {
+		return fmt.Errorf("%w: refusing current task economics without exact submit-stream input authority",
+			errQuotePhysicalAuthorityUnavailable)
 	}
 	// Independence is enforced at claim (linked suppliers filtered) and at
 	// verification settlement (same-supplier / no-independent-supplier fails
@@ -325,9 +360,52 @@ func (s *Store) SubmitJobTx(ctx context.Context, j *jobRow, tasks []taskRow) err
 	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: begin job admission: %v",
+			errActivationAdmissionUnavailable, err)
 	}
 	defer tx.Rollback(ctx)
+	if err := guardActivationAdmissionTx(ctx, tx, activationRevision); err != nil {
+		return err
+	}
+	if durableAdmissionPhysicalRecheckHook != nil {
+		durableAdmissionPhysicalRecheckHook()
+	}
+	if err := validateCurrentPlacementRequirement(
+		j.PlacementRequirement, j.WorkloadDecision,
+	); err != nil {
+		return fmt.Errorf("%w: refusing job at durable placement ingress: %v",
+			errQuotePhysicalAuthorityUnavailable, err)
+	}
+	if j.QuoteID == uuid.Nil {
+		if err := validateCurrentCataloguePriceAuthorityFrom(ctx, tx, j.PricingDecision.Catalogue); err != nil {
+			return fmt.Errorf("%w: refusing unquoted job at durable ingress: %v",
+				errCataloguePhysicalAuthorityUnavailable, err)
+		}
+	} else if err := validateBoundCataloguePriceAuthorityFrom(
+		ctx, tx, j.PricingDecision.Catalogue,
+	); err != nil {
+		return fmt.Errorf("%w: refusing bound job without current physical authority: %v",
+			errCataloguePhysicalAuthorityUnavailable, err)
+	}
+	if err := validateCurrentPlacementCataloguePhysicalAuthority(
+		j.PlacementRequirement, j.PricingDecision.Catalogue,
+	); err != nil {
+		return fmt.Errorf("%w: refusing job whose price does not bind its placement: %v",
+			errCataloguePhysicalAuthorityUnavailable, err)
+	}
+	if j.QuoteID == uuid.Nil {
+		if err := validateCurrentCatalogueModelPointerFrom(
+			ctx, tx, j.PricingDecision.Catalogue,
+		); err != nil {
+			return fmt.Errorf("%w: refusing unquoted job after catalogue pointer changed: %v",
+				errCataloguePhysicalAuthorityUnavailable, err)
+		}
+	} else if err := validateCurrentCataloguePhysicalPointerFrom(
+		ctx, tx, j.PricingDecision.Catalogue,
+	); err != nil {
+		return fmt.Errorf("%w: refusing bound job after physical catalogue authority changed: %v",
+			errCataloguePhysicalAuthorityUnavailable, err)
+	}
 	if j.PrepaidRequired {
 		if err := reservePrepaidForJobTx(ctx, tx, j.BuyerID,
 			usdToMicros(j.EconomicPlan.ReservedBuyerChargeUSD)); err != nil {
@@ -338,19 +416,31 @@ func (s *Store) SubmitJobTx(ctx context.Context, j *jobRow, tasks []taskRow) err
 		var quoteComputeSHA256, quoteCurrency, quotePlacementSHA256, quotePricingSHA256 string
 		var quoteETARawSecs int
 		var quotePricingJSON []byte
+		var quoteExpired bool
 		if err := tx.QueryRow(ctx,
 			`SELECT COALESCE(compute_plan_sha256,''),currency,
 			        COALESCE(placement_requirement_sha256,''),
 			        COALESCE(pricing_decision_sha256,''),pricing_decision,
-			        COALESCE(eta_p50_secs_raw,0)
+			        COALESCE(eta_p50_secs_raw,0),
+			        COALESCE(expires_at <= clock_timestamp(),true)
 			   FROM quotes
-			  WHERE id=$1 AND buyer_id=$2`,
+			  WHERE id=$1 AND buyer_id=$2
+			  FOR SHARE`,
 			j.QuoteID, j.BuyerID,
 		).Scan(
 			&quoteComputeSHA256, &quoteCurrency, &quotePlacementSHA256,
-			&quotePricingSHA256, &quotePricingJSON, &quoteETARawSecs,
+			&quotePricingSHA256, &quotePricingJSON, &quoteETARawSecs, &quoteExpired,
 		); err != nil {
 			return fmt.Errorf("load bound quote compute authority: %w", err)
+		}
+		// GetBindableQuote is an advisory preflight performed before the buyer's
+		// input stream is consumed. The firm promise must still be alive at the
+		// durable acceptance boundary: otherwise a client can begin before TTL,
+		// stall through expiry, and persist old money after the quote is no longer
+		// bindable. clock_timestamp(), rather than transaction-start now(), makes
+		// this check observe time after the activation/physical locks above.
+		if quoteExpired {
+			return fmt.Errorf("%w: request and review a new quote", errBoundQuoteExpired)
 		}
 		if quoteComputeSHA256 == "" || quoteComputeSHA256 != computeSHA256 {
 			return errors.New("job compute plan does not match its bound quote")
@@ -494,7 +584,7 @@ func (s *Store) SubmitJobTx(ctx context.Context, j *jobRow, tasks []taskRow) err
 		_, err = tx.CopyFrom(ctx,
 			pgx.Identifier{"tasks"},
 			[]string{"id", "job_id", "status", "is_honeypot", "is_redundancy", "retry_count",
-				"input_ref", "input_depth_band", "result_key", "chunk_index", "expected_output_records", "visible_at",
+				"input_ref", "input_sha256", "input_depth_band", "result_key", "chunk_index", "expected_output_records", "visible_at",
 				"economic_buyer_charge_usd", "economic_supplier_payout_usd",
 				"economic_buyer_charge_nanos", "economic_supplier_payout_nanos",
 				"verification_class", "verification_class_policy"},
@@ -506,7 +596,7 @@ func (s *Store) SubmitJobTx(ctx context.Context, j *jobRow, tasks []taskRow) err
 						j.ComputePlan.VerificationClass, t.IsHoneypot, t.IsRedundancy)
 				}
 				return []any{t.ID, t.JobID, "queued", t.IsHoneypot, t.IsRedundancy, int16(0),
-					t.InputRef, nullInputDepthBand(t.InputDepthBand), t.ResultKey, t.ChunkIndex, nullPosInt64(t.ExpectedOutputRecords), now,
+					t.InputRef, nullSHA256Hex(t.InputSHA256), nullInputDepthBand(t.InputDepthBand), t.ResultKey, t.ChunkIndex, nullPosInt64(t.ExpectedOutputRecords), now,
 					j.EconomicPlan.BuyerChargePerTaskUSD, j.EconomicPlan.SupplierPayoutPerTaskUSD,
 					nullEconomicNanos(j.EconomicPlan.BuyerChargePerTaskNanos, exactNanos),
 					nullEconomicNanos(j.EconomicPlan.SupplierPayoutPerTaskNanos, exactNanos),
@@ -572,6 +662,10 @@ type jobRow struct {
 	// PrefixChain is the nested trie recorded into job_prefix_chain at
 	// submit. Empty when the input is shorter than the shallowest depth.
 	PrefixChain []PrefixChainEntry
+	// activationPolicyRevision is the epoch refreshed before this new job was
+	// classified. It is a transaction guard, not historical job authority; the
+	// accepted workload/placement/economics snapshots remain the replay record.
+	activationPolicyRevision int64
 }
 
 func (s *Store) JobWorkloadDecision(ctx context.Context, jobID uuid.UUID) (*WorkloadDecision, error) {
@@ -1034,7 +1128,8 @@ func (s *Store) JobVerification(ctx context.Context, jobID uuid.UUID) (Verificat
 func (s *Store) JobVerificationClasses(ctx context.Context, jobID uuid.UUID) ([]string, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT DISTINCT COALESCE(vw.input_snapshot->>'engine',t.execution_engine,''),
-		                 COALESCE(vw.input_snapshot->>'build_hash',t.execution_build_hash,'')
+		                 COALESCE(vw.input_snapshot->>'build_hash',t.execution_build_hash,''),
+		                 COALESCE(vw.input_snapshot->>'build_identity_policy',t.execution_build_identity_policy,'')
 		 FROM tasks t
 		 LEFT JOIN verification_work vw ON vw.task_id=t.id AND vw.attempt=t.retry_count
 		 WHERE t.job_id = $1 AND t.status = 'complete' AND t.is_honeypot = false`,
@@ -1045,11 +1140,11 @@ func (s *Store) JobVerificationClasses(ctx context.Context, jobID uuid.UUID) ([]
 	defer rows.Close()
 	var out []string
 	for rows.Next() {
-		var engine, build string
-		if err := rows.Scan(&engine, &build); err != nil {
+		var engine, build, buildPolicy string
+		if err := rows.Scan(&engine, &build, &buildPolicy); err != nil {
 			return nil, err
 		}
-		out = append(out, classKey(engine, build))
+		out = append(out, classKey(engine, build, buildPolicy))
 	}
 	return out, rows.Err()
 }
@@ -1487,9 +1582,14 @@ func (s *Store) completeJobEconomics(
 		 WHERE id=$1`, jobID, slaPremiumChargeRef(jobID)); err != nil {
 		return err
 	}
-	// Accrue the modeled risk reserve when the frozen decision carries a cost
-	// schedule. Historical decisions without a schedule are a no-op.
-	if pricing, perr := s.JobPricingDecision(ctx, jobID); perr == nil && pricing != nil {
+	// Accrue the modeled risk reserve when the frozen decision carries one. A
+	// NULL pricing block is the explicit legacy no-op; a present but unreadable
+	// modern decision is an authority failure and rolls this finalization back.
+	pricing, pricingErr := s.JobPricingDecision(ctx, jobID)
+	if pricingErr != nil {
+		return fmt.Errorf("load frozen pricing authority for job %s: %w", jobID, pricingErr)
+	}
+	if pricing != nil {
 		if err := AccrueRiskReserveAtSettlementTx(ctx, tx, jobID, *pricing); err != nil {
 			return fmt.Errorf("accrue risk reserve for job %s: %w", jobID, err)
 		}

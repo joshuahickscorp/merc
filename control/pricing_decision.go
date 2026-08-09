@@ -8,7 +8,9 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"time"
 
@@ -23,6 +25,13 @@ const (
 	pricingCostNotApplicable = "not_applicable"
 	pricingCostUnknown       = "unknown"
 )
+
+var errCataloguePhysicalAuthorityUnavailable = errors.New("catalogue physical authority is unavailable")
+
+// durableAdmissionPhysicalRecheckHook is a test-only race seam. Production
+// leaves it nil. Tests use it to cross an authority boundary after the early
+// validation but before the transaction's final no-write gate.
+var durableAdmissionPhysicalRecheckHook func()
 
 // CataloguePriceAuthority is the self-contained, append-only price schedule
 // entry used for one model. It prevents a quote from naming only a mutable
@@ -42,9 +51,14 @@ type CataloguePriceAuthority struct {
 	ReferenceToSettlementRate   float64 `json:"reference_to_settlement_rate"`
 	FXRevision                  string  `json:"fx_revision"`
 	BoardSHA256                 string  `json:"board_sha256"`
+	CurrentUseValidUntil        string  `json:"current_use_valid_until,omitempty"`
 	PriceFormula                string  `json:"price_formula"`
 	SupplierShare               float64 `json:"supplier_share"`
 	SupplierSharePolicyRevision string  `json:"supplier_share_policy_revision,omitempty"`
+	// PhysicalAuthority is the exact per-result throughput, power, artifact,
+	// execution-build and device snapshot retained from the append-only schedule.
+	// Legacy schedule authorities omit it and are historical-read-only.
+	PhysicalAuthority CatalogueResultPhysicalAuthority `json:"physical_authority,omitempty"`
 }
 
 // PricingCostComponent never uses an unexplained zero. A component is either
@@ -136,6 +150,9 @@ type PricingDecision struct {
 	SupplierGrossNanos        int64  `json:"supplier_gross_nanos,omitempty"`
 	SupplierRequiredNanos     int64  `json:"supplier_required_nanos,omitempty"`
 	SupplierEntitlementPolicy string `json:"supplier_entitlement_policy,omitempty"`
+	// TaskEconomicPolicy names the current admission posture that makes the
+	// per-task entitlement above truthful. Empty is historical and replay-only.
+	TaskEconomicPolicy string `json:"task_economic_policy,omitempty"`
 
 	BuyerPrice        float64 `json:"buyer_price"`
 	MaximumBuyerPrice float64 `json:"maximum_buyer_price"`
@@ -496,7 +513,7 @@ func canonicalDigest(label string, value any) (string, error) {
 }
 
 func placementRequirementDigest(p PlacementRequirement) (string, error) {
-	if p.Version != placementRequirementVersion {
+	if p.Version != 1 && p.Version != 2 && p.Version != placementRequirementVersion {
 		return "", fmt.Errorf("unsupported placement requirement version %d", p.Version)
 	}
 	return canonicalDigest("placement requirement", p)
@@ -524,8 +541,8 @@ func pricingDecisionDigest(p PricingDecision) (string, error) {
 }
 
 func validateCataloguePriceAuthority(a CataloguePriceAuthority) error {
-	if a.Version != cataloguePriceScheduleVersion ||
-		a.ScheduleVersion != cataloguePriceScheduleVersion {
+	if a.Version != a.ScheduleVersion ||
+		(a.Version != 1 && a.Version != 2 && a.Version != cataloguePriceScheduleVersion) {
 		return errors.New("catalogue authority has an unsupported schedule version")
 	}
 	if a.ModelID == "" || a.JobType == "" || a.PriceSource != "market_board" {
@@ -561,6 +578,22 @@ func validateCataloguePriceAuthority(a CataloguePriceAuthority) error {
 	if math.Abs(a.SettlementPricePer1K-wantSettlement) > 0.0000000001 {
 		return errors.New("catalogue settlement price does not match frozen reference price and FX")
 	}
+	if a.ScheduleVersion == cataloguePriceScheduleVersion {
+		if _, err := canonicalCatalogueTimestamp(
+			"catalogue authority current_use_valid_until", a.CurrentUseValidUntil,
+		); err != nil {
+			return err
+		}
+		if !reflect.DeepEqual(a.PhysicalAuthority, CatalogueResultPhysicalAuthority{}) {
+			if _, err := validateCatalogueResultPhysicalAuthority(RepriceResult{
+				ModelID: a.ModelID, JobType: a.JobType, PhysicalAuthority: a.PhysicalAuthority,
+			}); err != nil {
+				return err
+			}
+		}
+	} else if !reflect.DeepEqual(a.PhysicalAuthority, CatalogueResultPhysicalAuthority{}) {
+		return errors.New("legacy catalogue authority carries future physical authority")
+	}
 	return nil
 }
 
@@ -569,14 +602,17 @@ func validateCataloguePriceAuthority(a CataloguePriceAuthority) error {
 // migrated price is not accepted as production pricing authority.
 func (s *Store) LoadCataloguePriceAuthority(ctx context.Context, modelID string) (CataloguePriceAuthority, error) {
 	var a CataloguePriceAuthority
+	var scheduleJSON []byte
 	err := s.pool.QueryRow(ctx, `
 		SELECT s.version,m.id,COALESCE(m.job_type,''),COALESCE(m.price_source,''),
 		       s.sha256,COALESCE(m.price_schedule_version,0),
 		       s.reference_currency,h.reference_price_per_1k::float8,
 		       s.settlement_currency,h.price_per_1k::float8,
 		       s.reference_to_settlement_rate,s.fx_revision,s.board_sha256,
+		       COALESCE(s.schedule_json->>'current_use_valid_until',''),
 		       h.price_formula,COALESCE(s.schedule_json->>'supplier_share_policy_revision',''),
-		       CASE WHEN s.version=1 THEN s.supplier_share ELSE h.supplier_share END
+		       CASE WHEN s.version=1 THEN s.supplier_share ELSE h.supplier_share END,
+		       s.schedule_json
 		  FROM models m
 		  JOIN catalogue_price_schedules s ON s.sha256=m.price_schedule_sha256
 		  JOIN model_price_history h
@@ -593,8 +629,8 @@ func (s *Store) LoadCataloguePriceAuthority(ctx context.Context, modelID string)
 		&a.ScheduleSHA256, &a.ScheduleVersion,
 		&a.ReferenceCurrency, &a.ReferencePricePer1K,
 		&a.SettlementCurrency, &a.SettlementPricePer1K,
-		&a.ReferenceToSettlementRate, &a.FXRevision, &a.BoardSHA256,
-		&a.PriceFormula, &a.SupplierSharePolicyRevision, &a.SupplierShare,
+		&a.ReferenceToSettlementRate, &a.FXRevision, &a.BoardSHA256, &a.CurrentUseValidUntil,
+		&a.PriceFormula, &a.SupplierSharePolicyRevision, &a.SupplierShare, &scheduleJSON,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return CataloguePriceAuthority{}, fmt.Errorf(
@@ -606,6 +642,38 @@ func (s *Store) LoadCataloguePriceAuthority(ctx context.Context, modelID string)
 	}
 	if err := validateCataloguePriceAuthority(a); err != nil {
 		return CataloguePriceAuthority{}, fmt.Errorf("model %s catalogue authority: %w", modelID, err)
+	}
+	if a.ScheduleVersion != cataloguePriceScheduleVersion {
+		return CataloguePriceAuthority{}, fmt.Errorf(
+			"model %s catalogue schedule version %d is historical-only; current use requires version %d physical authority",
+			modelID, a.ScheduleVersion, cataloguePriceScheduleVersion)
+	}
+	var schedule CataloguePriceSchedule
+	if err := json.Unmarshal(scheduleJSON, &schedule); err != nil {
+		return CataloguePriceAuthority{}, fmt.Errorf(
+			"model %s catalogue schedule JSON is unreadable: %w", modelID, err)
+	}
+	if err := revalidateCataloguePriceScheduleCurrent(schedule); err != nil {
+		return CataloguePriceAuthority{}, fmt.Errorf(
+			"model %s catalogue schedule lacks current physical authority: %w", modelID, err)
+	}
+	physical, err := cataloguePhysicalAuthorityFromSchedule(a, schedule)
+	if err != nil {
+		return CataloguePriceAuthority{}, fmt.Errorf(
+			"model %s catalogue schedule physical authority: %w", modelID, err)
+	}
+	a.PhysicalAuthority = physical
+	if physical.Version != catalogueResultPhysicalAuthorityVersion {
+		return CataloguePriceAuthority{}, fmt.Errorf(
+			"model %s physical authority version %d is historical-only; current use requires version %d",
+			modelID, physical.Version, catalogueResultPhysicalAuthorityVersion)
+	}
+	if err := validateCataloguePriceAuthority(a); err != nil {
+		return CataloguePriceAuthority{}, fmt.Errorf("model %s catalogue authority: %w", modelID, err)
+	}
+	if err := cataloguePriceAuthorityMatchesSchedule(a, schedule); err != nil {
+		return CataloguePriceAuthority{}, fmt.Errorf(
+			"model %s catalogue schedule/result authority mismatch: %w", modelID, err)
 	}
 	if a.SupplierSharePolicyRevision != supplierSharePolicyRevision {
 		return CataloguePriceAuthority{}, fmt.Errorf(
@@ -623,6 +691,349 @@ func (s *Store) LoadCataloguePriceAuthority(ctx context.Context, modelID string)
 	return a, nil
 }
 
+func cataloguePriceAuthorityMatchesSchedule(
+	a CataloguePriceAuthority,
+	schedule CataloguePriceSchedule,
+) error {
+	if a.ScheduleSHA256 != schedule.SHA256 || a.ScheduleVersion != schedule.Version ||
+		a.ReferenceCurrency != schedule.ReferenceCurrency ||
+		a.SettlementCurrency != schedule.SettlementCurrency ||
+		a.ReferenceToSettlementRate != schedule.ReferenceToSettlement ||
+		a.FXRevision != schedule.FXRevision || a.BoardSHA256 != schedule.BoardSHA256 ||
+		a.CurrentUseValidUntil != schedule.CurrentUseValidUntil ||
+		a.SupplierSharePolicyRevision != schedule.SupplierSharePolicyRevision {
+		return errors.New("catalogue row metadata does not equal persisted schedule JSON")
+	}
+	matches := 0
+	for _, result := range schedule.Results {
+		if result.ModelID != a.ModelID || result.JobType != a.JobType {
+			continue
+		}
+		matches++
+		if result.ReferencePricePer1K != a.ReferencePricePer1K ||
+			result.PricePer1K != a.SettlementPricePer1K ||
+			result.SupplierShare != a.SupplierShare || result.Formula != a.PriceFormula ||
+			!reflect.DeepEqual(result.PhysicalAuthority, a.PhysicalAuthority) {
+			return errors.New("model price history does not equal persisted schedule result")
+		}
+	}
+	if matches != 1 {
+		return fmt.Errorf("persisted schedule has %d matching model/job results, require one", matches)
+	}
+	return nil
+}
+
+func cataloguePhysicalAuthorityFromSchedule(
+	a CataloguePriceAuthority,
+	schedule CataloguePriceSchedule,
+) (CatalogueResultPhysicalAuthority, error) {
+	var physical CatalogueResultPhysicalAuthority
+	matches := 0
+	for _, result := range schedule.Results {
+		if result.ModelID != a.ModelID || result.JobType != a.JobType {
+			continue
+		}
+		matches++
+		physical = result.PhysicalAuthority
+	}
+	if matches != 1 {
+		return CatalogueResultPhysicalAuthority{}, fmt.Errorf(
+			"persisted schedule has %d matching model/job results, require one", matches)
+	}
+	if schedule.Version == cataloguePriceScheduleVersion {
+		if physical.Version != catalogueResultPhysicalAuthorityLegacyVersion &&
+			physical.Version != catalogueResultPhysicalAuthorityVersion {
+			return CatalogueResultPhysicalAuthority{}, errors.New(
+				"persisted v3 schedule result has no readable physical authority")
+		}
+		return physical, nil
+	}
+	if !reflect.DeepEqual(physical, CatalogueResultPhysicalAuthority{}) {
+		return CatalogueResultPhysicalAuthority{}, errors.New(
+			"legacy persisted schedule result carries future physical authority")
+	}
+	return CatalogueResultPhysicalAuthority{}, nil
+}
+
+// validateCurrentPlacementCataloguePhysicalAuthority proves that the price
+// schedule and placement were authorized by one exact benchmarked runtime
+// cell. A separately BOUND receipt for the same logical model is not
+// interchangeable: path, projected summary, unit geometry, observed rate,
+// build, device and exact weight artifact all have to be identical.
+func validateCurrentPlacementCataloguePhysicalAuthority(
+	placement PlacementRequirement,
+	catalogue CataloguePriceAuthority,
+) error {
+	if placement.Version != placementRequirementVersion ||
+		placement.PerformanceAuthority == nil ||
+		placement.PerformanceAuthority.Version != frozenRuntimeCellPerformanceVersion {
+		return errors.New("current catalogue/placement binding requires current frozen performance authority")
+	}
+	if catalogue.ScheduleVersion != cataloguePriceScheduleVersion ||
+		catalogue.PhysicalAuthority.Version != catalogueResultPhysicalAuthorityVersion {
+		return errors.New("current catalogue/placement binding requires retained current physical authority")
+	}
+	physical := catalogue.PhysicalAuthority
+	frozen := placement.PerformanceAuthority
+	performance := frozen.Performance
+	throughput := physical.Throughput
+	if _, err := validateCatalogueResultPhysicalAuthority(RepriceResult{
+		ModelID: catalogue.ModelID, JobType: catalogue.JobType, PhysicalAuthority: physical,
+	}); err != nil {
+		return err
+	}
+	if physical.ModelID != catalogue.ModelID || physical.JobType != catalogue.JobType ||
+		physical.RuntimeCellID != placement.RuntimeCellID ||
+		physical.RuntimeProfileID != placement.RuntimeID ||
+		physical.RuntimeProfileID != performance.RuntimeProfileID ||
+		physical.ProfileRevision != performance.ProfileRevision ||
+		physical.Engine != placement.Engine ||
+		physical.HWClass != performance.MeasuredOnHWClass ||
+		!slices.Contains(placement.HWClasses, physical.HWClass) {
+		return errors.New("catalogue physical runtime cell/profile/engine/hardware class does not equal placement performance authority")
+	}
+	if physical.EngineBuildHash != placement.EngineBuildHash ||
+		physical.EngineBuildHash != performance.EngineBuildHash ||
+		throughput.EngineBuildHash != placement.EngineBuildHash ||
+		physical.EngineBuildIdentityPolicy != placement.EngineBuildIdentityPolicy ||
+		physical.EngineBuildIdentityPolicy != performance.EngineBuildIdentityPolicy ||
+		throughput.EngineBuildIdentityPolicy != placement.EngineBuildIdentityPolicy ||
+		physical.HardwareIdentity != placement.HardwareIdentity ||
+		physical.HardwareIdentity != performance.HardwareIdentity ||
+		throughput.HardwareIdentity != placement.HardwareIdentity {
+		return errors.New("catalogue physical build/device identity does not equal placement performance authority")
+	}
+	if physical.Unit != performance.Unit || physical.UnitScope != performance.UnitScope ||
+		throughput.ObservedUnitsPerSecond != performance.ObservedUnitsPerSec ||
+		throughput.Haircut != performance.Haircut ||
+		throughput.ConservativeUnitsPerSecond != performance.ConservativeUnitsPerSec ||
+		throughput.HaircutPolicyRevision != frozen.PolicyRevision ||
+		throughput.BenchmarkSummarySHA256 != frozen.BenchmarkSnapshotSHA256 {
+		return errors.New("catalogue throughput summary/unit/rate does not equal placement performance authority")
+	}
+	path, _, ok := strings.Cut(throughput.Citation, "#")
+	if !ok || filepath.Clean(strings.TrimSpace(path)) !=
+		filepath.Clean(strings.TrimSpace(performance.BenchmarkAuthority)) {
+		return errors.New("catalogue throughput citation is not the placement benchmark authority")
+	}
+	if len(frozen.ModelArtifactPins) != 1 ||
+		physical.ModelArtifactDigest != frozen.ModelArtifactPins[0] ||
+		physical.ModelID != performance.ModelID || physical.JobType != performance.JobType {
+		return errors.New("catalogue physical model/job/artifact does not equal exact placement authority")
+	}
+	return nil
+}
+
+type catalogueScheduleQuerier interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}
+
+// validateCurrentCataloguePriceAuthorityFrom is the durable new-admission
+// backstop. It resolves the immutable schedule by the decision's own digest,
+// then rechecks v3 receipt bytes, status, declarations and freshness. Accepted
+// historical job replay intentionally uses LoadCataloguePriceAuthorityAtSchedule
+// and never enters this path.
+func validateCurrentCataloguePriceAuthorityFrom(
+	ctx context.Context,
+	querier catalogueScheduleQuerier,
+	a CataloguePriceAuthority,
+) error {
+	if err := validateCataloguePriceAuthority(a); err != nil {
+		return err
+	}
+	if a.ScheduleVersion != cataloguePriceScheduleVersion {
+		return fmt.Errorf(
+			"catalogue schedule version %d is historical-only; new admission requires version %d",
+			a.ScheduleVersion, cataloguePriceScheduleVersion)
+	}
+	var scheduleJSON []byte
+	err := querier.QueryRow(ctx, `
+		SELECT schedule_json
+		  FROM catalogue_price_schedules
+		 WHERE sha256=$1 AND version=$2
+		 FOR SHARE`, a.ScheduleSHA256, a.ScheduleVersion).Scan(&scheduleJSON)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("catalogue schedule %s version %d is not resolvable",
+			a.ScheduleSHA256, a.ScheduleVersion)
+	}
+	if err != nil {
+		return err
+	}
+	var schedule CataloguePriceSchedule
+	if err := json.Unmarshal(scheduleJSON, &schedule); err != nil {
+		return fmt.Errorf("catalogue schedule JSON is unreadable: %w", err)
+	}
+	if err := revalidateCataloguePriceScheduleCurrent(schedule); err != nil {
+		return err
+	}
+	if a.PhysicalAuthority.Version != catalogueResultPhysicalAuthorityVersion {
+		return errors.New("current catalogue authority lacks retained physical authority")
+	}
+	return cataloguePriceAuthorityMatchesSchedule(a, schedule)
+}
+
+// validateBoundCataloguePriceAuthorityFrom validates the immutable schedule
+// accepted by an unexpired quote without reinterpreting its buyer price through
+// today's market board. The exact schedule bytes and row still have to match,
+// and the bound throughput/power receipts, runtime declaration, build, device
+// and freshness are revalidated as current physical authority. A separate
+// current-pointer check below rejects physical supersession while allowing a
+// price-only reprice.
+func validateBoundCataloguePriceAuthorityFrom(
+	ctx context.Context,
+	querier catalogueScheduleQuerier,
+	a CataloguePriceAuthority,
+) error {
+	if err := validateCataloguePriceAuthority(a); err != nil {
+		return err
+	}
+	if a.ScheduleVersion != cataloguePriceScheduleVersion {
+		return fmt.Errorf(
+			"catalogue schedule version %d is historical-only; bound execution requires version %d",
+			a.ScheduleVersion, cataloguePriceScheduleVersion)
+	}
+	var scheduleJSON []byte
+	err := querier.QueryRow(ctx, `
+		SELECT schedule_json
+		  FROM catalogue_price_schedules
+		 WHERE sha256=$1 AND version=$2
+		 FOR SHARE`, a.ScheduleSHA256, a.ScheduleVersion).Scan(&scheduleJSON)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("bound catalogue schedule %s version %d is not resolvable",
+			a.ScheduleSHA256, a.ScheduleVersion)
+	}
+	if err != nil {
+		return err
+	}
+	var schedule CataloguePriceSchedule
+	if err := json.Unmarshal(scheduleJSON, &schedule); err != nil {
+		return fmt.Errorf("bound catalogue schedule JSON is unreadable: %w", err)
+	}
+	if err := revalidateCataloguePriceSchedulePhysicalCurrent(schedule); err != nil {
+		return err
+	}
+	if a.PhysicalAuthority.Version != catalogueResultPhysicalAuthorityVersion {
+		return errors.New("bound catalogue authority lacks retained current physical authority")
+	}
+	return cataloguePriceAuthorityMatchesSchedule(a, schedule)
+}
+
+// validateCurrentCatalogueModelPointerFrom linearizes a newly minted quote or
+// unquoted job against the model's current catalogue pointer. Resolving the
+// append-only schedule by the decision's own digest proves that old evidence is
+// authentic, but it does not prove that the schedule is still current: another
+// control process may have committed a reprice after this process constructed
+// the decision. FOR SHARE serializes with ApplyRepricing's FOR UPDATE pointer
+// mutation. Already-bound quotes deliberately do not use this gate; their
+// immutable, unexpired PricingDecision is the accepted authority.
+func validateCurrentCatalogueModelPointerFrom(
+	ctx context.Context,
+	querier catalogueScheduleQuerier,
+	a CataloguePriceAuthority,
+) error {
+	var (
+		jobType, source, scheduleSHA, referenceCurrency string
+		settlementCurrency, formula                     string
+		scheduleVersion                                 int
+		referencePrice, settlementPrice                 float64
+	)
+	err := querier.QueryRow(ctx, `
+		SELECT COALESCE(job_type,''),COALESCE(price_source,''),
+		       COALESCE(price_schedule_sha256,''),COALESCE(price_schedule_version,0),
+		       COALESCE(price_reference_currency,''),COALESCE(price_reference_per_1k,0)::float8,
+		       COALESCE(price_currency,''),COALESCE(price_per_1k,0)::float8,
+		       COALESCE(price_formula,'')
+		  FROM models
+		 WHERE id=$1
+		 FOR SHARE`, a.ModelID).Scan(
+		&jobType, &source, &scheduleSHA, &scheduleVersion,
+		&referenceCurrency, &referencePrice,
+		&settlementCurrency, &settlementPrice, &formula,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("model %s has no current catalogue pointer", a.ModelID)
+	}
+	if err != nil {
+		return err
+	}
+	if jobType != a.JobType || source != a.PriceSource ||
+		scheduleSHA != a.ScheduleSHA256 || scheduleVersion != a.ScheduleVersion ||
+		referenceCurrency != a.ReferenceCurrency ||
+		math.Abs(referencePrice-a.ReferencePricePer1K) > 0.0000000001 ||
+		settlementCurrency != a.SettlementCurrency ||
+		math.Abs(settlementPrice-a.SettlementPricePer1K) > 0.0000000001 ||
+		formula != a.PriceFormula {
+		return fmt.Errorf(
+			"model %s current catalogue pointer no longer equals schedule %s version %d",
+			a.ModelID, a.ScheduleSHA256, a.ScheduleVersion,
+		)
+	}
+	return nil
+}
+
+// validateCurrentCataloguePhysicalPointerFrom preserves the monetary promise
+// of an unexpired bound quote while refusing execution under a physical cell
+// that the current catalogue has superseded. A price-only reprice is allowed:
+// only the per-model physical snapshot must remain byte-for-byte identical.
+// The model row lock gives this check the same linearization boundary as the
+// current-pointer check above.
+func validateCurrentCataloguePhysicalPointerFrom(
+	ctx context.Context,
+	querier catalogueScheduleQuerier,
+	bound CataloguePriceAuthority,
+) error {
+	var currentScheduleSHA string
+	var currentScheduleVersion int
+	var scheduleJSON []byte
+	err := querier.QueryRow(ctx, `
+		SELECT COALESCE(m.price_schedule_sha256,''),
+		       COALESCE(m.price_schedule_version,0),s.schedule_json
+		  FROM models m
+		  JOIN catalogue_price_schedules s ON s.sha256=m.price_schedule_sha256
+		 WHERE m.id=$1 AND COALESCE(m.job_type,'')=$2
+		 FOR SHARE OF m`, bound.ModelID, bound.JobType).Scan(
+		&currentScheduleSHA, &currentScheduleVersion, &scheduleJSON,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("model %s has no current physical catalogue pointer", bound.ModelID)
+	}
+	if err != nil {
+		return err
+	}
+	var schedule CataloguePriceSchedule
+	if err := json.Unmarshal(scheduleJSON, &schedule); err != nil {
+		return fmt.Errorf("current catalogue schedule JSON is unreadable: %w", err)
+	}
+	if schedule.SHA256 != currentScheduleSHA || schedule.Version != currentScheduleVersion {
+		return errors.New("current catalogue pointer metadata does not equal its schedule JSON")
+	}
+	// The current schedule may carry new buyer prices that this older process
+	// cannot (and must not) reinterpret through its local market-board view. Its
+	// append-only digest and physical snapshot are self-contained. The bound
+	// schedule's exact physical bytes were revalidated immediately before this
+	// check, so equality below proves the current pointer has not superseded
+	// them. Any physical change fails closed.
+	if err := validateCataloguePriceSchedule(schedule); err != nil {
+		return fmt.Errorf("current catalogue physical snapshot is invalid: %w", err)
+	}
+	var currentPhysical CatalogueResultPhysicalAuthority
+	matches := 0
+	for _, result := range schedule.Results {
+		if result.ModelID == bound.ModelID && result.JobType == bound.JobType {
+			matches++
+			currentPhysical = result.PhysicalAuthority
+		}
+	}
+	if matches != 1 {
+		return fmt.Errorf("current catalogue has %d physical results for %s/%s, require one",
+			matches, bound.JobType, bound.ModelID)
+	}
+	if !reflect.DeepEqual(currentPhysical, bound.PhysicalAuthority) {
+		return errors.New("bound quote physical authority has been superseded by the current catalogue")
+	}
+	return nil
+}
+
 // LoadCataloguePriceAuthorityAtSchedule resolves a catalogue row that existed
 // under a specific schedule digest, not "today's price for this model".
 // Already-accepted jobs stay valid when a later reprice moves models.price_*.
@@ -636,32 +1047,42 @@ func (s *Store) LoadCataloguePriceAuthorityAtSchedule(
 	jobType string,
 ) (CataloguePriceAuthority, error) {
 	var a CataloguePriceAuthority
+	var scheduleJSON []byte
 	// price_source is market_board for every schedule-applied history row; do not
 	// read models.price_source, which may have been re-seeded since the schedule.
 	err := s.pool.QueryRow(ctx, `
-		SELECT s.version,m.id,COALESCE(m.job_type,''),'market_board',
+		SELECT s.version,h.model_id,
+		       COALESCE(NULLIF(h.job_type,''),schedule_result.result->>'job_type',''),
+		       'market_board',
 		       s.sha256,s.version,
 		       s.reference_currency,h.reference_price_per_1k::float8,
 		       s.settlement_currency,h.price_per_1k::float8,
 		       s.reference_to_settlement_rate,s.fx_revision,s.board_sha256,
+		       COALESCE(s.schedule_json->>'current_use_valid_until',''),
 		       h.price_formula,COALESCE(s.schedule_json->>'supplier_share_policy_revision',''),
-		       CASE WHEN s.version=1 THEN s.supplier_share ELSE h.supplier_share END
+		       CASE WHEN s.version=1 THEN s.supplier_share ELSE h.supplier_share END,
+		       s.schedule_json
 		  FROM catalogue_price_schedules s
 		  JOIN model_price_history h
 		    ON h.schedule_sha256=s.sha256 AND h.model_id=$2
-		  JOIN models m ON m.id=h.model_id
+		  LEFT JOIN LATERAL (
+		    SELECT element AS result
+		      FROM jsonb_array_elements(COALESCE(s.schedule_json->'results','[]'::jsonb)) AS element
+		     WHERE element->>'model_id'=h.model_id
+		     LIMIT 1
+		  ) schedule_result ON true
 		 WHERE s.sha256=$1
 		   AND s.version=$3
-		   AND m.id=$2
-		   AND COALESCE(m.job_type,'')=$4`,
+		   AND h.model_id=$2
+		   AND COALESCE(NULLIF(h.job_type,''),schedule_result.result->>'job_type','')=$4`,
 		scheduleSHA256, modelID, scheduleVersion, jobType,
 	).Scan(
 		&a.Version, &a.ModelID, &a.JobType, &a.PriceSource,
 		&a.ScheduleSHA256, &a.ScheduleVersion,
 		&a.ReferenceCurrency, &a.ReferencePricePer1K,
 		&a.SettlementCurrency, &a.SettlementPricePer1K,
-		&a.ReferenceToSettlementRate, &a.FXRevision, &a.BoardSHA256,
-		&a.PriceFormula, &a.SupplierSharePolicyRevision, &a.SupplierShare,
+		&a.ReferenceToSettlementRate, &a.FXRevision, &a.BoardSHA256, &a.CurrentUseValidUntil,
+		&a.PriceFormula, &a.SupplierSharePolicyRevision, &a.SupplierShare, &scheduleJSON,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return CataloguePriceAuthority{}, fmt.Errorf(
@@ -672,6 +1093,17 @@ func (s *Store) LoadCataloguePriceAuthorityAtSchedule(
 	if err != nil {
 		return CataloguePriceAuthority{}, err
 	}
+	var schedule CataloguePriceSchedule
+	if err := json.Unmarshal(scheduleJSON, &schedule); err != nil {
+		return CataloguePriceAuthority{}, fmt.Errorf(
+			"catalogue schedule digest %s has unreadable schedule JSON: %w", scheduleSHA256, err)
+	}
+	physical, err := cataloguePhysicalAuthorityFromSchedule(a, schedule)
+	if err != nil {
+		return CataloguePriceAuthority{}, fmt.Errorf(
+			"catalogue schedule digest %s physical authority: %w", scheduleSHA256, err)
+	}
+	a.PhysicalAuthority = physical
 	if err := validateCataloguePriceAuthority(a); err != nil {
 		return CataloguePriceAuthority{}, fmt.Errorf(
 			"catalogue schedule digest %s resolved to invalid authority: %w",
@@ -714,18 +1146,24 @@ func cataloguePriceAuthorityFieldMismatch(stored, authority CataloguePriceAuthor
 		return errors.New("pricing decision catalogue FXRevision does not match append-only authority")
 	case stored.BoardSHA256 != authority.BoardSHA256:
 		return errors.New("pricing decision catalogue BoardSHA256 does not match append-only authority")
+	case stored.CurrentUseValidUntil != authority.CurrentUseValidUntil:
+		return errors.New("pricing decision catalogue CurrentUseValidUntil does not match append-only authority")
 	case stored.PriceFormula != authority.PriceFormula:
 		return errors.New("pricing decision catalogue PriceFormula does not match append-only authority")
 	case floatDiffers(stored.SupplierShare, authority.SupplierShare):
 		return errors.New("pricing decision catalogue SupplierShare does not match append-only authority")
 	case stored.SupplierSharePolicyRevision != authority.SupplierSharePolicyRevision:
 		return errors.New("pricing decision catalogue SupplierSharePolicyRevision does not match append-only authority")
+	case !reflect.DeepEqual(stored.PhysicalAuthority, authority.PhysicalAuthority):
+		return errors.New("pricing decision catalogue PhysicalAuthority does not match append-only authority")
 	}
 	return nil
 }
 
-// selectCataloguePriceAuthority makes the quote pinning rule executable: a
-// bound submission must not consult the mutable models pointer at all.
+// selectCataloguePriceAuthority makes the monetary quote-pinning rule
+// executable: a bound submission selects price, FX and supplier-share terms
+// only from the immutable quote. Durable ingress separately reads the current
+// model pointer solely to require that its physical authority is unchanged.
 func selectCataloguePriceAuthority(
 	bound *boundQuote,
 	unbound func() (CataloguePriceAuthority, error),
@@ -735,6 +1173,11 @@ func selectCataloguePriceAuthority(
 			return CataloguePriceAuthority{}, fmt.Errorf(
 				"bound quote lacks valid catalogue authority: %w", err,
 			)
+		}
+		if bound.Pricing.Catalogue.ScheduleVersion != cataloguePriceScheduleVersion {
+			return CataloguePriceAuthority{}, fmt.Errorf(
+				"bound quote catalogue version %d is historical-only; request a new quote with version %d physical authority",
+				bound.Pricing.Catalogue.ScheduleVersion, cataloguePriceScheduleVersion)
 		}
 		return bound.Pricing.Catalogue, nil
 	}
@@ -962,7 +1405,7 @@ func pricingBillableUnitsForComputePlan(compute ComputePlan) float64 {
 // prices against every routable cell for the model, which is only correct for a
 // model-level display rate that is not attached to a particular job.
 func supplierAdmissionCeilingUSDHr(
-	a CataloguePriceAuthority, jobType, tier string, candidateCells []string,
+	a CataloguePriceAuthority, jobType, tier string, candidateCells, requestedHWClasses []string,
 ) (float64, error) {
 	if err := validateCataloguePriceAuthority(a); err != nil {
 		return 0, err
@@ -970,8 +1413,11 @@ func supplierAdmissionCeilingUSDHr(
 	if a.JobType != jobType {
 		return 0, errors.New("catalogue job type does not match placement job type")
 	}
-	unitsPerSec, _, err := admissionUnitsPerSec(jobType, a.ModelID, candidateCells, time.Now())
+	unitsPerSec, performance, err := admissionUnitsPerSec(jobType, a.ModelID, candidateCells, time.Now())
 	if err != nil {
+		return 0, err
+	}
+	if _, err := performanceBoundHardwareClasses(performance, requestedHWClasses); err != nil {
 		return 0, err
 	}
 	return expectedSupplierUSDHr(unitsPerSec, a.ReferencePricePer1K, a.SupplierShare, tier), nil
@@ -1007,12 +1453,49 @@ func newDistributedPricingDecision(
 	tier string,
 	originQuotePricingSHA string,
 ) (PricingDecision, error) {
-	unitsPerSec, _, err := admissionUnitsPerSec(
+	if catalogue.ScheduleVersion != cataloguePriceScheduleVersion {
+		return PricingDecision{}, fmt.Errorf(
+			"%w: new pricing decision requires catalogue schedule version %d physical authority, got %d",
+			errCataloguePhysicalAuthorityUnavailable,
+			cataloguePriceScheduleVersion, catalogue.ScheduleVersion)
+	}
+	unitsPerSec, performance, err := admissionUnitsPerSec(
 		workload.RuntimeJobType, catalogue.ModelID,
 		admissionCellsForWorkload(workload), time.Now(),
 	)
 	if err != nil {
-		return PricingDecision{}, err
+		return PricingDecision{}, fmt.Errorf(
+			"%w: resolving current runtime performance authority: %v",
+			errQuotePhysicalAuthorityUnavailable, err)
+	}
+	boundHW, err := performanceBoundHardwareClasses(performance, placement.HWClasses)
+	if err != nil {
+		return PricingDecision{}, fmt.Errorf(
+			"%w: resolving benchmark-bound placement hardware: %v",
+			errQuotePhysicalAuthorityUnavailable, err)
+	}
+	if !sameStrings(boundHW, placement.HWClasses) {
+		return PricingDecision{}, fmt.Errorf(
+			"%w: placement hardware %v does not equal the benchmark-bound class %v",
+			errQuotePhysicalAuthorityUnavailable,
+			placement.HWClasses, boundHW)
+	}
+	currentPerformance, err := freezeRuntimeCellPerformance(performance)
+	if err != nil {
+		return PricingDecision{}, fmt.Errorf(
+			"%w: freezing current runtime performance authority: %v",
+			errQuotePhysicalAuthorityUnavailable, err)
+	}
+	if placement.PerformanceAuthority == nil ||
+		placement.PerformanceAuthority.Digest != currentPerformance.Digest {
+		return PricingDecision{}, fmt.Errorf(
+			"%w: placement performance authority does not match the benchmark snapshot resolved for new admission",
+			errQuotePhysicalAuthorityUnavailable)
+	}
+	if err := validateCurrentPlacementCataloguePhysicalAuthority(placement, catalogue); err != nil {
+		return PricingDecision{}, fmt.Errorf(
+			"%w: catalogue price does not bind selected placement benchmark: %v",
+			errCataloguePhysicalAuthorityUnavailable, err)
 	}
 	return distributedPricingDecisionAtRate(
 		workload, compute, placement, economic, catalogue, tier,
@@ -1043,7 +1526,15 @@ func distributedPricingDecisionAtRate(
 	tier string,
 	originQuotePricingSHA string,
 	unitsPerSec float64,
+	historicalRuntimeCells ...*FrozenRuntimeCellEconomics,
 ) (PricingDecision, error) {
+	if len(historicalRuntimeCells) > 1 {
+		return PricingDecision{}, errors.New("pricing reconstruction received more than one frozen runtime-cell snapshot")
+	}
+	var historicalRuntimeCell *FrozenRuntimeCellEconomics
+	if len(historicalRuntimeCells) == 1 {
+		historicalRuntimeCell = historicalRuntimeCells[0]
+	}
 	if err := ValidateComputePlanEconomicSnapshot(compute, workload, economic); err != nil {
 		return PricingDecision{}, err
 	}
@@ -1221,8 +1712,24 @@ func distributedPricingDecisionAtRate(
 
 	// Provider: N/A for community/owned; modeled or unknown for cloud-backed.
 	providerCost := providerCostComponentForPlacement(
-		placement.RuntimeCellID, placement.HWClasses, expectedSeconds,
+		placement.RuntimeCellID, placement.HWClasses, expectedSeconds, catalogue,
 	)
+	if historicalRuntimeCell != nil {
+		// Provider classification is a fact accepted under the old runtime
+		// document. The snapshot validator below cross-binds this component to
+		// the rest of the decision; do not ask today's cell whether it is cloud
+		// backed and silently rewrite historical money.
+		if historicalRuntimeCell.Version == frozenRuntimeCellEconomicsLegacyVersion {
+			providerCost = historicalRuntimeCell.ProviderCost
+		} else {
+			providerCost, err = providerCostFromFrozenRuntimeCellAuthority(
+				historicalRuntimeCell, expectedSeconds, catalogue)
+			if err != nil {
+				return PricingDecision{}, fmt.Errorf(
+					"resolve frozen provider-cost authority: %w", err)
+			}
+		}
+	}
 
 	// Risk reserve: real policy money on the buyer charge.
 	buyerNanos := usdToMicros(economic.InitialBuyerChargeUSD) * NanosPerMicro
@@ -1305,6 +1812,7 @@ func distributedPricingDecisionAtRate(
 		SupplierGrossNanos:               supplierGrossNanos,
 		SupplierRequiredNanos:            supplierRequiredNanos,
 		SupplierEntitlementPolicy:        supplierEntitlementPolicy,
+		TaskEconomicPolicy:               uniformSinglePrimaryTaskEconomicsV1,
 		BuyerPrice:                       economic.InitialBuyerChargeUSD,
 		MaximumBuyerPrice:                economic.ReservedBuyerChargeUSD,
 		PrimarySupplierCost: modeledCost(primarySupplier,
@@ -1362,17 +1870,43 @@ func distributedPricingDecisionAtRate(
 	// of the frozen inputs, so the deterministic rebuild in
 	// ValidateDistributedPricingDecisionSnapshot reproduces it exactly — which is
 	// what makes a later benchmark revalidation unable to move settled money.
-	frozenCell, fcerr := freezeRuntimeCellEconomics(
-		placement, catalogue, unitsPerSec, billableUnits, expectedSeconds,
-		economic.InitialBuyerChargeUSD, primarySupplier, supplierEntitlementPolicy, ceiling,
-		out.PrimarySupplierCost, out.ProviderCost, out.VerificationCost,
-		out.StorageCost, out.EgressCost, out.RiskReserve,
-		out.PlatformContribution.Amount, out.Unknowns, compute.Confidence,
-	)
-	if fcerr != nil {
-		return PricingDecision{}, fcerr
+	if historicalRuntimeCell != nil {
+		if err := validateFrozenRuntimeCellEconomics(
+			historicalRuntimeCell,
+			placement, catalogue, unitsPerSec, billableUnits, expectedSeconds,
+			economic.InitialBuyerChargeUSD, primarySupplier, supplierEntitlementPolicy, ceiling,
+			out.PrimarySupplierCost, out.ProviderCost, out.VerificationCost,
+			out.StorageCost, out.EgressCost, out.RiskReserve,
+			out.PlatformContribution.Amount, out.Unknowns, compute.Confidence,
+		); err != nil {
+			return PricingDecision{}, fmt.Errorf("historical runtime-cell economics: %w", err)
+		}
+		frozenCell := *historicalRuntimeCell
+		frozenCell.HWClasses = append([]string(nil), historicalRuntimeCell.HWClasses...)
+		frozenCell.UnknownCategories = append([]string(nil), historicalRuntimeCell.UnknownCategories...)
+		frozenCell.EvidenceIdentity = append([]string(nil), historicalRuntimeCell.EvidenceIdentity...)
+		out.RuntimeCell = &frozenCell
+	} else if placement.Version < 2 {
+		// A v1 placement predates the frozen performance/hardware authority that
+		// makes runtime-cell economics self-contained. It is replay-compatible,
+		// but it cannot truthfully mint a new v2 economics block by filling the
+		// missing accepted class from today's runtime document. Preserve the
+		// historical nil shape instead; only a placement that serialized the v2
+		// authority may create the enriched runtime-cell snapshot.
+		out.RuntimeCell = nil
+	} else {
+		frozenCell, fcerr := freezeRuntimeCellEconomics(
+			placement, catalogue, unitsPerSec, billableUnits, expectedSeconds,
+			economic.InitialBuyerChargeUSD, primarySupplier, supplierEntitlementPolicy, ceiling,
+			out.PrimarySupplierCost, out.ProviderCost, out.VerificationCost,
+			out.StorageCost, out.EgressCost, out.RiskReserve,
+			out.PlatformContribution.Amount, out.Unknowns, compute.Confidence,
+		)
+		if fcerr != nil {
+			return PricingDecision{}, fcerr
+		}
+		out.RuntimeCell = frozenCell
 	}
-	out.RuntimeCell = frozenCell
 
 	return out, validatePricingCostShape(out)
 }
@@ -1618,6 +2152,8 @@ func validatePricingCostShape(p PricingDecision) error {
 			p.ExpectedSupplierSeconds != 0 ||
 			p.SupplierAdmissionCeilingUSDHr != 0 ||
 			p.ExpectedSupplierGrossUSDHr != 0 ||
+			p.SupplierGrossNanos != 0 || p.SupplierRequiredNanos != 0 ||
+			p.SupplierEntitlementPolicy != "" || p.TaskEconomicPolicy != "" ||
 			p.PrimarySupplierCost.Status != pricingCostNotApplicable ||
 			p.VerificationCost.Status != pricingCostNotApplicable {
 			return errors.New("exact-reuse pricing falsely attributes physical execution")
@@ -1626,11 +2162,11 @@ func validatePricingCostShape(p PricingDecision) error {
 		if p.Realtime == nil || p.RealtimeReuse != nil || p.ServiceLease != nil {
 			return errors.New("realtime pricing decision lacks realtime authority")
 		}
-		if p.Catalogue != (CataloguePriceAuthority{}) || p.WorkloadDecisionSHA256 != "" ||
+		if !reflect.DeepEqual(p.Catalogue, CataloguePriceAuthority{}) || p.WorkloadDecisionSHA256 != "" ||
 			p.ComputePlanSHA256 != "" || p.PlacementRequirementSHA256 != "" ||
 			p.EconomicPlanSHA256 != "" || p.EconomicScheduleSHA256 != "" ||
 			p.SupplierGrossNanos != 0 || p.SupplierRequiredNanos != 0 ||
-			p.SupplierEntitlementPolicy != "" {
+			p.SupplierEntitlementPolicy != "" || p.TaskEconomicPolicy != "" {
 			return errors.New("realtime pricing decision carries unrelated batch authority")
 		}
 		if err := validateRealtimePricingAuthority(*p.Realtime, p.Currency); err != nil {
@@ -1644,11 +2180,12 @@ func validatePricingCostShape(p PricingDecision) error {
 		if p.Realtime != nil || p.RealtimeReuse == nil || p.ServiceLease != nil {
 			return errors.New("realtime reuse pricing decision lacks reuse authority")
 		}
-		if p.Catalogue != (CataloguePriceAuthority{}) || p.WorkloadDecisionSHA256 != "" ||
+		if !reflect.DeepEqual(p.Catalogue, CataloguePriceAuthority{}) || p.WorkloadDecisionSHA256 != "" ||
 			p.ComputePlanSHA256 != "" || p.PlacementRequirementSHA256 != "" ||
 			p.EconomicPlanSHA256 != "" || p.EconomicScheduleSHA256 != "" ||
 			p.SupplierGrossNanos != 0 || p.SupplierRequiredNanos != 0 ||
-			p.SupplierEntitlementPolicy != "" || p.PrimarySupplierCost.Status != pricingCostNotApplicable ||
+			p.SupplierEntitlementPolicy != "" || p.TaskEconomicPolicy != "" ||
+			p.PrimarySupplierCost.Status != pricingCostNotApplicable ||
 			p.VerificationCost.Status != pricingCostNotApplicable {
 			return errors.New("realtime reuse pricing falsely attributes physical execution")
 		}
@@ -1662,11 +2199,12 @@ func validatePricingCostShape(p PricingDecision) error {
 		if p.Realtime != nil || p.RealtimeReuse != nil || p.ServiceLease == nil {
 			return errors.New("service lease pricing decision lacks service lease authority")
 		}
-		if p.Catalogue != (CataloguePriceAuthority{}) || p.WorkloadDecisionSHA256 != "" ||
+		if !reflect.DeepEqual(p.Catalogue, CataloguePriceAuthority{}) || p.WorkloadDecisionSHA256 != "" ||
 			p.ComputePlanSHA256 != "" || p.PlacementRequirementSHA256 != "" ||
 			p.EconomicPlanSHA256 != "" || p.EconomicScheduleSHA256 != "" ||
 			p.SupplierGrossNanos != 0 || p.SupplierRequiredNanos != 0 ||
-			p.SupplierEntitlementPolicy != "" || p.VerificationCost.Status != pricingCostNotApplicable ||
+			p.SupplierEntitlementPolicy != "" || p.TaskEconomicPolicy != "" ||
+			p.VerificationCost.Status != pricingCostNotApplicable ||
 			p.StorageCost.Status != pricingCostNotApplicable || p.EgressCost.Status != pricingCostNotApplicable {
 			return errors.New("service lease pricing decision carries unrelated execution authority")
 		}
@@ -1691,14 +2229,14 @@ func validatePricingCostShape(p PricingDecision) error {
 // authority. Like ValidateFrozenComputePlanSnapshot it re-derives its inputs
 // rather than reading them off the record being checked.
 //
-// The supplier unit rate is the one input that cannot simply be recomputed at
-// the current instant, so it is re-resolved as a SET: every rate the governed
-// runtime-cell authority can produce for this workload's frozen candidate cells.
-// Handing decision.ExpectedSupplierUnitsPerSec straight back into the rebuild
-// made this validator self-certifying - the rebuild derived the ceiling from the
-// record's own rate and compared it to the record's own placement, so a decision
-// whose rate and placement were altered together rebuilt to itself and passed at
-// any rate an attacker liked.
+// Placement v2 freezes the supplier unit-rate authority, so replay reads that
+// accepted snapshot rather than today's manifest or clock. Placement v1 did not
+// serialize a receipt at all. It is historical-read-only at every current
+// ingress boundary; replay can only require a positive finite stored rate and
+// cross-bind it through the placement ceiling, catalogue formula, economic
+// authority, composite digests, and (when present) legacy runtime-cell block.
+// Re-resolving a v1 rate from today's manifest would invent evidence and make
+// accepted history disappear when a receipt is withdrawn, replaced, or ages.
 //
 // Catalogue fields still come from decision.Catalogue here. That is also
 // self-certifying when the attacker rewrites pricing, placement and economic
@@ -1712,24 +2250,30 @@ func ValidateDistributedPricingDecisionSnapshot(
 	placement PlacementRequirement,
 	economic EconomicPlan,
 ) error {
-	governed, err := governedAdmissionUnitRates(
-		workload.RuntimeJobType, workload.Binding.Model.Ref,
-		admissionCellsForWorkload(workload), time.Now(),
-	)
-	if err != nil {
-		return err
-	}
-	if !rateIsGoverned(governed, decision.ExpectedSupplierUnitsPerSec) {
-		return fmt.Errorf(
-			"pricing decision claims %g supplier units/s, which no governed runtime-cell "+
-				"benchmark produces for job %q on model %q (admissible: %v)",
-			decision.ExpectedSupplierUnitsPerSec, workload.RuntimeJobType,
-			workload.Binding.Model.Ref, governed,
-		)
+	if placement.Version >= 2 {
+		if err := validateFrozenRuntimeCellPerformance(placement.PerformanceAuthority); err != nil {
+			return fmt.Errorf("pricing placement performance authority: %w", err)
+		}
+		governed := []float64{placement.PerformanceAuthority.Performance.ConservativeUnitsPerSec}
+		if !rateIsGoverned(governed, decision.ExpectedSupplierUnitsPerSec) {
+			return fmt.Errorf(
+				"pricing decision claims %g supplier units/s, which its frozen runtime-cell "+
+					"benchmark does not authorize for job %q on model %q (admissible: %v)",
+				decision.ExpectedSupplierUnitsPerSec, workload.RuntimeJobType,
+				workload.Binding.Model.Ref, governed,
+			)
+		}
+	} else {
+		if decision.ExpectedSupplierUnitsPerSec <= 0 ||
+			math.IsNaN(decision.ExpectedSupplierUnitsPerSec) ||
+			math.IsInf(decision.ExpectedSupplierUnitsPerSec, 0) {
+			return errors.New("legacy pricing decision lacks a positive finite accepted supplier rate")
+		}
 	}
 	rebuilt, err := distributedPricingDecisionAtRate(
 		workload, compute, placement, economic, decision.Catalogue, decision.Tier,
 		decision.OriginQuotePricingDecisionSHA256, decision.ExpectedSupplierUnitsPerSec,
+		decision.RuntimeCell,
 	)
 	if err != nil {
 		return err
@@ -1741,6 +2285,17 @@ func ValidateDistributedPricingDecisionSnapshot(
 	// freeze one is compared in full, so a rewritten block still fails here.
 	if decision.RuntimeCell == nil {
 		rebuilt.RuntimeCell = nil
+	}
+	switch decision.TaskEconomicPolicy {
+	case "":
+		// Historical distributed decisions predate the current single-primary
+		// admission posture. Replay their accepted body; current quote/job ingress
+		// separately refuses an empty policy.
+		rebuilt.TaskEconomicPolicy = ""
+	case uniformSinglePrimaryTaskEconomicsV1:
+		// Current policy is rebuilt and compared in full below.
+	default:
+		return fmt.Errorf("unsupported task-economic policy %q", decision.TaskEconomicPolicy)
 	}
 	if !reflect.DeepEqual(decision, rebuilt) {
 		return errors.New("pricing decision does not match its deterministic composite authority")

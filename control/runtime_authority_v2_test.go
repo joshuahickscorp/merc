@@ -59,8 +59,8 @@ func TestNonRoutableProfilesDoNotWidenTheSellableSurface(t *testing.T) {
 				cap.Runtime, cap)
 		}
 	}
-	if n := len(advertisedRuntimeCapabilities()); n != 2 {
-		t.Fatalf("advertised projection has %d cells, want the 2 bindable candle cells (embed + batch_infer)", n)
+	if n := len(advertisedRuntimeCapabilities()); n != 0 {
+		t.Fatalf("advertised projection has %d cells, want none until the superseded build is remeasured", n)
 	}
 }
 
@@ -820,7 +820,8 @@ func TestWireKindBelongsToTheRuntimeModelPair(t *testing.T) {
 }
 
 // The llama.cpp embed cell stays on a non-ACTIVE profile and must not reach the
-// advertised projection; only BOUND candle cells do.
+// advertised projection. The old Candle receipt is also SUPERSEDED because its
+// build identity omitted execution modules, so no checked-in cell is sellable.
 func TestTheNewEmbedCellIsNotYetSellable(t *testing.T) {
 	for _, cap := range advertisedRuntimeCapabilities() {
 		if cap.ID == "llama-cpp-metal-minilm-embed" {
@@ -830,7 +831,7 @@ func TestTheNewEmbedCellIsNotYetSellable(t *testing.T) {
 			t.Errorf("non-routable runtime %q is advertised", cap.Runtime)
 		}
 	}
-	if n := len(advertisedRuntimeCapabilities()); n != 2 {
-		t.Fatalf("advertised projection has %d cells, want the 2 bindable candle cells (embed + batch_infer)", n)
+	if n := len(advertisedRuntimeCapabilities()); n != 0 {
+		t.Fatalf("advertised projection has %d cells, want none until exact-build remeasurement", n)
 	}
 }

@@ -214,7 +214,7 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("GET /admin/fraud", s.authAdmin(http.HandlerFunc(s.handleAdminFraud)))
 	mux.Handle("GET /admin/drift", s.authAdmin(http.HandlerFunc(s.handleAdminDrift)))
 	mux.Handle("GET /admin/plan-accuracy", s.authAdmin(http.HandlerFunc(s.handleAdminPlanAccuracy)))
-	mux.Handle("GET /admin/runtime/selector/regret", s.authAdmin(http.HandlerFunc(s.handleAdminSelectorRegret)))
+	mux.Handle("GET /admin/runtime/selector/regret", s.authAdmin(http.HandlerFunc(s.handleAdminSelectorLiabilityRegret)))
 	mux.Handle("GET /admin/runtime/selector/promotion", s.authAdmin(http.HandlerFunc(s.handleAdminSelectorPromotion)))
 	mux.Handle("POST /admin/runtime/selector/activation", s.authAdmin(http.HandlerFunc(s.handleAdminSelectorActivation)))
 	mux.Handle("POST /admin/runtime/selector/rollback", s.authAdmin(http.HandlerFunc(s.handleAdminSelectorRollback)))
@@ -647,6 +647,17 @@ type httpError struct {
 
 func (e *httpError) Error() string { return e.msg }
 
+func jobRequestObjectPrefix(jobID uuid.UUID, requestSHA256 string) string {
+	prefix := fmt.Sprintf("jobs/%s", jobID)
+	if validSHA256(requestSHA256) {
+		// Public idempotency fixes jobID from the key, not the request body. Keep
+		// conflicting bodies in distinct immutable namespaces so the losing
+		// request can neither overwrite nor clean up the winner's physical input.
+		return prefix + "/requests/" + requestSHA256
+	}
+	return prefix // explicit legacy/internal path
+}
+
 // discardOrphanedJobObjects removes the input objects a failed submission left
 // behind.
 //
@@ -719,11 +730,27 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 	// Quote and submit share this exact canonical request-shape gate. It also
 	// applies the canary verification floors, so the shape a quote binds is the
 	// shape submit will execute.
-	normalized, verr := s.normalizeWorkloadRequest(sub)
+	normalized, verr := s.normalizeWorkloadRequest(sub, false)
 	if verr != nil {
 		return JobSubmitResponse{}, verr
 	}
 	sub = normalized
+	activation, err := s.store.activationForNewAdmission(ctx)
+	if err != nil {
+		return JobSubmitResponse{}, &httpError{http.StatusServiceUnavailable, err.Error()}
+	}
+	// Re-evaluate the authority-dependent portion against the refreshed epoch.
+	// The first pass above intentionally remains before store access so malformed
+	// requests still receive their stable 4xx diagnostics.
+	normalized, verr = s.normalizeWorkloadRequest(sub)
+	if verr != nil {
+		return JobSubmitResponse{}, verr
+	}
+	sub = normalized
+	if err := validateCurrentUniformCanaryAuthority(s.canary.Enabled); err != nil {
+		return JobSubmitResponse{}, &httpError{http.StatusServiceUnavailable,
+			"exact task-economic authority unavailable: " + err.Error()}
+	}
 	if s.canary.Enabled {
 		allowed, err := s.store.CanaryBuyerAdmissionAllowed(ctx, buyerID, s.canary.MaxActiveBuyers)
 		if err != nil {
@@ -936,6 +963,7 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 		offeredRate64, err = supplierAdmissionCeilingUSDHr(
 			cataloguePrice, sub.JobType.Type, sub.Tier,
 			admissionCellsForWorkload(planningWorkload),
+			sub.Constraints.HWClasses,
 		)
 		if err != nil {
 			return JobSubmitResponse{}, &httpError{
@@ -945,8 +973,13 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 		offeredRate = float32(offeredRate64)
 		placement, perr = placementRequirementFor(sub, planningWorkload, offeredRate)
 		if perr != nil {
+			status := http.StatusBadRequest
+			if errors.Is(perr, errQuotePhysicalAuthorityUnavailable) ||
+				errors.Is(perr, errCataloguePhysicalAuthorityUnavailable) {
+				status = http.StatusServiceUnavailable
+			}
 			return JobSubmitResponse{}, &httpError{
-				http.StatusBadRequest, "building placement authority: " + perr.Error(),
+				status, "building placement authority: " + perr.Error(),
 			}
 		}
 	}
@@ -986,6 +1019,7 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 	if sub.IdempotencyKey != "" {
 		jobID = uuid.NewSHA1(buyerID, []byte(sub.IdempotencyKey))
 	}
+	objectPrefix := jobRequestObjectPrefix(jobID, sub.RequestSHA256)
 	inputKey := srcKey
 	ownedInputKey := ""
 	var canonicalWriter io.Writer
@@ -997,7 +1031,7 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 		} else if isMediaRenderingJob(sub) {
 			inputName = "scene.json"
 		}
-		inputKey = fmt.Sprintf("jobs/%s/%s", jobID, inputName)
+		inputKey = objectPrefix + "/" + inputName
 		ownedInputKey = inputKey
 		contentType := "application/x-ndjson"
 		if isMediaTranscodeJob(sub) {
@@ -1080,8 +1114,13 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 	} else {
 		placement, werr = placementRequirementFor(sub, workloadDecision, offeredRate)
 		if werr != nil {
+			status := http.StatusBadRequest
+			if errors.Is(werr, errQuotePhysicalAuthorityUnavailable) ||
+				errors.Is(werr, errCataloguePhysicalAuthorityUnavailable) {
+				status = http.StatusServiceUnavailable
+			}
 			return JobSubmitResponse{}, &httpError{
-				http.StatusBadRequest, "freezing placement authority: " + werr.Error(),
+				status, "freezing placement authority: " + werr.Error(),
 			}
 		}
 	}
@@ -1143,7 +1182,7 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 					"exact-reuse price exceeds the accepted firm quote maximum",
 				}
 			}
-			reuseOut := fmt.Sprintf("jobs/%s/output.jsonl", jobID)
+			reuseOut := objectPrefix + "/output.jsonl"
 			var originComputePlan *ComputePlan
 			originPricingSHA := ""
 			if qBind != nil {
@@ -1200,11 +1239,11 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 		}
 	}
 
-	outputKey := fmt.Sprintf("jobs/%s/output.jsonl", jobID)
+	outputKey := objectPrefix + "/output.jsonl"
 	if isMediaTranscodeJob(sub) {
-		outputKey = fmt.Sprintf("jobs/%s/output.mp4", jobID)
+		outputKey = objectPrefix + "/output.mp4"
 	} else if isMediaRenderingJob(sub) {
-		outputKey = fmt.Sprintf("jobs/%s/output.ppm", jobID)
+		outputKey = objectPrefix + "/output.ppm"
 	}
 
 	nRedundancy := fracCount(nPrimary, sub.Verification.RedundancyFrac)
@@ -1237,6 +1276,7 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 			JobID:                 jobID,
 			IsRedundancy:          true,
 			InputRef:              p.InputRef,
+			InputSHA256:           p.InputSHA256,
 			InputDepthBand:        p.InputDepthBand,
 			ResultKey:             taskAttemptResultKey(jobID, taskID, 0),
 			ChunkIndex:            p.ChunkIndex,
@@ -1248,8 +1288,17 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 	if isBinaryMediaJob(sub) {
 		nHoneypot = 0
 	}
-	if (wantVerificationFloor || s.canary.Enabled) && nHoneypot == 0 {
+	if wantVerificationFloor && nHoneypot == 0 {
 		nHoneypot = 1
+	}
+	// Current pricing has one exact whole-input task amount and no governed
+	// heterogeneous allocation. Refuse before copying/registering any honeypot
+	// alias: that registry row is durable even when the later job transaction
+	// never starts.
+	if err := validateCurrentUniformTaskCounts(
+		nPrimary, nRedundancy, nHoneypot); err != nil {
+		return JobSubmitResponse{}, &httpError{http.StatusServiceUnavailable,
+			"exact task-economic authority unavailable: " + err.Error()}
 	}
 	if nHoneypot > 0 {
 		hps, herr := s.store.AvailableSeedHoneypots(ctx, sub.JobType.Type, sub.Model.Ref, sub.JobType.MaxTokens, nHoneypot)
@@ -1275,11 +1324,13 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 			if aerr := s.store.RegisterHoneypotAlias(ctx, sub.JobType.Type, opaqueKey, hp.KnownAnswer, hp.AnswerClass); aerr != nil {
 				return JobSubmitResponse{}, &httpError{http.StatusInternalServerError, "registering honeypot alias: " + aerr.Error()}
 			}
+			honeypotSHA := sha256.Sum256(inputBytes)
 			tasks = append(tasks, taskRow{
 				ID:                    taskID,
 				JobID:                 jobID,
 				IsHoneypot:            true,
 				InputRef:              opaqueKey,
+				InputSHA256:           hex.EncodeToString(honeypotSHA[:]),
 				ResultKey:             taskAttemptResultKey(jobID, taskID, 0),
 				ChunkIndex:            i % nPrimary,
 				ExpectedOutputRecords: int64(expectedRecords),
@@ -1505,9 +1556,20 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 			cataloguePrice, sub.Tier, "",
 		)
 		if pricingErr != nil {
-			return JobSubmitResponse{}, &httpError{http.StatusConflict,
+			status := http.StatusConflict
+			if errors.Is(pricingErr, errQuotePhysicalAuthorityUnavailable) ||
+				errors.Is(pricingErr, errCataloguePhysicalAuthorityUnavailable) {
+				status = http.StatusServiceUnavailable
+			}
+			return JobSubmitResponse{}, &httpError{status,
 				"composite pricing authority disagrees: " + pricingErr.Error()}
 		}
+	}
+	if err := validateCurrentUniformTaskEconomicAuthority(
+		workloadDecision, computePlan, economicPlan, pricingDecision, tasks,
+	); err != nil {
+		return JobSubmitResponse{}, &httpError{http.StatusServiceUnavailable,
+			"exact task-economic authority unavailable: " + err.Error()}
 	}
 
 	var webhookRegistration WebhookRegistration
@@ -1539,7 +1601,7 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 		MinMemoryGB:                effectiveMinMem,
 		MaxDurationSecs:            sub.Constraints.MaxDurationSecs,
 		MinReputation:              sub.MinReputation,
-		HWClasses:                  sub.Constraints.HWClasses,
+		HWClasses:                  append([]string(nil), placement.HWClasses...),
 		DataResidency:              sub.Constraints.DataResidency,
 		JobTypeSpec:                spec,
 		SplitSize:                  splitSize,
@@ -1571,8 +1633,22 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 		SubmitRequestSHA256:        sub.RequestSHA256,
 		PrefixID:                   prefixID,
 		PrefixChain:                prefixChain,
+		activationPolicyRevision:   activation.PolicyRevision,
 	}
 	if err := s.store.SubmitJobTx(ctx, jr, tasks); err != nil {
+		if errors.Is(err, errBoundQuoteExpired) {
+			return JobSubmitResponse{}, &httpError{http.StatusConflict, "quote expired"}
+		}
+		if errors.Is(err, errActivationAdmissionUnavailable) ||
+			errors.Is(err, errActivationAdmissionStale) {
+			return JobSubmitResponse{}, &httpError{http.StatusServiceUnavailable,
+				"runtime activation authority unavailable: " + err.Error()}
+		}
+		if errors.Is(err, errCataloguePhysicalAuthorityUnavailable) ||
+			errors.Is(err, errQuotePhysicalAuthorityUnavailable) {
+			return JobSubmitResponse{}, &httpError{http.StatusServiceUnavailable,
+				"catalogue physical authority unavailable: " + err.Error()}
+		}
 		if errors.Is(err, errInsufficientPrepaid) {
 			return JobSubmitResponse{}, &httpError{http.StatusPaymentRequired,
 				"insufficient prepaid balance for this job's reserved execution budget; top up via POST /v1/billing/topup"}
@@ -1610,11 +1686,20 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 		// Only a decision with more than one surviving candidate can be re-ranked
 		// on cost, and only that decision pays for the measurement query.
 		if len(shadow.Considered) > 1 {
-			byHW, costErr := s.store.MeasuredCellCostsByHardware(ctx, shadow.JobType, shadow.ModelRef)
-			if costErr != nil {
-				log.Printf("shadow selection: job %s: measured cell cost: %v", jobID, costErr)
+			if len(placement.HWClasses) != 1 {
+				log.Printf("shadow selection: job %s: exact supplier-liability scope unavailable: placement binds %d hardware classes",
+					jobID, len(placement.HWClasses))
 			} else {
-				shadow = shadow.rankedByMeasuredCost(byHW)
+				liabilityScope, scopeErr := supplierLiabilityScopeForShadow(
+					shadow, workloadDecision, pricingDecision, placement.HWClasses[0],
+					placement.HardwareIdentity, time.Now().UTC())
+				if scopeErr != nil {
+					log.Printf("shadow selection: job %s: %v", jobID, scopeErr)
+				} else if byHW, costErr := s.store.MeasuredSupplierLiabilityProxiesByHardware(ctx, liabilityScope); costErr != nil {
+					log.Printf("shadow selection: job %s: measured supplier-liability proxy: %v", jobID, costErr)
+				} else {
+					shadow = shadow.rankedByMeasuredSupplierLiability(byHW)
+				}
 			}
 		}
 		shadow = shadow.withExecutionMode(workloadDecision)
@@ -2391,10 +2476,86 @@ func (s *Server) handleCancelJob(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
-func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
-	rows, err := s.store.ListModels(r.Context())
+type currentPublicCatalogueModel struct {
+	Model     ModelRow
+	Authority CataloguePriceAuthority
+}
+
+// loadCurrentPublicCatalogue is the sole bridge from the buyer-visible model
+// catalogue to price authority. Model rows still carry non-economic display
+// metadata, but their mutable price columns never reach a public response. A
+// price is public only after LoadCataloguePriceAuthority has re-opened the
+// append-only v3 schedule and revalidated its exact board, throughput and power
+// receipts against the current clock.
+//
+// The public model list is all-or-nothing. Returning the still-valid half of a
+// schedule while another advertised model is expired or withdrawn would make a
+// partial catalogue look intentionally published even though repricing itself
+// is atomic.
+func (s *Server) loadCurrentPublicCatalogue(ctx context.Context) ([]currentPublicCatalogueModel, error) {
+	if s == nil || s.store == nil {
+		return nil, errors.New("catalogue store is unavailable")
+	}
+	activation, err := s.store.activationForNewAdmission(ctx)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		return nil, err
+	}
+	rows, err := s.store.ListModels(ctx)
+	if err != nil {
+		return nil, err
+	}
+	expected := make(map[string]map[string]bool)
+	for _, capability := range activation.advertised {
+		if capability.Model != "" {
+			if expected[capability.Model] == nil {
+				expected[capability.Model] = make(map[string]bool)
+			}
+			expected[capability.Model][capability.Job] = true
+		}
+	}
+	byID := make(map[string]ModelRow, len(rows))
+	for _, row := range rows {
+		if expected[row.ID] != nil {
+			byID[row.ID] = row
+		}
+	}
+	out := make([]currentPublicCatalogueModel, 0, len(expected))
+	var common *CataloguePriceAuthority
+	for modelID := range expected {
+		model, ok := byID[modelID]
+		if !ok {
+			return nil, fmt.Errorf("advertised model %s has no catalogue row", modelID)
+		}
+		authority, err := s.store.LoadCataloguePriceAuthority(ctx, modelID)
+		if err != nil {
+			return nil, fmt.Errorf("model %s current catalogue authority: %w", modelID, err)
+		}
+		if authority.ModelID != model.ID || authority.JobType != model.JobType {
+			return nil, fmt.Errorf("model %s metadata does not equal current catalogue authority", modelID)
+		}
+		if !expected[modelID][authority.JobType] {
+			return nil, fmt.Errorf("model %s current catalogue workload is not advertised", modelID)
+		}
+		if common == nil {
+			copy := authority
+			common = &copy
+		} else if authority.ScheduleSHA256 != common.ScheduleSHA256 ||
+			authority.ScheduleVersion != common.ScheduleVersion ||
+			authority.BoardSHA256 != common.BoardSHA256 ||
+			authority.CurrentUseValidUntil != common.CurrentUseValidUntil ||
+			authority.SettlementCurrency != common.SettlementCurrency {
+			return nil, errors.New("advertised models do not share one current catalogue schedule")
+		}
+		out = append(out, currentPublicCatalogueModel{Model: model, Authority: authority})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Model.ID < out[j].Model.ID })
+	return out, nil
+}
+
+func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
+	rows, err := s.loadCurrentPublicCatalogue(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusServiceUnavailable, "current catalogue price authority unavailable")
 		return
 	}
 	type compatibleModel struct {
@@ -2407,34 +2568,24 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 		RuntimeProfileSHA256 string   `json:"cx_runtime_profile_sha256,omitempty"`
 	}
 	out := make([]compatibleModel, 0, len(rows))
-	seen := make(map[string]bool, len(rows))
-	for _, m := range rows {
-		if !advertisedRuntimeModel(m.ID) {
-			continue
-		}
+	for _, current := range rows {
+		m, authority := current.Model, current.Authority
 		info := ModelInfo{
 			ID:          m.ID,
 			Kind:        m.Kind,
 			MinMemoryGB: m.MinMemoryGB,
-			JobType:     m.JobType,
+			JobType:     authority.JobType,
 		}
-		price, priceErr := modelPrice(m)
-		if priceErr != nil {
-			writeErr(w, http.StatusServiceUnavailable, priceErr.Error())
-			return
-		}
-		info.PricePer1K = price
-		info.Currency = m.PriceCurrency
-		if m.PriceCurrency == "usd" {
-			info.PricePer1KUSD = price
+		info.PricePer1K = authority.SettlementPricePer1K
+		info.Currency = authority.SettlementCurrency
+		if authority.SettlementCurrency == "usd" {
+			info.PricePer1KUSD = authority.SettlementPricePer1K
 		}
 		out = append(out, compatibleModel{
 			ModelInfo: info, Object: "model", OwnedBy: "merc",
-			Capabilities: []string{"batch:" + m.JobType},
+			Capabilities: []string{"batch:" + authority.JobType},
 		})
-		seen[m.ID] = true
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	writeJSON(w, http.StatusOK, map[string]any{"object": "list", "data": out})
 }
 
@@ -2445,39 +2596,38 @@ func (s *Server) handlePriceEstimate(w http.ResponseWriter, r *http.Request) {
 		tier = "batch"
 	}
 	units, err := strconv.ParseUint(r.URL.Query().Get("units"), 10, 64)
-	if err != nil {
+	if err != nil || units == 0 {
 		writeErr(w, http.StatusBadRequest, "units must be a positive integer")
 		return
 	}
-	if !advertisedRuntimeModel(model) {
-		writeErr(w, http.StatusBadRequest, "model is not advertised by the production runtime matrix: "+model)
-		return
-	}
-	m, err := s.store.GetModel(r.Context(), model)
-	if errors.Is(err, errNotFound) {
-		writeErr(w, http.StatusBadRequest, "unknown model: "+model)
-		return
-	}
+	current, err := s.loadCurrentPublicCatalogue(r.Context())
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		writeErr(w, http.StatusServiceUnavailable, "current catalogue price authority unavailable")
 		return
 	}
-	price, err := modelPrice(*m)
-	if err != nil {
-		writeErr(w, http.StatusServiceUnavailable, err.Error())
+	var authority CataloguePriceAuthority
+	for _, entry := range current {
+		if entry.Authority.ModelID == model {
+			authority = entry.Authority
+			break
+		}
+	}
+	if authority.ModelID == "" {
+		writeErr(w, http.StatusBadRequest, "model is not advertised by the current runtime activation: "+model)
 		return
 	}
+	price := authority.SettlementPricePer1K
 	est := float64(units) / 1000.0 * price * tierMultiplier(tier)
 	rounded := roundUSD(est)
 	out := PriceEstimate{
-		Model:      m.ID,
+		Model:      authority.ModelID,
 		Units:      units,
 		PricePer1K: price,
 		Estimate:   rounded,
-		Currency:   m.PriceCurrency,
+		Currency:   authority.SettlementCurrency,
 		Tier:       tier,
 	}
-	if m.PriceCurrency == "usd" {
+	if authority.SettlementCurrency == "usd" {
 		out.PricePer1KUSD = price
 		out.EstimateUSD = rounded
 	}
@@ -2602,6 +2752,11 @@ func (s *Server) handleWorkerRegister(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid engine: "+cap.Engine)
 		return
 	}
+	activation, err := s.store.activationForNewAdmission(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusServiceUnavailable, err.Error())
+		return
+	}
 	if err := validateWorkerRuntimeProjection(cap); err != nil {
 		writeErr(w, http.StatusBadRequest, "runtime capability rejected: "+err.Error())
 		return
@@ -2623,8 +2778,14 @@ func (s *Server) handleWorkerRegister(w http.ResponseWriter, r *http.Request) {
 	}
 	cap.WorkerID = auth.WorkerID
 	cap.SupplierID = auth.SupplierID
+	cap.activationPolicyRevision = activation.PolicyRevision
 	if err := s.store.UpsertWorker(r.Context(), cap); err != nil {
-		writeErr(w, http.StatusInternalServerError, "register failed: "+err.Error())
+		status := http.StatusInternalServerError
+		if errors.Is(err, errActivationAdmissionUnavailable) ||
+			errors.Is(err, errActivationAdmissionStale) {
+			status = http.StatusServiceUnavailable
+		}
+		writeErr(w, status, "register failed: "+err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, cap)
@@ -3094,6 +3255,7 @@ func (s *Server) handleWorkerPoll(w http.ResponseWriter, r *http.Request) {
 			Tier:         c.Tier,
 		},
 		InputURL:         inputURL,
+		InputSHA256:      c.InputSHA256,
 		OutputURL:        outputURL,
 		PartialPutURL:    partialPutURL,
 		ResultKey:        c.ResultKey,
@@ -3877,31 +4039,76 @@ func (s *Server) handleSupplierConsole(w http.ResponseWriter, r *http.Request) {
 	serveHTML(w, path)
 }
 
-// handlePriceBoardData serves the governed board the catalogue is priced from,
-// so the published price and the evidence behind it come from one file rather
-// than from a number typed into a page.
+// handlePriceBoardData serves two deliberately separate things in one envelope:
+// current buyer-price authority revalidated from the append-only v3 schedule,
+// and the raw market board labelled as evidence only. The board's observations
+// never become a public catalogue merely because this handler could read JSON.
+// Their exact bytes must be the digest pinned by the current schedule before
+// they are returned even as evidence.
 func (s *Server) handlePriceBoardData(w http.ResponseWriter, r *http.Request) {
-	// The SAME resolution the pricing authority uses, not a second opinion.
-	//
-	// This read its own hardcoded "pricing/board.json" and its own PRICE_BOARD_PATH
-	// variable, so in the release image it 404'd while the catalogue was priced
-	// perfectly well from /etc/merc/pricing/board.json. Two resolutions of one
-	// file is how the published board and the board that sets prices drift apart,
-	// which is the exact thing serving this route was supposed to prevent.
+	current, err := s.loadCurrentPublicCatalogue(r.Context())
+	if err != nil || len(current) == 0 {
+		writeErr(w, http.StatusServiceUnavailable, "current catalogue price authority unavailable")
+		return
+	}
+	common := current[0].Authority
+	authorities := make([]CataloguePriceAuthority, 0, len(current))
+	for _, entry := range current {
+		authorities = append(authorities, entry.Authority)
+	}
+
+	// Resolve and hash the board again after schedule revalidation. If the file
+	// changed between those operations, its digest no longer equals BoardSHA256
+	// and no stale or attacker-supplied observation bytes escape this boundary.
 	resolved, err := resolvePriceBoard(os.Getenv("MERC_ENV"))
 	if err != nil {
-		writeErr(w, http.StatusNotFound, "price board unavailable")
+		writeErr(w, http.StatusServiceUnavailable, "current catalogue price authority unavailable")
 		return
 	}
 	b, err := os.ReadFile(resolved.Path)
 	if err != nil {
-		writeErr(w, http.StatusNotFound, "price board unavailable")
+		writeErr(w, http.StatusServiceUnavailable, "current catalogue price authority unavailable")
 		return
 	}
+	digest, err := verifyPriceBoardDigest(b, resolved.ExpectedDigest)
+	if err != nil || digest != common.BoardSHA256 || !json.Valid(b) {
+		writeErr(w, http.StatusServiceUnavailable, "current catalogue price authority unavailable")
+		return
+	}
+	payload := struct {
+		SchemaVersion  int `json:"schema_version"`
+		PriceAuthority struct {
+			Status               string                    `json:"status"`
+			Basis                string                    `json:"basis"`
+			ScheduleSHA256       string                    `json:"schedule_sha256"`
+			ScheduleVersion      int                       `json:"schedule_version"`
+			CurrentUseValidUntil string                    `json:"current_use_valid_until"`
+			SettlementCurrency   string                    `json:"settlement_currency"`
+			Catalogue            []CataloguePriceAuthority `json:"catalogue"`
+		} `json:"price_authority"`
+		MarketEvidence struct {
+			Status                string          `json:"status"`
+			AuthorizesBuyerPrices bool            `json:"authorizes_buyer_prices"`
+			SHA256                string          `json:"sha256"`
+			Source                string          `json:"source"`
+			Board                 json.RawMessage `json:"board"`
+		} `json:"market_evidence"`
+	}{SchemaVersion: 2}
+	payload.PriceAuthority.Status = "current_revalidated"
+	payload.PriceAuthority.Basis = "append_only_catalogue_schedule_v3_with_current_board_throughput_and_power_revalidation"
+	payload.PriceAuthority.ScheduleSHA256 = common.ScheduleSHA256
+	payload.PriceAuthority.ScheduleVersion = common.ScheduleVersion
+	payload.PriceAuthority.CurrentUseValidUntil = common.CurrentUseValidUntil
+	payload.PriceAuthority.SettlementCurrency = common.SettlementCurrency
+	payload.PriceAuthority.Catalogue = authorities
+	payload.MarketEvidence.Status = "evidence_only_not_buyer_authority"
+	payload.MarketEvidence.AuthorizesBuyerPrices = false
+	payload.MarketEvidence.SHA256 = digest
+	payload.MarketEvidence.Source = resolved.Source
+	payload.MarketEvidence.Board = json.RawMessage(b)
 	secureHTMLHeaders(w)
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
-	_, _ = w.Write(b)
+	writeJSON(w, http.StatusOK, payload)
 }
 
 func serveHTML(w http.ResponseWriter, path string) {
@@ -4484,6 +4691,7 @@ func (s *Server) streamMediaAndUpload(
 		taskID := uuid.New()
 		tasks = append(tasks, taskRow{
 			ID: taskID, JobID: jobID, InputRef: sharedInputRef,
+			InputSHA256:    hex.EncodeToString(hash[:]),
 			InputDepthBand: scan.InputDepth.P90DepthBand,
 			ResultKey:      taskAttemptResultKey(jobID, taskID, 0),
 			ChunkIndex:     int(ordinal),
@@ -4536,6 +4744,7 @@ func (s *Server) streamRenderingAndUpload(
 	}
 	tasks = []taskRow{{
 		ID: taskID, JobID: jobID, InputRef: inputRef,
+		InputSHA256:    hex.EncodeToString(hash[:]),
 		InputDepthBand: scan.InputDepth.P90DepthBand,
 		ResultKey:      taskAttemptResultKey(jobID, taskID, 0), ChunkIndex: 0,
 		ExpectedOutputRecords: 1,
@@ -4582,10 +4791,12 @@ func (s *Server) streamSplitAndUpload(ctx context.Context, jobID uuid.UUID, jobT
 		chunkDepthAcc = newInputDepthAccumulator()
 		taskID := uuid.New()
 		chunkKey := fmt.Sprintf("jobs/%s/tasks/%s/input.jsonl", jobID, taskID)
+		chunkSHA := sha256.Sum256(chunk)
 		tasks = append(tasks, taskRow{
 			ID:                    taskID,
 			JobID:                 jobID,
 			InputRef:              chunkKey,
+			InputSHA256:           hex.EncodeToString(chunkSHA[:]),
 			InputDepthBand:        chunkDepth.P90DepthBand,
 			ResultKey:             taskAttemptResultKey(jobID, taskID, 0),
 			ChunkIndex:            idx,

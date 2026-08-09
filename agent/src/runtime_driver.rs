@@ -823,6 +823,8 @@ mod tests {
             hw_class: crate::types::HardwareClass::AppleSiliconMax,
             engine: "candle".into(),
             build_hash: String::new(),
+            build_identity_policy: String::new(),
+            hardware_identity: "Apple M2 Max".into(),
             memory_gb: 64.0,
             memory_bw_gbps: 400.0,
             gpu_count: 1,

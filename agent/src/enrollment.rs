@@ -142,10 +142,8 @@ pub fn canonicalize_control_origin(raw: &str, allow_insecure_loopback: bool) -> 
             .unwrap_or(hostport)
             .to_ascii_lowercase()
     };
-    let loopback = host == "localhost"
-        || host == "127.0.0.1"
-        || host == "::1"
-        || host.starts_with("127.");
+    let loopback =
+        host == "localhost" || host == "127.0.0.1" || host == "::1" || host.starts_with("127.");
     if scheme != "https" && !(allow_insecure_loopback && scheme == "http" && loopback) {
         bail!("control_origin must use HTTPS (http loopback allowed for local test)");
     }
@@ -301,14 +299,13 @@ pub fn build_exchange_input(
 ) -> Result<EnrollmentExchangeInput> {
     let bundle = decode_approval_bundle(bundle_encoded)?;
     let meta_path = state_dir.join(REQUEST_META_FILE);
-    let meta: PendingRequestMeta = serde_json::from_str(
-        &fs::read_to_string(&meta_path).with_context(|| {
+    let meta: PendingRequestMeta =
+        serde_json::from_str(&fs::read_to_string(&meta_path).with_context(|| {
             format!(
                 "no pending enrollment request at {} — run `merc-agent enroll request` first",
                 meta_path.display()
             )
-        })?,
-    )?;
+        })?)?;
     if meta.request_id != bundle.request_id {
         bail!(
             "approval request_id {} does not match pending request {}",

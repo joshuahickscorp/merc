@@ -30,7 +30,8 @@ const (
 	demoHoneypotEmbedRef  = "honeypots/embed/0001/input.jsonl"
 	demoHoneypotEmbedText = "the quick brown fox jumps over the lazy dog"
 
-	// batch_infer probe. Known answer is byte-exact and class-bound (engine|build_hash),
+	// batch_infer probe. Known answer is byte-exact and class-bound
+	// (engine|build_hash|build_identity_policy),
 	// so it must be generated against the engine build that will execute it — see
 	// scripts/seed-batch-infer-honeypot.sh. Seed always installs the input object and
 	// a DB row so the verification floor can admit jobs; without a measured answer

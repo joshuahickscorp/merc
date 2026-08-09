@@ -16,6 +16,7 @@ import (
 // Recovery is the moment that must not happen, so this pins it.
 
 func TestRepricingSurvivesModelPriceStateBeingReset(t *testing.T) {
+	installBoundCataloguePublicationAuthorityForTest(t)
 	pinBoardClockForPublication(t)
 	ctx, store, _ := openAdminMutationTestStore(t)
 
@@ -54,6 +55,7 @@ func TestRepricingSurvivesModelPriceStateBeingReset(t *testing.T) {
 // be edited to match a schedule that claims something different. The comparison
 // remains as defence for the case the trigger is ever relaxed.
 func TestRecordedPriceHistoryCannotBeRewritten(t *testing.T) {
+	installBoundCataloguePublicationAuthorityForTest(t)
 	pinBoardClockForPublication(t)
 	ctx, store, _ := openAdminMutationTestStore(t)
 

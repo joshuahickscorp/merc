@@ -37,17 +37,7 @@ func trueNetDistributedFixture(t *testing.T) (
 		// Best-effort: many tests set this only via env at process start.
 		_ = err
 	}
-	sub, herr := normalizeAndValidateJobSubmit(jobSubmit{
-		JobType: JobType{Type: "embed"},
-		Model:   ModelRef{Kind: "hf", Ref: "all-minilm-l6-v2"},
-		Constraints: JobConstraints{
-			MaxDurationSecs: 3600,
-		},
-		Tier: "batch",
-	})
-	if herr != nil {
-		t.Fatalf("normalize: %s", herr.msg)
-	}
+	sub := testOnlyCombinedTokenSubmit(t)
 	workload, err := buildWorkloadDecision(sub, strings.Repeat("a", 64))
 	mustf(t, err, "workload: %v")
 	schedule := chargeBatchEconomicSchedule(t)
@@ -77,7 +67,7 @@ func trueNetDistributedFixture(t *testing.T) (
 	mustf(t, ValidateComputePlanEconomicSnapshot(compute, workload, economic), "compute/economic authority: %v")
 	// Force community cell if the workload picked something else.
 	if len(workload.RuntimeCandidates) == 1 {
-		// Prefer candle embed (not cloud-backed).
+		// The BOUND candle batch cell is community supply, not cloud-backed.
 		if cloud, ok := cellIsCloudBacked(workload.RuntimeCandidates[0].CellID); ok && cloud {
 			t.Fatalf("fixture landed on cloud-backed cell %s; want community",
 				workload.RuntimeCandidates[0].CellID)
@@ -194,61 +184,65 @@ func TestTrueNetCommunitySupplyPopulatesExactContribution(t *testing.T) {
 		fixed.KnownVariableCostsNanos, fixed.KnownCostContributionNanos)
 }
 
-func TestTrueNetCloudBackedIncludesProviderCost(t *testing.T) {
-	// Build a cloud-backed decision by forcing the provider component path
-	// with the governed rate and a non-zero expected duration.
+func TestWithdrawnCloudProviderRateCannotClaimTrueNet(t *testing.T) {
+	// The numeric rate remains visible for diagnostics, but its receipt was
+	// withdrawn. Canonical pricing must therefore keep provider cost unknown.
 	rate, ok := providerRatesByHWClass["nvidia_24gb"]
 	if !ok {
 		t.Fatal("nvidia_24gb rate missing")
 	}
-	providerNanos, err := providerCostNanos(rate.CostPerHrUSD, 60)
-	must(t, err)
-	if providerNanos <= 0 {
-		t.Fatalf("provider cost for 60s at $%.2f/hr is %d, want > 0", rate.CostPerHrUSD, providerNanos)
+	if rate.AuthorityStatus != providerRateAuthorityWithdrawn {
+		t.Fatalf("nvidia_24gb authority status=%q, want %q",
+			rate.AuthorityStatus, providerRateAuthorityWithdrawn)
 	}
 
-	// Mark vllm cell as cloud-backed and resolve.
 	cloud, found := cellIsCloudBacked("vllm-cuda-llama1-infer")
 	if !found || !cloud {
 		t.Fatalf("vllm-cuda-llama1-infer cloud_backed=%v found=%v; marker missing from authority",
 			cloud, found)
 	}
+	_, _, _, _, communityPricing, _ := trueNetDistributedFixture(t)
 	component := providerCostComponentForPlacement(
 		"vllm-cuda-llama1-infer", []string{"nvidia_24gb"}, 60,
+		communityPricing.Catalogue,
 	)
-	if component.Status != pricingCostModeled || component.Amount <= 0 {
-		t.Fatalf("cloud provider cost not modeled: %+v", component)
+	if component.Status != pricingCostUnknown || component.Amount != 0 {
+		t.Fatalf("withdrawn cloud provider cost became modeled: %+v", component)
+	}
+	if !strings.Contains(strings.ToLower(component.Basis), "withdraw") {
+		t.Fatalf("withdrawn provider refusal lost provenance: %+v", component)
 	}
 
 	// Community cell remains not_applicable.
 	community := providerCostComponentForPlacement(
-		"candle-metal-minilm-embed", nil, 60,
+		"candle-metal-llama1-infer", nil, 60, communityPricing.Catalogue,
 	)
 	if community.Status != pricingCostNotApplicable {
 		t.Fatalf("community provider: %+v", community)
 	}
 
-	// Compare true net with and without provider: same base, add provider into
-	// extras and show true net drops by exactly the provider nanos (micro-aligned).
-	_, _, _, _, communityPricing, _ := trueNetDistributedFixture(t)
-	if communityPricing.FixedPoint == nil || communityPricing.FixedPoint.TrueNetContributionNanos == nil {
-		t.Fatal("community fixture has no true net")
+	// The canonical fixed-point shape must keep true net unavailable when this
+	// provider category is unknown.
+	scenario := EconomicScenario{
+		NetBilledUSD: 1.0, SupplierLiabilityUSD: 0.5,
+		ProcessorFeeUSD: 0.1, ControlPlaneCostUSD: 0.05,
+		ContributionMarginUSD: 0.35,
 	}
-	communityTrueNet := *communityPricing.FixedPoint.TrueNetContributionNanos
-	providerMicros := usdToMicros(component.Amount)
-	// Cloud true net is lower by the micro-aligned provider cost.
-	cloudTrueNet := communityTrueNet - providerMicros*NanosPerMicro
-	if cloudTrueNet >= communityTrueNet {
-		t.Fatalf("cloud true net %d is not lower than community %d", cloudTrueNet, communityTrueNet)
+	fixed, err := fixedPointPricingFromScenario(
+		"usd", 1.0, 1.0, scenario, []string{"provider cost"},
+	)
+	must(t, err)
+	if fixed.TrueNetContributionNanos != nil {
+		t.Fatalf("withdrawn provider authority allowed true net: %+v", fixed)
 	}
-	t.Logf("provider cost nanos (60s @ $%.2f/hr) = %d; community true net %d; cloud true net would be %d",
-		rate.CostPerHrUSD, providerMicros*NanosPerMicro, communityTrueNet, cloudTrueNet)
 }
 
 func TestTrueNetCloudUnresolvableRateLeavesProviderUnknown(t *testing.T) {
-	// nvidia_48gb has no governed rate.
+	_, _, _, _, communityPricing, _ := trueNetDistributedFixture(t)
+	// nvidia_80gb has only an unbound self-test reference, not a governed rate.
 	component := providerCostComponentForPlacement(
-		"vllm-cuda-llama1-infer", []string{"nvidia_48gb"}, 60,
+		"vllm-cuda-llama1-infer", []string{"nvidia_80gb"}, 60,
+		communityPricing.Catalogue,
 	)
 	if component.Status != pricingCostUnknown {
 		t.Fatalf("unresolvable rate must be unknown, got %+v", component)

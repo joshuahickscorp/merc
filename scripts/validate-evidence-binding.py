@@ -3,8 +3,9 @@
 
 Fails when any artifact under evidence/** is:
   (a) missing binding_status
-  (b) UNBOUND yet cited by a doc or by code
+  (b) UNBOUND or WITHDRAWN yet cited as authority by a doc or by code
   (c) claims BOUND while missing an applicable identity field
+  (d) claims BOUND while depending on evidence that is not itself BOUND
 
 Also fails on non-object evidence without a sidecar binding file
 (path + ".binding.json").
@@ -19,6 +20,7 @@ loudly while UNBOUND artifacts remain cited.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import sys
@@ -38,6 +40,8 @@ from lib.evidence_binding import (  # noqa: E402
     is_job_contract_payload,
     lfs_pointer_oid,
     missing_fields_for_object,
+    path_holds_withdrawn,
+    read_evidence_bytes,
     read_evidence_text,
     validate_git_object,
     EvidenceBindingError,
@@ -74,6 +78,12 @@ CITE_ROOTS = (
 CITE_ALLOWLIST_PREFIXES = (
     "evidence/state/evidence-binding-census.json",
 )
+
+# These authority ids have been explicitly withdrawn. Their paths are sticky:
+# a replacement must use a new id/path, not relabel the historical payload.
+TERMINALLY_WITHDRAWN_PATHS = {
+    "evidence/perf/selector/paired-cohort-embed.json",
+}
 
 FAILURES: list[str] = []
 
@@ -215,6 +225,102 @@ def check_bound_claim(rel: str, data: dict[str, Any]) -> None:
         )
 
 
+def evidence_dependencies(rel: str, data: dict[str, Any]) -> list[tuple[str, str]]:
+    """Return explicit authority dependencies after validating their paths.
+
+    Evidence files may mention peers as historical context or as refusals.  The
+    explicit list is reserved for artifacts whose claims actually depend on a
+    peer, so weakest-link binding can be enforced without treating every JSON
+    path in prose as an authority edge.
+    """
+    raw = data.get("evidence_dependencies")
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        fail(f"{rel}: evidence_dependencies must be an array of evidence paths")
+        return []
+
+    out: list[tuple[str, str]] = []
+    for index, value in enumerate(raw):
+        if not isinstance(value, dict):
+            fail(
+                f"{rel}: evidence_dependencies[{index}] must bind path and sha256"
+            )
+            continue
+        dependency = str(value.get("path") or "").strip()
+        expected_sha256 = str(value.get("sha256") or "").strip().lower()
+        parts = Path(dependency).parts
+        if (
+            not dependency.startswith("evidence/")
+            or dependency.startswith("evidence//")
+            or not dependency.endswith((".json", ".jsonl", ".txt"))
+            or ".." in parts
+            or dependency == rel
+        ):
+            fail(
+                f"{rel}: evidence_dependencies[{index}] is not a distinct "
+                f"repo-relative evidence path ({value!r})"
+            )
+            continue
+        if len(expected_sha256) != 64 or any(
+            char not in "0123456789abcdef" for char in expected_sha256
+        ):
+            fail(
+                f"{rel}: evidence_dependencies[{index}] has invalid sha256 "
+                f"({value.get('sha256')!r})"
+            )
+            continue
+        if any(path == dependency for path, _digest in out):
+            fail(f"{rel}: duplicate evidence dependency {dependency}")
+            continue
+        out.append((dependency, expected_sha256))
+    return out
+
+
+def effective_binding_status(rel: str, binding: dict[str, Any]) -> str:
+    """Normalize terminal withdrawal without emitting duplicate findings."""
+    status = str(binding.get("binding_status") or "").upper()
+    if rel in TERMINALLY_WITHDRAWN_PATHS or path_holds_withdrawn(binding):
+        return BINDING_WITHDRAWN
+    return status
+
+
+def check_bound_dependencies(
+    rel: str,
+    data: dict[str, Any],
+    binding_index: dict[str, tuple[dict[str, Any] | None, dict[str, Any] | None]],
+) -> None:
+    """Rule (d): every declared input to a BOUND claim is also BOUND."""
+    for dependency, expected_sha256 in evidence_dependencies(rel, data):
+        record = binding_index.get(dependency)
+        if record is None:
+            fail(f"{rel}: BOUND evidence dependency does not exist: {dependency}")
+            continue
+        _dependency_object, dependency_binding = record
+        if dependency_binding is None:
+            fail(f"{rel}: BOUND evidence dependency has no binding: {dependency}")
+            continue
+        dependency_status = effective_binding_status(dependency, dependency_binding)
+        if dependency_status != BINDING_BOUND:
+            fail(
+                f"{rel}: binding_status=BOUND depends on {dependency} "
+                f"with binding_status={dependency_status or 'MISSING'}"
+            )
+            continue
+        try:
+            actual_sha256 = hashlib.sha256(
+                read_evidence_bytes(ROOT / dependency, ROOT)
+            ).hexdigest()
+        except (OSError, EvidenceBindingError) as exc:
+            fail(f"{rel}: cannot hash BOUND evidence dependency {dependency}: {exc}")
+            continue
+        if actual_sha256 != expected_sha256:
+            fail(
+                f"{rel}: BOUND evidence dependency digest mismatch for "
+                f"{dependency}: got {actual_sha256}, want {expected_sha256}"
+            )
+
+
 def collect_citations() -> dict[str, list[str]]:
     """Map evidence-relative path → list of citing files."""
     # Build set of known evidence paths (posix relative).
@@ -353,13 +459,23 @@ def main() -> int:
         "OTHER": 0,
     }
     unbound_cited: list[tuple[str, list[str]]] = []
+    withdrawn_cited: list[tuple[str, list[str]]] = []
     artifacts: list[tuple[str, str, list[str]]] = []
 
     cites = collect_citations() if not args.summary_only else {}
-
+    records: list[
+        tuple[Path, str, dict[str, Any] | None, dict[str, Any] | None]
+    ] = []
+    binding_index: dict[
+        str, tuple[dict[str, Any] | None, dict[str, Any] | None]
+    ] = {}
     for path in iter_evidence_files():
         rel = path.relative_to(ROOT).as_posix()
         _obj, binding = load_binding_for(path)
+        records.append((path, rel, _obj, binding))
+        binding_index[rel] = (_obj, binding)
+
+    for path, rel, _obj, binding in records:
         if binding is None:
             counts["OTHER"] += 1
             continue
@@ -371,12 +487,34 @@ def main() -> int:
             artifacts.append((rel, "MISSING_STATUS", []))
             continue
 
+        # An explicitly withdrawn authority id stays withdrawn even if someone
+        # edits both current labels. Other withdrawn/invalidated validity markers
+        # are terminal even when a stale binding_status says UNBOUND or BOUND.
+        if rel in TERMINALLY_WITHDRAWN_PATHS and status != BINDING_WITHDRAWN:
+            fail(
+                f"{rel}: authority id is terminally withdrawn but "
+                f"binding_status={status}; replacement requires a new path"
+            )
+            status = BINDING_WITHDRAWN
+        elif path_holds_withdrawn(binding) and status != BINDING_WITHDRAWN:
+            fail(
+                f"{rel}: validity marks receipt withdrawn/invalidated but "
+                f"binding_status={status}; expected {BINDING_WITHDRAWN}"
+            )
+            status = BINDING_WITHDRAWN
+
         counts[status] = counts.get(status, 0) + 1
         missing = list(binding.get("missing_identity_fields") or [])
 
         if status == BINDING_BOUND:
             # For object files, check the object; for sidecars, check sidecar.
             check_bound_claim(rel, binding)
+            dependency_doc = (
+                _obj
+                if isinstance(_obj, dict) and "evidence_dependencies" in _obj
+                else binding
+            )
+            check_bound_dependencies(rel, dependency_doc, binding_index)
 
         if status == BINDING_UNBOUND:
             if not missing:
@@ -384,20 +522,29 @@ def main() -> int:
                 if _obj is not None:
                     missing = missing_fields_for_object(_obj, ROOT)
                 fail(f"{rel}: binding_status=UNBOUND but missing_identity_fields empty")
+
+        if status in (BINDING_UNBOUND, BINDING_WITHDRAWN):
             citers = cites.get(rel) or []
-            # Allow census to mention UNBOUND peers.
+            # Allow the binding census to enumerate non-authoritative peers.
             citers = [
                 c
                 for c in citers
                 if not any(c.startswith(p) or c == p for p in CITE_ALLOWLIST_PREFIXES)
             ]
             if citers:
-                unbound_cited.append((rel, citers))
+                if status == BINDING_UNBOUND:
+                    unbound_cited.append((rel, citers))
+                else:
+                    withdrawn_cited.append((rel, citers))
                 preview = ", ".join(citers[:5])
                 more = f" (+{len(citers)-5} more)" if len(citers) > 5 else ""
                 fail(
-                    f"{rel}: UNBOUND yet cited by {preview}{more} "
-                    f"(missing: {', '.join(missing) if missing else 'unknown'})"
+                    f"{rel}: {status} yet cited as authority by {preview}{more} "
+                    + (
+                        f"(missing: {', '.join(missing) if missing else 'unknown'})"
+                        if status == BINDING_UNBOUND
+                        else "(withdrawn evidence is terminal and may only be cited with an explicit disclaimer)"
+                    )
                 )
 
         artifacts.append((rel, status, missing))
@@ -416,6 +563,8 @@ def main() -> int:
 
     if unbound_cited:
         print(f"evidence-binding: UNBOUND citations: {len(unbound_cited)}")
+    if withdrawn_cited:
+        print(f"evidence-binding: WITHDRAWN citations: {len(withdrawn_cited)}")
 
     if args.summary_only:
         return 0

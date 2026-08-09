@@ -155,6 +155,18 @@ pub struct BenchResult {
     pub thermal_ok: bool,
     #[serde(default)]
     pub load_ms: u64,
+    /// Exact unit and semantic denominator measured by this worker. The control
+    /// plane will not compare a decode-token rate with combined input/output
+    /// settlement merely because both happen to say "tokens".
+    #[serde(default)]
+    pub unit: String,
+    #[serde(default)]
+    pub unit_scope: String,
+    /// Source measurement time, retained across the bounded benchmark cache.
+    /// Registration and claim authority expire this rather than treating a
+    /// freshly transmitted old cache entry as a fresh physical measurement.
+    #[serde(default)]
+    pub measured_unix: u64,
 }
 
 fn default_engine() -> String {
@@ -178,6 +190,15 @@ pub struct WorkerCapability {
     pub engine: String,
     #[serde(default = "default_build_hash")]
     pub build_hash: String,
+    /// Version of the algorithm that produced build_hash. A bare 16-hex value
+    /// cannot distinguish the retired source-only root from the current
+    /// running-executable-bound identity.
+    #[serde(default)]
+    pub build_identity_policy: String,
+    /// Exact canonical device generation/model (for example Apple M3 Ultra),
+    /// distinct from the coarse capacity bucket in hw_class.
+    #[serde(default)]
+    pub hardware_identity: String,
     pub memory_gb: f32,
     pub memory_bw_gbps: f32,
     #[serde(default)]
@@ -291,6 +312,11 @@ pub struct TaskDispatch {
     pub runtime_matrix_sha256: String,
     pub manifest: JobManifest,
     pub input_url: String,
+    /// Exact digest of the bytes authorized by the current task economics.
+    /// Empty is accepted only for historical dispatches created before the
+    /// uniform-task authority contract existed.
+    #[serde(default)]
+    pub input_sha256: String,
     pub output_url: String,
     #[serde(default)]
     pub result_key: String,

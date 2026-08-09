@@ -73,11 +73,11 @@ var productionReachability = []reachabilityClaim{
 	{
 		From:   "Store.EvaluateCellPromotion",
 		Target: "TrafficClassForWorkload",
-		Consequence: "the promotion gate would compare verified-outcome cost and nothing " +
-			"else, so a cell at half the price and four times slower per unit would clear " +
-			"it — including for realtime traffic, where latency is the thing the buyer is " +
-			"paying for. The edge is what makes a slower challenger a refusal there and a " +
-			"permitted trade for batch work, whose deadline absorbs it.",
+		Consequence: "the promotion gate would lose the independent latency contract. " +
+			"Unequal supplier liability already refuses as incomplete total-cost evidence, " +
+			"but realtime traffic also needs to record that a slower challenger violates the " +
+			"thing the buyer is paying for. The edge adds that refusal without fabricating a " +
+			"latency-product rule for batch traffic.",
 	},
 	{
 		From:   "Server.createJob",
@@ -475,8 +475,8 @@ var productionReachability = []reachabilityClaim{
 			"chosen simply stops accumulating.",
 	},
 	{
-		From:   "Server.handleAdminSelectorRegret",
-		Target: "Store.SelectorRegretForScope",
+		From:   "Server.handleAdminSelectorLiabilityRegret",
+		Target: "Store.SelectorLiabilityRegretForScope",
 		Consequence: "operators lose the measured outcome regret that distinguishes a " +
 			"promotion-ready RuntimeSelector scope from a winner-only or partially " +
 			"measured report; without this edge, the selection gate can only be " +

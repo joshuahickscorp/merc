@@ -2,27 +2,31 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
+	"slices"
+	"sort"
 	"strings"
 	"testing"
 )
 
-// Scoreboard after the BOUND raise and the llama1 re-measure: four lifecycle-
-// routable candle cells, two of which bind (embed + batch_infer). The media
-// cells remain demoted by their unbound receipts, not by lifecycle edits.
+// Scoreboard after exact execution identity became mandatory. The llama1 r4
+// receipt remains readable history, but its 16-hex credential was produced by
+// an agent content root that omitted execution modules and is therefore
+// SUPERSEDED. No checked-in receipt currently authorizes new work; mechanics
+// tests install an explicit TEST_ONLY authority without relabeling evidence.
 
 func TestOnlyBindableAuthorityCellsAreRoutable(t *testing.T) {
 	// Reasons the audit named. Each demotion is a predicate result, not a
 	// hand-edited lifecycle field. Media cells still fail pre-BOUND checks;
 	// embed and generation now reach the BOUND bar on sealed receipts.
 	wantDemoted := map[string]string{
+		"candle-metal-minilm-embed":     "engine_build_hash",
+		"candle-metal-llama1-infer":     authorityValiditySuperseded,
 		"candle-metal-ffmpeg-transcode": "not a git object",
 		"candle-metal-scene-render":     "merc_source_commit is missing",
 	}
-	wantRoutable := map[string]bool{
-		"candle-metal-minilm-embed": true,
-		"candle-metal-llama1-infer": true,
-	}
+	wantRoutable := map[string]bool{}
 
 	var got []string
 	for _, profile := range runtimeAuthority.Runtimes {
@@ -91,6 +95,19 @@ func TestOnlyBindableAuthorityCellsAreRoutable(t *testing.T) {
 	}
 }
 
+func TestSupersededIncompleteAgentContentRootCannotAuthorizeCurrentAdmission(t *testing.T) {
+	const cellID = "candle-metal-llama1-infer"
+	_, _, _, err := currentRuntimeCellBenchmarkIdentity(cellID)
+	if err == nil || !strings.Contains(err.Error(), authorityValiditySuperseded) {
+		t.Fatalf("current benchmark lookup accepted the legacy 97acc credential: %v", err)
+	}
+	for _, cell := range advertisedRuntimeCapabilities() {
+		if cell.ID == cellID {
+			t.Fatalf("superseded legacy build credential remains buyer-advertised: %+v", cell)
+		}
+	}
+}
+
 func TestNonGitMercSourceCommitIsRejected(t *testing.T) {
 	err := validateMercSourceCommit("working-tree-before-media-authority")
 	if err == nil {
@@ -116,8 +133,8 @@ func TestNonGitMercSourceCommitIsRejected(t *testing.T) {
 // Automatic demotion: invalidate an authority and the dependent cell leaves the
 // routable set without any lifecycle field being edited.
 func TestInvalidatingAuthorityDemotesDependentCell(t *testing.T) {
-	const path = "evidence/perf/runtime-benchmarks/embed-cell-candle-vs-llama-cpp-r2.json"
-	const cellID = "candle-metal-minilm-embed"
+	const path = "evidence/perf/runtime-benchmarks/candle-metal-llama1-q4-r4.json"
+	const cellID = "candle-metal-llama1-infer"
 
 	profile, ok := runtimeProfileByID("candle_metal")
 	if !ok {
@@ -139,11 +156,17 @@ func TestInvalidatingAuthorityDemotesDependentCell(t *testing.T) {
 			break
 		}
 	}
+	previous := cloneBenchmarkReceiptSummary(benchmarkAuthorityManifest[path])
+	t.Cleanup(func() { benchmarkAuthorityManifest[path] = previous })
+	synthetic := cloneBenchmarkReceiptSummary(previous)
+	synthetic.Validity = authorityValidityValid
+	synthetic.EngineBuildHash = testOnlyEngineBuildHash
+	synthetic.EngineBuildIdentityPolicy = currentEngineBuildIdentityPolicy
+	synthetic.HardwareIdentity = testOnlyHardwareIdentity
+	benchmarkAuthorityManifest[path] = synthetic
 	if !cell.Routable(embedded) {
-		t.Fatal("embed cell must start routable under BOUND authority")
+		t.Fatal("TEST_ONLY validity restoration did not make the otherwise exact authority routable")
 	}
-	previous := benchmarkAuthorityManifest[path].Validity
-	t.Cleanup(func() { RestoreBenchmarkAuthorityValidity(path, previous) })
 
 	must(t, InvalidateBenchmarkAuthority(path, authorityValidityWithdrawn))
 	if cell.Routable(embedded) {
@@ -164,8 +187,8 @@ func TestInvalidatingAuthorityDemotesDependentCell(t *testing.T) {
 			t.Fatalf("cell stayed routable under validity %s", v)
 		}
 	}
-	// Restoring validity restores routability — lifecycle never moved.
-	RestoreBenchmarkAuthorityValidity(path, previous)
+	// Restoring TEST_ONLY validity restores routability — lifecycle never moved.
+	RestoreBenchmarkAuthorityValidity(path, authorityValidityValid)
 	if !cell.Routable(embedded) {
 		t.Fatal("restoring authority validity did not restore routability")
 	}
@@ -220,16 +243,142 @@ func TestBenchmarkManifestIdentityMatchesTheReceipts(t *testing.T) {
 					path, summary.BindingStatus, status)
 			}
 		}
+		if err := benchmarkManifestReceiptIdentityMismatch(summary, receipt); err != nil {
+			t.Errorf("%s: %v", path, err)
+		}
+		if strings.EqualFold(summary.BindingStatus, BindingBound) {
+			receiptArtifacts := receiptModelArtifactSHA256s(receipt)
+			for _, profile := range runtimeAuthority.Runtimes {
+				for _, cell := range profile.Cells {
+					if cell.benchmarkAuthorityFor(profile) != path {
+						continue
+					}
+					pins, err := exactWeightDigestsForCell(cell, runtimeAuthorityModels)
+					if err != nil {
+						t.Errorf("%s/%s exact artifact pins: %v", profile.RuntimeID, cell.ID, err)
+						continue
+					}
+					for _, pin := range pins {
+						if !slices.Contains(summary.ModelArtifactSHA256s, pin) ||
+							!slices.Contains(receiptArtifacts, pin) {
+							t.Errorf("%s/%s exact artifact pin %s is not sealed in both manifest %v and receipt %v",
+								profile.RuntimeID, cell.ID, pin, summary.ModelArtifactSHA256s, receiptArtifacts)
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+func benchmarkManifestReceiptIdentityMismatch(
+	summary benchmarkReceiptSummary,
+	receipt map[string]any,
+) error {
+	if got := pricingReceiptEngineBuildHash(receipt); summary.EngineBuildHash != "" && got != summary.EngineBuildHash {
+		return fmt.Errorf("manifest engine_build_hash %q, receipt %q", summary.EngineBuildHash, got)
+	}
+	if got := pricingReceiptEngineBuildIdentityPolicy(receipt); summary.EngineBuildIdentityPolicy != "" &&
+		got != summary.EngineBuildIdentityPolicy {
+		return fmt.Errorf("manifest engine_build_identity_policy %q, receipt %q",
+			summary.EngineBuildIdentityPolicy, got)
+	}
+	if got := pricingReceiptHardwareIdentity(receipt); summary.HardwareIdentity != "" && got != summary.HardwareIdentity {
+		return fmt.Errorf("manifest hardware_identity %q, receipt %q", summary.HardwareIdentity, got)
+	}
+	if len(summary.ModelArtifactSHA256s) > 0 {
+		got := receiptModelArtifactSHA256s(receipt)
+		want := append([]string(nil), summary.ModelArtifactSHA256s...)
+		sort.Strings(want)
+		for _, digest := range got {
+			if !slices.Contains(want, digest) {
+				return fmt.Errorf("manifest model artifact set %v omits receipt artifact %s", want, digest)
+			}
+		}
+	}
+	return nil
+}
+
+func receiptModelArtifactSHA256s(receipt map[string]any) []string {
+	set := map[string]bool{}
+	if value, _ := receipt["model_artifact_sha256"].(string); digestPattern.MatchString(value) {
+		set[value] = true
+	}
+	if values, ok := receipt["model_artifact_sha256s"].([]any); ok {
+		for _, raw := range values {
+			if value, ok := raw.(string); ok && digestPattern.MatchString(value) {
+				set[value] = true
+			}
+		}
+	}
+	var walk func(any)
+	walk = func(value any) {
+		switch value := value.(type) {
+		case map[string]any:
+			for key, child := range value {
+				if key == "sha256" {
+					if digest, ok := child.(string); ok && digestPattern.MatchString(digest) {
+						set[digest] = true
+					}
+				}
+				walk(child)
+			}
+		case []any:
+			for _, child := range value {
+				walk(child)
+			}
+		}
+	}
+	if artifacts, ok := receipt["model_artifacts"]; ok {
+		walk(artifacts)
+	}
+	if len(set) == 0 {
+		if producer, ok := receipt["producer_identity"].(map[string]any); ok {
+			if slot, ok := producer["model_artifact_digest"].(map[string]any); ok {
+				if value, _ := slot["value"].(string); digestPattern.MatchString(value) {
+					set[value] = true
+				}
+			}
+		}
+	}
+	out := make([]string, 0, len(set))
+	for digest := range set {
+		out = append(out, digest)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func TestBenchmarkManifestExactExecutionIdentityCannotDivergeFromReceipt(t *testing.T) {
+	const path = "evidence/perf/runtime-benchmarks/candle-metal-llama1-q4-r4.json"
+	raw, err := os.ReadFile("../" + path)
+	must(t, err)
+	var receipt map[string]any
+	must(t, json.Unmarshal(raw, &receipt))
+	base := benchmarkAuthorityManifest[path]
+	for _, mutate := range []func(*benchmarkReceiptSummary){
+		func(summary *benchmarkReceiptSummary) { summary.EngineBuildHash = "0000000000000000" },
+		func(summary *benchmarkReceiptSummary) {
+			summary.EngineBuildIdentityPolicy = currentEngineBuildIdentityPolicy
+		},
+		func(summary *benchmarkReceiptSummary) { summary.HardwareIdentity = "Apple M1 Ultra" },
+		func(summary *benchmarkReceiptSummary) {
+			summary.ModelArtifactSHA256s = []string{strings.Repeat("a", 64)}
+		},
+	} {
+		mutant := cloneBenchmarkReceiptSummary(base)
+		mutate(&mutant)
+		if err := benchmarkManifestReceiptIdentityMismatch(mutant, receipt); err == nil {
+			t.Fatal("mutated embedded benchmark identity still matched receipt bytes")
+		}
 	}
 }
 
 func TestAdvertisedSurfaceIsTheBindableSet(t *testing.T) {
-	// Ordinary admission freezes one advertised cell per (job, model). After the
-	// llama1 re-measure the surface is embed + batch_infer; media stay out.
-	want := map[string]string{
-		"candle-metal-minilm-embed": "embed",
-		"candle-metal-llama1-infer": "batch_infer",
-	}
+	// The prior llama1 r4 build credential is SUPERSEDED because its content
+	// root omitted execution modules. Production history remains readable, but
+	// no checked-in receipt currently authorizes ordinary admission.
+	want := map[string]string{}
 	caps := advertisedRuntimeCapabilities()
 	if len(caps) != len(want) {
 		t.Fatalf("advertised %d cells, want %d BOUND cells", len(caps), len(want))
@@ -246,9 +395,9 @@ func TestAdvertisedSurfaceIsTheBindableSet(t *testing.T) {
 	}
 }
 
-// Raising the bar to BOUND must not silently demote the embed cell that was
-// re-measured and sealed, and must keep the three previously quarantined cells
-// non-routable.
+// BOUND alone is not current authority: an older receipt without build/device
+// identity remains historical-only. A synthetic in-memory completion proves
+// the separate BOUND predicate without relabelling the receipt on disk.
 func TestBoundAuthorityIsRequiredForRoutability(t *testing.T) {
 	const path = "evidence/perf/runtime-benchmarks/embed-cell-candle-vs-llama-cpp-r2.json"
 	summary, ok := benchmarkAuthorityManifest[path]
@@ -276,14 +425,25 @@ func TestBoundAuthorityIsRequiredForRoutability(t *testing.T) {
 			break
 		}
 	}
-	if !embedCell.Routable(embedded) {
-		ok, reason := cellAuthorityBindable(embedded, embedCell)
-		t.Fatalf("BOUND embed cell not routable: ok=%v reason=%q", ok, reason)
+	if embedCell.Routable(embedded) {
+		t.Fatal("embed cell with missing exact build/device identity became current-routable")
+	}
+	if ok, reason := cellAuthorityBindable(embedded, embedCell); ok ||
+		!strings.Contains(reason, "engine_build_hash") {
+		t.Fatalf("missing-build refusal: ok=%v reason=%q", ok, reason)
 	}
 	// Strip BOUND and the cell must leave ordinary routing without any lifecycle edit.
 	saved := benchmarkAuthorityManifest[path]
 	t.Cleanup(func() { benchmarkAuthorityManifest[path] = saved })
 	stripped := saved
+	stripped.EngineBuildHash = testOnlyEngineBuildHash
+	stripped.EngineBuildIdentityPolicy = currentEngineBuildIdentityPolicy
+	stripped.HardwareIdentity = testOnlyHardwareIdentity
+	benchmarkAuthorityManifest[path] = stripped
+	if !embedCell.Routable(embedded) {
+		ok, reason := cellAuthorityBindable(embedded, embedCell)
+		t.Fatalf("synthetic exact build/device did not reach BOUND predicate: ok=%v reason=%q", ok, reason)
+	}
 	stripped.BindingStatus = BindingUnbound
 	benchmarkAuthorityManifest[path] = stripped
 	if embedCell.Routable(embedded) {
@@ -294,4 +454,105 @@ func TestBoundAuthorityIsRequiredForRoutability(t *testing.T) {
 		t.Fatalf("expected not-BOUND refusal, got ok=%v reason=%q", ok, reason)
 	}
 	_ = profile
+}
+
+func TestCellAuthorityRequiresTheExactSelectedWireKindWeights(t *testing.T) {
+	const path = "evidence/perf/runtime-benchmarks/embed-cell-candle-vs-llama-cpp-r2.json"
+
+	find := func(runtimeID, cellID string) (authorityRuntimeProfile, authorityCell) {
+		t.Helper()
+		for _, profile := range runtimeAuthority.Runtimes {
+			if profile.RuntimeID != runtimeID {
+				continue
+			}
+			for _, cell := range profile.Cells {
+				if cell.ID == cellID {
+					return profile, cell
+				}
+			}
+		}
+		t.Fatalf("runtime authority has no cell %s/%s", runtimeID, cellID)
+		return authorityRuntimeProfile{}, authorityCell{}
+	}
+	candleProfile, candleCell := find("candle_metal", "candle-metal-minilm-embed")
+	llamaProfile, llamaCell := find("llama_cpp_metal", "llama-cpp-metal-minilm-embed")
+	candlePins, err := exactWeightDigestsForCell(candleCell, runtimeAuthorityModels)
+	must(t, err)
+	llamaPins, err := exactWeightDigestsForCell(llamaCell, runtimeAuthorityModels)
+	must(t, err)
+	if len(candlePins) != 1 || len(llamaPins) != 1 || candlePins[0] == llamaPins[0] {
+		t.Fatalf("MiniLM exact-artifact premise changed: candle=%v llama.cpp=%v",
+			candlePins, llamaPins)
+	}
+
+	saved := benchmarkAuthorityManifest[path]
+	t.Cleanup(func() { benchmarkAuthorityManifest[path] = saved })
+	for _, tc := range []struct {
+		name    string
+		profile authorityRuntimeProfile
+		cell    authorityCell
+		cited   []string
+		wantOK  bool
+	}{
+		{
+			name:    "Candle accepts its safetensors",
+			profile: candleProfile, cell: candleCell, cited: candlePins, wantOK: true,
+		},
+		{
+			name:    "Candle refuses sibling canonical GGUF",
+			profile: candleProfile, cell: candleCell, cited: llamaPins, wantOK: false,
+		},
+		{
+			name:    "llama.cpp accepts its GGUF",
+			profile: llamaProfile, cell: llamaCell, cited: llamaPins, wantOK: true,
+		},
+		{
+			name:    "llama.cpp refuses sibling canonical safetensors",
+			profile: llamaProfile, cell: llamaCell, cited: candlePins, wantOK: false,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			summary := cloneBenchmarkReceiptSummary(saved)
+			summary.ModelArtifactSHA256s = append([]string(nil), tc.cited...)
+			summary.EngineBuildHash = testOnlyEngineBuildHash
+			summary.EngineBuildIdentityPolicy = requiredEngineBuildIdentityPolicy(tc.profile, tc.cell)
+			summary.HardwareIdentity = testOnlyHardwareIdentity
+			benchmarkAuthorityManifest[path] = summary
+			ok, reason := cellAuthorityBindable(tc.profile, tc.cell)
+			if ok != tc.wantOK {
+				t.Fatalf("bindable=%v reason=%q, want %v", ok, reason, tc.wantOK)
+			}
+			if !tc.wantOK && (!strings.Contains(reason, "sibling format") ||
+				!strings.Contains(reason, tc.cell.ID)) {
+				t.Fatalf("wrong-wire refusal did not identify the exact cell boundary: %q", reason)
+			}
+		})
+	}
+}
+
+func TestExactCellWeightSetRequiresEverySelectedShard(t *testing.T) {
+	const (
+		shardOne = "1111111111111111111111111111111111111111111111111111111111111111"
+		shardTwo = "2222222222222222222222222222222222222222222222222222222222222222"
+		sibling  = "3333333333333333333333333333333333333333333333333333333333333333"
+	)
+	cell := authorityCell{ID: "test-sharded-hf", Model: "test-sharded", WireKind: "hf"}
+	models := map[string]authorityModel{
+		"test-sharded": {
+			ID: "test-sharded", WireKind: "hf",
+			Artifacts: []authorityArtifact{
+				{Path: "model-00001-of-00002.safetensors", SHA256: shardOne},
+				{Path: "model-00002-of-00002.safetensors", SHA256: shardTwo},
+				{Path: "sibling.gguf", SHA256: sibling, WireKind: "gguf"},
+			},
+		},
+	}
+	pins, err := exactWeightDigestsForCell(cell, models)
+	must(t, err)
+	if got, want := strings.Join(pins, ","), shardOne+","+shardTwo; got != want {
+		t.Fatalf("exact selected shard set=%s, want %s", got, want)
+	}
+	if missing := missingArtifactDigests(pins, []string{shardOne, sibling}); len(missing) != 1 || missing[0] != shardTwo {
+		t.Fatalf("one selected shard plus a sibling format produced missing=%v", missing)
+	}
 }

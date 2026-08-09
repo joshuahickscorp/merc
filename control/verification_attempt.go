@@ -9,15 +9,17 @@ import (
 const (
 	verificationAttemptSnapshotLegacyVersion int16 = 1
 	verificationAttemptSnapshotPolicyVersion int16 = 2
-	verificationAttemptSnapshotVersion       int16 = 4
+	verificationAttemptSnapshotVersion       int16 = 6
 )
 
 type verificationAttemptInput struct {
 	IsHoneypot            bool    `json:"is_honeypot"`
 	IsRedundancy          bool    `json:"is_redundancy"`
 	HWClass               string  `json:"hw_class"`
+	HardwareIdentity      string  `json:"hardware_identity,omitempty"`
 	Engine                string  `json:"engine"`
 	BuildHash             string  `json:"build_hash"`
+	BuildIdentityPolicy   string  `json:"build_identity_policy,omitempty"`
 	JobType               string  `json:"job_type"`
 	InputRef              string  `json:"input_ref"`
 	ModelRef              string  `json:"model_ref"`
@@ -43,7 +45,8 @@ func verificationWorkSnapshotFromCommit(info *CommitTaskInfo, c TaskCommit) (Ver
 	}
 	input := verificationAttemptInput{
 		IsHoneypot: info.IsHoneypot, IsRedundancy: info.IsRedundancy,
-		HWClass: info.HWClass, Engine: info.engine, BuildHash: info.buildHash,
+		HWClass: info.HWClass, HardwareIdentity: info.hardwareIdentity,
+		Engine: info.engine, BuildHash: info.buildHash, BuildIdentityPolicy: info.buildIdentityPolicy,
 		JobType: info.jobType, InputRef: info.InputRef, ModelRef: info.ModelRef,
 		MinMemoryGB: info.MinMemoryGB, ChunkIndex: info.ChunkIndex, SplitSize: info.SplitSize,
 		ExpectedOutputRecords: info.ExpectedOutputRecords,
@@ -114,7 +117,8 @@ func commitInfoFromVerificationWork(work VerificationWork) (*CommitTaskInfo, Tas
 		TaskID: work.Snapshot.TaskID, JobID: work.Snapshot.JobID,
 		WorkerID: work.Snapshot.WorkerID, SupplierID: work.Snapshot.SupplierID,
 		IsHoneypot: input.IsHoneypot, IsRedundancy: input.IsRedundancy,
-		HWClass: input.HWClass, engine: input.Engine, buildHash: input.BuildHash,
+		HWClass: input.HWClass, hardwareIdentity: input.HardwareIdentity,
+		engine: input.Engine, buildHash: input.BuildHash, buildIdentityPolicy: input.BuildIdentityPolicy,
 		jobType: input.JobType, InputRef: input.InputRef, ModelRef: input.ModelRef,
 		MinMemoryGB: input.MinMemoryGB, ChunkIndex: input.ChunkIndex, SplitSize: input.SplitSize,
 		ExpectedOutputRecords: input.ExpectedOutputRecords,

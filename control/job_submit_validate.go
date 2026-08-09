@@ -9,7 +9,14 @@ import (
 // normalizeWorkloadRequest is the single request-shape gate used by both quote
 // and submit. Canary verification floors are part of the normalized shape:
 // otherwise a quote would commit to fewer tasks than submit is allowed to run.
-func (s *Server) normalizeWorkloadRequest(sub jobSubmit) (jobSubmit, *httpError) {
+//
+// Callers may pass false for the pre-database structural pass. That pass runs
+// every request-only check but deliberately does not consult the process's
+// advertised runtime cache. The default/full pass must run only after
+// activationForNewAdmission has refreshed the cache from PostgreSQL.
+func (s *Server) normalizeWorkloadRequest(
+	sub jobSubmit, validateRuntimeAuthority ...bool,
+) (jobSubmit, *httpError) {
 	if err := s.canary.validateJobShape(sub); err != nil {
 		return sub, &httpError{http.StatusForbidden, "outside private-canary limits: " + err.Error()}
 	}
@@ -29,12 +36,13 @@ func (s *Server) normalizeWorkloadRequest(sub jobSubmit) (jobSubmit, *httpError)
 			sub.Verification.PayoutHoldSecs = 7 * 24 * 60 * 60
 		}
 	}
-	return normalizeAndValidateJobSubmit(sub)
+	return normalizeAndValidateJobSubmit(sub, validateRuntimeAuthority...)
 }
 
-// normalizeAndValidateJobSubmit applies every check on a submission that depends
-// only on the request itself, returning the normalized submission or the error
-// the handler should send.
+// normalizeAndValidateJobSubmit applies every request-only check and, by
+// default, binds the model to the currently installed advertised runtime
+// authority. Passing false skips only that authority lookup for the structural
+// preflight described above.
 //
 // These branches used to live inline in createJob, which is ~500 lines and needs
 // a live Postgres and MinIO to construct. That meant the validation matrix --
@@ -45,7 +53,11 @@ func (s *Server) normalizeWorkloadRequest(sub jobSubmit) (jobSubmit, *httpError)
 // Checks that need the store (intake pause, canary admission counters, billing)
 // deliberately stay in createJob: they are not pure and pretending otherwise
 // would just move the untestable part somewhere less obvious.
-func normalizeAndValidateJobSubmit(sub jobSubmit) (jobSubmit, *httpError) {
+func normalizeAndValidateJobSubmit(
+	sub jobSubmit, validateRuntimeAuthority ...bool,
+) (jobSubmit, *httpError) {
+	checkRuntimeAuthority := len(validateRuntimeAuthority) == 0 ||
+		validateRuntimeAuthority[0]
 	if math.IsNaN(sub.MaxUSD) || math.IsInf(sub.MaxUSD, 0) || sub.MaxUSD < 0 {
 		return sub, &httpError{http.StatusBadRequest, "max_usd must be a finite non-negative number"}
 	}
@@ -74,11 +86,13 @@ func normalizeAndValidateJobSubmit(sub jobSubmit) (jobSubmit, *httpError) {
 	if !validTiers[sub.Tier] {
 		return sub, &httpError{http.StatusBadRequest, "invalid tier: " + sub.Tier}
 	}
-	canonicalModel, err := normalizeAdvertisedRuntimeModelRef(sub.JobType.Type, sub.Model)
-	if err != nil {
-		return sub, &httpError{http.StatusBadRequest, err.Error()}
+	if checkRuntimeAuthority {
+		canonicalModel, err := normalizeAdvertisedRuntimeModelRef(sub.JobType.Type, sub.Model)
+		if err != nil {
+			return sub, &httpError{http.StatusBadRequest, err.Error()}
+		}
+		sub.Model = canonicalModel
 	}
-	sub.Model = canonicalModel
 
 	switch sub.JobType.Type {
 	case "embed":

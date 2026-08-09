@@ -113,11 +113,39 @@ func TestSubmitExactReuseBatchJobFreezesWorkloadDecision(t *testing.T) {
 	authority := catalogueAuthorityFixtureInStore(
 		t, ctx, pool, decision, originEconomic.Schedule.Currency, originEconomic.Input.SupplierShare,
 	)
-	originPlacement := placementForPricingFixture(t, decision, authority)
-	originPricing, err := newDistributedPricingDecision(
-		decision, originPlan, originPlacement, originEconomic, authority, sub.Tier, "",
+	// Exact reuse performs no runtime work. Its origin quote may therefore be a
+	// self-contained historical v1 embed quote; constructing a fresh embed
+	// placement would incorrectly require embeddings/s to price token-like input.
+	candidate := decision.RuntimeCandidates[0]
+	profile, cell := cellByID(t, candidate.CellID)
+	performance := resolveCellPerformance(profile, cell, benchmarkNow)
+	modelKind := candidate.ModelKind
+	if modelKind == "" {
+		modelKind = decision.Binding.Model.Kind
+	}
+	originPlacement := PlacementRequirement{
+		Version:             1,
+		JobType:             decision.RuntimeJobType,
+		ModelRef:            decision.Binding.Model.Ref,
+		ModelKind:           modelKind,
+		RuntimeCellID:       candidate.CellID,
+		RuntimeID:           candidate.RuntimeID,
+		Engine:              candidate.Engine,
+		RuntimeMatrixSHA256: generatedRuntimeMatrixSHA256,
+		MinMemoryGB:         float32(decision.MinimumMemoryGB),
+		HWClasses:           append([]string(nil), decision.Binding.Constraints.HWClasses...),
+		DataResidency:       append([]string(nil), decision.Binding.Constraints.DataResidency...),
+		MinReputation:       decision.Binding.MinReputation,
+		TrustedOnly:         decision.Binding.Tier == "trusted",
+		OfferedRateUsdHr: float32(expectedSupplierUSDHr(
+			performance.ConservativeUnitsPerSec, authority.ReferencePricePer1K,
+			authority.SupplierShare, decision.Binding.Tier)),
+	}
+	originPricing, err := distributedPricingDecisionAtRate(
+		decision, originPlan, originPlacement, originEconomic, authority, sub.Tier,
+		"", performance.ConservativeUnitsPerSec,
 	)
-	mustf(t, err, "build exact-reuse origin pricing: %v")
+	mustf(t, err, "build historical exact-reuse origin pricing: %v")
 	originPricingJSON, err := json.Marshal(originPricing)
 	must(t, err)
 	originPricingSHA256, err := pricingDecisionDigest(originPricing)
@@ -510,6 +538,23 @@ func validJobRow(t *testing.T, f moneyPathFixture, tasks []taskRow) *jobRow {
 func validJobRowDirected(
 	t *testing.T, f moneyPathFixture, tasks []taskRow, directedCellID string,
 ) *jobRow {
+	if len(tasks) >= 2 {
+		tasks[0].IsHoneypot = false
+		tasks[0].IsRedundancy = false
+		tasks[0].ChunkIndex = 0
+		if tasks[0].ExpectedOutputRecords <= 0 {
+			tasks[0].ExpectedOutputRecords = 1
+		}
+		for i := 1; i < len(tasks); i++ {
+			tasks[i].IsHoneypot = false
+			tasks[i].IsRedundancy = true
+			tasks[i].InputRef = tasks[0].InputRef
+			tasks[i].InputDepthBand = tasks[0].InputDepthBand
+			tasks[i].ChunkIndex = tasks[0].ChunkIndex
+			tasks[i].ExpectedOutputRecords = tasks[0].ExpectedOutputRecords
+		}
+		return validJobRowClasses(t, f, tasks, directedCellID, 1, len(tasks)-1, 0)
+	}
 	return validJobRowClasses(t, f, tasks, directedCellID, len(tasks), 0, 0)
 }
 
@@ -525,18 +570,41 @@ func validJobRowClasses(
 	primary, redundancy, honeypot int,
 ) *jobRow {
 	t.Helper()
-	workload, err := buildWorkloadDecisionDirected(jobSubmit{
-		JobType: JobType{Type: "embed"},
-		Model:   ModelRef{Kind: "hf", Ref: "all-minilm-l6-v2"},
-		Tier:    "batch",
-		Constraints: JobConstraints{
-			MaxDurationSecs: 3600,
-		},
-	}, strings.Repeat("a", 64), directedCellID)
+	var sub jobSubmit
+	if directedCellID == "" {
+		// Successful ordinary SubmitJobTx mechanics use the one explicit
+		// TEST_ONLY combined-token authority. No checked-in production receipt
+		// currently matches settlement semantics.
+		sub = testOnlyCombinedTokenSubmit(t)
+	} else {
+		sub = jobSubmit{
+			JobType: JobType{Type: "embed"},
+			Model:   ModelRef{Kind: "hf", Ref: "all-minilm-l6-v2"},
+			Tier:    "batch",
+			Constraints: JobConstraints{
+				MaxDurationSecs: 3600,
+			},
+		}
+	}
+	workload, err := buildWorkloadDecisionDirected(
+		sub, strings.Repeat("a", 64), directedCellID)
 	mustf(t, err, "build test workload decision: %v")
+	for i := range tasks {
+		if tasks[i].InputSHA256 == "" {
+			tasks[i].InputSHA256 = workload.Binding.InputSHA256
+		}
+		if tasks[i].ExpectedOutputRecords <= 0 {
+			tasks[i].ExpectedOutputRecords = 1
+		}
+	}
 	economicPlan := f.Plan
 	if economicPlan.Input.InitialTaskCount != len(tasks) {
 		economicPlan = buildTestEconomicPlan(t, len(tasks), economicPlan.Input.SLAPremiumUSD)
+	}
+	if economicPlan.Input.ExtraTaskReserve != economicExtraTaskReserve(primary) {
+		input := economicPlan.Input
+		input.ExtraTaskReserve = economicExtraTaskReserve(primary)
+		economicPlan = BuildEconomicPlan(input, economicPlan.Schedule)
 	}
 	// Input geometry follows the PRIMARY count, not the total. Redundancy and
 	// honeypot tasks re-run or probe the same input; counting them as records
@@ -575,14 +643,15 @@ func validJobRowClasses(
 	return &jobRow{
 		ID:                   f.JobID,
 		BuyerID:              f.BuyerID,
-		JobType:              "embed",
-		ModelRef:             "all-minilm-l6-v2",
+		JobType:              workload.RuntimeJobType,
+		ModelRef:             workload.Binding.Model.Ref,
 		InputRef:             "money/input-" + f.JobID.String(),
 		OutputRef:            "money/output-" + f.JobID.String(),
 		Tier:                 "batch",
 		EstimatedUSD:         economicPlan.InitialBuyerChargeUSD,
 		TaskCount:            len(tasks),
 		MinMemoryGB:          float32(workload.MinimumMemoryGB),
+		HWClasses:            append([]string(nil), placement.HWClasses...),
 		MaxDurationSecs:      3600,
 		SplitSize:            1,
 		OfferedRateUsdHr:     placement.OfferedRateUsdHr,
@@ -708,12 +777,12 @@ func TestSubmitJobTxCommitsJobTasksAndPlanWithoutLedger(t *testing.T) {
 		t.Fatal("database allowed frozen placement authority to be mutated")
 	}
 	for name, statement := range map[string]string{
-		"job type":     `UPDATE jobs SET job_type='batch_infer' WHERE id=$1`,
+		"job type":     `UPDATE jobs SET job_type='embed' WHERE id=$1`,
 		"model":        `UPDATE jobs SET model_ref='different-model' WHERE id=$1`,
 		"tier":         `UPDATE jobs SET tier='priority' WHERE id=$1`,
 		"memory":       `UPDATE jobs SET min_memory_gb=min_memory_gb+1 WHERE id=$1`,
 		"duration":     `UPDATE jobs SET max_duration_secs=max_duration_secs+1 WHERE id=$1`,
-		"hardware":     `UPDATE jobs SET hw_classes=ARRAY['apple_silicon_ultra'] WHERE id=$1`,
+		"hardware":     `UPDATE jobs SET hw_classes=ARRAY['apple_silicon_max'] WHERE id=$1`,
 		"residency":    `UPDATE jobs SET data_residency=ARRAY['US'] WHERE id=$1`,
 		"reputation":   `UPDATE jobs SET min_reputation=min_reputation+0.1 WHERE id=$1`,
 		"offered rate": `UPDATE jobs SET offered_rate_usd_hr=offered_rate_usd_hr+0.1 WHERE id=$1`,
@@ -762,6 +831,14 @@ func TestQuoteJobSchedulerReceiptPreserveExactPricingAuthority(t *testing.T) {
 	tasks := makeTasks(f, 1)
 	f.TaskIDs = []uuid.UUID{tasks[0].ID}
 	job := validJobRow(t, f, tasks)
+	if len(job.PlacementRequirement.HWClasses) != 1 {
+		t.Fatalf("fixture placement binds %d hardware classes, want one",
+			len(job.PlacementRequirement.HWClasses))
+	}
+	if _, err := pool.Exec(ctx, `UPDATE workers SET hw_class=$2 WHERE id=$1`,
+		f.WorkerID, job.PlacementRequirement.HWClasses[0]); err != nil {
+		t.Fatalf("align claim worker with benchmark-bound placement hardware: %v", err)
+	}
 
 	quoteID := uuid.New()
 	quote := Quote{

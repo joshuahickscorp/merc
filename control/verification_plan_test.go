@@ -9,23 +9,29 @@ import (
 	"github.com/google/uuid"
 )
 
+const (
+	verificationPlanTestEngine = "candle"
+	verificationPlanTestBuild  = "deadbeefdeadbeef"
+)
+
 func TestPlanTaskResultRecordsHoneypotFailureWithoutWrites(t *testing.T) {
 	taskID := uuid.New()
 	supplierID := uuid.New()
 	store := &verificationStoreDouble{
 		honeypotAnswer:      []byte("known answer"),
-		honeypotAnswerClass: "engine-a|build-a",
+		honeypotAnswerClass: classKey(verificationPlanTestEngine, verificationPlanTestBuild, currentEngineBuildIdentityPolicy),
 	}
 	v := (&Verifier{store: store}).WithSamplingSecret([]byte("plan-test-secret"))
 	info := &CommitTaskInfo{
-		TaskID:     taskID,
-		SupplierID: supplierID,
-		IsHoneypot: true,
-		InputRef:   "inputs/probe",
-		Attempt:    3,
-		jobType:    "batch_infer",
-		engine:     "engine-a",
-		buildHash:  "build-a",
+		TaskID:              taskID,
+		SupplierID:          supplierID,
+		IsHoneypot:          true,
+		InputRef:            "inputs/probe",
+		Attempt:             3,
+		jobType:             "batch_infer",
+		engine:              verificationPlanTestEngine,
+		buildHash:           verificationPlanTestBuild,
+		buildIdentityPolicy: currentEngineBuildIdentityPolicy,
 	}
 
 	decision, err := v.PlanTaskResult(context.Background(), info, TaskCommit{TaskID: taskID}, []byte("wrong answer"), nil)
@@ -79,19 +85,21 @@ func TestPlanTaskResultTiebreakEffectIsDeterministicPerAttempt(t *testing.T) {
 	}
 	v := (&Verifier{store: store, storage: &Storage{}}).WithSamplingSecret([]byte("plan-test-secret"))
 	info := &CommitTaskInfo{
-		TaskID:         taskID,
-		JobID:          uuid.New(),
-		SupplierID:     uuid.New(),
-		WorkerID:       uuid.Nil,
-		InputRef:       "inputs/chunk-7",
-		ChunkIndex:     7,
-		Attempt:        4,
-		jobType:        "batch_infer",
-		engine:         "engine-a",
-		buildHash:      "build-a",
-		peerSupplierID: uuid.New(),
-		peerEngine:     "engine-a",
-		peerBuildHash:  "build-a",
+		TaskID:                  taskID,
+		JobID:                   uuid.New(),
+		SupplierID:              uuid.New(),
+		WorkerID:                uuid.Nil,
+		InputRef:                "inputs/chunk-7",
+		ChunkIndex:              7,
+		Attempt:                 4,
+		jobType:                 "batch_infer",
+		engine:                  verificationPlanTestEngine,
+		buildHash:               verificationPlanTestBuild,
+		buildIdentityPolicy:     currentEngineBuildIdentityPolicy,
+		peerSupplierID:          uuid.New(),
+		peerEngine:              verificationPlanTestEngine,
+		peerBuildHash:           verificationPlanTestBuild,
+		peerBuildIdentityPolicy: currentEngineBuildIdentityPolicy,
 	}
 
 	first, err := v.PlanTaskResult(context.Background(), info, TaskCommit{TaskID: taskID}, []byte("a"), []byte("b"))
@@ -130,17 +138,19 @@ func TestPlanTaskResultReadErrorDiscardsPartialEffects(t *testing.T) {
 	v := (&Verifier{store: store, storage: &Storage{}}).WithSamplingSecret([]byte("plan-test-secret"))
 	taskID := uuid.New()
 	info := &CommitTaskInfo{
-		TaskID:         taskID,
-		JobID:          uuid.New(),
-		SupplierID:     uuid.New(),
-		InputRef:       "inputs/chunk",
-		Attempt:        1,
-		jobType:        "batch_infer",
-		engine:         "engine-a",
-		buildHash:      "build-a",
-		peerSupplierID: uuid.New(),
-		peerEngine:     "engine-a",
-		peerBuildHash:  "build-a",
+		TaskID:                  taskID,
+		JobID:                   uuid.New(),
+		SupplierID:              uuid.New(),
+		InputRef:                "inputs/chunk",
+		Attempt:                 1,
+		jobType:                 "batch_infer",
+		engine:                  verificationPlanTestEngine,
+		buildHash:               verificationPlanTestBuild,
+		buildIdentityPolicy:     currentEngineBuildIdentityPolicy,
+		peerSupplierID:          uuid.New(),
+		peerEngine:              verificationPlanTestEngine,
+		peerBuildHash:           verificationPlanTestBuild,
+		peerBuildIdentityPolicy: currentEngineBuildIdentityPolicy,
 	}
 
 	decision, err := v.PlanTaskResult(context.Background(), info, TaskCommit{TaskID: taskID}, []byte("a"), []byte("b"))
@@ -174,7 +184,7 @@ func TestHoneypotAlwaysCheckedWhenSampleDecisionFalse(t *testing.T) {
 	supplierID := uuid.New()
 	store := &verificationStoreDouble{
 		honeypotAnswer:      []byte("known answer"),
-		honeypotAnswerClass: "engine-a|build-a",
+		honeypotAnswerClass: classKey(verificationPlanTestEngine, verificationPlanTestBuild, currentEngineBuildIdentityPolicy),
 	}
 	v := (&Verifier{store: store}).WithSamplingSecret([]byte("honeypot-always-secret"))
 	sampled := false
@@ -186,8 +196,9 @@ func TestHoneypotAlwaysCheckedWhenSampleDecisionFalse(t *testing.T) {
 		InputRef:                 "inputs/probe",
 		Attempt:                  1,
 		jobType:                  "batch_infer",
-		engine:                   "engine-a",
-		buildHash:                "build-a",
+		engine:                   verificationPlanTestEngine,
+		buildHash:                verificationPlanTestBuild,
+		buildIdentityPolicy:      currentEngineBuildIdentityPolicy,
 		verificationCheckSampled: &sampled,
 	}
 
@@ -230,19 +241,20 @@ func TestHoneypotClassMismatchFailsClosed(t *testing.T) {
 	supplierID := uuid.New()
 	store := &verificationStoreDouble{
 		honeypotAnswer:      []byte("known answer"),
-		honeypotAnswerClass: "candle|abc",
+		honeypotAnswerClass: classKey("candle", "aaaaaaaaaaaaaaaa", currentEngineBuildIdentityPolicy),
 	}
 	v := (&Verifier{store: store}).WithSamplingSecret([]byte("class-mismatch-secret"))
 	info := &CommitTaskInfo{
-		TaskID:     taskID,
-		JobID:      uuid.New(),
-		SupplierID: supplierID,
-		IsHoneypot: true,
-		InputRef:   "inputs/probe",
-		Attempt:    2,
-		jobType:    "batch_infer",
-		engine:     "candle",
-		buildHash:  "nope",
+		TaskID:              taskID,
+		JobID:               uuid.New(),
+		SupplierID:          supplierID,
+		IsHoneypot:          true,
+		InputRef:            "inputs/probe",
+		Attempt:             2,
+		jobType:             "batch_infer",
+		engine:              "candle",
+		buildHash:           "bbbbbbbbbbbbbbbb",
+		buildIdentityPolicy: currentEngineBuildIdentityPolicy,
 	}
 
 	decision, err := v.PlanTaskResult(context.Background(), info, TaskCommit{TaskID: taskID}, []byte("known answer"), nil)
@@ -305,7 +317,7 @@ func (s *verificationStoreDouble) TiebreakExists(context.Context, uuid.UUID, int
 	return false, s.tiebreakExistsErr
 }
 
-func (s *verificationStoreDouble) SelectRedundancyPeerExcluding(context.Context, string, string, float32, uuid.UUID, []uuid.UUID, []uuid.UUID) (uuid.UUID, error) {
+func (s *verificationStoreDouble) SelectRedundancyPeerExcluding(context.Context, uuid.UUID, uuid.UUID, string, string, float32, uuid.UUID, []uuid.UUID, []uuid.UUID) (uuid.UUID, error) {
 	return s.selectedPeer, nil
 }
 
@@ -351,15 +363,16 @@ func TestHoneypotWithoutStoredAnswerFailsClosedWithoutSanctioningSupplier(t *tes
 	store := &verificationStoreDouble{} // no honeypotAnswer seeded
 	v := (&Verifier{store: store}).WithSamplingSecret([]byte("honeypot-missing-secret"))
 	info := &CommitTaskInfo{
-		TaskID:     taskID,
-		JobID:      uuid.New(),
-		SupplierID: uuid.New(),
-		IsHoneypot: true,
-		InputRef:   "inputs/probe-with-no-answer",
-		Attempt:    1,
-		jobType:    "batch_infer",
-		engine:     "engine-a",
-		buildHash:  "build-a",
+		TaskID:              taskID,
+		JobID:               uuid.New(),
+		SupplierID:          uuid.New(),
+		IsHoneypot:          true,
+		InputRef:            "inputs/probe-with-no-answer",
+		Attempt:             1,
+		jobType:             "batch_infer",
+		engine:              verificationPlanTestEngine,
+		buildHash:           verificationPlanTestBuild,
+		buildIdentityPolicy: currentEngineBuildIdentityPolicy,
 	}
 
 	decision, err := v.PlanTaskResult(context.Background(), info, TaskCommit{TaskID: taskID}, []byte("anything"), nil)

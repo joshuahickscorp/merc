@@ -1,0 +1,97 @@
+{
+  "schema_version": 1,
+  "kind": "network_v2_progress_ledger",
+  "binding_status": "UNBOUND",
+  "missing_identity_fields": [
+    "source_commit",
+    "build_digest",
+    "model_artifact_digest",
+    "image_digest",
+    "harness_revision",
+    "corpus_digest",
+    "exact_config",
+    "raw_samples"
+  ],
+  "updated_at": "2026-08-09T07:10:00Z",
+  "baseline_head": "ae443f69b0a63835a356eb1ed01999325677ad1b",
+  "plan": "docs/NETWORK_V2_EXECUTION_PLAN.md",
+  "steps": [
+    {
+      "step": 1,
+      "status": "COMPLETE",
+      "head": "ae443f69b0a63835a356eb1ed01999325677ad1b",
+      "grade": {
+        "plan_fidelity": 100,
+        "correctness": 100,
+        "evidence_quality": 100,
+        "architectural_simplicity": 100,
+        "performance_impact": 100,
+        "security_money_safety": 100,
+        "future_network_compatibility": 100
+      },
+      "key_evidence": [
+        "evidence/state/network-v2-reconciliation.json",
+        "docs/NETWORK_V2_EXECUTION_PLAN.md"
+      ],
+      "blocker": "none",
+      "next_dependency": "step 2 canonical migration register"
+    },
+    {
+      "step": 2,
+      "status": "COMPLETE",
+      "head": "ae443f69b0a63835a356eb1ed01999325677ad1b",
+      "grade": {
+        "plan_fidelity": 100,
+        "correctness": 100,
+        "evidence_quality": 100,
+        "architectural_simplicity": 100,
+        "performance_impact": 100,
+        "security_money_safety": 100,
+        "future_network_compatibility": 100
+      },
+      "key_evidence": [
+        "docs/NETWORK_V2_AUTHORITY_MIGRATION_REGISTER.md"
+      ],
+      "blocker": "none",
+      "next_dependency": "step 3 validation integration"
+    },
+    {
+      "step": 3,
+      "status": "COMPLETE",
+      "head": "2ed771c111f74958976058ae53b66e8f0ce96edf",
+      "grade": {
+        "plan_fidelity": 100,
+        "correctness": 100,
+        "evidence_quality": 100,
+        "architectural_simplicity": 100,
+        "performance_impact": 100,
+        "security_money_safety": 100,
+        "future_network_compatibility": 100
+      },
+      "key_evidence": [
+        "19 infrastructure commits b7ea98f6..2ed771c1",
+        "scripts/mutation-manifest.json: 84 exact mutations",
+        "mutation infrastructure self-tests: PASS"
+      ],
+      "blocker": "none",
+      "next_dependency": "step 4 runtime-cell economics reconciliation"
+    },
+    {
+      "step": 4,
+      "status": "REPAIR_IN_PROGRESS",
+      "head": "2ed771c111f74958976058ae53b66e8f0ce96edf",
+      "grade": null,
+      "key_evidence": [
+        "adversarial review found withdrawn provider authority, 1000x unit error, incomplete cost vocabulary, currency ambiguity, and unbound hardware throughput"
+      ],
+      "blocker": "repairs and authority gate not yet complete",
+      "next_dependency": "step 5 PricingDecision reconciliation"
+    }
+  ],
+  "invariants": {
+    "completed_steps_do_not_reset_without_invalidating_evidence": true,
+    "one_in_progress_step_maximum": true,
+    "level_b": "NO_GO",
+    "level_c": "NO_GO_PROHIBITED"
+  }
+}

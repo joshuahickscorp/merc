@@ -3,6 +3,9 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -24,6 +27,8 @@ func storeAnchoredDistributedFixture(t *testing.T) (
 	CataloguePriceAuthority,
 ) {
 	t.Helper()
+	installBoundCataloguePublicationAuthorityForTest(t)
+	installTestOnlyCombinedTokenAuthority(t)
 	pinBoardClockForPublication(t)
 	ctx, store, pool := openAdminMutationTestStore(t)
 
@@ -33,7 +38,7 @@ func storeAnchoredDistributedFixture(t *testing.T) (
 		t.Fatalf("apply catalogue schedule: %v", err)
 	}
 
-	workload, compute, _ := computePlanFixture(t)
+	workload, compute, _ := pricingComputePlanFixture(t)
 	authority, err := store.LoadCataloguePriceAuthority(ctx, workload.Binding.Model.Ref)
 	mustf(t, err, "load catalogue authority for %s: %v", workload.Binding.Model.Ref)
 	if authority.JobType != workload.RuntimeJobType {
@@ -161,7 +166,7 @@ func TestStoreAnchoredPricingRejectsRewrittenCatalogueFields(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			mutantCatalogue := tc.mutate(authority)
-			if mutantCatalogue == authority {
+			if reflect.DeepEqual(mutantCatalogue, authority) {
 				t.Fatal("mutation left catalogue unchanged")
 			}
 			forgedPlacement, forgedEconomic, forged := forgeDistributedPricingAtCatalogue(
@@ -219,59 +224,45 @@ func TestStoreAnchoredPricingRejectsRewrittenCatalogueFields(t *testing.T) {
 // A later reprice moves models.price_* and the current LoadCatalogue pointer.
 // An already-accepted decision still validates against its own schedule digest.
 func TestStoreAnchoredPricingSurvivesLegitimateReprice(t *testing.T) {
-	ctx, store, pool, workload, compute, placement, economic, pricing, authority := storeAnchoredDistributedFixture(t)
+	ctx, store, _, workload, compute, placement, economic, pricing, authority := storeAnchoredDistributedFixture(t)
 
-	// Insert a second append-only schedule with different prices and repoint models.
-	newSHA := strings.Repeat("b", 64)
-	newBoard := strings.Repeat("e", 64)
-	newReference := authority.ReferencePricePer1K * 3
-	newSettlement := ceilPricePer1K(newReference * authority.ReferenceToSettlementRate)
-	scheduleJSON, err := json.Marshal(map[string]any{
-		"sha256":                         newSHA,
-		"version":                        authority.ScheduleVersion,
-		"reference_currency":             authority.ReferenceCurrency,
-		"settlement_currency":            authority.SettlementCurrency,
-		"fx_revision":                    authority.FXRevision + "-reprice",
-		"board_sha256":                   newBoard,
-		"supplier_share_policy_revision": authority.SupplierSharePolicyRevision,
-	})
+	// Move the current board through the same sole governed constructor and
+	// ApplyRepricing path production uses. A hand-built shape-valid v3 schedule
+	// is deliberately no longer legitimate: it has no current physical snapshot.
+	priceBoardMu.Lock()
+	previousBoard := priceBoardCached
+	previousDigest := priceBoardSHA256
+	previousSource := priceBoardSource
+	raw, err := json.Marshal(previousBoard)
 	must(t, err)
-	if _, err := pool.Exec(ctx, `
-		INSERT INTO catalogue_price_schedules (
-		  sha256,version,reference_currency,settlement_currency,
-		  reference_to_settlement_rate,fx_revision,board_sha256,board_schema_version,
-		  board_fetched_at,positioning_multiplier,supplier_share,schedule_json
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,1,'1970-01-01T00:00:00Z',1.0,NULL,$8)`,
-		newSHA, authority.ScheduleVersion, authority.ReferenceCurrency,
-		authority.SettlementCurrency, authority.ReferenceToSettlementRate,
-		authority.FXRevision+"-reprice", newBoard, scheduleJSON,
-	); err != nil {
-		t.Fatalf("insert reprice schedule: %v", err)
+	var repricedBoard priceBoard
+	must(t, json.Unmarshal(raw, &repricedBoard))
+	repricedBoard.PositioningMultiplier *= 3
+	repricedRaw, err := json.Marshal(repricedBoard)
+	must(t, err)
+	priceBoardCached = nil
+	priceBoardSHA256 = ""
+	priceBoardSource = ""
+	priceBoardMu.Unlock()
+	repricedPath := filepath.Join(t.TempDir(), "governed-repriced-board.json")
+	must(t, os.WriteFile(repricedPath, repricedRaw, 0o600))
+	t.Setenv(priceBoardPathEnv, repricedPath)
+	t.Setenv(priceBoardDigestEnv, sha256Hex(repricedRaw))
+	t.Cleanup(func() {
+		priceBoardMu.Lock()
+		priceBoardCached = previousBoard
+		priceBoardSHA256 = previousDigest
+		priceBoardSource = previousSource
+		priceBoardMu.Unlock()
+	})
+
+	repricedSchedule, err := BuildCataloguePriceSchedule()
+	mustf(t, err, "build governed reprice schedule: %v")
+	if repricedSchedule.SHA256 == authority.ScheduleSHA256 {
+		t.Fatal("governed board reprice did not produce a new schedule digest")
 	}
-	if _, err := pool.Exec(ctx, `
-		INSERT INTO model_price_history (
-		  schedule_sha256,model_id,prior_price_per_1k,prior_price_source,
-		  reference_price_per_1k,reference_currency,price_per_1k,
-		  price_currency,price_formula,supplier_share
-		) VALUES ($1,$2,$3,'market_board',$4,$5,$6,$7,$8,$9)`,
-		newSHA, authority.ModelID, authority.SettlementPricePer1K,
-		newReference, authority.ReferenceCurrency, newSettlement,
-		authority.SettlementCurrency, "reprice test formula", authority.SupplierShare,
-	); err != nil {
-		t.Fatalf("insert reprice history: %v", err)
-	}
-	if _, err := pool.Exec(ctx, `
-		UPDATE models
-		   SET price_per_1k=$2, price_reference_per_1k=$3,
-		       price_schedule_sha256=$4, price_formula=$5,
-		       price_source='market_board', price_currency=$6,
-		       price_reference_currency=$7, price_schedule_version=$8
-		 WHERE id=$1`,
-		authority.ModelID, newSettlement, newReference, newSHA,
-		"reprice test formula", authority.SettlementCurrency,
-		authority.ReferenceCurrency, authority.ScheduleVersion,
-	); err != nil {
-		t.Fatalf("repoint model to reprice schedule: %v", err)
+	if _, err := store.ApplyRepricing(ctx, repricedSchedule); err != nil {
+		t.Fatalf("apply governed reprice schedule: %v", err)
 	}
 
 	current, err := store.LoadCataloguePriceAuthority(ctx, authority.ModelID)

@@ -60,7 +60,8 @@ type TaskReceipt struct {
 	RuntimeID            string `json:"runtime_id,omitempty"`
 	RuntimeMatrixSHA     string `json:"runtime_matrix_sha256,omitempty"`
 	ModelKind            string `json:"model_kind,omitempty"`
-	WorkerClass          string `json:"worker_class"`      // engine|build_hash (classKey); "" if unknown
+	WorkerClass          string `json:"worker_class"` // engine|build_hash|build_identity_policy (classKey); "" if unknown
+	BuildIdentityPolicy  string `json:"build_identity_policy,omitempty"`
 	VerificationKind     string `json:"verification_kind"` // latest comparison event kind; "" if none
 	Verdict              string `json:"verdict"`           // durable current task verdict; "" until verified
 	// Generative batch settlement evidence. Present when the task had a
@@ -83,17 +84,27 @@ func taskReceiptRow(chunkIndex int, status string, isHoneypot bool, engine, buil
 }
 
 func taskReceiptRowWithRuntime(chunkIndex int, status string, isHoneypot bool, engine, build, kind, verdict, cellID, runtimeID, matrixSHA, modelKind string) TaskReceipt {
+	return taskReceiptRowWithRuntimePolicy(chunkIndex, status, isHoneypot, engine, build, "",
+		kind, verdict, cellID, runtimeID, matrixSHA, modelKind)
+}
+
+func taskReceiptRowWithRuntimePolicy(chunkIndex int, status string, isHoneypot bool, engine, build, buildPolicy, kind, verdict, cellID, runtimeID, matrixSHA, modelKind string) TaskReceipt {
+	workerClass := classKey(engine, build)
+	if buildPolicy != "" {
+		workerClass = classKey(engine, build, buildPolicy)
+	}
 	return TaskReceipt{
-		ChunkIndex:       chunkIndex,
-		Status:           status,
-		IsHoneypot:       isHoneypot,
-		RuntimeCellID:    cellID,
-		RuntimeID:        runtimeID,
-		RuntimeMatrixSHA: matrixSHA,
-		ModelKind:        modelKind,
-		WorkerClass:      classKey(engine, build),
-		VerificationKind: kind,
-		Verdict:          verdict,
+		ChunkIndex:          chunkIndex,
+		Status:              status,
+		IsHoneypot:          isHoneypot,
+		RuntimeCellID:       cellID,
+		RuntimeID:           runtimeID,
+		RuntimeMatrixSHA:    matrixSHA,
+		ModelKind:           modelKind,
+		WorkerClass:         workerClass,
+		BuildIdentityPolicy: buildPolicy,
+		VerificationKind:    kind,
+		Verdict:             verdict,
 	}
 }
 

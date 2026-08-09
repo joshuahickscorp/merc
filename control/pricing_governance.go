@@ -93,6 +93,10 @@ const (
 	// A board whose own fetch is older than this cannot be published from at
 	// all, however fresh individual rows claim to be.
 	maxBoardAge = 60 * 24 * time.Hour
+	// Persisted schedules name the policy whose exact boundary they freeze.
+	// Changing either duration therefore requires a policy revision rather than
+	// silently extending already-published authority.
+	catalogueBoardFreshnessPolicy = "catalogue-market-board-v1/max-board-age-60d/max-observation-age-45d/no-future-over-24h"
 )
 
 // Boards carry plain dates; observations sometimes carry a full timestamp.
@@ -135,6 +139,35 @@ func boardAsOfPublication(board *priceBoard, now time.Time) (*priceBoard, error)
 		return nil, err
 	}
 	return &copied, nil
+}
+
+// catalogueBoardValidUntil returns the first boundary at which the exact board
+// selection must be recomputed. The board-wide ceiling is necessary but not
+// sufficient: once any retained observation ages out, the weighted median (or
+// even the governance floor) may change, so the old schedule is no longer
+// current authority.
+func catalogueBoardValidUntil(board *priceBoard) (time.Time, error) {
+	boardAt, err := parseBoardTimestamp(board.FetchedAt)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("price board fetched_at is unusable: %w", err)
+	}
+	validUntil := boardAt.Add(maxBoardAge)
+	for _, class := range board.Classes {
+		for _, observation := range class.Observations {
+			observationAt := boardAt
+			if strings.TrimSpace(observation.FetchedAt) != "" {
+				observationAt, err = parseBoardTimestamp(observation.FetchedAt)
+				if err != nil {
+					return time.Time{}, fmt.Errorf(
+						"price board retained an observation with unusable fetched_at: %w", err)
+				}
+			}
+			if boundary := observationAt.Add(maxObservationAge); boundary.Before(validUntil) {
+				validUntil = boundary
+			}
+		}
+	}
+	return validUntil.UTC(), nil
 }
 
 // dropStaleObservations removes rows that are no longer current evidence, and
@@ -253,8 +286,15 @@ func (e errNegativeContribution) Error() string {
 // viability report uses so the two can never disagree.
 func marginsForPrice(b measuredThroughput, pricePer1K, supplierShare float64) contributionMargins {
 	watts := sustainedWattsForClass(b.HWClass)
+	return marginsForPriceAtWatts(b, pricePer1K, supplierShare, watts)
+}
+
+func marginsForPriceAtWatts(
+	b measuredThroughput,
+	pricePer1K, supplierShare, watts float64,
+) contributionMargins {
 	elec := watts / 1000.0 * defaultElectricityUSDPerKWh
-	unitsPerHr := b.UnitsPerSec * 3600.0
+	unitsPerHr := catalogueConservativeUnitsPerSecond(b) * 3600.0
 	revenue := unitsPerHr / 1000.0 * pricePer1K
 	gross := revenue * supplierShare
 	return contributionMargins{
@@ -274,7 +314,18 @@ func marginsForPrice(b measuredThroughput, pricePer1K, supplierShare float64) co
 //
 // Returns the reason it was blocked, or "" when the price may be published.
 func governPublishedPrice(b measuredThroughput, pricePer1K, supplierShare float64) error {
-	m := marginsForPrice(b, pricePer1K, supplierShare)
+	power, err := sustainedWattsForPublication(b)
+	if err != nil {
+		return err
+	}
+	return governPublishedPriceAtWatts(b, pricePer1K, supplierShare, power.Watts())
+}
+
+func governPublishedPriceAtWatts(
+	b measuredThroughput,
+	pricePer1K, supplierShare, watts float64,
+) error {
+	m := marginsForPriceAtWatts(b, pricePer1K, supplierShare, watts)
 	if !m.supplierNegative() && !m.cxNegative() {
 		return nil
 	}

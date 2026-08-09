@@ -1,0 +1,187 @@
+{
+  "schema_version": 1,
+  "kind": "network_v2_state_reconciliation",
+  "binding_status": "UNBOUND",
+  "missing_identity_fields": [
+    "source_commit",
+    "build_digest",
+    "model_artifact_digest",
+    "image_digest",
+    "harness_revision",
+    "corpus_digest",
+    "exact_config",
+    "raw_samples"
+  ],
+  "generated_at": "2026-08-09T06:15:16Z",
+  "classification": "UNBOUND_WORKTREE_INVENTORY_NOT_RELEASE_AUTHORITY",
+  "source": {
+    "implementation_branch": "codex/network-v2",
+    "baseline_commit": "ae443f69b0a63835a356eb1ed01999325677ad1b",
+    "baseline_branch": "main",
+    "baseline_local_upstream": "origin/main",
+    "baseline_ahead_of_local_upstream": 80,
+    "remote_freshness": "NOT_PROBED_NO_FETCH",
+    "implementation_worktree_clean_at_receipt": false,
+    "implementation_owned_changes": [
+      "docs/NETWORK_V2_EXECUTION_PLAN.md"
+    ]
+  },
+  "pre_existing_root_worktree": {
+    "path": "/Users/scammermike/Downloads/merc",
+    "branch": "main",
+    "commit": "ae443f69b0a63835a356eb1ed01999325677ad1b",
+    "dirty_files": [
+      {
+        "path": "control/dev_checkpoint.go",
+        "staged": false,
+        "added_lines": 100,
+        "deleted_lines": 0,
+        "sha256": "73dc16b68f96ca660c615f6c1fb1855f0fe0d9bbf8ef7918ead3d0493d485503",
+        "ownership": "PRE_EXISTING_NOT_OWNED_BY_NETWORK_V2",
+        "diagnosis": "incomplete checkpoint-cache experiment; the noCache flag is declared but unused and the cache is not wired, so the root worktree does not compile"
+      }
+    ]
+  },
+  "worktrees": [
+    {
+      "path": "/Users/scammermike/Downloads/merc/.worktrees/network-v2",
+      "branch": "codex/network-v2",
+      "commit": "ae443f69b0a63835a356eb1ed01999325677ad1b",
+      "role": "NETWORK_V2_SINGLE_WRITER"
+    },
+    {
+      "path": "/Users/scammermike/Downloads/merc/.worktrees/teardown",
+      "branch": "refactor/teardown",
+      "commit": "844ab424a882dd46a675685326c46745e79518db",
+      "clean": true,
+      "divergence_from_main": {
+        "main_unique_commits": 1,
+        "teardown_unique_commits": 32
+      },
+      "role": "CLOSED_VALIDATION_INFRASTRUCTURE_SOURCE"
+    },
+    {
+      "path": "/Users/scammermike/Downloads/merc/.worktrees/pkgsplit",
+      "branch": "refactor/control-packages",
+      "commit": "ae443f69b0a63835a356eb1ed01999325677ad1b",
+      "clean": true,
+      "role": "UNRELATED"
+    },
+    {
+      "path": "/Users/scammermike/Downloads/forge/projects/merc",
+      "branch": "DETACHED",
+      "commit": "26ff44fb917246a398c57cdaf8400b9e79e301ba",
+      "clean": true,
+      "role": "UNRELATED"
+    }
+  ],
+  "validation": {
+    "active_merc_validation_process": false,
+    "active_mutation_lock": false,
+    "postgres_17_running": true,
+    "exact_baseline_head_checkpoint_receipt": false,
+    "latest_tracked_checkpoint_commit": "9092fbd47d39a8cdff097dea28e9cc40d5bf81a2",
+    "mutation_inventory": 84,
+    "fast_validation_location": "refactor/teardown@844ab424",
+    "full_campaigns": [
+      {
+        "candidate": "8cbeaacb",
+        "caught": 84,
+        "survived": 0,
+        "stale": 0,
+        "infrastructure_failures": 0,
+        "reported_wall_seconds": 259,
+        "evidence_class": "EPHEMERAL_PRESERVED_WORKER_SUMMARIES_NOT_TRACKED_RECEIPT"
+      },
+      {
+        "candidate": "30224058",
+        "caught": 84,
+        "survived": 0,
+        "stale": 0,
+        "infrastructure_failures": 0,
+        "reported_wall_seconds": 266,
+        "evidence_class": "EPHEMERAL_PRESERVED_WORKER_SUMMARIES_NOT_TRACKED_RECEIPT"
+      }
+    ],
+    "decision": "MUTATION_OPTIMIZATION_CLOSED_INTEGRATE_ONLY",
+    "next_full_campaign": "ONE_COHERENT_CANDIDATE_BOUNDARY_AFTER_NETWORK_AUTHORITY_INTEGRATION"
+  },
+  "canonical_authority_census": {
+    "exact_v2_type_names_present": [
+      "PricingDecision",
+      "PlacementDecision",
+      "ServiceLease"
+    ],
+    "exact_v2_type_names_absent": [
+      "Workload",
+      "Capability",
+      "MarketDecision",
+      "RuntimeDecision",
+      "TopologyDecision",
+      "VerificationContract",
+      "SettlementPlan",
+      "EvidenceEnvelope"
+    ],
+    "highest_priority_gap": "Batch runtime selection uses lifecycle and quality before acceptance; measured economics plus placement and topology are appended only as non-vetoing shadow evidence after commit, while the physical worker is selected later in claim SQL. No accepted atomic MarketDecision to RuntimeDecision to PlacementDecision to TopologyDecision chain exists.",
+    "pricing_decision": "PRODUCTION_WIRED_CANONICAL_WITH_LANE_BUILDERS",
+    "runtime_cell_economics": "PRODUCTION_WIRED_WITH_BOUND_OLDER_RECEIPTS",
+    "workload": "PARALLEL_PROJECT_GRAPH_JOB_DECISION_AND_AGENT_MANIFEST",
+    "capability": "SPLIT_WORKER_PROFILE_GENERATED_AND_OFFER_FACTS",
+    "market": "LANE_SPECIFIC_REALTIME_AND_SERVICE_RECEIPTS_BATCH_ABSENT",
+    "placement": "THREE_INCOMPATIBLE_MEANINGS_MODE_REQUIREMENT_HOST_PLAN",
+    "runtime": "SINGLETON_ACCEPTANCE_MULTI_CANDIDATE_SHADOW_ONLY",
+    "topology": "PLANNER_EXISTS_BATCH_ACCEPTANCE_BINDING_ABSENT",
+    "verification": "POLICY_CLASS_COMPARATOR_WORK_PLAN_AND_EFFECTS_SPLIT",
+    "settlement": "PRICING_AMOUNTS_AND_LATER_LANE_SETTLEMENTS_SPLIT",
+    "evidence": "FOUR_LANE_RECEIPT_FAMILIES_NO_COMMON_CHAIN_ROOT",
+    "service_lease": "SUBSTANTIVE_METERING_FAILOVER_AND_DATA_PLANE_WITHOUT_AUTOSCALE_SCALE_TO_ZERO_OR_REGION_LOSS"
+  },
+  "proof_census": {
+    "runtime_cell_economics": "IMPLEMENTED_AND_TESTED_TRUE_NET_INPUTS_STILL_PARTLY_UNKNOWN_IN_CURRENT_PHYSICAL_EVIDENCE",
+    "digital_twin": "ABSENT",
+    "synthetic_fleets_10_TO_1M": "ABSENT",
+    "hierarchical_candidate_index": "ABSENT",
+    "coherent_network_epochs": "ABSENT",
+    "historical_network_replay": "ABSENT_BATCH_CELL_REGRET_ONLY",
+    "network_fault_catalogue": "ABSENT",
+    "direct_engine_parity": "MEASURED_OPEN_OR_FAILED_NOT_CLOSED",
+    "matched_metal_cuda_placement": "REFUSED_STRUCTURAL_UNMATCHED_AUTHORITY",
+    "work_elimination": "STRONG_REALTIME_REUSE_COALESCING_AND_SAME_HOST_TWO_WORKER_PREFIX_PROOF_WIDER_CLASSES_OPEN",
+    "workload_expansion": "MIXED_COMPILER_AND_TEST_SURFACES_ONLY_EMBED_AND_BATCH_ACTIVE",
+    "network_fabrics": "MODE_AND_TOPOLOGY_PLANNERS_EXIST_NO_BOUND_FOUR_MODE_EXECUTION_PROOF",
+    "service_lease": "SUBSTANTIVE_PRODUCTION_CODE_NO_BOUND_PHYSICAL_CANARY_OR_FULL_LIFECYCLE"
+  },
+  "readiness": {
+    "formal_source": "ops/go-no-go.json",
+    "formal_source_generated_at": "2026-07-20T06:25:00Z",
+    "formal_score": 84,
+    "advisory_source": "ops/readiness.json",
+    "advisory_source_generated_at": "2026-07-20T04:35:30Z",
+    "advisory_score": 83,
+    "score_disagreement": true,
+    "target_open_p0": 0,
+    "target_open_p1": 8,
+    "open_p1_ids": [
+      "P1-STAGING",
+      "P1-RECOVERY-SOAK",
+      "P1-OFFSITE-RESTORE",
+      "P1-STRIPE-TEST",
+      "P1-ALERT-DELIVERY",
+      "P1-CANARY-REHEARSAL",
+      "P1-INDEPENDENT-APPROVAL",
+      "P1-GOVERNANCE"
+    ],
+    "software_candidate_at_old_formal_receipt": "GO",
+    "software_candidate_at_current_baseline": "NOT_EXACT_HEAD_PROVEN",
+    "level_b": "NO_GO",
+    "level_c": "NO_GO_PROHIBITED",
+    "external_truth": "No local or simulated artifact closes an external P1."
+  },
+  "reconciliation_verdict": {
+    "repeat_validation_optimization": false,
+    "repeat_runtime_economics_or_pricing": false,
+    "first_load_bearing_local_closure": "CANONICAL_ACCEPTED_PRODUCTION_DECISION_CHAIN",
+    "next_network_scale_tranche": "PRODUCTION_SELECTOR_SEAM_PLUS_COHERENT_INDEXED_SNAPSHOT_AND_DIGITAL_TWIN",
+    "launch_claim_allowed": false
+  }
+}

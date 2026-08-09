@@ -37,11 +37,11 @@ footer{padding:24px 0 48px;color:var(--muted);font-size:13px}
 
 <main>
   <p class="notice">
-    <b>How merc prices.</b> A catalogue price is the confidence-weighted median of
-    observed provider list prices for its class, multiplied by a positioning
-    factor. It is not a quote we invented: every observation below names its
-    provider and its source, and observations sourced from the vendor's own
-    pricing page are weighted higher than third-party write-ups.
+    <b>How merc publishes prices.</b> Every number in the catalogue below comes
+    from the current append-only price schedule after the server revalidates its
+    exact market-board, throughput, model-artifact and whole-package power
+    evidence. If any of that authority is expired, withdrawn or unavailable,
+    this page shows no catalogue price.
   </p>
 
   <div class="card">
@@ -55,10 +55,12 @@ footer{padding:24px 0 48px;color:var(--muted);font-size:13px}
       is a weighted median so no single row can do that again.
     </p>
     <p class="muted">
-      A price is also refused outright if it cannot pay the supplier's
-      electricity and leave merc a positive contribution, unless an operator has
-      recorded an explicit subsidy authorisation. Prices that cannot sustain the
-      people producing the work are not published.
+      Market observations are shown only as evidence. They do not authorize a
+      buyer price, and this browser does not recalculate a catalogue from them.
+      A price is also refused outright if the governed physical workload cannot
+      cover its measured supplier-side power boundary and leave merc a positive
+      contribution. Prices that cannot sustain the people producing the work are
+      not published.
     </p>
   </div>
 
@@ -68,8 +70,8 @@ footer{padding:24px 0 48px;color:var(--muted);font-size:13px}
       <table id="catalogue">
         <thead>
           <tr>
-            <th>class</th><th>job type</th><th>models</th>
-            <th class="num">observations</th><th class="num">price / 1k units</th>
+            <th>model</th><th>job type</th><th>schedule</th>
+            <th>valid through</th><th class="num">price / 1k units</th>
           </tr>
         </thead>
         <tbody id="catalogue-rows">
@@ -87,7 +89,7 @@ footer{padding:24px 0 48px;color:var(--muted);font-size:13px}
         <thead>
           <tr>
             <th>class</th><th>provider</th><th>model</th>
-            <th class="num">list / 1M</th><th>weight</th><th>source</th>
+            <th class="num">list / 1M</th><th>authority</th><th>source</th>
           </tr>
         </thead>
         <tbody id="observation-rows">
@@ -110,7 +112,7 @@ footer{padding:24px 0 48px;color:var(--muted);font-size:13px}
 </main>
 
 <footer>
-  merc · prices are quoted per 1,000 billable units · a unit is approximately one token
+  merc · catalogue prices are quoted per 1,000 workload-defined billable units
 </footer>
 
 <script>
@@ -134,98 +136,81 @@ footer{padding:24px 0 48px;color:var(--muted);font-size:13px}
     tbody.append(tr);
   };
 
-  let board;
+  let publication;
   try {
     const resp = await fetch("/pricing/board.json", { headers: { accept: "application/json" } });
     if (!resp.ok) throw new Error("HTTP " + resp.status);
-    board = await resp.json();
+    publication = await resp.json();
+    if (publication.schema_version !== 2 ||
+        publication.price_authority?.status !== "current_revalidated" ||
+        !Array.isArray(publication.price_authority?.catalogue)) {
+      throw new Error("current schedule authority missing");
+    }
   } catch (err) {
-    // Say the board is unavailable rather than rendering a stale or invented
-    // number: a wrong price is worse than a missing one.
-    fail(catalogueRows, 5, "price board unavailable: " + err.message);
-    fail(observationRows, 6, "price board unavailable");
+    // Say authority is unavailable rather than rendering a stale or invented
+    // number. The error response is deliberately not a raw-board fallback.
+    fail(catalogueRows, 5, "current catalogue price authority unavailable: " + err.message);
+    fail(observationRows, 6, "market evidence unavailable with current price authority");
     return;
   }
-
-  const multiplier = Number(board.positioning_multiplier) || 1;
-  const perThousand = (obs) => {
-    const v = Number(obs.usd_per_1k) > 0
-      ? Number(obs.usd_per_1k)
-      : Number(obs.usd_per_1m) / 1000;
-    return Number.isFinite(v) && v > 0 ? v : null;
-  };
-
-  // Confidence weight mirrors the server: a vendor quoting its own price sheet
-  // outranks a third party describing it.
-  const weightOf = (obs) => {
-    let host = "";
-    try { host = new URL(obs.source_url || "").host.toLowerCase().replace(/^www\./, ""); }
-    catch { return { label: "unattributed", value: 0.2 }; }
-    const provider = String(obs.provider || "").toLowerCase();
-    if (!host || !provider) return { label: "unattributed", value: 0.2 };
-    return host.includes(provider)
-      ? { label: "vendor", value: 1.0 }
-      : { label: "third-party", value: 0.35 };
-  };
-
-  const weightedMedian = (rows) => {
-    const usable = rows
-      .map((o) => ({ price: perThousand(o), w: weightOf(o).value }))
-      .filter((r) => r.price !== null)
-      .sort((a, b) => a.price - b.price);
-    const total = usable.reduce((s, r) => s + r.w, 0);
-    if (!usable.length || total <= 0) return null;
-    let run = 0;
-    for (const r of usable) {
-      run += r.w;
-      if (run >= total / 2) return r.price;
-    }
-    return usable[usable.length - 1].price;
-  };
 
   catalogueRows.replaceChildren();
   observationRows.replaceChildren();
 
-  for (const [name, cls] of Object.entries(board.classes || {})) {
-    const observations = cls.observations || [];
-    const median = weightedMedian(observations);
-    const price = median === null ? null : median * multiplier;
-
+  for (const authority of publication.price_authority.catalogue) {
+    const price = Number(authority.settlement_price_per_1k);
+    if (!Number.isFinite(price) || price <= 0) {
+      fail(catalogueRows, 5, "current catalogue contains an invalid governed price");
+      fail(observationRows, 6, "market evidence suppressed because price authority is invalid");
+      return;
+    }
     const tr = document.createElement("tr");
     tr.append(
-      cell(name),
-      cell(cls.job_type || "—"),
-      cell((cls.model_ids || []).join(", ") || "—"),
-      cell(String(observations.length), "num"),
-      cell(price === null ? "not priced" : "$" + price.toFixed(8), "num"),
+      cell(authority.model_id || "—"),
+      cell(authority.job_type || "—"),
+      cell(String(authority.schedule_sha256 || "").slice(0, 12) || "—"),
+      cell(authority.current_use_valid_until || "—"),
+      cell(price.toFixed(8) + " " + String(authority.settlement_currency || "").toUpperCase(), "num"),
     );
     catalogueRows.append(tr);
+  }
+  if (!publication.price_authority.catalogue.length) {
+    fail(catalogueRows, 5, "no currently authorized catalogue prices");
+  }
 
-    for (const obs of observations) {
-      const w = weightOf(obs);
-      const row = document.createElement("tr");
-      const tag = document.createElement("span");
-      tag.className = "tag";
-      tag.textContent = w.label;
-      const weightCell = document.createElement("td");
-      weightCell.append(tag);
+  const evidence = publication.market_evidence;
+  if (evidence?.status !== "evidence_only_not_buyer_authority" ||
+      evidence.authorizes_buyer_prices !== false || !evidence.board) {
+    fail(observationRows, 6, "market evidence unavailable or not safely labelled");
+  } else {
+    for (const [name, cls] of Object.entries(evidence.board.classes || {})) {
+      const observations = cls.observations || [];
+      for (const obs of observations) {
+        const row = document.createElement("tr");
+        const tag = document.createElement("span");
+        tag.className = "tag";
+        tag.textContent = "evidence only";
+        const authorityCell = document.createElement("td");
+        authorityCell.append(tag);
 
-      row.append(
-        cell(name),
-        cell(obs.provider || "—"),
-        cell(obs.model || "—"),
-        cell(obs.usd_per_1m !== undefined ? "$" + obs.usd_per_1m : "—", "num"),
-      );
-      row.append(weightCell);
-      row.append(cell(obs.source_url || "unattributed", "src"));
-      observationRows.append(row);
+        row.append(
+          cell(name),
+          cell(obs.provider || "—"),
+          cell(obs.model || "—"),
+          cell(obs.usd_per_1m !== undefined ? "$" + obs.usd_per_1m : "—", "num"),
+        );
+        row.append(authorityCell);
+        row.append(cell(obs.source_url || "unattributed", "src"));
+        observationRows.append(row);
+      }
     }
   }
 
   meta.textContent =
-    "observations fetched " + (board.fetched_at || "unknown") +
-    " · positioning multiplier " + multiplier +
-    " · prices are the confidence-weighted median of the class, times the multiplier";
+    "schedule " + publication.price_authority.schedule_sha256 +
+    " · current use valid through " + publication.price_authority.current_use_valid_until +
+    " · raw market evidence sha256 " + (evidence?.sha256 || "unavailable") +
+    " · observations do not authorize buyer prices";
 })();
 </script>
 </body>

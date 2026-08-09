@@ -91,7 +91,8 @@ func (wk *Workers) reapNoPeerWedged(ctx context.Context) error {
 		return err
 	}
 	for _, c := range candidates {
-		_, perr := wk.store.SelectRedundancyPeerExcluding(ctx, c.JobType, c.ModelRef, c.MinMemGB, c.WorkerID, nil, nil)
+		_, perr := wk.store.SelectRedundancyPeerExcluding(ctx, c.JobID, c.TaskID,
+			c.JobType, c.ModelRef, c.MinMemGB, c.WorkerID, nil, nil)
 		if perr == nil {
 			continue // a peer exists -> hedging handles it, not this watchdog
 		}

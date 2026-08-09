@@ -2,6 +2,28 @@
 
 Merged programme surface (PLAN_300K L6).
 
+> **Historical record — selector economics withdrawn 2026-08-09.** The cohort
+> and derived selector/economics/shadow receipts named below used a per-1,000-unit
+> catalogue price as though it were per-unit, overstating supplier liability by
+> 1,000×, and labelled that incomplete supplier-liability proxy as complete
+> cost. They are retained with `validity: WITHDRAWN` as diagnostics only; none
+> authorizes a cost winner, regret, promotion, gross-margin, or true-net claim.
+> Current code may report a separately named equal-liability throughput
+> diagnostic under a narrow contract/epoch scope, but `cell-promotion-gate-v4`
+> cannot authorize it: no durable incumbent/challenger execution pair binds both
+> cells to the same input/cohort digest.
+
+> **Current admission truth — historical positive loops are not production
+> authority.** `TestFirstCompleteLoopThroughThePublicAPI` now exercises mechanics
+> only by installing explicit `TEST_ONLY` performance and catalogue-publication
+> authorities; it cannot write candidate evidence or establish a sellable lane.
+> The former positive CAD Project Compiler admission/execution test was removed.
+> Its current public tests prove the opposite boundary: embed compilation reaches
+> the quote handler, then returns 503 with zero quote, project, job, task, or
+> ledger writes because no production `BOUND` performance authority has a
+> `Unit`/`UnitScope` compatible with settlement. Fresh production catalogue
+> publication independently refuses the checked-in throughput/power evidence.
+
 
 <!-- source: docs/MASTER_PROGRAMME_LEDGER.md -->
 
@@ -37,7 +59,7 @@ the tree. Not from prose.
 | -: | ---- | ------ | -------- |
 | 1 | Generate current HEAD/state receipt | `DONE` | `evidence/state/branch-state-step1.json` (unbound session inventory), HEAD-bound, live DB projection |
 | 2 | Skip every item already proven by that receipt | `DONE` | this table |
-| 3 | Boot the production image from a clean clone | `PRODUCTION_WIRED` | `scripts/test-release-image-boots.sh` runs in `make ci`; clean-clone boot not re-verified this session |
+| 3 | Boot the production image from a clean clone | `CURRENTLY_REFUSED_BY_PRICING_AUTHORITY` | The boot harness remains wired in `make ci`, but the stronger catalogue gate now refuses the shipped UNBOUND throughput receipt and ASSUMED watts. A clean production image cannot mint a fresh price schedule until BOUND throughput and exact MEASURED power authority exist. |
 | 4 | Canary-decision packaging and readiness | `PRODUCTION_WIRED` | `control/canary_decision.go`, `control/canary_policy.go` + tests |
 | 5 | Buyer top-up and governed refund routes | `PRODUCTION_WIRED` | `POST /v1/billing/{setup,status,topup}`; refunds only behind `/admin/…` authority |
 | 6 | Prepaid and realtime charge-to-payable | `PRODUCTION_WIRED` locally, provider matrix `OPEN` | `control/prepaid.go`, realtime settlement; `P1-STRIPE-TEST` open |
@@ -56,7 +78,7 @@ the tree. Not from prose.
 | 19 | Pool, replica and local-cluster modes | `ABSENT` as declared modes | placement authority exists; no mode taxonomy, no refusal rule |
 | 20 | Level-B security and operational closure | `EXTERNALLY_BLOCKED` | `ops/go-no-go.json`: 0 P0, 8 open P1, 7 of them external |
 | 21 | Audit against §20 "what Merc must not do" | pending | — |
-| 22 | Prove the §21 first complete loop | pending | — |
+| 22 | Prove the §21 first complete loop | `TEST_ONLY_MECHANICS`; production physical admission `REFUSED` | `TestFirstCompleteLoopThroughThePublicAPI` uses explicit synthetic performance/publication authority and writes no candidate evidence. Historical real-runtime receipts remain non-current. |
 
 ## Session preconditions
 
@@ -79,9 +101,9 @@ existing.
 | 1 | HEAD/state receipt | `DONE` | `evidence/state/branch-state-step1.json` (unbound session inventory) with a working live-database projection. Getting there required fixing `control/schema.sql`, which could not migrate any database that had ever served work |
 | 2 | Skip proven work | `DONE` | the entry table above |
 | 7 | Supplier throughput from benchmark authority | `PARTIAL` | `control/repricing_benchmark_authority_test.go` binds every `repricingBenchmarks` constant to the receipt it cites, and enforces a CONSERVATIVE bound: a constant above the measurement fails (it would price undemonstrated supply), one more than 1% below fails (it overcharges the buyer). Found the `batch_infer` constant at 138.7 against a measured 138.71389521 — conservative, so it stands. Still not the per-cell, per-hardware derivation the step asks for |
-| 9 | RuntimeSelector shadow mode | `DONE` | the scoring half arrived. `control/runtime_cell_cost.go` reads measured per-cell cost out of the money path — the earlier comment claiming no such source existed was wrong, since every committed task already carries its cell, units, duration, frozen supplier liability, retries and verification outcome. Cost is a query, not a new table. Policy is now `eligibility-and-measured-cost-v2` and every row records which arm decided it |
-| 10 | Paired cohorts and regret | `PARTIAL` | `SelectorRegretForScope` computes regret against the cheapest measured eligible cell, counts unmeasured decisions rather than scoring them zero, and refuses to compare cost across hardware classes. Tested against seeded completed tasks. **No cohort was driven through live agents this session**, so the regret figure has no production cohort behind it yet |
-| 11 | Selector promotion authority | `DONE` | `control/runtime_cell_promotion.go`: exact scope, both sides measured above 20 samples, zero challenger verification failures, a 10% cost margin, production decisions required (not a benchmark), incumbent must be the routable cell, rollback target resolved before promotion, SHA-256 receipt reference. Refusals are returned as evidence with reasons, not as errors |
+| 9 | RuntimeSelector shadow mode | `DONE` | the scoring half arrived. `control/runtime_cell_cost.go` reads the eventual accepted supplier payout plus separate reliability evidence out of the money path — every committed task already carries its cell, accepted outputs, duration, frozen payout, retries and verification outcome. Retries and failed attempts are unpaid and fail closed rather than being capitalized into liability. Policy is now `eligibility-and-measured-supplier-liability-v3` and every row records which arm decided it |
+| 10 | Paired cohorts and regret | `HISTORICAL_ECONOMICS_WITHDRAWN` | The old `SelectorRegretForScope` result used a 1,000×-wrong unit conversion and an incomplete cost vocabulary. The retained latency rows are diagnostics only. A future liability-regret authority requires a durable incumbent/challenger execution pair bound to one shared input/cohort digest; the current independently aggregated jobs do not provide it. |
+| 11 | Selector promotion authority | `NON_AUTHORIZING_V4_REFUSAL_GATE` | `cell-promotion-gate-v4` refuses every promotion because the durable matched-execution authority above does not exist. Shadow consideration plus independently aggregated jobs is not exact-pair evidence. Unequal supplier liability also cannot authorize a total-cost promotion while platform costs remain unknown. |
 | 13 | Tokenization and tool-schema caches | `PARTIAL` closed honestly: identity **DONE**; tokenization **DOES_NOT_APPLY** | `control/realtime_identity_cache.go` is production-wired (tenant/profile/policy-scoped). Host microbench (M3 Ultra): hit ~0.4µs, miss ~12µs. Control-plane tokenization does not exist — admission/pricing use byte heuristics; settlement tokens come from the engine. Agent embed already has `token_cache.rs`. Bound audit: `evidence/perf/five-cache-architecture-audit.json`. Do not build an empty tokenizer cache to tick the box |
 | 14 | Batching by traffic class | `DONE, declared unwired` | `control/traffic_class.go`: the four classes with promoted policy, and `ValidateTrafficClassPolicies` proving the ordering invariants — every lower class declares it never delays every higher one, only BACKGROUND is preemptible, INTERACTIVE stays below the throughput knee. Budgets come from the two MEASURED points on the existing curve; classes sharing one say so rather than interpolating a third. Registered in `knownUnwired` because no production path asks for the class yet |
 | 19 | Execution fabric modes | `DONE, declared unwired` | `control/execution_mode.go`: POOL, REPLICA_SERVICE, LOCAL_CLUSTER, CLOUD_BACKSTOP, each placement carrying its reason and every refused mode carrying its own. Tightly coupled work is refused on a WAN fabric and on an unmeasured one; unknown parallelism fails closed to tight, so a new upstream mode cannot be silently placed on the public internet |
@@ -91,46 +113,87 @@ existing.
 
 | # | Step | Status | What changed |
 | -: | ---- | ------ | ------------ |
-| 3 | Boot the production image | `DONE`, verified this session | `scripts/test-release-image-boots.sh` built the final image from the tree and served every probe with **no host files**: `/healthz`, `/version`, `/prices`, `/pricing/board.json`, `/.well-known/security.txt`, and the price board loaded from the release at digest `0e4a70dc40f8`. Receipt: `evidence/state/release-image-boot.json` (unbound boot inventory; not a bound release attestation) |
+| 3 | Boot the production image | historical boot proof retained; current candidate `REFUSED` | The earlier tree served every probe with no host files, recorded by `evidence/state/release-image-boot.json` (an UNBOUND inventory, not release authority). That result does not carry forward: current startup rejects the shipped UNBOUND throughput receipt and ASSUMED watts before publication. The image-boot gate must remain red until a BOUND benchmark plus exact MEASURED power row can authorize a fresh catalogue schedule. |
 | 4 | Canary packaging and readiness | `DONE`, already tested at entry | `/readyz` returns 503 with `reason_code: canary_policy_unconfigured` — a direct configuration error, not an unexplained buyer-facing 403 — and it reads BOTH the boot copy and a live re-read, so a decision that stops resolving on a running process cannot leave the probe green while payouts halt. `TestReadyzGoesRedWhenTheDisableDecisionStopsResolving` and `TestReadyzNamesCanaryMisconfigurationAndProbesStayReachable` |
-| 10 | Paired cohorts and regret | `DONE`, and it found something | `control/paired_cohort_test.go` drives 40 real executions through two enrolled agents across both embed cells, records the shadow decisions the way `createJob` does, then reads measured cost, regret and the promotion gate off the result and writes `evidence/perf/selector/paired-cohort-embed.json` (unbound cohort receipt; apple_silicon_ultra only). Opt-in behind `MERC_PAIRED_COHORT=1` and registered in `allowed-test-skips.txt` |
+| 10 | Paired cohorts and regret | `WITHDRAWN AS ECONOMIC AUTHORITY` | The harness drove 40 executions, but its mixed receipt used the wrong price unit and pooled an insufficient scope. `evidence/perf/selector/paired-cohort-embed.json` and the derived cell-economics, economic-selector, and governed-shadow receipts are retained as `WITHDRAWN`; their latency rows are historical diagnostics, not matched-pair, economic, or promotion proof. |
 | 12 | 128-request coalescing | bound money-path proofs (double upstream) | Bound proofs at commit `4ef1922a` (`evidence/reuse/public-path-128-to-1.json`, `evidence/reuse/public-path-coalescing-128-to-1.json`) show 128 deliveries to 1 upstream call through the real public handler against an HTTP upstream double. They prove control-plane reuse/coalescing money and receipt paths; they do not measure GPU performance. Store-level follower money/isolation remains in `control/coalesced_cluster_money_test.go` |
 | 15 | Governed vLLM CUDA cell | harness ready, credential still dead | `scripts/runpod-spend-guard.py` converts a dollar cap into a pod lifetime with a self-test, holds back 20% for teardown delay, rounds spend up, and marks a receipt **inadmissible** on unverified teardown, an overrun lifetime, a floating image tag or a leftover pod. `runpod-vllm.sh experiment` wires that around the existing provisioner and refuses to start while anything else is billing. The self-test runs in `make ci` |
 | 19 | Execution fabric modes | `PRODUCTION_WIRED` | `createJob` now asks `ChooseExecutionMode` and stores the mode plus the full explanation, refusals included, beside the shadow selection. Batch work reaches POOL by construction, which is the reason to record it: once a second mode is reachable, "by construction" and "by decision" are indistinguishable afterwards. A tightly coupled degree-4 workload records **no** mode rather than being defaulted onto the public internet, and the database refuses a mode with no reason |
 
-### What the first real cohort found
+### Current Step 4 activation and performance boundary
 
-Forty real executions through two enrolled agents measured **0.194 USD per unit on
-both embed cells** and a mean regret of **exactly 0.000**. That is not two engines
-happening to tie. It is structural, and it is the most important finding of the
-session:
+`cell-promotion-gate-v4` is deliberately non-authorizing. The observation model
+stores a shadow decision naming cells that were considered and separately
+aggregates jobs completed on each cell; it does not persist a matched
+incumbent/challenger execution pair or a shared input/cohort digest. Therefore
+the gate always refuses, even when the aggregate liability and throughput
+figures would otherwise satisfy a margin.
 
-> The supplier payout is priced per **model** — catalogue price × units × supplier
-> share — so any two cells serving one model at one price have identical
-> verified-outcome cost per unit however fast either one is, and the regret between
-> them is zero by construction.
+A narrow comparison receipt cannot change a cell-global lifecycle. Scoped
+receipts are rejected as authority for global `CANARY` or `ACTIVE` writes.
+`CANARY` remains directed-only: its allowlist and traffic-percentage fields are
+stored, but no ordinary-routing admission path consumes them, so they cannot be
+used to expose unrestricted buyer traffic.
 
-A cost-only gate would have reported that as a failed cost argument — *"saves
-0.00%, below the required 10% margin"* — which is true and useless, because no
-same-price promotion can ever clear a cost margin. The gate now names which
-argument it is making:
+Production also has zero `BOUND` performance lane whose `Unit` and `UnitScope`
+match the corresponding settlement authority. Batch measures
+`tokens/decode_output_tokens` while settlement uses
+`tokens/token_like_input_plus_max_output_tokens`; embeddings measure
+`embeddings/completed_embedding_records` while settlement uses
+`token_like_input_units/token_like_input_geometry`. New production admission
+therefore refuses rather than converting
+incommensurate units. Previously accepted jobs remain readable and replayable
+from their frozen performance snapshots; historical replay does not consult or
+reinterpret today's performance authority.
+
+### Historical cohort diagnostics (withdrawn as authority)
+
+The original paragraph claimed **0.194 USD per unit** and zero complete-cost
+regret. That economic interpretation is withdrawn: the fixture applied a price
+quoted per 1,000 units as though it were per unit, and the scorer omitted
+platform costs. The later records-only “correction” to **0.0000060625 USD per
+output** was also not canonical: text settlement units are token-like
+`max(records, raw_input_bytes/4)`, not output-record count. The repaired
+test harness freezes its actual 2,380-byte/32-output corpus as 595 settlement
+units; at its explicitly synthetic historical $0.00625/1K fixture rate that is
+$0.003607/task and $0.00011271875/output. Those are regression-test figures,
+not a reinterpretation or revalidation of the withdrawn physical receipt.
+
+> Supplier payout is frozen per accepted job from catalogue price × exact
+> settlement-input geometry × supplier share. Rejected verification attempts,
+> terminal failures and retries are unpaid reliability evidence: they make a row
+> ineligible for comparison; they do not multiply ledger liability. Two cells
+> may be compared only under matched frozen geometry and contract authority.
+> Provider, energy, storage, egress, utilization, model-load and refund-risk
+> costs remain separate unknowns, so neither an economic winner nor total-cost
+> regret follows.
+
+A historical cost-only diagnostic would have reported that as a failed cost
+argument — *"saves 0.00%, below the required 10% margin"* — which is true and
+useless, because no
+same-price comparison can ever clear a cost margin. The diagnostic scorer names
+which argument it is reporting:
 
 | Basis | Margin | What it claims |
 | --- | --- | --- |
-| `CHEAPER_VERIFIED_UNIT` | 10% | a real saving |
-| `MORE_THROUGHPUT_AT_EQUAL_PRICE` | 25% | the same unit produced faster — a capacity gain, **not** a saving |
+| `SUPPLIER_LIABILITY_PROXY_ONLY_COST_REFUSED` | none | unequal liability is reported but cannot authorize a total-cost choice while platform costs are unknown |
+| `MORE_THROUGHPUT_AT_EQUAL_SUPPLIER_LIABILITY` | 25% | the same verified unit produced faster at equal supplier liability — a capacity gain, **not** a saving |
 
 The wider margin on the second is because it protects against noise in a duration
 measured on a shared host rather than noise in a dollar figure.
+
+Neither basis is promotion authority today. Gate v4 refuses both until a durable
+matched execution pair with one shared input/cohort digest exists.
 
 The same run measured 3.0000 ms per unit on both cells, identical to four decimals
 — a task too small to separate two engines rather than two engines agreeing. An
 unbound in-process harness had once suggested a large batch-8 gap, so the cohort
 now embeds batches of 32 to give the chain a chance to separate the cells.
 
-The gate also caught its own caller: the cohort's scope claimed verification
-contract `cosine_similarity` where the cell sells `cosine`, and the authority check
-refused the promotion for it.
+The historical gate also caught its own caller: the cohort's scope claimed
+verification contract `cosine_similarity` where the cell sells `cosine`, and
+the authority check refused the attempted promotion. That refusal is retained
+as narrative, not as current promotion evidence.
 
 ### And then the batch-32 rerun contradicted the benchmark
 
@@ -139,27 +202,29 @@ retained benchmark implies:
 
 | cell | measured through the chain | supplier USD/unit |
 | --- | --- | --- |
-| `candle-metal-minilm-embed` | 0.2188 ms/unit | 0.006062500 |
-| `llama-cpp-metal-minilm-embed` | 0.2812 ms/unit | 0.006062500 |
+| `candle-metal-minilm-embed` | 0.2188 ms/output | **WITHDRAWN — no valid economic value recoverable from this receipt** |
+| `llama-cpp-metal-minilm-embed` | 0.2812 ms/output | **WITHDRAWN — no valid economic value recoverable from this receipt** |
 
 An unbound in-process harness once reported roughly 6.7× at batch 8
 (`evidence/perf/runtime-benchmarks/embed-cell-candle-vs-llama-cpp-r1.json`:
 llama.cpp 2,179 texts/sec against candle's 326). That is not product throughput
 and it is not chain cost. Through the full Merc chain at batch 32 llama.cpp was
-**28.6% slower per unit**, and the gate refused the promotion for exactly that
-reason.
+**28.6% slower per unit**, and the historical gate refused the attempted
+promotion for that reason before the underlying receipts were withdrawn.
 
 The two numbers are not the same quantity: one is raw engine throughput on a warm
 in-process harness, the other is what an enrolled agent reports for a task that
 also downloads its input, executes, hashes and uploads its result. That is the
 whole of §20's fourth prohibition — *do not treat standalone benchmarks as product
-proof* — stated in numbers rather than as advice, and it is the chain measurement a
-promotion has to be argued from.
+proof* — stated in numbers rather than as advice. A future promotion would need
+a durable matched-input execution pair in addition to valid chain measurements;
+this independently aggregated cohort is not that authority.
 
 ### Two holes found by reviewing the cost model against itself
 
-Both were in the first version of the scorer, and both would have promoted the
-wrong cell:
+Both were in the first version of the historical scorer, and both would have
+promoted the wrong cell. Gate v4 now refuses independently because no durable
+matched-execution pair exists:
 
 1. **Price without latency.** The gate compared verified-outcome cost and stopped,
    so a cell at half the price and four times slower per unit cleared it — for
@@ -170,9 +235,10 @@ wrong cell:
 2. **Blind to a crashing cell.** The sample counted completed tasks, so a cell
    that failed a third of what it claimed looked exactly as clean as one that
    failed none. Terminal outcomes are now read over every primary task that
-   reached `complete` or `failed` on the cell, the cost divides by the delivery
-   rate as well as the verification pass rate, and the gate refuses a challenger
-   with any outright failure.
+   reached `complete` or `failed` on the cell. A verification or terminal failure
+   makes the cohort ineligible; it is unpaid reliability evidence and is never
+   divided into or capitalized into supplier liability. Eligible liability is
+   the exact settled supplier credit for the accepted work.
 
 ### Steps that did not move, and why
 
@@ -221,15 +287,21 @@ Connect scenarios ought to exercise. It is **not** worth working around, and the
 shared test account's webhook configuration was left alone rather than recreated
 under a second agent that is live on the same account.
 
-## Step 22 — the loop reaches admission and stops there
+## Historical Step 22 investigation — not current admission authority
 
-`control/first_complete_loop_test.go` drives the whole loop through the **public
-API**, which no existing chain proof does: every one of them submits a
-test-constructed job row through `store.SubmitJobTx` and so skips signup, the API
-key, admission, the quote, the compute plan and the pricing decision.
+The investigation below records how the old positive loop was debugged. Its
+arithmetic findings remain useful, but every admission or “loop closed” statement
+in this subsection is historical. Current truth is the `TEST_ONLY` mechanics seam
+and production physical-authority refusal summarized after it.
 
-It gets a stranger signed up, funded, holding an API key, and all the way to the
-pricing authority. Admission then refuses:
+The historical `control/first_complete_loop_test.go` path drove the whole loop
+through the **public API**, which the earlier chain proofs did not: every one of
+them submitted a test-constructed job row through `store.SubmitJobTx` and so
+skipped signup, the API key, admission, the quote, the compute plan and the
+pricing decision.
+
+It got a stranger signed up, funded, holding an API key, and all the way to the
+pricing authority. Admission then refused:
 
 ```text
 modeled supplier gross 0.102978 USD/hr is below the admission ceiling
@@ -439,10 +511,10 @@ entitlement denominated in CAD. Both sides were `float64` named USD, so nothing 
 the type system could object.
 
 Under USD settlement the FX rate is 1.0 and the defect is invisible. Under the
-CAD settlement this programme mandates it is a flat 1.37x error in the supplier's
-disfavour. The floor now comes from `SettlementPricePer1K`, and the stranger
-admission proof runs in **both** currencies for exactly this reason — the mandated
-money mode has to be exercised, not assumed.
+historically mandated CAD settlement it is a flat 1.37x error in the supplier's
+disfavour. The floor now comes from `SettlementPricePer1K`, and the exact-money
+fixture exercises **both** currencies for this reason. That is arithmetic
+coverage, not current physical-admission evidence.
 
 ### D3 — the buyer's gross quantised before the supplier's share
 
@@ -481,13 +553,14 @@ a frozen money figure depend on a dated benchmark that can be revalidated out fr
 under an already-accepted receipt.
 
 Because the floor and the entitlement are now the same expression evaluated once,
-admission is an **identity**, not a tolerance. The measured headroom is exactly
-zero in both currencies — not "within epsilon", zero.
+the `TEST_ONLY` exact-money fixture proves an **identity**, not a tolerance. The
+arithmetic headroom is exactly zero in both currencies — not "within epsilon",
+zero. Current production admission still separately requires physical authority
+whose unit and unit scope match settlement.
 
-## The loop closed
+## Historical loop; current mechanics seam
 
-`TestFirstCompleteLoopThroughThePublicAPI` is no longer gated, and it runs green
-end to end on a host with a built agent and object storage:
+The old `TestFirstCompleteLoopThroughThePublicAPI` result remains historical:
 
 ```text
 LOOP CLOSED: buyer 11564 micros = supplier 2 + Merc 11562,
@@ -496,12 +569,22 @@ LOOP CLOSED: buyer 11564 micros = supplier 2 + Merc 11562,
 ```
 
 A stranger signed up, was funded, received an API key, submitted a three-record
-project, Merc admitted and priced it, a real `merc-agent` process claimed it,
-executed it on Candle/Metal, the result verified against a seeded honeypot, the
-buyer was charged inside the ceiling they accepted, the supplier was credited once
-per executed task, and money conserved exactly. The receipt is
-`evidence/canary/first-complete-loop.json` (unbound historical loop receipt; not
-candidate-bound canary authority).
+project, and a real `merc-agent` completed the historical Candle/Metal path. The
+receipt at `evidence/canary/first-complete-loop.json` is UNBOUND and is not
+candidate or current-admission authority.
+
+The current test keeps the buyer/agent/settlement mechanics but installs explicit
+`TEST_ONLY` combined-token performance and synthetic catalogue-publication
+authorities. It refuses to write candidate evidence and proves no production
+lane. Checked-in batch throughput is decode-output-only while settlement is
+combined input-plus-output; checked-in embed throughput is
+completed-output-records while settlement is token-like input geometry. Until a
+BOUND conversion or matching receipt exists, the two current CAD Project
+Compiler regressions prove that public embed quoting returns 503 and writes no
+quote, project, job, task, or ledger row:
+
+- `TestProjectCompilerCADEmbedAdmissionRefusesWithoutScopeCompatibleAuthority`
+- `TestProjectCompilerCADEmbedExecutionRefusesBeforeDurableMutation`
 
 Two things had to be fixed before it would close, and neither was the pricing
 authority.
@@ -690,11 +773,15 @@ counted as prompt-to-image generation.
 | Single-host multi-GPU | `IMPLEMENTED` (local authority `TESTED`) | `control/multi_gpu_admission.go`, `control/realtime_placement.go`, and the compiled `merc-agent vllm` path. The vLLM adapter was previously an orphan source file; it is now built, exposed as a CLI command, and registers explicit CUDA class, physical GPU count, per-GPU memory, committed memory, and `nvlink`/`pcie`. The container receives exactly devices `0..TP-1`, never `--gpus all`. The control plane selects the smallest admissible degree, copies the exact placement JSON+digest from offer to contract, exposes it on the receipt, and makes contract placement immutable in PostgreSQL; historical contracts remain readable without invented topology, while legacy offers are drained until they re-register. Per-rank overhead does **not** shrink; PCIe is capped at TP=2; attention heads must divide the degree; undeclared multi-GPU interconnect is refused. 50,000 randomised planner cases plus offer→contract→receipt and tamper tests; mutation-checked 9/9. **Still `EXTERNALLY_BLOCKED` for a sellable TP>1 lane**: the embedded profile is TP=1 and `UNPROVEN`; no TP>1 profile with measured weight/overhead requirements and no real multi-GPU receipt exists. The code does not promote that missing evidence into a claim. |
 | Buyer dashboard | `TESTED`; candidate canary `OPEN` | `web/buyer.html`. Its live script signs in to a running Merc and opens the workspace, but it does not emit an exact-candidate receipt and therefore cannot promote itself. |
 | Supplier console | `TESTED`; candidate canary `OPEN` | `web/supplier.html` behind `GET /supplier`. The current automated command uses recorded control-plane responses to prove worker-token auth, ledger-granularity money, four payout-rail states, and refusal behavior. Recorded responses are deliberately capped at `TESTED`; mutation-checked 3/3. |
-| Public price board | `TESTED`; candidate canary `OPEN` | The published page's arithmetic matches the server's confidence-weighted median selection. The exact board bytes, selector policy, supplier share, complete model set, USD reference prices, settlement prices, conversion rate, and immutable FX revision form one SHA-256 schedule applied in a serializable all-or-nothing transaction. A negative-contribution price cannot be enabled by environment text, incomplete/underwater catalogues refuse boot, and direct mutation of a schedule-bound model price is rejected by PostgreSQL. Buyer APIs return explicit generic price/currency fields and emit legacy USD fields only for actual USD. Worker USD/hour floors remain tied to the separate USD reference price, never compared numerically to CAD. Fresh-install, upgrade, rollback, replay, digest-tamper, FX-tamper, and database-mutation tests pass. No exact-candidate buyer-to-receipt exercise is retained. |
+| Public price board | schedule mechanics `TESTED`; fresh production publication `REFUSED` | The page/schedule arithmetic, fixed-point currency fields, append-only persistence, rollback and replay mechanics are covered through one explicit in-memory `TEST_ONLY` BOUND-throughput/MEASURED-power seam. Production construction now requires every throughput receipt to be BOUND with complete producer identity and a real source commit, plus an exact MEASURED sustained-power row. The shipped M3 Pro throughput receipt is UNBOUND and all checked-in watts are ASSUMED, so a fresh process and release image refuse before publishing instead of treating diagnostics as buyer-price authority. Previously persisted schedules remain self-contained and replayable. No candidate buyer-to-receipt claim exists. |
 | Python SDK | historical live exercise; candidate canary `OPEN` | `clients/sdk/python/merc/`, clean-room install verified. The live script submits a job to a running Merc, waits for a worker, and validates the result, but does not yet emit source-bound evidence. |
 | TypeScript SDK | historical live exercise; candidate canary `OPEN` | `clients/sdk/typescript/` builds to `dist/`; its live run exposed and locked tests for the idempotency header, JSONL input shape, and cancel route. It does not yet emit source-bound canary evidence. |
 
-## REAL_RUNTIME_PROVEN: batch embeddings, 2026-07-27
+## Historical REAL_RUNTIME_PROVEN: batch embeddings, 2026-07-27
+
+This section is retained execution history, not current admission authority.
+Production physical admission now refuses before a quote or job write for the
+unit-scope reasons above.
 
 merc's original supply is Apple Silicon running candle on Metal, and this machine
 is an M3 Ultra — an admitted `apple_silicon_ultra` host. A real GPU rental was
@@ -878,9 +965,9 @@ candidate-bound `CANARY_PROVEN`.
 | Stripe Sandbox authority | `TESTED` scaffold; provider execution `OPEN` | The Level B manifest now explicitly selects `test` payment mode, the Stripe provider, and the mandatory CAD settlement currency; production defaults can no longer leave the configured canary structurally SEALED. Preflight and matrix share one authority for API version, CAD provider objects, a distinct payout-enabled Canadian connected account, Stripe's Canadian success/failure payout fixtures, distinct endpoint IDs/secrets, exact staging host paths, complete event inventories, and sanitized receipts. Signed no-value probes require the real handler/database to classify terminal-first application as `applied`, the older opening fact as `stale_ignored` behind rank 30, and an exact replay as `duplicate`; the matrix no longer self-asserts those outcomes. Offline adversarial tests reject URL/version/event/country/currency/ID drift before network access. No claim of provider execution is made. |
 | Aggregated billing / prepaid | `IMPLEMENTED` | 4 references in `control/accounts.go`; charge batching reworked so the age trigger no longer fires at Stripe's $0.50 floor. |
 | Quote/job currency authority | local database `TESTED`; provider reconciliation `OPEN` | Every new quote, accepted job, economic plan, verification settlement, task ledger row, SLA adjustment, and charge batch carries one explicit ISO currency. Database constraints bind full quote/economic JSON, quote-to-job acceptance, job-to-plan authority, and task-to-ledger writes; authority columns and targets are immutable. A currency cutover cannot reinterpret numeric amounts: the wrong deployment cannot bind the quote, claim or start the job, settle it, expose it for single/batched collection, or confirm provider cash. Exact-result reuse follows the same fence. Legacy persisted verification plans remain readable but derive and validate the immutable job currency before writing money. Fresh-PostgreSQL tests cover CAD visibility and success, CAD/USD cutover refusal at every lifecycle boundary, atomic rollback, hostile mutation/direct inserts, and schema reapply. Historical `_usd` field names are legacy storage/API names, not currency authority. |
-| Catalogue price authority | local database `TESTED`; operator FX input `OPEN` | `pricing/board.json` is explicitly a USD reference. A non-USD deployment must supply a finite positive reference-to-settlement rate and immutable revision; neither application code nor staging scaffolding invents one. Startup derives a complete canonical schedule, proves every reference price covers the governed supplier contribution, converts upward at eight-decimal precision, records the raw-board digest and full formula, and atomically publishes every model or none. Schedule/history rows are append-only; model price fields must match both through a database trigger. The API, quote, exact-reuse, and runtime-catalog paths fail closed on model/settlement currency drift. The remaining CAD rate/revision is a declared operator input, not executed evidence. |
-| Quote/planner/claim placement authority | local database `TESTED`; fleet canary `OPEN` | Every new quote carries a versioned placement requirement that freezes the exact server-authorized model kind, runtime cell, runtime ID, engine, runtime-matrix digest, effective-memory floor, hardware and residency sets, reputation/trusted gates, and modeled supplier ask admission ceiling. That USD/hour ceiling is derived from the frozen USD reference price, supplier share, tier and modeled throughput; it is not advertised as realized hourly pay, because settlement remains per accepted task. Quote capacity, warm capacity, pool reputation, adaptive split sizing, and the throughput planner all execute one shared predicate; trusted status is derived from live reputation plus completed tasks rather than a stale label. Bound submission refuses placement or ceiling drift. The job projection is checked against the workload decision before insert, and PostgreSQL makes every scheduler-facing projection immutable after acceptance. A fresh-database hostile test starts with five exact-runtime workers whose payout floors make claimable capacity zero, then lowers one ask and proves the quote, planner, and transactional claim identify the same sole worker. Field-by-field tamper tests cover the quote authority, job projection, database trigger, missing placement JSON, and schema reapply. No fleet-capacity or SLA canary claim is made from this local proof. |
-| Composite pricing decision authority | local database `TESTED`; provider/fleet reconciliation `OPEN` | Every new physical quote and accepted job binds workload, compute, placement, economic-plan and economic-schedule digests to the exact append-only catalogue schedule, market-board digest, model formula, USD reference price, settlement price, FX rate/revision, supplier share, tier, billable units, modeled time basis, buyer price, maximum price and component costs. Storage, egress, provider energy/depreciation and risk remain explicitly `unknown`, never modeled zero. PostgreSQL stores immutable placement/pricing JSON plus canonical SHA-256 values and cross-checks their workload, compute, placement and currency projections. A bound submission uses the quote-pinned catalogue without reading the current model pointer; unchanged terms retain the exact quote pricing SHA, while a declined SLA or firm-cap variant carries the immutable origin quote SHA. Exact-result reuse has no physical placement and marks supplier and verification cost `not_applicable`; its firm cap is checked before durable writes. Clearing receipts expose the complete decision, exact digests, catalogue/FX provenance and modeled-versus-settled reconciliation. Fresh-PostgreSQL tests cover quote→job→scheduler→receipt digest continuity, arbitrary positive-rate co-mutation, every authority-family digest, exact-reuse cap/zero-work semantics, nested database tamper rejection, historical currency readability and legacy NULL authority. No external provider or fleet observation is promoted by this local proof. |
+| Catalogue price authority | schedule mechanics/database `TESTED`; current production publication `REFUSED` | `pricing/board.json` is explicitly a USD reference. A non-USD deployment must supply a finite positive reference-to-settlement rate and immutable revision; neither application code nor staging scaffolding invents one. Fresh publication additionally requires every throughput input to be `BOUND` with complete producer identity and a real source commit, plus an exact `MEASURED` sustained-power row for its hardware. The checked-in M3 Pro receipt is UNBOUND and every current watts row is ASSUMED, so startup now refuses instead of letting those diagnostics authorize buyer prices. One explicitly synthetic in-memory/file test seam proves schedule construction, FX conversion, append-only persistence and rollback mechanics only; it is not production evidence. Previously stored schedules remain self-contained and replayable. The release-image boot gate remains blocked until a BOUND throughput receipt and measured power authority exist. |
+| Quote/planner/claim placement authority | local database `TESTED`; current production performance ingress `REFUSED` | A physical quote that passes current ingress carries a versioned placement requirement freezing the exact server-authorized model kind, runtime cell, runtime ID, engine, runtime-matrix digest, frozen performance snapshot, effective-memory floor, hardware and residency sets, reputation/trusted gates, and modeled supplier ask admission ceiling. Historical accepted placements validate and replay from that frozen snapshot. New ingress separately requires today's `BOUND` performance `Unit`/`UnitScope` to match settlement; no production lane currently does, so production physical admission refuses before a quote or job write. The USD/hour ceiling is derived from the frozen USD reference price, supplier share, tier and modeled throughput; it is not advertised as realized hourly pay, because settlement remains per accepted task. Quote capacity, warm capacity, pool reputation, adaptive split sizing, and the throughput planner execute one shared predicate after this authority gate; trusted status is derived from live reputation plus completed tasks rather than a stale label. Bound submission refuses placement, ceiling, or current-authority drift. PostgreSQL makes every scheduler-facing projection immutable after acceptance. Fresh-database hostile and tamper tests cover predicate agreement, historical replay, current unit-scope refusal, the quote authority, job projection, database trigger, missing placement JSON, and schema reapply. No current capacity, fleet, or SLA canary claim is made from this local proof. |
+| Composite pricing decision authority | local database `TESTED`; provider/fleet reconciliation `OPEN` | Any physical quote admitted by current ingress and every accepted job binds workload, compute, placement, economic-plan and economic-schedule digests to the exact append-only catalogue schedule, market-board digest, model formula, USD reference price, settlement price, FX rate/revision, supplier share, tier, billable units, modeled time basis, buyer price, maximum price and component costs. Storage, egress, provider energy/depreciation and risk remain explicitly `unknown`, never modeled zero. PostgreSQL stores immutable placement/pricing JSON plus canonical SHA-256 values and cross-checks their workload, compute, placement and currency projections. A bound submission keeps the quote-pinned price, FX and supplier-share terms; durable ingress reads the current model schedule pointer only to require byte-exactly unchanged physical authority. A price-only reprice therefore preserves an unexpired quote, while a throughput, power, runtime, build, device or receipt supersession refuses before writes. Unchanged terms retain the exact quote pricing SHA, while a declined SLA or firm-cap variant carries the immutable origin quote SHA. Exact-result reuse has no physical placement and marks supplier and verification cost `not_applicable`; its firm cap is checked before durable writes. Clearing receipts expose the complete decision, exact digests, catalogue/FX provenance and modeled-versus-settled reconciliation. Fresh-PostgreSQL tests cover quote→job→scheduler→receipt digest continuity, arbitrary positive-rate co-mutation, every authority-family digest, exact-reuse cap/zero-work semantics, nested database tamper rejection, historical currency readability and legacy NULL authority. No external provider or fleet observation is promoted by this local proof. |
 | Verification recovery capacity | local database `TESTED`; fleet canary `OPEN` | Capacity is derived from a worst-case three PostgreSQL connections per verifier, with two connections preserved for API/background work and one for worker-leader election. The default 20-connection pool admits exactly five concurrent processors; unsafe worker pools below six refuse startup. Recovery claims and hydrates leases in one transaction, drains bounded parallel waves, serializes only the same job chunk, reports forward progress independently of sweep duration, and returns every owned lease promptly to `pending` on cancellation or error. Backlog, expired-lease, oldest-open, retry, terminal-outcome, and no-progress metrics feed three page rules and a runbook. Fresh-PostgreSQL and race tests prove a 100-row backlog is processed exactly once at the safe cap, same-chunk exclusion does not block other chunks, pool headroom remains live, cancellation leaves no leased rows, and a progressing sweep stays healthy while 30 seconds without progress becomes stale. No fleet-load claim is made. |
 | Processor-fee allocation | local database `TESTED`; provider reconciliation `OPEN` | New batch fees use deterministic Hamilton/largest-remainder allocation at micro-USD precision with immutable job-ID tie-breaking. Pre-upgrade allocations are preserved and explicitly marked `legacy_order_residual_v0`, never silently rewritten. The database binds every allocation to its exact batch, job, provider reference, and method; serializes concurrent allocators; preserves append-only rows; rejects partial/mismatched replays; and requires exact fee conservation. Invoices and clearing receipts expose the per-job allocation, versioned method, and platform net after that fee without exposing Stripe identifiers; batch invoices fail closed on an incomplete allocation. Ten thousand randomized order/permutation/quota cases and fresh-PostgreSQL concurrency/mutation tests pass. No Stripe object or provider cash evidence is claimed. |
 | Refunds / disputes | `IMPLEMENTED` | 21 files reference disputes. Transfer reversal has never met real Stripe. |
@@ -914,24 +1001,29 @@ VisionMCP-linking `.mcp.json` are preserved in that worktree, not merged here.
 
 ## Honest summary
 
-Merc is a buildable, locally proven Level A software candidate with batch,
-realtime, deterministic scene rendering, and historical single-GPU CUDA/vLLM
-canary evidence. Quote-bound compute, rendering, and realtime placement authority are frozen into immutable contracts
-and receipts; claimable capacity is separately frozen into the quote and
-accepted scheduler projection. TP>1, full prompt-to-image generation, LoRA
+Merc is a buildable, locally proven Level A software candidate with historical
+batch, realtime, deterministic scene-rendering, and single-GPU CUDA/vLLM
+execution evidence. Accepted historical contracts and receipts retain their
+frozen compute, rendering, realtime-placement, and capacity authority for
+self-contained replay. They are not current admission authority: production has
+zero `BOUND` performance lane whose unit and unit scope match settlement, so new
+physical admission refuses. TP>1, full prompt-to-image generation, LoRA
 execution, external staffed alert delivery, and the formal external release
-exercises remain unproven. The private local alert receiver path is proven,
-but it is not staffed paging authority.
+exercises remain unproven. The private local alert receiver path is proven, but
+it is not staffed paging authority.
 
-The machine-derived score remains **84/100**, with **P0=0** and eight external
-P1 gates. **84 is the machine-reachable maximum** on a host with no staging, no
-offsite storage, and no human approvers — the other 16 points are externally
-blocked by design (Stripe sandbox matrix, qualifying 24 h soak, independent
-offsite copy/restore, external attack rehearsal, and qualified
-privacy/licensing/abuse approvals). Do not hunt for local code that will raise
-the facet; use `docs/PROGRAMME.md § "Facet external action pack"`. Level B is `NO_GO`; Level C
-live money/public launch is prohibited. No historical credential, deployment, or
-canary receipt overrides those gates.
+The last machine-derived readiness tool still prints **84/100**, **P0=0** and
+the eight recorded external P1 gates. That score is no longer a sufficient
+candidate statement and **84 is not the current machine-reachable maximum**:
+the stronger V2 reconciliation exposed two additional local physical-authority
+prerequisites. New admission needs a BOUND performance receipt whose unit scope
+matches settlement, and fresh catalogue publication needs BOUND throughput plus
+exact MEASURED sustained power. Until those measurements exist, the current
+tree intentionally refuses physical work and production-image boot. The
+external Stripe, soak, offsite restore, staging, attack-rehearsal and qualified
+governance blockers remain independently open. Level B is `NO_GO`; Level C live
+money/public launch is prohibited. No historical credential, deployment, boot,
+or canary receipt overrides any of those gates.
 
 
 <!-- source: docs/MERC_SHIPPABILITY_DIRECTIVE.md -->

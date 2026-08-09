@@ -9,11 +9,14 @@ import (
 
 func TestDiagnosticCostFloorMathIsCorrect(t *testing.T) {
 	b := measuredThroughput{
-		ModelID: "test-model", JobType: "embed", UnitsPerSec: 1000.0, HWClass: "apple_silicon_pro",
+		ModelID: "test-model", JobType: "embed",
+		Unit: "token_like_input_units", UnitScope: performanceUnitScopeTokenLikeInputGeometry,
+		UnitsPerSec: 1000.0, HWClass: "apple_silicon_pro",
 		SourceCitation: "test",
 	}
 	got := diagnosticCostFloorFromSupplierEconomics(b, 0.97, 0.10)
-	wantPrice := (targetSupplierUSDHr + 0.003) / (3600000.0 / 1000.0 * 0.97)
+	wantPrice := (targetSupplierUSDHr + 0.003) /
+		(1000.0 * measuredThroughputHaircut * 3600.0 / 1000.0 * 0.97)
 	if diff := got.PricePer1K - wantPrice; diff > 1e-9 || diff < -1e-9 {
 		t.Fatalf("price_per_1k = %.10f, want %.10f", got.PricePer1K, wantPrice)
 	}
@@ -28,8 +31,16 @@ func TestDiagnosticCostFloorMathIsCorrect(t *testing.T) {
 }
 
 func TestDiagnosticCostFloorHigherThroughputMeansLowerFloor(t *testing.T) {
-	slow := measuredThroughput{ModelID: "slow", JobType: "batch_infer", UnitsPerSec: 100, HWClass: "apple_silicon_pro"}
-	fast := measuredThroughput{ModelID: "fast", JobType: "batch_infer", UnitsPerSec: 1000, HWClass: "apple_silicon_pro"}
+	slow := measuredThroughput{
+		ModelID: "slow", JobType: "batch_infer",
+		Unit: "tokens", UnitScope: performanceUnitScopeTokenLikeInputPlusOutputTokens,
+		UnitsPerSec: 100, HWClass: "apple_silicon_pro",
+	}
+	fast := measuredThroughput{
+		ModelID: "fast", JobType: "batch_infer",
+		Unit: "tokens", UnitScope: performanceUnitScopeTokenLikeInputPlusOutputTokens,
+		UnitsPerSec: 1000, HWClass: "apple_silicon_pro",
+	}
 	slowPrice := diagnosticCostFloorFromSupplierEconomics(slow, 0.97, 0.15).PricePer1K
 	fastPrice := diagnosticCostFloorFromSupplierEconomics(fast, 0.97, 0.15).PricePer1K
 	if fastPrice >= slowPrice {
@@ -38,7 +49,11 @@ func TestDiagnosticCostFloorHigherThroughputMeansLowerFloor(t *testing.T) {
 }
 
 func TestDiagnosticCostFloorUnknownHWClassFallsBackConservatively(t *testing.T) {
-	b := measuredThroughput{ModelID: "m", JobType: "embed", UnitsPerSec: 500, HWClass: "some_future_chip"}
+	b := measuredThroughput{
+		ModelID: "m", JobType: "embed",
+		Unit: "token_like_input_units", UnitScope: performanceUnitScopeTokenLikeInputGeometry,
+		UnitsPerSec: 500, HWClass: "some_future_chip",
+	}
 	got := diagnosticCostFloorFromSupplierEconomics(b, 0.97, 0.15)
 	if got.PricePer1K <= 0 {
 		t.Fatalf("unknown hw_class should still yield a positive price, got %v", got.PricePer1K)
@@ -49,6 +64,8 @@ func TestDiagnosticCostFloorUnknownHWClassFallsBackConservatively(t *testing.T) 
 }
 
 func TestPublishedCatalogueResultsOmitsUnmeasuredModels(t *testing.T) {
+	installBoundCataloguePublicationAuthorityForTest(t)
+	pinBoardClockForPublication(t)
 	results := PublishedCatalogueResults()
 	if len(results) == 0 {
 		t.Fatal("expected at least the two board-mapped measured models")
@@ -88,6 +105,7 @@ func TestMarketBoardIsWeightedMedianTimesMultiplier(t *testing.T) {
 }
 
 func TestCatalogueScheduleDigestBindsBoardPolicyAndEveryResult(t *testing.T) {
+	installBoundCataloguePublicationAuthorityForTest(t)
 	pinBoardClockForPublication(t)
 	schedule, err := BuildCataloguePriceSchedule()
 	must(t, err)
@@ -104,8 +122,22 @@ func TestCatalogueScheduleDigestBindsBoardPolicyAndEveryResult(t *testing.T) {
 		{"board digest", func(s *CataloguePriceSchedule) { s.BoardSHA256 = strings.Repeat("f", 64) }},
 		{"board fetch", func(s *CataloguePriceSchedule) { s.BoardFetchedAt += "-changed" }},
 		{"positioning", func(s *CataloguePriceSchedule) { s.PositioningMultiplier += 0.01 }},
+		{"board validity", func(s *CataloguePriceSchedule) { s.BoardValidUntil = "2099-01-01T00:00:00Z" }},
+		{"current-use validity", func(s *CataloguePriceSchedule) { s.CurrentUseValidUntil = "2099-01-01T00:00:00Z" }},
 		{"supplier share policy", func(s *CataloguePriceSchedule) { s.SupplierSharePolicyRevision += "-changed" }},
 		{"workload supplier share", func(s *CataloguePriceSchedule) { s.Results[0].SupplierShare -= 0.01 }},
+		{"throughput receipt digest", func(s *CataloguePriceSchedule) {
+			s.Results[0].PhysicalAuthority.Throughput.ReceiptSHA256 = strings.Repeat("e", 64)
+		}},
+		{"throughput haircut", func(s *CataloguePriceSchedule) {
+			s.Results[0].PhysicalAuthority.Throughput.Haircut = 1
+		}},
+		{"power receipt digest", func(s *CataloguePriceSchedule) {
+			s.Results[0].PhysicalAuthority.Power.ReceiptSHA256 = strings.Repeat("e", 64)
+		}},
+		{"power boundary", func(s *CataloguePriceSchedule) {
+			s.Results[0].PhysicalAuthority.Power.MeasurementBoundary = "gpu_device"
+		}},
 		{"model price", func(s *CataloguePriceSchedule) { s.Results[0].PricePer1K *= 2 }},
 		{"formula", func(s *CataloguePriceSchedule) { s.Results[0].Formula += " changed" }},
 		{"missing model", func(s *CataloguePriceSchedule) { s.Results = s.Results[:1] }},
@@ -123,6 +155,7 @@ func TestCatalogueScheduleDigestBindsBoardPolicyAndEveryResult(t *testing.T) {
 }
 
 func TestPublishedCatalogueCarriesDistinctPhysicalWorkloadShares(t *testing.T) {
+	installBoundCataloguePublicationAuthorityForTest(t)
 	pinBoardClockForPublication(t)
 	schedule, err := BuildCataloguePriceSchedule()
 	must(t, err)
@@ -148,6 +181,7 @@ func TestPublishedCatalogueCarriesDistinctPhysicalWorkloadShares(t *testing.T) {
 }
 
 func TestCatalogueScheduleRequiresExplicitCrossCurrencyFX(t *testing.T) {
+	installBoundCataloguePublicationAuthorityForTest(t)
 	pinBoardClockForPublication(t)
 	installSettlementCurrencyForTest(t, "cad")
 	t.Setenv(priceFXRateEnv, "")
@@ -239,6 +273,7 @@ func TestCostFloorExceedsMarketBoard(t *testing.T) {
 }
 
 func TestPublishedCatalogueRefusesUnbindableMediaModels(t *testing.T) {
+	installBoundCataloguePublicationAuthorityForTest(t)
 	pinBoardClockForPublication(t)
 	results := PublishedCatalogueResults()
 	if len(results) == 0 {

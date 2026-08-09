@@ -59,6 +59,8 @@ var workerTokenGraceUntil = time.Now().UTC().Add(workerTokenGrace)
 // errWorkerTokenExpired is the greppable refusal for an expired credential.
 var errWorkerTokenExpired = errors.New("WORKER_TOKEN_EXPIRED: worker token has expired; re-enroll")
 
+var errWorkerIdentityPinned = errors.New("worker execution identity is pinned by a live dynamic task")
+
 func (s *Store) LookupWorkerToken(ctx context.Context, token string) (WorkerAuth, error) {
 	var w WorkerAuth
 	var expiresAt *time.Time
@@ -187,6 +189,8 @@ func (s *Store) RenewWorkerToken(ctx context.Context, credentialID uuid.UUID) (t
 }
 
 func (s *Store) UpsertWorker(ctx context.Context, cap WorkerCapability) error {
+	activationRevision := activationAdmissionRevision(cap.activationPolicyRevision)
+	registeredAt := time.Now().UTC()
 	projected, err := projectWorkerRuntimeCapabilities(cap)
 	if err != nil {
 		return fmt.Errorf("projecting worker runtime capabilities: %w", err)
@@ -209,9 +213,64 @@ func (s *Store) UpsertWorker(ctx context.Context, cap WorkerCapability) error {
 
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: begin worker admission: %v",
+			errActivationAdmissionUnavailable, err)
 	}
 	defer tx.Rollback(ctx)
+	if err := guardActivationAdmissionTx(ctx, tx, activationRevision); err != nil {
+		return err
+	}
+	// A dynamic task is born pinned to one worker. Serialize registration with
+	// that insertion boundary so the peer cannot change identity immediately
+	// after reserve consumption and leave an unclaimable permanent hedge or
+	// tiebreak row. Regular running tasks retain the existing fail-closed
+	// StartTask/CompleteTask rechecks; this narrower guard protects the unique
+	// dynamic reserve whose row itself prevents a replacement.
+	var (
+		currentHW, currentEngine, currentBuild, currentPolicy, currentHardware string
+		currentProfile, currentProfileRevision, currentProfileDigest           string
+		currentSupportedJobs, currentSupportedModels                           []string
+		currentMemoryGB, currentMinPayout                                      float32
+		currentUnsandboxed                                                     bool
+	)
+	err = tx.QueryRow(ctx, `
+		SELECT COALESCE(hw_class,''),COALESCE(engine,''),COALESCE(build_hash,''),
+		       COALESCE(build_identity_policy,''),COALESCE(hardware_identity,''),
+		       COALESCE(runtime_profile_id,''),COALESCE(runtime_profile_revision,''),
+		       COALESCE(runtime_profile_digest,''),COALESCE(memory_gb,0),
+		       COALESCE(min_payout_usd_hr,0),COALESCE(supported_jobs,ARRAY[]::text[]),
+		       COALESCE(supported_models,ARRAY[]::text[]),COALESCE(unsandboxed_opt_in,false)
+		  FROM workers WHERE id=$1 FOR UPDATE`, cap.WorkerID).Scan(
+		&currentHW, &currentEngine, &currentBuild, &currentPolicy, &currentHardware,
+		&currentProfile, &currentProfileRevision, &currentProfileDigest,
+		&currentMemoryGB, &currentMinPayout, &currentSupportedJobs, &currentSupportedModels,
+		&currentUnsandboxed)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+	eligibilityChanged := err == nil && (currentHW != cap.HWClass || currentEngine != cap.Engine ||
+		currentBuild != cap.BuildHash || currentPolicy != cap.BuildIdentityPolicy ||
+		currentHardware != cap.HardwareIdentity || currentProfile != profile.RuntimeID ||
+		currentProfileRevision != profile.Revision || currentProfileDigest != profileDigest ||
+		currentMemoryGB != cap.MemoryGB || currentMinPayout != cap.MinPayoutUsdHr ||
+		!sameStrings(currentSupportedJobs, cap.SupportedJobs) ||
+		!sameStrings(currentSupportedModels, cap.SupportedModels) ||
+		currentUnsandboxed != cap.UnsandboxedOptIn)
+	if eligibilityChanged {
+		var livePinned bool
+		if err := tx.QueryRow(ctx, `
+			SELECT EXISTS (
+			 SELECT 1 FROM tasks t JOIN jobs j ON j.id=t.job_id
+			  WHERE t.claimed_by=$1 AND t.hedged_from IS NOT NULL
+			    AND t.status IN ('queued','retrying') AND t.started_at IS NULL
+			    AND COALESCE(NULLIF(j.placement_requirement->>'version','')::int,1)>=3
+			)`, cap.WorkerID).Scan(&livePinned); err != nil {
+			return err
+		}
+		if livePinned {
+			return fmt.Errorf("%w: worker %s", errWorkerIdentityPinned, cap.WorkerID)
+		}
+	}
 
 	thermalOK := true
 	for _, b := range cap.Benchmarks {
@@ -220,13 +279,13 @@ func (s *Store) UpsertWorker(ctx context.Context, cap WorkerCapability) error {
 
 	_, err = tx.Exec(ctx,
 		`INSERT INTO workers
-		   (id, supplier_id, hw_class, engine, build_hash, memory_gb, bw_gbps, last_seen_at, version,
+		   (id, supplier_id, hw_class, engine, build_hash, build_identity_policy, hardware_identity, memory_gb, bw_gbps, last_seen_at, version,
 		    supported_jobs, supported_models, min_payout_usd_hr, thermal_ok,
 		    agent_session_id, agent_session_started_at, runtime_profile_id,
 		    runtime_profile_revision, runtime_profile_digest,
 		    sandboxed, unsandboxed_opt_in)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7, now(), $8,$9,$10,$11,$12,$13,
-		         CASE WHEN $13::uuid IS NULL THEN NULL ELSE now() END, $14,$15,$16,$17,$18)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, now(), $10,$11,$12,$13,$14,$15,
+		         CASE WHEN $15::uuid IS NULL THEN NULL ELSE now() END, $16,$17,$18,$19,$20)
 		 ON CONFLICT (id) DO UPDATE SET
 		   hw_class = EXCLUDED.hw_class,
 		   engine = EXCLUDED.engine,
@@ -234,6 +293,8 @@ func (s *Store) UpsertWorker(ctx context.Context, cap WorkerCapability) error {
 		   runtime_profile_revision = EXCLUDED.runtime_profile_revision,
 		   runtime_profile_digest = EXCLUDED.runtime_profile_digest,
 		   build_hash = EXCLUDED.build_hash,
+		   build_identity_policy = EXCLUDED.build_identity_policy,
+		   hardware_identity = EXCLUDED.hardware_identity,
 		   memory_gb = EXCLUDED.memory_gb,
 		   bw_gbps = EXCLUDED.bw_gbps,
 		   last_seen_at = now(),
@@ -251,7 +312,7 @@ func (s *Store) UpsertWorker(ctx context.Context, cap WorkerCapability) error {
 		     ELSE workers.agent_session_started_at
 		   END,
 		   agent_session_id = COALESCE(EXCLUDED.agent_session_id, workers.agent_session_id)`,
-		cap.WorkerID, cap.SupplierID, cap.HWClass, cap.Engine, cap.BuildHash, cap.MemoryGB, cap.MemoryBwGbps, cap.AgentVersion,
+		cap.WorkerID, cap.SupplierID, cap.HWClass, cap.Engine, cap.BuildHash, cap.BuildIdentityPolicy, cap.HardwareIdentity, cap.MemoryGB, cap.MemoryBwGbps, cap.AgentVersion,
 		cap.SupportedJobs, cap.SupportedModels, cap.MinPayoutUsdHr, thermalOK, cap.AgentSessionID,
 		profile.RuntimeID, profile.Revision, profileDigest,
 		cap.Sandboxed, cap.UnsandboxedOptIn,
@@ -260,23 +321,67 @@ func (s *Store) UpsertWorker(ctx context.Context, cap WorkerCapability) error {
 		return err
 	}
 
+	// Re-registration must never make a genuine newer source measurement older.
+	// Keep the authorization instant only for the exact same capability tuple;
+	// a removed cell or a matrix/runtime/model change still disappears below.
+	// This is weight-bearing for live dynamic pins: replaying a near-expiry cache
+	// cannot shorten their remaining claim window after reserve was consumed.
+	type wacIdentity struct {
+		cellID, runtimeID, jobType, modelRef, modelKind, matrixSHA256 string
+	}
+	existingAuthorizedAt := make(map[wacIdentity]time.Time)
+	rows, err := tx.Query(ctx, `
+		SELECT cell_id,runtime_id,job_type,model_ref,model_kind,matrix_sha256,authorized_at
+		  FROM worker_authorized_capabilities
+		 WHERE worker_id=$1`, cap.WorkerID)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var key wacIdentity
+		var authorizedAt time.Time
+		if err := rows.Scan(
+			&key.cellID, &key.runtimeID, &key.jobType, &key.modelRef,
+			&key.modelKind, &key.matrixSHA256, &authorizedAt,
+		); err != nil {
+			rows.Close()
+			return err
+		}
+		existingAuthorizedAt[key] = authorizedAt.UTC()
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+
 	if _, err := tx.Exec(ctx,
 		`DELETE FROM worker_authorized_capabilities WHERE worker_id = $1`,
 		cap.WorkerID); err != nil {
 		return err
 	}
 	for _, authorized := range projected {
+		routable := advertisedRuntimeCell(authorized.ID)
+		authorizedAt := workerCapabilityAuthorizedAt(cap, authorized, routable, registeredAt)
+		key := wacIdentity{
+			cellID: authorized.ID, runtimeID: authorized.Runtime,
+			jobType: authorized.Job, modelRef: authorized.Model,
+			modelKind: authorized.ModelKind, matrixSHA256: generatedRuntimeMatrixSHA256,
+		}
+		if prior, ok := existingAuthorizedAt[key]; ok && prior.After(authorizedAt) {
+			authorizedAt = prior
+		}
 		if _, err := tx.Exec(ctx,
 			`INSERT INTO worker_authorized_capabilities
 				   (worker_id, cell_id, runtime_id, job_type, model_ref, model_kind,
-				    matrix_sha256, routable)
-				 VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+				    matrix_sha256, routable, authorized_at)
+				 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
 			cap.WorkerID, authorized.ID, authorized.Runtime, authorized.Job,
 			authorized.Model, authorized.ModelKind, generatedRuntimeMatrixSHA256,
 			// Routability comes from the ADVERTISED projection, never from the
 			// worker. A directed-only capability is recorded as non-routable so
 			// the scheduler's legacy branch cannot dispatch ordinary work to it.
-			advertisedRuntimeCell(authorized.ID)); err != nil {
+			routable, authorizedAt); err != nil {
 			return err
 		}
 	}
@@ -298,10 +403,10 @@ func (s *Store) UpsertWorker(ctx context.Context, cap WorkerCapability) error {
 		_, err = tx.Exec(ctx,
 			`INSERT INTO benchmark_results
 			   (worker_id, model_id, job_type, tps, eps, thermal_ok, p99_latency_ms, load_ms,
-			    corroborated, claimed_rate)
-			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8, false, $9)`,
+			    corroborated, claimed_rate, measured_at)
+			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8, false, $9, $10)`,
 			cap.WorkerID, b.ModelID, b.JobType, b.TPS, b.EPS, b.ThermalOK, float32(b.P99MS), loadMS,
-			claimedRate,
+			claimedRate, time.Unix(int64(b.MeasuredUnix), 0).UTC(),
 		)
 		if err != nil {
 			return err
@@ -338,6 +443,22 @@ func (s *Store) UpsertWorker(ctx context.Context, cap WorkerCapability) error {
 		}
 	}
 	return tx.Commit(ctx)
+}
+
+func workerCapabilityAuthorizedAt(
+	cap WorkerCapability,
+	authorized generatedRuntimeCapability,
+	current bool,
+	registeredAt time.Time,
+) time.Time {
+	if current {
+		for _, benchmark := range cap.Benchmarks {
+			if benchmark.JobType == authorized.Job && benchmark.ModelID == authorized.Model {
+				return time.Unix(int64(benchmark.MeasuredUnix), 0).UTC()
+			}
+		}
+	}
+	return registeredAt.UTC()
 }
 
 type WorkerResources struct {

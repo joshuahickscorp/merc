@@ -1225,10 +1225,12 @@ struct CharacterizationReceipt {
     device: String,
     device_model: String,
     hardware_class: String,
+    hardware_identity: String,
     memory_gb: f32,
     operating_system: String,
     metal_available: bool,
     source_identity: String,
+    build_identity_policy: String,
     runtime_authority_sha256: String,
     model_revisions: Vec<(&'static str, &'static str)>,
     benchmarks: Vec<types::BenchResult>,
@@ -1291,10 +1293,12 @@ async fn run_characterize() -> Result<()> {
         device: models::device_label().to_string(),
         device_model,
         hardware_class: capability.hw_class.as_wire_str().to_string(),
+        hardware_identity: capability.hardware_identity.clone(),
         memory_gb: capability.memory_gb,
         operating_system: os,
         metal_available: models::device().is_metal(),
         source_identity: capability.build_hash.clone(),
+        build_identity_policy: capability.build_identity_policy.clone(),
         runtime_authority_sha256: runtime_authority::sha256().to_string(),
         model_revisions: models::retained_model_revisions(),
         benchmarks: capability.benchmarks,
@@ -1419,14 +1423,18 @@ fn build_bench_prompts(stem: &str, b: usize, mode: BenchMode) -> Vec<String> {
 }
 
 /// Measure a single greedy completion and emit the exact result bytes a worker
-/// would commit for a batch_infer honeypot, plus the engine|build_hash class.
+/// would commit for a batch_infer honeypot, plus the
+/// engine|build_hash|build_identity_policy class.
 async fn run_honeypot_answer(model: &str, max_tokens: u32, prompt: &str) -> Result<()> {
     let engine = "candle";
     // engine_build_hash and registration share detected_hw_class_wire(), so
     // the measured honeypot class reproduces the worker's advertised class.
     let hw_class = hardware::detected_hw_class_wire();
     let build_hash = hardware::engine_build_hash(engine, AGENT_VERSION);
-    let answer_class = format!("{engine}|{build_hash}");
+    let answer_class = format!(
+        "{engine}|{build_hash}|{}",
+        hardware::ENGINE_BUILD_IDENTITY_POLICY
+    );
     let pool = ModelPool::new();
     let backend = inference::build_backend(inference::BackendKind::Candle, "", "", None)
         .map_err(|e| anyhow::anyhow!("build candle backend: {e}"))?;
@@ -1443,6 +1451,8 @@ async fn run_honeypot_answer(model: &str, max_tokens: u32, prompt: &str) -> Resu
     let out = serde_json::json!({
         "engine": engine,
         "build_hash": build_hash,
+        "build_identity_policy": hardware::ENGINE_BUILD_IDENTITY_POLICY,
+        "hardware_identity": hardware::detected_hardware_identity(),
         "answer_class": answer_class,
         "model": model,
         "max_tokens": max_tokens,
@@ -1676,6 +1686,8 @@ async fn run_bench_batch(
         "kind": kind_label,
         "device": device,
         "build_hash": build_hash,
+        "build_identity_policy": hardware::ENGINE_BUILD_IDENTITY_POLICY,
+        "hardware_identity": hardware::detected_hardware_identity(),
         "model": model,
         "max_tokens": max_tokens,
         "mode": mode.label(),
@@ -2599,6 +2611,8 @@ fn run_bench_sustained(
         "kind": "bench_sustained",
         "device": device,
         "build_hash": build_hash,
+        "build_identity_policy": hardware::ENGINE_BUILD_IDENTITY_POLICY,
+        "hardware_identity": hardware::detected_hardware_identity(),
         "model": model,
         "batch": batch,
         "max_tokens": max_tokens,
@@ -2877,6 +2891,8 @@ async fn run_bench_concurrency(
         "kind": "bench_concurrency",
         "device": device,
         "build_hash": build_hash,
+        "build_identity_policy": hardware::ENGINE_BUILD_IDENTITY_POLICY,
+        "hardware_identity": hardware::detected_hardware_identity(),
         "model": model,
         "embed_tasks": embed_tasks,
         "llama_tasks": llama_tasks,
@@ -2946,6 +2962,13 @@ async fn execute_task(
             backend: runner.backend_name(),
             msg: format!("fetching input_url: {e:#}"),
         })?;
+    if let Err(msg) = validate_task_input_sha256(&task.input_sha256, &input) {
+        wipe(&mut input);
+        return Err(RunError::Inference {
+            backend: "input_authority",
+            msg,
+        });
+    }
 
     let mem_headroom_gb = memory_headroom_gb;
     let mem_max_pct = max_memory_pct;
@@ -3094,6 +3117,28 @@ fn sha256_hex(data: &[u8]) -> String {
     let mut h = Sha256::new();
     h.update(data);
     h.finalize().iter().map(|b| format!("{b:02x}")).collect()
+}
+
+fn validate_task_input_sha256(expected: &str, input: &[u8]) -> std::result::Result<(), String> {
+    // Historical jobs did not freeze a digest on the task row. Their replay
+    // remains supported, but every current task carries a non-empty digest.
+    if expected.is_empty() {
+        return Ok(());
+    }
+    if expected.len() != 64
+        || !expected
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    {
+        return Err("dispatch input_sha256 is not 64 lowercase hexadecimal characters".into());
+    }
+    let actual = sha256_hex(input);
+    if actual != expected {
+        return Err(format!(
+            "downloaded input sha256 mismatch: got {actual}, expected {expected}"
+        ));
+    }
+    Ok(())
 }
 
 const MAX_INPUT_DOWNLOAD_BYTES: u64 = 512 * 1024 * 1024;
@@ -3410,18 +3455,13 @@ async fn run_enroll(action: EnrollCommand) -> Result<()> {
                 bundle.trim().to_string()
             };
             let input = enrollment::build_exchange_input(&state_dir, &bundle)?;
-            let result =
-                enrollment::exchange_enrollment(&input.control_origin, &input).await?;
+            let result = enrollment::exchange_enrollment(&input.control_origin, &input).await?;
             let config_path = if config.is_empty() {
                 config::agent_home_dir().join("agent.toml")
             } else {
                 PathBuf::from(config)
             };
-            enrollment::write_enrolled_config(
-                &config_path,
-                &input.control_origin,
-                &result,
-            )?;
+            enrollment::write_enrolled_config(&config_path, &input.control_origin, &result)?;
             println!("credential_id={}", result.credential_id);
             println!("worker_id={}", result.worker_id);
             println!("supplier_id={}", result.supplier_id);
@@ -3441,7 +3481,10 @@ async fn run_earnings_cli(config: PathBuf, limit: u32) -> Result<()> {
     let cfg = AgentConfig::load(&config)?;
     let client = ControlPlaneClient::new(&cfg.control_url, &cfg.worker_token)
         .context("build control-plane client")?;
-    let earnings = client.earnings().await.context("fetch /v1/worker/earnings")?;
+    let earnings = client
+        .earnings()
+        .await
+        .context("fetch /v1/worker/earnings")?;
     let ledger = client
         .payout_ledger(limit)
         .await
@@ -3485,6 +3528,23 @@ async fn run_earnings_cli(config: PathBuf, limit: u32) -> Result<()> {
     Ok(())
 }
 
+fn validate_advertised_batch_backend_identity(
+    advertised_engine: &str,
+    backend: inference::BackendKind,
+    supported_jobs: &[String],
+) -> std::result::Result<(), String> {
+    if !supported_jobs.iter().any(|job| job == "batch_infer") {
+        return Ok(());
+    }
+    if advertised_engine != "candle" || backend != inference::BackendKind::Candle {
+        return Err(format!(
+            "batch_infer would advertise engine={advertised_engine:?} but execute backend={:?}; current exact-build authority permits only the in-process Candle backend",
+            backend.as_str()
+        ));
+    }
+    Ok(())
+}
+
 async fn run_agent(mut cfg: AgentConfig) -> Result<()> {
     if std::env::var_os("MERC_MODEL_CACHE").is_none() {
         std::env::set_var("MERC_MODEL_CACHE", cfg.data_dir.join("models"));
@@ -3506,6 +3566,7 @@ async fn run_agent(mut cfg: AgentConfig) -> Result<()> {
     // worker and it is the shape the directed proof needs.
     let engine = runtime_driver::advertised_engine(&cfg.embed_runtime)
         .map_err(|e| anyhow::anyhow!("embed runtime: {e}"))?;
+    let backend_kind = cfg.inference_backend_kind().map_err(anyhow::Error::msg)?;
     let mut cap = hardware::detect_and_benchmark(
         cfg.supplier_id,
         AGENT_VERSION,
@@ -3518,6 +3579,8 @@ async fn run_agent(mut cfg: AgentConfig) -> Result<()> {
         .retain(|workload| cfg.allows_workload(workload));
     cap.benchmarks
         .retain(|bench| cfg.allows_workload(&bench.job_type));
+    validate_advertised_batch_backend_identity(engine, backend_kind, &cap.supported_jobs)
+        .map_err(anyhow::Error::msg)?;
     // Containment record: the control plane refuses private work to workers
     // that are neither sandboxed nor deliberately opted in.
     cap.sandboxed = agent_is_sandboxed();
@@ -3534,7 +3597,6 @@ async fn run_agent(mut cfg: AgentConfig) -> Result<()> {
     let advertised_worker_id = cap.worker_id;
     let permits = cfg.concurrency(cap.memory_gb);
 
-    let backend_kind = cfg.inference_backend_kind().map_err(anyhow::Error::msg)?;
     let inference = inference::build_backend(
         backend_kind,
         &cfg.openai_base_url,
@@ -3556,12 +3618,6 @@ async fn run_agent(mut cfg: AgentConfig) -> Result<()> {
         .launch()
         .await
         .map_err(|e| anyhow::anyhow!("embed runtime {}: {e}", embed_driver.runtime_id()))?;
-    if !backend_kind.supports_verified_work() {
-        tracing::warn!(
-            backend = backend_kind.as_str(),
-            "inference backend is not verified-work-capable (byte-exact redundancy not guaranteed); use candle for canary/verified lanes"
-        );
-    }
     tracing::info!(
         inference_backend = backend_kind.as_str(),
         openai_base_url = %cfg.openai_base_url,
@@ -4106,6 +4162,32 @@ mod tests {
     }
 
     #[test]
+    fn advertised_candle_batch_refuses_external_execution_backend() {
+        let batch = vec!["batch_infer".to_string()];
+        let error = validate_advertised_batch_backend_identity(
+            "candle",
+            inference::BackendKind::OpenAiHttp,
+            &batch,
+        )
+        .expect_err("external backend inherited Candle build identity");
+        assert!(error.contains("advertise engine=\"candle\""));
+        assert!(error.contains("openai_http"));
+
+        validate_advertised_batch_backend_identity(
+            "candle",
+            inference::BackendKind::Candle,
+            &batch,
+        )
+        .expect("the exact in-process Candle backend must remain eligible");
+        validate_advertised_batch_backend_identity(
+            "candle",
+            inference::BackendKind::OpenAiHttp,
+            &["embed".to_string()],
+        )
+        .expect("an unused batch backend must not block an embed-only worker");
+    }
+
+    #[test]
     fn eligibility_watch_interval_follows_checkpoint_secs() {
         assert_eq!(eligibility_watch_interval(7), Duration::from_secs(7));
         assert_eq!(eligibility_watch_interval(0), Duration::from_secs(30));
@@ -4544,6 +4626,23 @@ mod tests {
             "sha256_hex(\"\") must match the well-known empty-string digest"
         );
         assert_eq!(got.len(), 64, "must be 64 lowercase hex chars");
+    }
+
+    #[test]
+    fn task_input_sha256_rejects_changed_bytes_and_preserves_legacy_replay() {
+        let expected = sha256_hex(b"priced input");
+        assert!(validate_task_input_sha256(&expected, b"priced input").is_ok());
+
+        let mismatch = validate_task_input_sha256(&expected, b"different input")
+            .expect_err("changed object bytes must not execute under frozen task economics");
+        assert!(mismatch.contains("downloaded input sha256 mismatch"));
+
+        assert!(validate_task_input_sha256("", b"historical input").is_ok());
+        assert!(
+            validate_task_input_sha256(&expected.to_uppercase(), b"priced input")
+                .expect_err("uppercase is not the canonical digest wire shape")
+                .contains("64 lowercase hexadecimal")
+        );
     }
 
     #[test]

@@ -170,6 +170,9 @@ impl MediaRenderingRunner {
             p99_ms: (slowest * 1000.0).ceil() as u32,
             thermal_ok: true,
             load_ms: 0,
+            unit: "pixels".to_string(),
+            unit_scope: "declared_output_pixels_per_scene".to_string(),
+            measured_unix: 0,
         })
     }
 }

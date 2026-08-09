@@ -37,10 +37,10 @@ func TestProvingOneCellDoesNotPromoteAnother(t *testing.T) {
 	mustf(t, validateRuntimeAuthorityDocument(doc), "promoting the proven cell was refused: %v")
 
 	p := doc.Runtimes[profile]
-	if !p.Cells[embed].Routable(p) {
-		t.Fatal("the proven embed cell did not become routable")
+	if !runtimeLifecycleRoutable(p.Cells[embed].EffectiveLifecycle(p)) {
+		t.Fatal("the promoted embed cell did not reach a routable lifecycle")
 	}
-	if p.Cells[infer].Routable(p) {
+	if runtimeLifecycleRoutable(p.Cells[infer].EffectiveLifecycle(p)) {
 		t.Fatal("promoting the embed cell also promoted the rejected generation cell")
 	}
 	if got := p.Cells[infer].EffectiveLifecycle(p); got != runtimeLifecycleRejectedForContract {
@@ -200,22 +200,11 @@ func TestArtifactReplacementMovesTheDigestThatGatesTheCell(t *testing.T) {
 	}
 }
 
-// The advertised set is exactly the cells whose lifecycle is CANARY/ACTIVE and
-// whose authority binds. After re-sealing generation that is embed + batch_infer;
-// the two media cells remain lifecycle-routable but stand on unbound authority.
+// Lifecycle alone never widens the advertised set. The formerly BOUND Candle
+// receipt is now honestly SUPERSEDED because its build root omitted executing
+// modules; media remains unbound. No checked-in cell is current authority.
 func TestCellLifecyclesDidNotWidenTheAdvertisedSurface(t *testing.T) {
-	want := map[string]bool{
-		"candle-metal-minilm-embed": true,
-		"candle-metal-llama1-infer": true,
-	}
-	if len(advertisedRuntimeCapabilities()) != len(want) {
-		t.Fatalf("advertised %d cells, want %d",
-			len(advertisedRuntimeCapabilities()), len(want))
-	}
-	for _, capability := range advertisedRuntimeCapabilities() {
-		if !want[capability.ID] {
-			t.Errorf("cell %q from runtime %q reached the advertised projection",
-				capability.ID, capability.Runtime)
-		}
+	if got := advertisedRuntimeCapabilities(); len(got) != 0 {
+		t.Fatalf("superseded/unbound cells reached the advertised projection: %+v", got)
 	}
 }

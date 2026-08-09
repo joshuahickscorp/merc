@@ -14,7 +14,7 @@ type verificationStore interface {
 	CandidateWorkers(context.Context, string, string, float32) ([]MatchWorker, error)
 	ChunkResults(context.Context, uuid.UUID, int) ([]ChunkResult, error)
 	TiebreakExists(context.Context, uuid.UUID, int) (bool, error)
-	SelectRedundancyPeerExcluding(context.Context, string, string, float32, uuid.UUID, []uuid.UUID, []uuid.UUID) (uuid.UUID, error)
+	SelectRedundancyPeerExcluding(context.Context, uuid.UUID, uuid.UUID, string, string, float32, uuid.UUID, []uuid.UUID, []uuid.UUID) (uuid.UUID, error)
 
 	DockReputation(context.Context, uuid.UUID, ReputationEvent) error
 	RecordVerificationEvent(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, string) error
@@ -151,11 +151,11 @@ func (r *recordingVerificationStore) TiebreakExists(ctx context.Context, jobID u
 	return r.reads.TiebreakExists(ctx, jobID, chunkIndex)
 }
 
-func (r *recordingVerificationStore) SelectRedundancyPeerExcluding(ctx context.Context, jobType, modelRef string, minMemoryGB float32, anchor uuid.UUID, also, alsoSuppliers []uuid.UUID) (uuid.UUID, error) {
+func (r *recordingVerificationStore) SelectRedundancyPeerExcluding(ctx context.Context, jobID, anchorTaskID uuid.UUID, jobType, modelRef string, minMemoryGB float32, anchor uuid.UUID, also, alsoSuppliers []uuid.UUID) (uuid.UUID, error) {
 	if r.reads == nil {
 		return uuid.Nil, fmt.Errorf("verification plan requires store read: SelectRedundancyPeerExcluding")
 	}
-	return r.reads.SelectRedundancyPeerExcluding(ctx, jobType, modelRef, minMemoryGB, anchor, also, alsoSuppliers)
+	return r.reads.SelectRedundancyPeerExcluding(ctx, jobID, anchorTaskID, jobType, modelRef, minMemoryGB, anchor, also, alsoSuppliers)
 }
 
 func (r *recordingVerificationStore) DockReputation(_ context.Context, supplierID uuid.UUID, event ReputationEvent) error {

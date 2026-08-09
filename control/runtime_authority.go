@@ -981,6 +981,17 @@ type benchmarkReceiptSummary struct {
 	ProfileRevision      string   `json:"profile_revision,omitempty"`
 	Harness              string   `json:"harness,omitempty"`
 	ModelArtifactSHA256s []string `json:"model_artifact_sha256s,omitempty"`
+	// EngineBuildHash is the exact 16-lowerhex execution build measured by
+	// this receipt. It is distinct from producer_identity.build_digest: that
+	// 64-hex digest identifies a whole producer binary, while workers advertise
+	// this harness-derived engine/runtime configuration identity at claim time.
+	EngineBuildHash string `json:"engine_build_hash,omitempty"`
+	// EngineBuildIdentityPolicy versions the algorithm behind the short hash so
+	// a receipt minted by the retired source-only root cannot pass by shape.
+	EngineBuildIdentityPolicy string `json:"engine_build_identity_policy,omitempty"`
+	// HardwareIdentity is the exact device generation/model observed by the
+	// receipt (for example "Apple M3 Ultra"), not the coarse scheduling class.
+	HardwareIdentity string `json:"hardware_identity,omitempty"`
 }
 
 // benchmarkThroughput is one profile's measured rate inside one receipt.
@@ -991,10 +1002,17 @@ type benchmarkReceiptSummary struct {
 // is so a test can assert the two never meet and the supplier report can show
 // the gap it is not being paid on.
 type benchmarkThroughput struct {
-	// Unit is the billable unit the rate counts, not the engine's favourite
-	// metric. "tokens" and "embeddings" price differently, and a rate whose unit
-	// is unstated cannot be multiplied by a per-1k price without guessing.
+	// Unit is the exact work unit counted by the benchmark. It is not assumed to
+	// be the billable unit: current admission separately requires compatibility
+	// with the job type's settlement geometry. For example, embeddings/s cannot
+	// price token-like input units without a frozen conversion authority.
 	Unit string `json:"unit"`
+	// UnitScope states which part of the job the unit counts. Equal unit labels
+	// are insufficient: the generation receipt's tokens/s is decode-output-only,
+	// while current pricing bills token-like input plus maximum output tokens.
+	// Omitempty preserves decoding and digest replay for historical snapshots
+	// accepted before scope became an explicit field; new admission requires it.
+	UnitScope string `json:"unit_scope,omitempty"`
 	// Precision is the quantization the run used. The same weights at a
 	// different precision are a different product with a different rate.
 	Precision string `json:"precision"`

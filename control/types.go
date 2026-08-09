@@ -156,24 +156,31 @@ type JobManifest struct {
 }
 
 type BenchResult struct {
-	ModelID   string  `json:"model_id"`
-	JobType   string  `json:"job_type"`
-	TPS       float32 `json:"tps"` // tokens/sec
-	EPS       float32 `json:"eps"` // embeddings/sec
-	P99MS     uint32  `json:"p99_ms"`
-	ThermalOK bool    `json:"thermal_ok"`
-	LoadMS    uint64  `json:"load_ms"`
+	ModelID      string  `json:"model_id"`
+	JobType      string  `json:"job_type"`
+	TPS          float32 `json:"tps"` // tokens/sec
+	EPS          float32 `json:"eps"` // embeddings/sec
+	P99MS        uint32  `json:"p99_ms"`
+	ThermalOK    bool    `json:"thermal_ok"`
+	LoadMS       uint64  `json:"load_ms"`
+	Unit         string  `json:"unit,omitempty"`
+	UnitScope    string  `json:"unit_scope,omitempty"`
+	MeasuredUnix uint64  `json:"measured_unix,omitempty"`
 }
 
 type WorkerCapability struct {
-	WorkerID       uuid.UUID  `json:"worker_id"`
-	SupplierID     uuid.UUID  `json:"supplier_id"`
-	AgentSessionID *uuid.UUID `json:"agent_session_id,omitempty"`
-	HWClass        string     `json:"hw_class"`
-	Engine         string     `json:"engine,omitempty"`
-	BuildHash      string     `json:"build_hash,omitempty"`
-	MemoryGB       float32    `json:"memory_gb"`
-	MemoryBwGbps   float32    `json:"memory_bw_gbps"`
+	WorkerID            uuid.UUID  `json:"worker_id"`
+	SupplierID          uuid.UUID  `json:"supplier_id"`
+	AgentSessionID      *uuid.UUID `json:"agent_session_id,omitempty"`
+	HWClass             string     `json:"hw_class"`
+	Engine              string     `json:"engine,omitempty"`
+	BuildHash           string     `json:"build_hash,omitempty"`
+	BuildIdentityPolicy string     `json:"build_identity_policy,omitempty"`
+	// HardwareIdentity is the exact canonical device generation/model, not the
+	// coarse HWClass capacity bucket (for example Apple M3 Ultra).
+	HardwareIdentity string  `json:"hardware_identity,omitempty"`
+	MemoryGB         float32 `json:"memory_gb"`
+	MemoryBwGbps     float32 `json:"memory_bw_gbps"`
 	// Single-host topology. Absent means one GPU: an agent that predates these
 	// fields is a single-GPU host as far as admission is concerned, which is
 	// what it was before the fields existed. A worker claiming more than one
@@ -194,6 +201,9 @@ type WorkerCapability struct {
 	// can be refused to uncontained workers.
 	Sandboxed        bool `json:"sandboxed"`
 	UnsandboxedOptIn bool `json:"unsandboxed_opt_in"`
+	// activationPolicyRevision is server-side admission context. It is never
+	// accepted from or returned to the worker.
+	activationPolicyRevision int64
 }
 
 type TaskDispatch struct {
@@ -205,6 +215,7 @@ type TaskDispatch struct {
 	RuntimeMatrixSHA string      `json:"runtime_matrix_sha256"`
 	Manifest         JobManifest `json:"manifest"`
 	InputURL         string      `json:"input_url"`
+	InputSHA256      string      `json:"input_sha256,omitempty"`
 	OutputURL        string      `json:"output_url"`
 	PartialPutURL    string      `json:"partial_put_url,omitempty"` // presigned PUT for result_key+".partial" (checkpointable job types only)
 	ResultKey        string      `json:"result_key"`                // canonical result object key (agent echoes it)

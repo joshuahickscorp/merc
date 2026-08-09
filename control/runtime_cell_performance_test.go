@@ -6,6 +6,7 @@ import (
 	"math"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -82,31 +83,378 @@ func cellByID(t *testing.T, id string) (authorityRuntimeProfile, authorityCell) 
 	return authorityRuntimeProfile{}, authorityCell{}
 }
 
-// The defect this lane exists for: the offered rate computed from the old
-// hardcoded map came out an order of magnitude under the floor a default
-// install writes, so nothing ever claimed the work.
-//
-// With jobTypeThroughput["embed"] = 200 this asserts $0.0126/hr against a
-// $0.05/hr floor and fails.
-func TestMeasuredCellClearsTheDefaultInstallPayoutFloor(t *testing.T) {
-	unitsPerSec, cell, err := admissionUnitsPerSec("embed", "all-minilm-l6-v2", nil, benchmarkNow)
-	mustf(t, err, "admission refused the embed cell: %v")
-	if cell.Status != cellThroughputMeasured {
-		t.Fatalf("embed cell resolved %s (%s), want a measured benchmark",
-			cell.Status, cell.Reason)
+// historicalFrozenPerformanceForTest encodes a snapshot as an older admission
+// would have accepted it. Production creation must use freezeRuntimeCellPerformance,
+// whose current-policy checks are intentionally stronger; historical replay
+// validates only this self-contained block.
+func historicalFrozenPerformanceForTest(
+	t *testing.T, performance RuntimeCellPerformance,
+) *FrozenRuntimeCellPerformance {
+	t.Helper()
+	summary, ok := benchmarkAuthorityManifest[performance.BenchmarkAuthority]
+	if !ok {
+		t.Fatalf("benchmark authority %q is absent", performance.BenchmarkAuthority)
 	}
-	offered := expectedSupplierUSDHr(
-		unitsPerSec, boardReferencePrice(t, "all-minilm-l6-v2", "embed"),
-		supplierShareForTest(t, "embed", "all-minilm-l6-v2"), "batch")
-	if offered <= defaultInstallMinPayoutUSDHr {
-		t.Fatalf("a measured cell offers $%.5f/hr, at or below the $%.5f/hr floor a "+
-			"default install writes: %.1f %s/s from %s",
-			offered, defaultInstallMinPayoutUSDHr, unitsPerSec, cell.Unit,
-			cell.BenchmarkAuthority)
+	summary = cloneBenchmarkReceiptSummary(summary)
+	exactPins, err := exactWeightDigestsForCurrentPerformance(performance)
+	must(t, err)
+	summary = projectBenchmarkSummaryToExactCell(summary, exactPins)
+	canonicalCommit, err := canonicalFrozenMercSourceCommit(summary.MercSourceCommit)
+	must(t, err)
+	summary.MercSourceCommit = canonicalCommit
+	summarySHA, err := benchmarkReceiptSummarySHA256(summary)
+	must(t, err)
+	out := FrozenRuntimeCellPerformance{
+		Version:                 frozenRuntimeCellPerformanceVersion,
+		PolicyRevision:          runtimeCellPerformancePolicyRevision,
+		Performance:             performance,
+		BenchmarkSnapshot:       summary,
+		BenchmarkSnapshotSHA256: summarySHA,
+		ModelArtifactWireKind:   performance.WireKind,
+		ModelArtifactPins:       append([]string(nil), exactPins...),
 	}
-	t.Logf("cell=%s %.1f %s/s conservative (observed %.1f, best %.1f) -> $%.5f/hr",
-		cell.CellID, unitsPerSec, cell.Unit, cell.ObservedUnitsPerSec,
-		cell.ObservedBestUnitsPerSec, offered)
+	out.Digest, err = frozenRuntimeCellPerformanceDigest(out)
+	must(t, err)
+	mustf(t, validateFrozenRuntimeCellPerformance(&out),
+		"historical frozen performance fixture was not self-contained: %v")
+	return &out
+}
+
+func historicalLegacyFrozenPerformanceForTest(
+	t *testing.T, performance RuntimeCellPerformance,
+) *FrozenRuntimeCellPerformance {
+	t.Helper()
+	legacy := *historicalFrozenPerformanceForTest(t, performance)
+	legacy.Version = frozenRuntimeCellPerformanceLegacyVersion
+	legacy.PolicyRevision = runtimeCellPerformanceLegacyPolicyRevision
+	legacy.Performance.EngineBuildHash = ""
+	legacy.Performance.EngineBuildIdentityPolicy = ""
+	legacy.Performance.HardwareIdentity = ""
+	legacy.BenchmarkSnapshot = cloneBenchmarkReceiptSummary(legacy.BenchmarkSnapshot)
+	legacy.BenchmarkSnapshot.EngineBuildHash = ""
+	legacy.BenchmarkSnapshot.EngineBuildIdentityPolicy = ""
+	legacy.BenchmarkSnapshot.HardwareIdentity = ""
+	var err error
+	legacy.BenchmarkSnapshotSHA256, err = benchmarkReceiptSummarySHA256(legacy.BenchmarkSnapshot)
+	must(t, err)
+	legacy.Digest, err = frozenRuntimeCellPerformanceDigest(legacy)
+	must(t, err)
+	mustf(t, validateFrozenRuntimeCellPerformance(&legacy),
+		"legacy frozen performance fixture was not self-contained: %v")
+	return &legacy
+}
+
+// The embed receipt measures completed embeddings/s, while ComputePlan settles
+// max(records, raw input bytes/4). Multiplying the first by the price of the
+// second silently treats one long input as both one unit and many units. New
+// quote/admission must refuse until a conversion is frozen; an already accepted
+// v2 placement remains replayable from its own historical snapshot.
+func TestEmbedUnitMismatchRefusesNewQuoteButDoesNotRewriteHistoricalReplay(t *testing.T) {
+	installTestOnlyExactIdentityForLegacyBenchmark(t, candleEmbedCell)
+	profile, cell := cellByID(t, candleEmbedCell)
+	performance := resolveCellPerformance(profile, cell, benchmarkNow)
+	if performance.Status != cellThroughputMeasured || performance.Unit != "embeddings" ||
+		performance.UnitScope != performanceUnitScopeCompletedEmbeddingRecords {
+		t.Fatalf("embed evidence premise changed: status=%s authority=%q/%q reason=%q",
+			performance.Status, performance.Unit, performance.UnitScope, performance.Reason)
+	}
+
+	workload, err := buildWorkloadDecision(embedSubmit(), strings.Repeat("6", 64))
+	must(t, err)
+	authority := catalogueAuthorityFixture(
+		t, workload, SettlementCurrencyCode(),
+		supplierShareForTest(t, workload.RuntimeJobType, workload.Binding.Model.Ref),
+	)
+	assertMismatch := func(stage string, err error) {
+		t.Helper()
+		if err == nil || !strings.Contains(err.Error(), `"embeddings"`) ||
+			!strings.Contains(err.Error(), `"token_like_input_units"`) ||
+			!strings.Contains(err.Error(), performanceUnitScopeCompletedEmbeddingRecords) ||
+			!strings.Contains(err.Error(), performanceUnitScopeTokenLikeInputGeometry) ||
+			!strings.Contains(err.Error(), "no frozen unit conversion") {
+			t.Fatalf("%s did not refuse the incompatible throughput/settlement units: %v",
+				stage, err)
+		}
+	}
+	_, err = supplierAdmissionCeilingUSDHr(
+		authority, workload.RuntimeJobType, workload.Binding.Tier,
+		admissionCellsForWorkload(workload), workload.Binding.Constraints.HWClasses,
+	)
+	assertMismatch("quote ceiling", err)
+	_, err = placementRequirementFor(embedSubmit(), workload, 1)
+	assertMismatch("placement admission", err)
+
+	// Encode what an older admission accepted before the cross-unit guard. The
+	// frozen validator must not consult today's compatibility policy or manifest.
+	frozen := historicalLegacyFrozenPerformanceForTest(t, performance)
+	candidate := workload.RuntimeCandidates[0]
+	modelKind := candidate.ModelKind
+	if modelKind == "" {
+		modelKind = workload.Binding.Model.Kind
+	}
+	historical := PlacementRequirement{
+		Version:              2,
+		JobType:              workload.RuntimeJobType,
+		ModelRef:             workload.Binding.Model.Ref,
+		ModelKind:            modelKind,
+		RuntimeCellID:        candidate.CellID,
+		RuntimeID:            candidate.RuntimeID,
+		Engine:               candidate.Engine,
+		RuntimeMatrixSHA256:  generatedRuntimeMatrixSHA256,
+		MinMemoryGB:          float32(workload.MinimumMemoryGB),
+		HWClasses:            []string{performance.MeasuredOnHWClass},
+		DataResidency:        append([]string(nil), workload.Binding.Constraints.DataResidency...),
+		MinReputation:        workload.Binding.MinReputation,
+		TrustedOnly:          workload.Binding.Tier == "trusted",
+		PerformanceAuthority: frozen,
+		OfferedRateUsdHr: float32(expectedSupplierUSDHr(
+			performance.ConservativeUnitsPerSec, authority.ReferencePricePer1K,
+			authority.SupplierShare, workload.Binding.Tier)),
+	}
+	mustf(t, validatePlacementRequirement(historical, workload),
+		"historical frozen embed placement was rewritten by current unit policy: %v")
+	if historical.PerformanceAuthority.Performance.Unit != "embeddings" {
+		t.Fatalf("historical replay rewrote frozen unit to %q",
+			historical.PerformanceAuthority.Performance.Unit)
+	}
+	if historical.PerformanceAuthority.Performance.UnitScope != performanceUnitScopeCompletedEmbeddingRecords {
+		t.Fatalf("historical replay rewrote frozen unit scope to %q",
+			historical.PerformanceAuthority.Performance.UnitScope)
+	}
+}
+
+// The BOUND batch receipt is explicit about decode throughput. Pricing is
+// equally explicit about token-like input plus the maximum output allowance.
+// Equal `tokens` labels must therefore refuse new admission while the frozen
+// historical receipt remains replayable on its own terms.
+func TestBatchDecodeScopeRefusesNewQuoteButDoesNotRewriteHistoricalReplay(t *testing.T) {
+	installTestOnlyExactIdentityForLegacyBenchmark(t, "candle-metal-llama1-infer")
+	profile, cell := cellByID(t, "candle-metal-llama1-infer")
+	performance := resolveCellPerformance(profile, cell, benchmarkNow)
+	if performance.Status != cellThroughputMeasured || performance.Unit != "tokens" ||
+		performance.UnitScope != performanceUnitScopeDecodeOutputTokens {
+		t.Fatalf("batch evidence premise changed: status=%s authority=%q/%q reason=%q",
+			performance.Status, performance.Unit, performance.UnitScope, performance.Reason)
+	}
+
+	sub, herr := normalizeAndValidateJobSubmit(jobSubmit{
+		JobType: JobType{Type: "batch_infer", MaxTokens: 16},
+		Model:   ModelRef{Kind: "gguf", Ref: "llama-3.2-1b-instruct-q4"},
+		Constraints: JobConstraints{
+			MaxDurationSecs: 3600,
+		},
+		Tier: "batch",
+	})
+	if herr != nil {
+		t.Fatalf("normalize production batch fixture: %s", herr.msg)
+	}
+	workload, err := buildWorkloadDecision(sub, strings.Repeat("7", 64))
+	must(t, err)
+	authority := catalogueAuthorityFixture(
+		t, workload, SettlementCurrencyCode(),
+		supplierShareForTest(t, workload.RuntimeJobType, workload.Binding.Model.Ref),
+	)
+	assertScopeMismatch := func(stage string, err error) {
+		t.Helper()
+		if err == nil || !strings.Contains(err.Error(), `"tokens"`) ||
+			!strings.Contains(err.Error(), performanceUnitScopeDecodeOutputTokens) ||
+			!strings.Contains(err.Error(), performanceUnitScopeTokenLikeInputPlusOutputTokens) ||
+			!strings.Contains(err.Error(), "unit/scope mismatch") {
+			t.Fatalf("%s did not refuse decode-only throughput against combined settlement: %v",
+				stage, err)
+		}
+	}
+	_, err = supplierAdmissionCeilingUSDHr(
+		authority, workload.RuntimeJobType, workload.Binding.Tier,
+		admissionCellsForWorkload(workload), workload.Binding.Constraints.HWClasses,
+	)
+	assertScopeMismatch("quote ceiling", err)
+	_, err = placementRequirementFor(sub, workload, 1)
+	assertScopeMismatch("placement admission", err)
+
+	frozen := historicalLegacyFrozenPerformanceForTest(t, performance)
+	candidate := workload.RuntimeCandidates[0]
+	historical := PlacementRequirement{
+		Version:              2,
+		JobType:              workload.RuntimeJobType,
+		ModelRef:             workload.Binding.Model.Ref,
+		ModelKind:            candidate.ModelKind,
+		RuntimeCellID:        candidate.CellID,
+		RuntimeID:            candidate.RuntimeID,
+		Engine:               candidate.Engine,
+		RuntimeMatrixSHA256:  generatedRuntimeMatrixSHA256,
+		MinMemoryGB:          float32(workload.MinimumMemoryGB),
+		HWClasses:            []string{performance.MeasuredOnHWClass},
+		DataResidency:        append([]string(nil), workload.Binding.Constraints.DataResidency...),
+		MinReputation:        workload.Binding.MinReputation,
+		TrustedOnly:          workload.Binding.Tier == "trusted",
+		PerformanceAuthority: frozen,
+		OfferedRateUsdHr: float32(expectedSupplierUSDHr(
+			performance.ConservativeUnitsPerSec, authority.ReferencePricePer1K,
+			authority.SupplierShare, workload.Binding.Tier)),
+	}
+	mustf(t, validatePlacementRequirement(historical, workload),
+		"historical frozen decode-only placement was rewritten by current scope policy: %v")
+	if historical.PerformanceAuthority.Performance.UnitScope != performanceUnitScopeDecodeOutputTokens {
+		t.Fatalf("historical replay rewrote frozen batch scope to %q",
+			historical.PerformanceAuthority.Performance.UnitScope)
+	}
+}
+
+// Version-1 frozen performance snapshots predate UnitScope. Historical replay
+// accepts an internally consistent scope-less snapshot, while every new freeze
+// and durable write requires the explicit current field.
+func TestHistoricalScopeLessFrozenPerformanceReplayRemainsSelfContained(t *testing.T) {
+	installTestOnlyCombinedTokenAuthority(t)
+	profile, cell := cellByID(t, "candle-metal-llama1-infer")
+	performance := resolveCellPerformance(profile, cell, runtimeCellPerformanceNow())
+	frozen := *historicalFrozenPerformanceForTest(t, performance)
+	frozen.Performance.UnitScope = ""
+	measurement := frozen.BenchmarkSnapshot.Throughput[performance.RuntimeProfileID]
+	measurement.UnitScope = ""
+	frozen.BenchmarkSnapshot.Throughput[performance.RuntimeProfileID] = measurement
+	var err error
+	frozen.BenchmarkSnapshotSHA256, err = benchmarkReceiptSummarySHA256(frozen.BenchmarkSnapshot)
+	must(t, err)
+	frozen.Digest, err = frozenRuntimeCellPerformanceDigest(frozen)
+	must(t, err)
+	mustf(t, validateFrozenRuntimeCellPerformance(&frozen),
+		"scope-less historical performance replay inherited current policy: %v")
+	if err := validateCurrentPerformanceSettlementAuthority(frozen.Performance); err == nil ||
+		!strings.Contains(err.Error(), "no explicit performance-unit scope") {
+		t.Fatalf("new admission accepted a scope-less historical performance block: %v", err)
+	}
+}
+
+func TestPolicylessExactBuildSnapshotRemainsHistoricalOnly(t *testing.T) {
+	sub := testOnlyCombinedTokenSubmit(t)
+	workload, err := buildWorkloadDecision(sub, strings.Repeat("9", 64))
+	must(t, err)
+	placement, err := placementRequirementFor(sub, workload, 1)
+	must(t, err)
+
+	// Re-encode the already-frozen block as it existed after exact build/device
+	// fields were introduced but before the short-hash algorithm acquired an
+	// explicit policy tag. Its own digests remain authoritative for replay.
+	legacy := placement
+	legacy.EngineBuildIdentityPolicy = ""
+	frozen := *placement.PerformanceAuthority
+	frozen.Performance.EngineBuildIdentityPolicy = ""
+	frozen.BenchmarkSnapshot = cloneBenchmarkReceiptSummary(frozen.BenchmarkSnapshot)
+	frozen.BenchmarkSnapshot.EngineBuildIdentityPolicy = ""
+	frozen.BenchmarkSnapshotSHA256, err = benchmarkReceiptSummarySHA256(frozen.BenchmarkSnapshot)
+	must(t, err)
+	frozen.Digest, err = frozenRuntimeCellPerformanceDigest(frozen)
+	must(t, err)
+	legacy.PerformanceAuthority = &frozen
+
+	mustf(t, validateFrozenRuntimeCellPerformance(&frozen),
+		"policy-less frozen exact-build authority was not historically readable: %v")
+	mustf(t, validatePlacementRequirement(legacy, workload),
+		"policy-less exact-build placement was not historically readable: %v")
+	if err := validateCurrentPlacementRequirement(legacy, workload); err == nil ||
+		!strings.Contains(err.Error(), "engine_build_identity_policy") {
+		t.Fatalf("policy-less historical placement became current-admissible: %v", err)
+	}
+}
+
+func TestFrozenMiniLMPerformanceCarriesOnlyTheSelectedCellArtifact(t *testing.T) {
+	_, candleCell := cellByID(t, "candle-metal-minilm-embed")
+	_, llamaCell := cellByID(t, "llama-cpp-metal-minilm-embed")
+	candlePins, err := exactWeightDigestsForCell(candleCell, runtimeAuthorityModels)
+	must(t, err)
+	llamaPins, err := exactWeightDigestsForCell(llamaCell, runtimeAuthorityModels)
+	must(t, err)
+	if len(candlePins) != 1 || len(llamaPins) != 1 || candlePins[0] == llamaPins[0] {
+		t.Fatalf("MiniLM exact-artifact premise changed: candle=%v llama.cpp=%v",
+			candlePins, llamaPins)
+	}
+
+	t.Run("candle selected artifact", func(t *testing.T) {
+		installTestOnlyExactIdentityForLegacyBenchmark(t, candleEmbedCell)
+		candleProfile, exactCandleCell := cellByID(t, candleEmbedCell)
+		performance := resolveCellPerformance(candleProfile, exactCandleCell, benchmarkNow)
+		frozen := historicalFrozenPerformanceForTest(t, performance)
+		if frozen.ModelArtifactWireKind != wireKindFor(exactCandleCell, runtimeAuthorityModels[exactCandleCell.Model].WireKind) {
+			t.Fatalf("frozen wire kind=%q, want Candle selected kind %q",
+				frozen.ModelArtifactWireKind, performance.WireKind)
+		}
+		if !slices.Equal(frozen.ModelArtifactPins, candlePins) ||
+			!slices.Equal(frozen.BenchmarkSnapshot.ModelArtifactSHA256s, candlePins) {
+			t.Fatalf("frozen Candle performance retained non-selected MiniLM artifacts: pins=%v snapshot=%v want=%v",
+				frozen.ModelArtifactPins, frozen.BenchmarkSnapshot.ModelArtifactSHA256s, candlePins)
+		}
+
+		// Historical replay has no access to today's runtime catalogue. It still
+		// rejects a sibling GGUF substituted on only one side of the frozen
+		// cross-binding, even after the outer digest is honestly recomputed.
+		tampered := *frozen
+		tampered.ModelArtifactPins = append([]string(nil), llamaPins...)
+		tampered.Digest, err = frozenRuntimeCellPerformanceDigest(tampered)
+		must(t, err)
+		if err := validateFrozenRuntimeCellPerformance(&tampered); err == nil ||
+			!strings.Contains(err.Error(), "does not exactly cross-bind") {
+			t.Fatalf("historical replay accepted sibling GGUF against frozen Candle snapshot: %v", err)
+		}
+	})
+
+	t.Run("llama.cpp selected artifact", func(t *testing.T) {
+		// The sibling is nevertheless the correct exact authority for llama.cpp's
+		// cell. This proves the refusal is cell/wire scoped, not a GGUF blacklist.
+		installTestOnlyExactIdentityForLegacyBenchmark(t, llamaEmbedCell)
+		llamaProfile, exactLlamaCell := cellByID(t, llamaEmbedCell)
+		llamaPerformance := resolveCellPerformance(llamaProfile, exactLlamaCell, benchmarkNow)
+		llamaFrozen := historicalFrozenPerformanceForTest(t, llamaPerformance)
+		if !slices.Equal(llamaFrozen.ModelArtifactPins, llamaPins) ||
+			!slices.Equal(llamaFrozen.BenchmarkSnapshot.ModelArtifactSHA256s, llamaPins) ||
+			llamaFrozen.ModelArtifactWireKind != "gguf" {
+			t.Fatalf("llama.cpp frozen performance did not select its exact GGUF: %+v",
+				llamaFrozen)
+		}
+	})
+}
+
+func TestProductionBoundPerformanceLanesHaveNoSettlementCompatibleAdmission(t *testing.T) {
+	checked := 0
+	for _, profile := range runtimeAuthority.Runtimes {
+		for _, cell := range profile.Cells {
+			if !cell.Routable(profile) {
+				continue
+			}
+			checked++
+			_, performance, err := admissionUnitsPerSec(
+				cell.Job, cell.Model, []string{cell.ID}, benchmarkNow)
+			if err == nil {
+				t.Fatalf("production cell %s admitted %q/%q against current settlement",
+					cell.ID, performance.Unit, performance.UnitScope)
+			}
+		}
+	}
+	// The only checked-in measured build predates the complete executable
+	// identity root and is SUPERSEDED. Historical performance remains readable,
+	// but no production lane is current-admissible until it is remeasured.
+	if checked != 0 {
+		t.Fatalf("production BOUND routable cell count=%d, want none until exact-build remeasurement", checked)
+	}
+}
+
+func TestCurrentStalePerformanceIgnoresDiagnosticAgeProseOnly(t *testing.T) {
+	testOnlyCombinedTokenSubmit(t)
+	profile, cell := cellByID(t, "candle-metal-llama1-infer")
+	receipt := benchmarkAuthorityManifest[cell.benchmarkAuthorityFor(profile)]
+	measuredAt, err := time.Parse(time.RFC3339, receipt.MeasuredAt)
+	must(t, err)
+	firstAt := measuredAt.Add(benchmarkRevalidationWindow + 24*time.Hour)
+	laterAt := firstAt.Add(24 * time.Hour)
+	frozen := resolveCellPerformance(profile, cell, firstAt)
+	later := resolveCellPerformance(profile, cell, laterAt)
+	if frozen.Status != cellThroughputStale || later.Status != cellThroughputStale ||
+		frozen.Reason == later.Reason {
+		t.Fatalf("stale diagnostic-age premise failed: first=%+v later=%+v", frozen, later)
+	}
+	if err := validateCurrentRuntimeCellPerformanceAuthorityAt(frozen, laterAt); err != nil {
+		t.Fatalf("unchanged stale authority failed solely because age prose moved: %v", err)
+	}
 }
 
 // The constant this file tests admission against has to be the number the
@@ -159,6 +507,7 @@ func TestCellWithoutAUsableBenchmarkIsNotOfferedAsMeasured(t *testing.T) {
 // say revalidation is owed, and the number has to move, or "stale" is a label
 // with no consequence.
 func TestStaleBenchmarkDegradesRatherThanSilentlyPassing(t *testing.T) {
+	installTestOnlyExactIdentityForLegacyBenchmark(t, candleEmbedCell)
 	profile, cell := cellByID(t, "candle-metal-minilm-embed")
 	fresh := resolveCellPerformance(profile, cell, benchmarkNow)
 	stale := resolveCellPerformance(profile, cell,
@@ -191,18 +540,42 @@ func TestStaleBenchmarkDegradesRatherThanSilentlyPassing(t *testing.T) {
 	}
 }
 
+func TestFutureDatedBenchmarkRefusesCurrentAdmission(t *testing.T) {
+	installTestOnlyExactIdentityForLegacyBenchmark(t, candleEmbedCell)
+	profile, cell := cellByID(t, "candle-metal-minilm-embed")
+	receipt := benchmarkAuthorityManifest[cell.benchmarkAuthorityFor(profile)]
+	measuredAt, err := time.Parse(time.RFC3339, receipt.MeasuredAt)
+	mustf(t, err, "parse benchmark time: %v")
+	authorityTime := measuredAt.Add(-time.Nanosecond)
+
+	got := resolveCellPerformance(profile, cell, authorityTime)
+	if got.Status != cellThroughputUnproven ||
+		got.ConservativeUnitsPerSec != unprovenFallbackUnitsPerSec ||
+		got.ObservedUnitsPerSec != 0 || got.ObservedBestUnitsPerSec != 0 ||
+		!strings.Contains(got.Reason, "future-dated") {
+		t.Fatalf("future-dated benchmark resolved as current authority: %+v", got)
+	}
+	if _, _, err := admissionUnitsPerSec(
+		cell.Job, cell.Model, []string{cell.ID}, authorityTime,
+	); err == nil || !strings.Contains(err.Error(), "future-dated") {
+		t.Fatalf("future-dated benchmark admitted current work: %v", err)
+	}
+}
+
 // "Never the best number in the sweep" is the rule; this is the check. Every
 // routable cell's admissible rate must sit strictly below the receipt's best
 // observation - which on a comparison receipt is a median of five repetitions
 // at the best batch, not a peak.
 func TestNoAdmissibleRateReachesTheBestObservation(t *testing.T) {
+	installTestOnlyCombinedTokenAuthority(t)
+	at := runtimeCellPerformanceNow()
 	checked := 0
 	for _, profile := range runtimeAuthority.Runtimes {
 		for _, cell := range profile.Cells {
 			if !cell.Routable(profile) {
 				continue
 			}
-			got := resolveCellPerformance(profile, cell, benchmarkNow)
+			got := resolveCellPerformance(profile, cell, at)
 			if got.Status != cellThroughputMeasured {
 				continue
 			}
@@ -225,6 +598,7 @@ func TestNoAdmissibleRateReachesTheBestObservation(t *testing.T) {
 // A supplier that claims nothing must be able to read why. Every branch that
 // can exclude a cell has to name itself.
 func TestViabilityReportNamesTheReasonForIneligibility(t *testing.T) {
+	installTestOnlyExactIdentityForLegacyBenchmark(t, candleEmbedCell)
 	authority := boardCatalogueAuthority(t)
 
 	rows := SupplierAdmissionViability(
@@ -234,6 +608,7 @@ func TestViabilityReportNamesTheReasonForIneligibility(t *testing.T) {
 		t.Fatal("the report is empty; a supplier learns nothing from it")
 	}
 	eligible := 0
+	unitMismatch := 0
 	for _, row := range rows {
 		if row.Reason == "" {
 			t.Errorf("cell %s reports eligible=%v with no reason",
@@ -257,14 +632,17 @@ func TestViabilityReportNamesTheReasonForIneligibility(t *testing.T) {
 		if row.Eligible {
 			eligible++
 		}
+		if strings.Contains(row.Reason, "token_like_input_units") {
+			unitMismatch++
+		}
 		t.Logf("%-30s eligible=%-5v $%.5f/hr vs $%.5f/hr floor  %s",
 			row.Performance.CellID, row.Eligible, row.ExpectedSupplierUSDHr,
 			row.MinimumPayoutUSDHr, row.Reason)
 	}
-	if eligible == 0 {
-		t.Fatal("no cell is viable for a default install on Apple Silicon; " +
-			"the marketplace has no supply side")
+	if unitMismatch == 0 {
+		t.Fatal("viability report omitted the embed settlement-unit refusal")
 	}
+	t.Logf("eligible current cells=%d; incompatible-unit cells=%d", eligible, unitMismatch)
 
 	// A shortfall must quote both numbers, not just say no.
 	shortfall := SupplierAdmissionViability(
@@ -276,6 +654,12 @@ func TestViabilityReportNamesTheReasonForIneligibility(t *testing.T) {
 		// media cells; their viability is checked by the shared economic plan.
 		if row.Performance.CellID == "candle-metal-ffmpeg-transcode" ||
 			row.Performance.CellID == "candle-metal-scene-render" {
+			continue
+		}
+		if strings.Contains(row.Reason, "no market") {
+			// A measured rate in a different unit is neither a low price nor a
+			// payout-floor shortfall. Admission correctly reports no market until
+			// the conversion is governed.
 			continue
 		}
 		if row.Eligible {
@@ -377,9 +761,19 @@ func TestManifestThroughputIsDerivableFromTheReceipts(t *testing.T) {
 				t.Errorf("%s: manifest says %s tops out at %v, the receipt says %v",
 					path, profileID, throughput.BestObservedUnitsPerSec, best)
 			}
-			if throughput.Unit == "" || throughput.Basis == "" || throughput.Precision == "" {
-				t.Errorf("%s: %s publishes a rate with no unit, basis or precision",
+			if throughput.Unit == "" || throughput.UnitScope == "" ||
+				throughput.Basis == "" || throughput.Precision == "" {
+				t.Errorf("%s: %s publishes a rate with no unit, scope, basis or precision",
 					path, profileID)
+			}
+			switch throughput.UnitScope {
+			case performanceUnitScopeDecodeOutputTokens,
+				performanceUnitScopeCompletedEmbeddingRecords,
+				performanceUnitScopeSingleObjectInputByteQuarters,
+				performanceUnitScopeDeclaredOutputPixelsPerScene:
+			default:
+				t.Errorf("%s: %s publishes unknown performance-unit scope %q",
+					path, profileID, throughput.UnitScope)
 			}
 		}
 	}
@@ -430,7 +824,9 @@ func mutableCell(t *testing.T, doc *runtimeAuthorityDocument, cellID string) *au
 // (no routable cell at all). This test strips throughput from the cell's own
 // bound receipt so Routable stays true and the unproven-rate refusal fires.
 func TestUnprovenRoutableCellRefusesAdmissionRatherThanCollapsingIt(t *testing.T) {
-	const path = "evidence/perf/runtime-benchmarks/embed-cell-candle-vs-llama-cpp-r2.json"
+	installTestOnlyExactIdentityForLegacyBenchmark(t, candleEmbedCell)
+	profile, cell := cellByID(t, candleEmbedCell)
+	path := cell.benchmarkAuthorityFor(profile)
 	saved := benchmarkAuthorityManifest[path]
 	t.Cleanup(func() { benchmarkAuthorityManifest[path] = saved })
 	stripped := saved
@@ -466,11 +862,13 @@ func TestUnprovenRoutableCellRefusesAdmissionRatherThanCollapsingIt(t *testing.T
 	}
 }
 
-// A job is pinned to one runtime candidate before it is priced, but admission
-// took the minimum over every routable cell serving the model. With two routable
-// cells of different speed, a job pinned to the fast one is offered the slow
-// one's rate and its supplier is underpaid for work it can actually do.
-func TestAdmissionPricesTheCellsTheJobCanReach(t *testing.T) {
+// Candidate resolution still narrows to the cells the frozen workload can
+// reach. This is intentionally below admission: embed rates are measured in an
+// incompatible unit and therefore cannot be priced until conversion authority
+// exists, but routing must still resolve the correct measured cell.
+func TestPerformanceResolutionUsesOnlyTheCellsTheJobCanReach(t *testing.T) {
+	installTestOnlyExactIdentityForLegacyBenchmark(t, candleEmbedCell)
+	installTestOnlyExactIdentityForLegacyBenchmark(t, llamaEmbedCell)
 	doc := mutableRuntimeAuthority(t)
 	// Promoting llama.cpp's embed cell gives the model two routable cells whose
 	// measured rates disagree, which is the situation this test is about.
@@ -487,29 +885,35 @@ func TestAdmissionPricesTheCellsTheJobCanReach(t *testing.T) {
 	}
 	mutableCell(t, doc, "llama-cpp-metal-minilm-embed").Lifecycle = runtimeLifecycleActive
 
-	catalogueWide, slowCell, err := admissionUnitsPerSec(
-		"embed", "all-minilm-l6-v2", nil, benchmarkNow)
-	mustf(t, err, "catalogue-wide admission: %v")
-	// The property: admission prices a pinned job from the cell it can reach, not
-	// from the catalogue-wide slowest. Pin to whichever cell is not the slowest.
+	catalogue := routableCellPerformance("embed", "all-minilm-l6-v2", nil, benchmarkNow)
+	if len(catalogue) != 2 {
+		t.Fatalf("catalogue-wide performance resolved %d cells, want 2", len(catalogue))
+	}
+	slowCell := catalogue[0]
+	// Pin to whichever cell is not the catalogue-wide slowest.
 	faster := "llama-cpp-metal-minilm-embed"
 	if slowCell.CellID == faster {
 		faster = "candle-metal-minilm-embed"
 	}
-	pinned, fastCell, err := admissionUnitsPerSec(
+	pinned := routableCellPerformance(
 		"embed", "all-minilm-l6-v2", []string{faster}, benchmarkNow)
-	mustf(t, err, "pinned admission: %v")
+	if len(pinned) != 1 {
+		t.Fatalf("pinned performance resolved %d cells, want 1", len(pinned))
+	}
+	fastCell := pinned[0]
 	if fastCell.CellID != faster {
 		t.Fatalf("pinning to one candidate resolved cell %q", fastCell.CellID)
 	}
-	if pinned <= catalogueWide {
-		t.Fatalf("a job pinned to %s is priced at %v units/s, no better than the "+
+	if fastCell.ConservativeUnitsPerSec <= slowCell.ConservativeUnitsPerSec {
+		t.Fatalf("pinned cell %s resolves at %v units/s, no better than the "+
 			"catalogue-wide minimum %v units/s taken from %s",
-			fastCell.CellID, pinned, catalogueWide, slowCell.CellID)
+			fastCell.CellID, fastCell.ConservativeUnitsPerSec,
+			slowCell.ConservativeUnitsPerSec, slowCell.CellID)
 	}
 }
 
-// A directed workload must be priced from the cell it was directed to.
+// A directed workload must resolve performance from the cell it was directed
+// to, but directed routing cannot bypass settlement-unit compatibility.
 //
 // Directed routing exists to send real buyer work to a cell that is PROVEN and
 // deliberately kept out of the advertised catalogue -- llama.cpp embedding is
@@ -520,17 +924,33 @@ func TestAdmissionPricesTheCellsTheJobCanReach(t *testing.T) {
 // job X on model Y". Both halves were wrong: a cell does serve it, and that cell
 // is measured. A supplier would have been offered roughly a thousandth of the
 // rate the cell it actually runs on can produce.
-func TestDirectedWorkloadIsPricedFromTheCellItWasDirectedTo(t *testing.T) {
+func TestDirectedWorkloadResolvesItsCellButCannotBypassUnitCompatibility(t *testing.T) {
+	const authorityPath = "evidence/perf/runtime-benchmarks/embed-cell-candle-vs-llama-cpp-r2.json"
+	saved := benchmarkAuthorityManifest[authorityPath]
+	synthetic := cloneBenchmarkReceiptSummary(saved)
+	synthetic.EngineBuildHash = testOnlyEngineBuildHash
+	synthetic.EngineBuildIdentityPolicy = externalRunnerBuildIdentityPolicy
+	synthetic.HardwareIdentity = testOnlyHardwareIdentity
+	_, llamaCell := cellByID(t, llamaEmbedCell)
+	pins, err := exactWeightDigestsForCell(llamaCell, runtimeAuthorityModels)
+	must(t, err)
+	synthetic.ModelArtifactSHA256s = pins
+	benchmarkAuthorityManifest[authorityPath] = synthetic
+	t.Cleanup(func() { benchmarkAuthorityManifest[authorityPath] = saved })
+
 	at := time.Now()
-	rate, cell, err := admissionUnitsPerSec("embed", "all-minilm-l6-v2",
+	resolved := routableCellPerformance("embed", "all-minilm-l6-v2",
 		[]string{llamaEmbedCell}, at)
-	mustf(t, err, "a directed workload on a proven cell was refused a rate: %v")
+	if len(resolved) != 1 {
+		t.Fatalf("directed performance resolved %d cells, want one", len(resolved))
+	}
+	cell := resolved[0]
 	if cell.CellID != llamaEmbedCell {
 		t.Fatalf("directed to %s, priced from %q", llamaEmbedCell, cell.CellID)
 	}
-	if rate == unprovenFallbackUnitsPerSec {
+	if cell.ConservativeUnitsPerSec == unprovenFallbackUnitsPerSec {
 		t.Fatalf("the directed cell was priced at the unproven fallback (%.1f). "+
-			"Reason given: %q", rate, cell.Reason)
+			"Reason given: %q", cell.ConservativeUnitsPerSec, cell.Reason)
 	}
 	if cell.Status == cellThroughputUnproven {
 		t.Errorf("a REAL_RUNTIME_PROVEN cell resolved as unproven: %s", cell.Reason)
@@ -538,17 +958,22 @@ func TestDirectedWorkloadIsPricedFromTheCellItWasDirectedTo(t *testing.T) {
 	if strings.Contains(cell.Reason, "no routable runtime cell") {
 		t.Errorf("the reason denies that any cell serves this workload: %q", cell.Reason)
 	}
-	t.Logf("directed %s -> %.2f %s/s (%s)", llamaEmbedCell, rate, cell.Unit, cell.Reason)
-
-	// The routable cell is still what an UNdirected workload gets, so the pin is
-	// what changed the answer rather than the filter having been removed.
-	undirectedRate, undirected, err := admissionUnitsPerSec("embed", "all-minilm-l6-v2", nil, at)
-	must(t, err)
-	if undirected.CellID != candleEmbedCell {
-		t.Errorf("undirected pricing resolved %q, want the routable candle cell",
-			undirected.CellID)
+	t.Logf("directed %s -> %.2f %s/s (%s)", llamaEmbedCell,
+		cell.ConservativeUnitsPerSec, cell.Unit, cell.Reason)
+	if _, _, err := admissionUnitsPerSec("embed", "all-minilm-l6-v2",
+		[]string{llamaEmbedCell}, at); err == nil ||
+		!strings.Contains(err.Error(), "token_like_input_units") {
+		t.Fatalf("directed routing bypassed unit compatibility: %v", err)
 	}
-	t.Logf("undirected -> %s at %.2f/s", undirected.CellID, undirectedRate)
+
+	// The TEST_ONLY directed identity does not widen ordinary production. Every
+	// checked-in current credential remains historical-only, so no undirected
+	// performance cell is available.
+	undirectedCells := routableCellPerformance("embed", "all-minilm-l6-v2", nil, at)
+	if len(undirectedCells) != 0 {
+		t.Fatalf("directed TEST_ONLY identity widened undirected production to %+v",
+			undirectedCells)
+	}
 
 	// And a pin at a cell that is not even directed-reachable must NOT be priced
 	// as if it were. Otherwise the pin would have become a way to price off any
@@ -575,12 +1000,13 @@ func TestDirectedWorkloadIsPricedFromTheCellItWasDirectedTo(t *testing.T) {
 // document happens to contain -- an assertion that skips when the document is
 // healthy is not a guard.
 func TestViabilityReportNeverDisagreesWithAdmission(t *testing.T) {
+	installTestOnlyCombinedTokenAuthority(t)
 	authority := func(string) (CataloguePriceAuthority, error) {
 		return CataloguePriceAuthority{ReferencePricePer1K: 0.0002, SupplierShare: 0.8}, nil
 	}
 	at := time.Now()
 	rows := SupplierAdmissionViability(
-		"apple-silicon-m-series", 0.01, "batch", at, authority)
+		"apple_silicon_ultra", 0.01, "batch", at, authority)
 	if len(rows) == 0 {
 		t.Fatal("no routable cells at all; this report guards nothing")
 	}

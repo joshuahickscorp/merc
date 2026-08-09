@@ -11,6 +11,7 @@ import (
 	"math"
 	"os"
 	"sort"
+	"strings"
 
 	"github.com/google/uuid"
 )
@@ -108,7 +109,7 @@ func (v *Verifier) verifyTaskResult(ctx context.Context, info *CommitTaskInfo, c
 			// mismatch. engine/buildHash are worker-declared; skipping the compare
 			// would let an unexpected build_hash disarm the probe.
 			if byteExactJobType(info.jobType) && answerClass != "" &&
-				answerClass != classKey(info.engine, info.buildHash) {
+				answerClass != classKey(info.engine, info.buildHash, info.buildIdentityPolicy) {
 				if err := v.store.DockReputation(ctx, info.SupplierID, EventHoneypotFail); err != nil {
 					return OutcomeFail, err
 				}
@@ -128,7 +129,8 @@ func (v *Verifier) verifyTaskResult(ctx context.Context, info *CommitTaskInfo, c
 			}
 			// Class-blind paths: non-byte-exact job types always compare; byte-exact
 			// honeypots seeded with blank answerClass keep intentional skip behaviour.
-			if byteHoneypotComparable(info.jobType, answerClass, info.engine, info.buildHash) {
+			if byteHoneypotComparable(info.jobType, answerClass, info.engine, info.buildHash,
+				info.buildIdentityPolicy) {
 				if !resultsAgree(info.jobType, commitBytes, known) {
 					if err := v.store.DockReputation(ctx, info.SupplierID, EventHoneypotFail); err != nil {
 						return OutcomeFail, err
@@ -165,8 +167,8 @@ func (v *Verifier) verifyTaskResult(ctx context.Context, info *CommitTaskInfo, c
 		}
 		if len(all) == 0 {
 			all = []chunkVote{
-				{supplierID: info.SupplierID, taskID: info.TaskID, bytes: commitBytes, engine: info.engine, buildHash: info.buildHash},
-				{supplierID: info.peerSupplierID, bytes: redundancyBytes, engine: info.peerEngine, buildHash: info.peerBuildHash},
+				{supplierID: info.SupplierID, taskID: info.TaskID, bytes: commitBytes, engine: info.engine, buildHash: info.buildHash, buildIdentityPolicy: info.buildIdentityPolicy},
+				{supplierID: info.peerSupplierID, bytes: redundancyBytes, engine: info.peerEngine, buildHash: info.peerBuildHash, buildIdentityPolicy: info.peerBuildIdentityPolicy},
 			}
 		}
 		rawVotes := all
@@ -176,7 +178,8 @@ func (v *Verifier) verifyTaskResult(ctx context.Context, info *CommitTaskInfo, c
 			return v.resolveTiebreak(ctx, info, all)
 		case len(all) == 2 && !resultsAgree(info.jobType, all[0].bytes, all[1].bytes):
 			if byteExactJobType(info.jobType) &&
-				!sameVerificationClass(all[0].engine, all[0].buildHash, all[1].engine, all[1].buildHash) {
+				!sameVerificationClass(all[0].engine, all[0].buildHash, all[1].engine, all[1].buildHash,
+					all[0].buildIdentityPolicy, all[1].buildIdentityPolicy) {
 				if err := v.store.RecordVerificationEvent(ctx, info.JobID, info.TaskID, info.SupplierID, "redundancy_cross_class"); err != nil {
 					return OutcomePassWithPenalty, err
 				}
@@ -296,11 +299,12 @@ func taskSample(secret []byte, taskID uuid.UUID) float64 {
 }
 
 type chunkVote struct {
-	supplierID uuid.UUID
-	taskID     uuid.UUID
-	bytes      []byte
-	engine     string
-	buildHash  string
+	supplierID          uuid.UUID
+	taskID              uuid.UUID
+	bytes               []byte
+	engine              string
+	buildHash           string
+	buildIdentityPolicy string
 }
 
 func independentSupplierVotes(all []chunkVote) []chunkVote {
@@ -335,19 +339,35 @@ func chunkVoteLess(a, b chunkVote) bool {
 	if a.engine != b.engine {
 		return a.engine < b.engine
 	}
-	return a.buildHash < b.buildHash
+	if a.buildHash != b.buildHash {
+		return a.buildHash < b.buildHash
+	}
+	return a.buildIdentityPolicy < b.buildIdentityPolicy
 }
 
-func sameVerificationClass(aEngine, aBuild, bEngine, bBuild string) bool {
+func sameVerificationClass(aEngine, aBuild, bEngine, bBuild string, policies ...string) bool {
 	if aBuild == "" || bBuild == "" {
 		return false
 	}
-	return aEngine == bEngine && aBuild == bBuild
+	if len(policies) == 0 {
+		return aEngine == bEngine && aBuild == bBuild
+	}
+	if len(policies) != 2 || !validCurrentEngineBuildIdentityPolicy(policies[0]) ||
+		!validCurrentEngineBuildIdentityPolicy(policies[1]) {
+		return false
+	}
+	return aEngine == bEngine && aBuild == bBuild && policies[0] == policies[1]
 }
 
-func classKey(engine, buildHash string) string {
+func classKey(engine, buildHash string, policies ...string) string {
 	if buildHash == "" {
 		return ""
+	}
+	if len(policies) > 0 {
+		if len(policies) != 1 || !validCurrentEngineBuildIdentityPolicy(policies[0]) {
+			return ""
+		}
+		return engine + "|" + buildHash + "|" + policies[0]
 	}
 	return engine + "|" + buildHash
 }
@@ -356,11 +376,11 @@ func byteExactJobType(jobType string) bool {
 	return jobType != "embed"
 }
 
-func byteHoneypotComparable(jobType, answerClass, engine, buildHash string) bool {
+func byteHoneypotComparable(jobType, answerClass, engine, buildHash string, policies ...string) bool {
 	if !byteExactJobType(jobType) {
 		return true
 	}
-	return answerClass != "" && answerClass == classKey(engine, buildHash)
+	return answerClass != "" && answerClass == classKey(engine, buildHash, policies...)
 }
 
 var errHoneypotBlankClass = fmt.Errorf("byte-exact honeypot requires a non-blank answer_class")
@@ -368,6 +388,14 @@ var errHoneypotBlankClass = fmt.Errorf("byte-exact honeypot requires a non-blank
 func validateHoneypotSeed(jobType, answerClass string) error {
 	if byteExactJobType(jobType) && answerClass == "" {
 		return fmt.Errorf("%w: job_type=%s", errHoneypotBlankClass, jobType)
+	}
+	if byteExactJobType(jobType) {
+		parts := strings.Split(answerClass, "|")
+		if len(parts) != 3 || strings.TrimSpace(parts[0]) == "" ||
+			!engineBuildHashPattern.MatchString(parts[1]) ||
+			!validCurrentEngineBuildIdentityPolicy(parts[2]) {
+			return fmt.Errorf("byte-exact honeypot answer_class must bind engine|16-lowerhex-build|current-build-policy")
+		}
 	}
 	return nil
 }
@@ -396,7 +424,8 @@ func (v *Verifier) gatherChunkResults(ctx context.Context, info *CommitTaskInfo,
 			b = commitBytes // already in hand; avoid a redundant fetch
 		} else if cr.Artifact != nil {
 			if byteExactJobType(info.jobType) && cr.Artifact.SHA256 == info.ResultSHA256 &&
-				sameVerificationClass(info.engine, info.buildHash, cr.Engine, cr.BuildHash) {
+				sameVerificationClass(info.engine, info.buildHash, cr.Engine, cr.BuildHash,
+					info.buildIdentityPolicy, cr.BuildIdentityPolicy) {
 				b = commitBytes
 			} else {
 				b, err = v.storage.readSealedVerificationArtifactWithLimit(ctx, *cr.Artifact, readLimit)
@@ -412,20 +441,22 @@ func (v *Verifier) gatherChunkResults(ctx context.Context, info *CommitTaskInfo,
 			b = fetched
 		}
 		out = append(out, chunkVote{
-			supplierID: cr.SupplierID,
-			taskID:     cr.TaskID,
-			bytes:      b,
-			engine:     cr.Engine,
-			buildHash:  cr.BuildHash,
+			supplierID:          cr.SupplierID,
+			taskID:              cr.TaskID,
+			bytes:               b,
+			engine:              cr.Engine,
+			buildHash:           cr.BuildHash,
+			buildIdentityPolicy: cr.BuildIdentityPolicy,
 		})
 	}
 	if !foundCommitting {
 		out = append(out, chunkVote{
-			supplierID: info.SupplierID,
-			taskID:     info.TaskID,
-			bytes:      commitBytes,
-			engine:     info.engine,
-			buildHash:  info.buildHash,
+			supplierID:          info.SupplierID,
+			taskID:              info.TaskID,
+			bytes:               commitBytes,
+			engine:              info.engine,
+			buildHash:           info.buildHash,
+			buildIdentityPolicy: info.buildIdentityPolicy,
 		})
 	}
 	return out, nil
@@ -448,10 +479,10 @@ func (v *Verifier) resolveTiebreak(ctx context.Context, info *CommitTaskInfo, al
 		return OutcomePassWithPenalty, nil
 	}
 	byteExact := byteExactJobType(info.jobType)
-	var winEngine, winBuild string
+	var winEngine, winBuild, winBuildPolicy string
 	for _, c := range all {
 		if resultsAgree(info.jobType, c.bytes, winner) {
-			winEngine, winBuild = c.engine, c.buildHash
+			winEngine, winBuild, winBuildPolicy = c.engine, c.buildHash, c.buildIdentityPolicy
 			break
 		}
 	}
@@ -466,7 +497,8 @@ func (v *Verifier) resolveTiebreak(ctx context.Context, info *CommitTaskInfo, al
 			if err := v.store.RecordVerificationEvent(ctx, info.JobID, c.taskID, c.supplierID, "tiebreak_win"); err != nil {
 				return OutcomeFail, err
 			}
-		case byteExact && !sameVerificationClass(winEngine, winBuild, c.engine, c.buildHash):
+		case byteExact && !sameVerificationClass(winEngine, winBuild, c.engine, c.buildHash,
+			winBuildPolicy, c.buildIdentityPolicy):
 			if err := v.store.DockReputation(ctx, c.supplierID, EventRedundancyMatch); err != nil {
 				return OutcomeFail, err
 			}
@@ -518,7 +550,8 @@ func (v *Verifier) dispatchTiebreak(ctx context.Context, info *CommitTaskInfo, a
 			alsoSuppliers = append(alsoSuppliers, cr.SupplierID)
 		}
 	}
-	peer, err := v.store.SelectRedundancyPeerExcluding(ctx, info.jobType, info.ModelRef, info.MinMemoryGB, info.WorkerID, also, alsoSuppliers)
+	peer, err := v.store.SelectRedundancyPeerExcluding(ctx, info.JobID, info.TaskID,
+		info.jobType, info.ModelRef, info.MinMemoryGB, info.WorkerID, also, alsoSuppliers)
 	if errors.Is(err, ErrNoSupply) {
 		return nil // no third same-class worker online  -  provisional trust, logged upstream
 	}

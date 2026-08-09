@@ -21,6 +21,7 @@ import (
 //   - a request declaring more than the buyer holds is clamped down to the
 //     balance rather than accepted at the number the buyer asked for
 func TestUnfundedBuyerIsRefusedWithoutStripeConfigured(t *testing.T) {
+	installBoundCataloguePublicationAuthorityForTest(t)
 	strangerDeploymentInputs(t)
 	installSettlementCurrencyForTest(t, "usd")
 

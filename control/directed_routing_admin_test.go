@@ -24,6 +24,7 @@ func TestAdminDirectedJobReachesBuildWorkloadDecisionDirected(t *testing.T) {
 }
 
 func TestAdminDirectedJobFreezesTheNamedCell(t *testing.T) {
+	installBoundCataloguePublicationAuthorityForTest(t)
 	// Unit-level freeze check: the same server-side field the admin route sets.
 	// Full createJob needs prepaid/storage; the freeze is the mechanism that was
 	// unwired, and buildWorkloadDecisionForSubmit is what createJob calls.

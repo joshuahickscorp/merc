@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"math"
 	"strings"
@@ -247,27 +248,34 @@ func newFailureCaseWithClass(t *testing.T, class string) *failureCase {
 // on the constructor's state being remembered.
 func (c *failureCase) claim(t *testing.T) { t.Helper() }
 
-// newQueuedFailureCase submits a job through the production path and leaves it on
-// the queue, for the cases that are about what happens BEFORE anyone claims it.
-//
-// Submitted rather than seeded, because the job lifecycle is enforced by a
-// trigger — "illegal job lifecycle transition: running -> queued" — so a fixture
-// seeded as running cannot be put back. The trigger is right; the fixture was the
-// wrong starting point.
+// newQueuedFailureCase restores a durable queued job/task pair that predates the
+// current admission authority. The failure case is cancellation of an accepted
+// obligation, not whether a new embed job can be admitted today. In particular,
+// it must not manufacture an embeddings/s-to-token-like-settlement conversion
+// merely to reach the cancellation path.
 func newQueuedFailureCase(t *testing.T) *failureCase {
 	t.Helper()
 	h, ctx, store := newVerifiedArtifactHarness(t)
 	f := seedMoneyPathFixture(t, ctx, store, h.pool(), moneyPathSeedOpts{TaskCount: 1})
-	tasks := makeTasks(f, 1)
-	f.TaskIDs = []uuid.UUID{tasks[0].ID}
-	job := validJobRowDirected(t, f, tasks, llamaEmbedCell)
-	corpus := []byte(`{"id":"0","text":"failure matrix"}` + "\n")
-	for _, key := range []string{job.InputRef, tasks[0].InputRef} {
-		mustf(t, h.storage.PutObject(ctx, key, corpus, "application/x-ndjson"), "upload %s: %v", key)
+	taskID := f.TaskIDs[0]
+	if _, err := h.pool().Exec(ctx, `
+		INSERT INTO jobs (
+		  id,buyer_id,status,job_type,model_ref,input_ref,task_count,tasks_done,
+		  offered_rate_usd_hr,min_memory_gb,tier,estimated_usd,actual_usd,
+		  firm_quote,sla_premium_usd)
+		VALUES ($1,$2,'queued','embed','all-minilm-l6-v2','money/input',1,0,
+		        0,0,'batch',$3,0,false,0)`,
+		f.JobID, f.BuyerID, f.Plan.InitialBuyerChargeUSD); err != nil {
+		t.Fatalf("insert historical queued job: %v", err)
 	}
-	mustf(t, store.SubmitJobTx(ctx, job, tasks), "submit: %v")
-	llama := loadChainArtifact(t, "llama_cpp_metal", llamaEmbedCell, "gguf")
-	return &failureCase{h: h, ctx: ctx, store: store, f: f, task: tasks[0].ID, body: llama.body}
+	if _, err := h.pool().Exec(ctx, `
+		INSERT INTO tasks
+		  (id,job_id,status,input_ref,result_key,chunk_index,retry_count)
+		VALUES ($1,$2,'queued','money/input',$3,0,0)`,
+		taskID, f.JobID, taskAttemptResultKey(f.JobID, taskID, 0)); err != nil {
+		t.Fatalf("insert historical queued task: %v", err)
+	}
+	return &failureCase{h: h, ctx: ctx, store: store, f: f, task: taskID}
 }
 
 // A worker that commits the same result twice must be paid once.
@@ -762,35 +770,49 @@ func TestFailureMatrixDatabaseRestart(t *testing.T) {
 func TestFailureMatrixReceiptGenerationFailsLoudly(t *testing.T) {
 	h, ctx, store := newVerifiedArtifactHarness(t)
 	f := seedMoneyPathFixture(t, ctx, store, h.pool(), moneyPathSeedOpts{TaskCount: 1})
-	tasks := makeTasks(f, 1)
-	job := validJobRowDirected(t, f, tasks, llamaEmbedCell)
-	corpus := []byte(`{"id":"0","text":"receipt authority"}` + "\n")
-	for _, key := range []string{job.InputRef, tasks[0].InputRef} {
-		mustf(t, h.storage.PutObject(ctx, key, corpus, "application/x-ndjson"), "upload %s: %v", key)
+	// This is replay authority for an already-accepted obligation. It is seeded
+	// directly so an immutable-receipt test cannot weaken today's deliberate
+	// refusal of new embed admission merely to manufacture its precondition.
+	seedHistoricalSupplierLiabilityAuthorityJob(t, ctx, h.pool(), f, llamaEmbedCell, false)
+	planJSON, err := json.Marshal(f.Plan)
+	mustf(t, err, "marshal historical economic plan: %v")
+	exactNanos := f.Plan.EconomicRoundingPolicy == economicRoundingPolicy &&
+		f.Plan.BuyerChargePerTaskNanos > 0 && f.Plan.SupplierPayoutPerTaskNanos > 0
+	if _, err := h.pool().Exec(ctx, `
+		INSERT INTO job_economic_plans (
+		  job_id,plan_version,schedule_version,plan_json,initial_task_count,
+		  buyer_charge_per_task_usd,supplier_payout_per_task_usd,
+		  initial_buyer_charge_usd,reserved_buyer_charge_usd,sla_premium_usd,
+		  buyer_charge_per_task_nanos,supplier_payout_per_task_nanos)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+		f.JobID, f.Plan.Version, f.Plan.Schedule.Version, planJSON,
+		f.Plan.Input.InitialTaskCount, f.Plan.BuyerChargePerTaskUSD,
+		f.Plan.SupplierPayoutPerTaskUSD, f.Plan.InitialBuyerChargeUSD,
+		f.Plan.ReservedBuyerChargeUSD, f.Plan.Input.SLAPremiumUSD,
+		nullEconomicNanos(f.Plan.BuyerChargePerTaskNanos, exactNanos),
+		nullEconomicNanos(f.Plan.SupplierPayoutPerTaskNanos, exactNanos)); err != nil {
+		t.Fatalf("insert historical economic plan: %v", err)
 	}
-	mustf(t, store.SubmitJobTx(ctx, job, tasks), "submit: %v")
-	c := &failureCase{h: h, ctx: ctx, store: store, f: f, task: tasks[0].ID}
-
-	// A submitted job has a frozen plan, so the negative below is about the plan
-	// being removable rather than about it never having existed.
-	plan, err := c.store.JobComputePlan(c.ctx, c.f.JobID)
+	// The accepted historical job has a frozen plan, so the negative below is
+	// about the plan being removable rather than about it never having existed.
+	plan, err := store.JobComputePlan(ctx, f.JobID)
 	if err != nil || plan == nil {
-		t.Fatalf("a submitted job has no frozen compute plan: %v", err)
+		t.Fatalf("accepted historical job has no frozen compute plan: %v", err)
 	}
 
 	// The strongest possible answer to "what if the receipt authority is gone" is
 	// that it cannot be gone. The schema refuses to remove it, so a receipt
 	// assembled without its authority is unreachable rather than merely refused.
-	_, err = c.h.pool().Exec(c.ctx,
+	_, err = h.pool().Exec(ctx,
 		`UPDATE jobs SET compute_plan = NULL, compute_plan_sha256 = NULL WHERE id=$1`,
-		c.f.JobID)
+		f.JobID)
 	if err == nil {
 		t.Fatal("the frozen compute plan was removed; a receipt could then be " +
 			"assembled with no authority behind it")
 	}
 	t.Logf("removing a frozen plan is refused: %v", err)
 
-	after, err := c.store.JobComputePlan(c.ctx, c.f.JobID)
+	after, err := store.JobComputePlan(ctx, f.JobID)
 	if err != nil || after == nil {
 		t.Fatalf("the plan is gone after a refused removal: %v", err)
 	}

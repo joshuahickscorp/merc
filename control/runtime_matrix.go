@@ -6,6 +6,7 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 )
@@ -226,13 +227,13 @@ func projectWorkerRuntimeCapabilities(cap WorkerCapability) ([]generatedRuntimeC
 	if len(cap.Benchmarks) > len(projected) {
 		return nil, fmt.Errorf("benchmarks has %d tuples but this worker projects to only %d exact production cells", len(cap.Benchmarks), len(projected))
 	}
-	seenBenchmarks := make(map[[2]string]bool, len(cap.Benchmarks))
+	seenBenchmarks := make(map[[2]string]BenchResult, len(cap.Benchmarks))
 	for _, benchmark := range cap.Benchmarks {
 		key := [2]string{benchmark.JobType, benchmark.ModelID}
-		if seenBenchmarks[key] {
+		if _, exists := seenBenchmarks[key]; exists {
 			return nil, fmt.Errorf("benchmarks contains duplicate tuple job_type=%q model=%q", benchmark.JobType, benchmark.ModelID)
 		}
-		seenBenchmarks[key] = true
+		seenBenchmarks[key] = benchmark
 		if !containsStr(cap.SupportedJobs, benchmark.JobType) || !containsStr(cap.SupportedModels, benchmark.ModelID) {
 			return nil, fmt.Errorf("benchmark tuple job_type=%q model=%q is absent from the worker advertisement", benchmark.JobType, benchmark.ModelID)
 		}
@@ -255,20 +256,82 @@ func projectWorkerRuntimeCapabilities(cap WorkerCapability) ([]generatedRuntimeC
 				cap.MemoryGB, candidate.ID, candidate.MinMemoryGB,
 			)
 		}
+		if !advertisedRuntimeCell(candidate.ID) {
+			continue
+		}
+		profile, cell, receipt, err := currentRuntimeCellBenchmarkIdentity(candidate.ID)
+		if err != nil {
+			return nil, err
+		}
+		if !validCurrentEngineBuildIdentityPolicy(cap.BuildIdentityPolicy) ||
+			cap.BuildIdentityPolicy != receipt.EngineBuildIdentityPolicy {
+			return nil, fmt.Errorf(
+				"worker/current benchmark build_identity_policy %q/%q does not exactly match for advertised cell %q",
+				cap.BuildIdentityPolicy, receipt.EngineBuildIdentityPolicy,
+				candidate.ID)
+		}
+		if cap.HWClass != receipt.HWClass || cap.BuildHash != receipt.EngineBuildHash ||
+			cap.HardwareIdentity != receipt.HardwareIdentity {
+			return nil, fmt.Errorf(
+				"worker identity hw_class/build_hash/hardware_identity %q/%q/%q does not exactly match advertised cell %q benchmark %q/%q/%q",
+				cap.HWClass, cap.BuildHash, cap.HardwareIdentity, candidate.ID,
+				receipt.HWClass, receipt.EngineBuildHash, receipt.HardwareIdentity)
+		}
+		benchmark, ok := seenBenchmarks[[2]string{candidate.Job, candidate.Model}]
+		if !ok {
+			return nil, fmt.Errorf(
+				"advertised cell %q requires a fresh matching worker benchmark for job_type=%q model=%q",
+				candidate.ID, candidate.Job, candidate.Model)
+		}
+		performance := resolveCellPerformance(profile, cell, runtimeCellPerformanceNow())
+		if err := validateCurrentRuntimeCellPerformanceAuthorityAt(
+			performance, runtimeCellPerformanceNow()); err != nil {
+			return nil, fmt.Errorf("advertised cell %q current performance authority: %w", candidate.ID, err)
+		}
+		if benchmark.Unit != performance.Unit || benchmark.UnitScope != performance.UnitScope {
+			return nil, fmt.Errorf(
+				"advertised cell %q worker benchmark unit/scope %q/%q does not equal governed floor %q/%q",
+				candidate.ID, benchmark.Unit, benchmark.UnitScope,
+				performance.Unit, performance.UnitScope)
+		}
+		if !benchmark.ThermalOK {
+			return nil, fmt.Errorf("advertised cell %q worker benchmark is not thermally valid", candidate.ID)
+		}
+		measuredAt := time.Unix(int64(benchmark.MeasuredUnix), 0).UTC()
+		now := runtimeCellPerformanceNow().UTC()
+		if benchmark.MeasuredUnix == 0 || measuredAt.After(now.Add(workerBenchmarkFutureSkew)) ||
+			now.Sub(measuredAt) > workerBenchmarkMaxAge {
+			return nil, fmt.Errorf(
+				"advertised cell %q worker benchmark measured_unix=%d is not fresh under %s",
+				candidate.ID, benchmark.MeasuredUnix, workerBenchmarkFreshnessPolicy)
+		}
+		rate := benchmark.TPS
+		if candidate.Job == "embed" {
+			rate = benchmark.EPS
+		}
+		if float64(rate)+1e-6 < performance.ConservativeUnitsPerSec {
+			return nil, fmt.Errorf(
+				"advertised cell %q worker benchmark %.6f %s/%s per second is below governed conservative floor %.6f",
+				candidate.ID, rate, benchmark.Unit, benchmark.UnitScope,
+				performance.ConservativeUnitsPerSec)
+		}
 	}
 	return projected, nil
 }
 
 const (
-	maxWorkerBuildHashBytes = 256
-	maxWorkerVersionBytes   = 128
-	maxWorkerOSVersionBytes = 256
-	maxWorkerMemoryGB       = 16 * 1024
-	maxWorkerMemoryBwGbps   = 1_000_000
-	maxWorkerMinPayoutUSDHr = 1_000_000
-	maxBenchmarkRate        = 1_000_000_000
-	maxBenchmarkLoadMS      = uint64(24 * 60 * 60 * 1000)
-	maxBenchmarkP99MS       = uint32(24 * 60 * 60 * 1000)
+	maxWorkerBuildHashBytes        = 256
+	maxWorkerVersionBytes          = 128
+	maxWorkerOSVersionBytes        = 256
+	maxWorkerMemoryGB              = 16 * 1024
+	maxWorkerMemoryBwGbps          = 1_000_000
+	maxWorkerMinPayoutUSDHr        = 1_000_000
+	maxBenchmarkRate               = 1_000_000_000
+	maxBenchmarkLoadMS             = uint64(24 * 60 * 60 * 1000)
+	maxBenchmarkP99MS              = uint32(24 * 60 * 60 * 1000)
+	workerBenchmarkMaxAge          = 7 * 24 * time.Hour
+	workerBenchmarkFutureSkew      = 5 * time.Minute
+	workerBenchmarkFreshnessPolicy = "worker-startup-benchmark-v1/max-age-7d"
 )
 
 func validateWorkerTextField(name, value string, maxBytes int) error {
@@ -355,6 +418,14 @@ func validateWorkerCapabilityShape(cap WorkerCapability) error {
 		if err := validateWorkerTextField(field.name, field.value, field.max); err != nil {
 			return err
 		}
+	}
+	if !engineBuildHashPattern.MatchString(cap.BuildHash) {
+		return fmt.Errorf("build_hash must be exactly 16 lowercase hexadecimal characters")
+	}
+	if !validCanonicalHardwareIdentity(cap.HardwareIdentity) {
+		return fmt.Errorf(
+			"hardware_identity must be a non-empty canonical exact device identity no longer than %d bytes",
+			maxHardwareIdentityBytes)
 	}
 	if !finiteFloat32(cap.MemoryGB) || cap.MemoryGB <= 0 || cap.MemoryGB > maxWorkerMemoryGB {
 		return fmt.Errorf("memory_gb must be finite and in (0,%d]", maxWorkerMemoryGB)

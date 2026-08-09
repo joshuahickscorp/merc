@@ -1,19 +1,17 @@
 package main
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func executableProjectQuoteFixture(t *testing.T, root string, now time.Time, handler func(cliJobSubmit, string)) (ProjectWorkloadIR, ProjectQuote, *httptest.Server) {
@@ -138,28 +136,46 @@ func TestSubmitCompiledProjectRefusesExpiredQuote(t *testing.T) {
 	}
 }
 
-// TestProjectCompilerCADAdmissionThroughPublicAPI proves the production boundary
-// the unit-level compiler tests deliberately cannot: a buyer-approved, probed
-// project is quoted and firm-submitted through the authenticated public API.
-//
-// This is an admission proof, not an execution claim. There is no worker in this
-// fixture, so it must not be used as evidence for topology, supplier earnings,
-// outcome verification, or true net contribution. Those need the real agent
-// chain. What it does bind is the exact Project IR -> quote -> firm job path to
-// the same persisted PricingDecision the server will later settle against.
-func TestProjectCompilerCADAdmissionThroughPublicAPI(t *testing.T) {
+type projectCompilerDurableCounts struct {
+	quotes, projects, projectSteps, jobs, tasks, ledger int64
+}
+
+func readProjectCompilerDurableCounts(t *testing.T, pool *pgxpool.Pool) projectCompilerDurableCounts {
+	t.Helper()
+	var out projectCompilerDurableCounts
+	mustf(t, pool.QueryRow(t.Context(), `
+		SELECT (SELECT count(*) FROM quotes),
+		       (SELECT count(*) FROM project_orders),
+		       (SELECT count(*) FROM project_order_steps),
+		       (SELECT count(*) FROM jobs),
+		       (SELECT count(*) FROM tasks),
+		       (SELECT count(*) FROM ledger_entries)`).Scan(
+		&out.quotes, &out.projects, &out.projectSteps,
+		&out.jobs, &out.tasks, &out.ledger,
+	), "read project compiler durable counts: %v")
+	return out
+}
+
+// assertProjectCompilerCADEmbedRefusesAtPublicQuote preserves the useful
+// compiler proof without inventing conversion authority. The exact advertised
+// runtime/model contracts still resolve and the bounded probe is still tied to
+// buyer approval; the authenticated quote then refuses because completed
+// embedding records and token-like input geometry are not interchangeable.
+func assertProjectCompilerCADEmbedRefusesAtPublicQuote(
+	t *testing.T, qualityRequirement, input string,
+) {
+	t.Helper()
+	installBoundCataloguePublicationAuthorityForTest(t)
 	strangerDeploymentInputs(t)
 	installSettlementCurrencyForTest(t, "cad")
 
-	artifacts := newArtifactHarness(t)
 	ctx, store, pool := openIsolatedTestStore(t)
 	schedule, err := BuildCataloguePriceSchedule()
 	mustf(t, err, "build catalogue price schedule: %v")
 	if _, err := store.ApplyRepricing(ctx, schedule); err != nil {
 		t.Fatalf("publish catalogue price schedule: %v", err)
 	}
-	mustf(t, seedDemo(ctx, pool, artifacts.storage), "seed verification floor: %v")
-	server := httptest.NewServer(NewServer(store, artifacts.storage, NewVerifier(store).WithStorage(artifacts.storage), nil).Routes())
+	server := httptest.NewServer(NewServer(store, nil, nil, nil).Routes())
 	t.Cleanup(server.Close)
 
 	signup := postJSON(t, server.URL+"/v1/signup", "", map[string]any{
@@ -187,8 +203,6 @@ func TestProjectCompilerCADAdmissionThroughPublicAPI(t *testing.T) {
 	}
 
 	root := t.TempDir()
-	input := "{\"text\":\"the buyer-approved compiler must not derive price\"}\n" +
-		"{\"text\":\"the server must freeze the same CAD authority it quoted\"}\n"
 	writeProjectFixture(t, root, "input.jsonl", input)
 	writeProjectFixture(t, root, "pipeline.py", "embedding = client.embeddings.create(...)\n")
 	writeDeclarationFixture(t, root, ProjectDeclaration{
@@ -200,7 +214,7 @@ func TestProjectCompilerCADAdmissionThroughPublicAPI(t *testing.T) {
 			CheckpointPolicy: "NOT_APPLICABLE", Verification: embed.Verification,
 		}},
 		Privacy: ProjectIRPrivacy{Egress: "DENY", DataLocation: "CA"},
-		Quality: ProjectIRQuality{Requirement: "project-public-admission-v1", Verification: "independent"},
+		Quality: ProjectIRQuality{Requirement: qualityRequirement, Verification: "independent"},
 		Result:  ProjectIRResult{Contract: "vectors-v1", Retention: "30d", Delivery: "object-store"},
 		Economics: ProjectIREconomics{
 			Currency: "cad", MaximumBuyerPriceNanos: 20_000_000_000,
@@ -217,188 +231,56 @@ func TestProjectCompilerCADAdmissionThroughPublicAPI(t *testing.T) {
 	if !ir.Probe.Executed || !ir.Probe.BuyerAuthorized || ir.Probe.ApprovedIRSHA256 != proposal.IRSHA256 {
 		t.Fatalf("project probe was not bound to buyer approval: %+v", ir.Probe)
 	}
+	if len(ir.Steps) != 1 || ir.Steps[0].RuntimeID != embed.RuntimeID ||
+		ir.Steps[0].ModelID != embed.ModelID ||
+		ir.Steps[0].RuntimeContract != embed.RuntimeContractSHA256 ||
+		ir.Steps[0].ModelContract != embed.ModelContractSHA256 {
+		t.Fatalf("buyer-approved compiler IR lost the exact embed contract before the authority refusal: %+v", ir.Steps)
+	}
+	if ir.IRSHA256 == "" || strings.Contains(strings.Join(ir.RefusalReasons, "\n"), "runtime/model contract pair") {
+		t.Fatalf("compiler failed before the intended physical-authority boundary: digest=%q refusals=%v", ir.IRSHA256, ir.RefusalReasons)
+	}
 
-	c := &client{base: server.URL, key: buyerKey, hc: server.Client()}
-	artifact, err := quoteCompiledProject(c, root, ir)
-	mustf(t, err, "quote through public API: %v")
-	if artifact.Currency != "cad" || len(artifact.Steps) != 1 || artifact.Steps[0].PricingDecisionSHA256 == "" {
-		t.Fatalf("public quote lost CAD PricingDecision authority: %+v", artifact)
+	before := readProjectCompilerDurableCounts(t, pool)
+	_, err = quoteCompiledProject(&client{base: server.URL, key: buyerKey, hc: server.Client()}, root, ir)
+	if err == nil {
+		t.Fatal("scope-incompatible embed project received a live CAD quote")
 	}
-	result, err := submitCompiledProject(c, root, ir, artifact, time.Now().UTC())
-	mustf(t, err, "firm submit through public API: %v")
-	if result.Status != "ACCEPTED" || result.ProjectID == "" || len(result.Steps) != 1 || !strings.HasPrefix(result.Steps[0].IdempotencyKey, "project:") {
-		t.Fatalf("project public submission was not accepted with its deterministic authority: %+v", result)
+	for _, want := range []string{
+		"503 Service Unavailable",
+		performanceUnitScopeCompletedEmbeddingRecords,
+		performanceUnitScopeTokenLikeInputGeometry,
+		"no frozen unit conversion authority",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("project quote refusal omits %q: %v", want, err)
+		}
 	}
-	jobID, err := uuid.Parse(result.Steps[0].JobID)
-	mustf(t, err, "submitted job id: %v")
-
-	var quoteID *uuid.UUID
-	var projectID *uuid.UUID
-	var projectStep string
-	var firmQuote bool
-	var currency string
-	var pricingJSON []byte
-	if err := pool.QueryRow(ctx, `
-		SELECT quote_id, project_order_id, COALESCE(project_step_id,''), firm_quote, currency, pricing_decision
-		  FROM jobs WHERE id=$1`, jobID).Scan(&quoteID, &projectID, &projectStep, &firmQuote, &currency, &pricingJSON); err != nil {
-		t.Fatalf("read submitted job authority: %v", err)
-	}
-	if quoteID == nil || "q_"+quoteID.String() != artifact.Steps[0].QuoteID || projectID == nil ||
-		projectID.String() != result.ProjectID || projectStep != "embed" || !firmQuote || currency != "cad" {
-		t.Fatalf("job did not freeze the reviewed CAD firm quote/project reservation: quote=%v project=%v step=%q firm=%t currency=%q", quoteID, projectID, projectStep, firmQuote, currency)
-	}
-	var frozen PricingDecision
-	mustf(t, json.Unmarshal(pricingJSON, &frozen), "decode frozen PricingDecision: %v")
-	var ceiling, reserved, remaining int64
-	if err := pool.QueryRow(ctx, `
-		SELECT p.buyer_ceiling_nanos, COALESCE(SUM(s.accepted_ceiling_nanos),0),
-		       p.buyer_ceiling_nanos-COALESCE(SUM(s.accepted_ceiling_nanos),0)
-		  FROM project_orders p LEFT JOIN project_order_steps s ON s.project_order_id=p.id
-		 WHERE p.id=$1 GROUP BY p.id`, *projectID).Scan(&ceiling, &reserved, &remaining); err != nil {
-		t.Fatalf("read exact project reservation: %v", err)
-	}
-	if ceiling != artifact.BuyerCeilingNanos || artifact.Steps[0].MaximumCostNanos != frozen.FixedPoint.AcceptedCeilingNanos ||
-		reserved != frozen.FixedPoint.AcceptedCeilingNanos || remaining != ceiling-reserved {
-		t.Fatalf("project reservation lost fixed point authority: ceiling=%d reserved=%d remaining=%d", ceiling, reserved, remaining)
-	}
-	frozenSHA, err := pricingDecisionDigest(frozen)
-	if err != nil || frozenSHA != artifact.Steps[0].PricingDecisionSHA256 {
-		t.Fatalf("job pricing decision diverged from reviewed project quote: %s err=%v", frozenSHA, err)
+	after := readProjectCompilerDurableCounts(t, pool)
+	if after != before {
+		t.Fatalf("refused embed project mutated durable state: before=%+v after=%+v", before, after)
 	}
 }
 
-// TestProjectCompilerCADExecutionThroughPublicAPI closes the gap left by the
-// admission-only proof above. It drives a buyer-approved Project IR through a
-// public CAD quote and firm submission, then makes a real enrolled agent claim,
-// execute, verify, settle, and expose a receipt for that project step. The
-// ledger assertion below is intentionally platform take, not true net
-// contribution; project execution must not relabel gross rows as net economics.
-//
-// This deliberately proves one independently executable finite step. A
-// declared dependency is executable only when the upstream artifact contract
-// is accepted by the downstream runner; a vector result is not silently
-// relabelled as a text/prompt input just to make a graph appear runnable.
-func TestProjectCompilerCADExecutionThroughPublicAPI(t *testing.T) {
-	agentBinaryPath(t)
-	llamaURL := os.Getenv("MERC_LLAMA_EMBED_URL")
-	strangerDeploymentInputs(t)
-	installSettlementCurrencyForTest(t, "cad")
+// TestProjectCompilerCADEmbedAdmissionRefusesWithoutScopeCompatibleAuthority
+// replaces the former positive admission claim. The compiler may resolve the
+// exact embed contract, but the public CAD quote must return 503 and write
+// nothing until a governed Unit+UnitScope conversion exists.
+func TestProjectCompilerCADEmbedAdmissionRefusesWithoutScopeCompatibleAuthority(t *testing.T) {
+	assertProjectCompilerCADEmbedRefusesAtPublicQuote(t,
+		"project-public-admission-refusal-v1",
+		"{\"text\":\"the compiler may resolve a contract but must not derive conversion authority\"}\n"+
+			"{\"text\":\"the public CAD quote must fail closed before admission\"}\n",
+	)
+}
 
-	artifacts := newArtifactHarness(t)
-	ctx, store, pool := openIsolatedTestStore(t)
-	schedule, err := BuildCataloguePriceSchedule()
-	mustf(t, err, "build catalogue price schedule: %v")
-	if _, err := store.ApplyRepricing(ctx, schedule); err != nil {
-		t.Fatalf("publish catalogue price schedule: %v", err)
-	}
-	verifier := NewVerifier(store).WithStorage(artifacts.storage)
-	server := httptest.NewServer(NewServer(store, artifacts.storage, verifier, nil).Routes())
-	t.Cleanup(server.Close)
-
-	workersCtx, stopWorkers := context.WithCancel(context.Background())
-	workersDone := make(chan struct{})
-	go func() {
-		defer close(workersDone)
-		NewWorkers(store, artifacts.storage, stubPayout{}).Run(workersCtx)
-	}()
-	t.Cleanup(func() {
-		stopWorkers()
-		<-workersDone
-	})
-	mustf(t, seedDemo(ctx, pool, artifacts.storage), "seed verification floor: %v")
-	agent := launchAgent(t, ctx, store, pool, server.URL, "candle", "candle_metal", llamaURL)
-	waitForEnrolment(t, ctx, pool, agent)
-
-	contracts, err := advertisedProjectRuntimeContracts()
-	must(t, err)
-	var embed ProjectRuntimeContract
-	for _, candidate := range contracts {
-		if candidate.WorkloadKind == "embeddings" {
-			embed = candidate
-			break
-		}
-	}
-	if embed.RuntimeID == "" || embed.ModelID == "" {
-		t.Fatal("no advertised embeddings runtime contract")
-	}
-	root := t.TempDir()
-	writeProjectFixture(t, root, "input.jsonl", "{\"text\":\"project IR execution must retain the frozen CAD authority\"}\n")
-	writeProjectFixture(t, root, "pipeline.py", "embedding = client.embeddings.create(...)\n")
-	writeDeclarationFixture(t, root, ProjectDeclaration{
-		Version: 1,
-		Steps: []ProjectIRStep{{
-			ID: "embed", Kind: "embeddings", Inputs: []string{"project://input.jsonl"}, Outputs: []string{"project://vectors"},
-			RuntimeContract: embed.RuntimeContractSHA256, ModelContract: embed.ModelContractSHA256,
-			ResourceEstimate: ProjectIRResourceEstimate{State: "BOUNDED_PROBE_REQUIRED"}, Parallelism: "INDEPENDENT",
-			CheckpointPolicy: "NOT_APPLICABLE", Verification: embed.Verification,
-		}},
-		Privacy: ProjectIRPrivacy{Egress: "DENY", DataLocation: "CA"},
-		Quality: ProjectIRQuality{Requirement: "project-public-execution-v1", Verification: "independent"},
-		Result:  ProjectIRResult{Contract: "vectors-v1", Retention: "30d", Delivery: "object-store"},
-		Economics: ProjectIREconomics{Currency: "cad", MaximumBuyerPriceNanos: 20_000_000_000,
-			SupplierFloor: "UNRESOLVED_REFUSE", MercContribution: "UNRESOLVED_REFUSE"},
-	})
-	proposal, err := compileProject(projectCompileOptions{Root: root})
-	mustf(t, err, "compile unprobed project: %v")
-	ir, err := compileProject(projectCompileOptions{Root: root, ProbeRequested: true, BuyerApprovedIRSHA256: proposal.IRSHA256})
-	mustf(t, err, "compile buyer-approved probe: %v")
-
-	signup := postJSON(t, server.URL+"/v1/signup", "", map[string]any{
-		"email": "project-execution-" + uuid.NewString() + "@example.test", "password": "a-stranger-password-1234",
-	})
-	if signup.status != http.StatusOK && signup.status != http.StatusCreated {
-		t.Fatalf("signup: HTTP %d: %s", signup.status, signup.body)
-	}
-	buyerKey, _ := signup.json["sandbox_key"].(string)
-	if buyerKey == "" {
-		t.Fatalf("signup issued no sandbox API key: %s", signup.body)
-	}
-	c := &client{base: server.URL, key: buyerKey, hc: server.Client()}
-	artifact, err := quoteCompiledProject(c, root, ir)
-	mustf(t, err, "quote through public API: %v")
-	submission, err := submitCompiledProject(c, root, ir, artifact, time.Now().UTC())
-	if err != nil || submission.Status != "ACCEPTED" || len(submission.Steps) != 1 {
-		t.Fatalf("firm project submit: result=%+v err=%v", submission, err)
-	}
-	jobID, err := uuid.Parse(submission.Steps[0].JobID)
-	mustf(t, err, "submitted job id: %v")
-	loopCtx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-	defer cancel()
-	waitForJobSettled(t, loopCtx, pool, jobID, "project-ir")
-
-	var status, currency, verification string
-	var resultCount, supplierCredits int
-	var platformTakeMicros int64
-	mustf(t, pool.QueryRow(loopCtx, `SELECT status, currency FROM jobs WHERE id=$1`, jobID).Scan(&status, &currency), "read project job: %v")
-	if status != "complete" || currency != "cad" {
-		t.Fatalf("project job status/currency = %q/%q, want complete/cad", status, currency)
-	}
-	if err := pool.QueryRow(loopCtx, `
-		SELECT count(*), COALESCE(max(verification_outcome),''),
-		       count(*) FILTER (WHERE kind='supplier_credit'),
-		       COALESCE((sum(amount_usd) FILTER (WHERE kind='platform_take')*1000000)::bigint,0)
-		  FROM tasks t
-		  LEFT JOIN ledger_entries l ON l.task_id=t.id
-		 WHERE t.job_id=$1`, jobID).Scan(&resultCount, &verification, &supplierCredits, &platformTakeMicros); err != nil {
-		t.Fatalf("read project execution evidence: %v", err)
-	}
-	if resultCount == 0 || verification != "pass" || supplierCredits == 0 || platformTakeMicros <= 0 {
-		t.Fatalf("project step lacked execution/verification/gross-platform evidence: tasks=%d verification=%q supplier_credits=%d platform_take=%d", resultCount, verification, supplierCredits, platformTakeMicros)
-	}
-	keys, err := store.JobResultKeys(loopCtx, jobID)
-	if err != nil || len(keys) == 0 {
-		t.Fatalf("project execution exposes no retained result artifact: keys=%v err=%v", keys, err)
-	}
-	materialized, err := materializeProjectStep(c, root, ir, submission, "embed", time.Now())
-	if err != nil || materialized.Output != "project://vectors" || materialized.Bytes <= 0 ||
-		materialized.PricingDecisionSHA256 != submission.Steps[0].PricingDecisionSHA256 {
-		t.Fatalf("project result materialization lost receipt-bound authority: result=%+v err=%v", materialized, err)
-	}
-	if output, readErr := os.ReadFile(filepath.Join(root, "vectors")); readErr != nil || int64(len(output)) != materialized.Bytes {
-		t.Fatalf("materialized project output is absent or changed: bytes=%d err=%v", len(output), readErr)
-	}
-	if got := c.do("GET", "/v1/jobs/"+jobID.String()+"/receipt", nil); !strings.Contains(string(got), jobID.String()) {
-		t.Fatalf("buyer receipt does not name the project job: %s", got)
-	}
-
+// TestProjectCompilerCADEmbedExecutionRefusesBeforeDurableMutation replaces the
+// former live-execution claim. There can be no current execution proof when no
+// scope-compatible admission authority exists; the useful compiler/probe proof
+// remains, and the zero-write check includes tasks and ledger rows.
+func TestProjectCompilerCADEmbedExecutionRefusesBeforeDurableMutation(t *testing.T) {
+	assertProjectCompilerCADEmbedRefusesAtPublicQuote(t,
+		"project-public-execution-refusal-v1",
+		"{\"text\":\"no project execution may begin without scope-compatible CAD authority\"}\n",
+	)
 }

@@ -95,6 +95,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS jobs_buyer_submit_idempotency_uniq
     ON jobs (buyer_id, submit_idempotency_key)
     WHERE submit_idempotency_key IS NOT NULL;
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS input_ref TEXT;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS input_sha256 TEXT;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS chunk_index INT DEFAULT 0;
+ALTER TABLE tasks DROP CONSTRAINT IF EXISTS tasks_input_sha256_valid;
+ALTER TABLE tasks ADD CONSTRAINT tasks_input_sha256_valid
+    CHECK (input_sha256 IS NULL OR input_sha256 ~ '^[0-9a-f]{64}$');
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS input_depth_band TEXT;
 ALTER TABLE tasks DROP CONSTRAINT IF EXISTS tasks_input_depth_band_valid;
 ALTER TABLE tasks ADD CONSTRAINT tasks_input_depth_band_valid
@@ -111,6 +116,82 @@ DROP TRIGGER IF EXISTS tasks_input_depth_band_immutable ON tasks;
 CREATE TRIGGER tasks_input_depth_band_immutable
     BEFORE UPDATE OF input_depth_band ON tasks
     FOR EACH ROW EXECUTE FUNCTION cx_reject_input_depth_band_update();
+CREATE OR REPLACE FUNCTION cx_validate_task_input_authority() RETURNS trigger AS $$
+DECLARE
+    task_policy TEXT;
+    workload_input_sha256 TEXT;
+    priced_input_records BIGINT;
+    priced_depth_band TEXT;
+    job_status TEXT;
+    plan_initial_tasks INT;
+    reserve_consumed_tasks INT;
+    existing_task_count BIGINT;
+    plan_buyer_usd NUMERIC(12,6);
+    plan_supplier_usd NUMERIC(12,6);
+    plan_buyer_nanos BIGINT;
+    plan_supplier_nanos BIGINT;
+BEGIN
+    IF TG_OP = 'UPDATE' AND OLD.input_sha256 IS DISTINCT FROM NEW.input_sha256 THEN
+        RAISE EXCEPTION 'task input digest for % is immutable', OLD.id;
+    END IF;
+    SELECT COALESCE(j.pricing_decision->>'task_economic_policy',''),
+           COALESCE(j.workload_decision #>> '{binding,input_sha256}',''),
+           NULLIF(j.compute_plan->>'input_records','')::BIGINT,
+           COALESCE(j.compute_plan #>> '{input_depth_profile,p90_depth_band}',''),
+           COALESCE(j.status,'')
+      INTO task_policy, workload_input_sha256, priced_input_records, priced_depth_band,
+           job_status
+      FROM jobs j WHERE j.id=NEW.job_id;
+    IF task_policy = 'uniform_single_primary_exact_clone_v1' THEN
+        IF TG_OP = 'UPDATE' AND OLD.input_ref IS DISTINCT FROM NEW.input_ref AND
+           NOT (job_status IN ('complete','failed','cancelled') AND NEW.input_ref IS NULL) THEN
+            RAISE EXCEPTION 'live current task input reference for % is immutable', NEW.id;
+        END IF;
+        IF COALESCE(NEW.input_sha256,'') = '' OR
+           NEW.input_sha256 IS DISTINCT FROM workload_input_sha256 THEN
+            RAISE EXCEPTION 'current task % input digest does not equal frozen workload input', NEW.id;
+        END IF;
+        IF COALESCE(NEW.chunk_index,0) <> 0 OR
+           NEW.expected_output_records IS DISTINCT FROM priced_input_records OR
+           COALESCE(NEW.is_honeypot,false) THEN
+            RAISE EXCEPTION 'current task % geometry does not equal the priced whole input', NEW.id;
+        END IF;
+        IF priced_depth_band <> '' AND
+           COALESCE(NEW.input_depth_band,'') <> priced_depth_band THEN
+            RAISE EXCEPTION 'current task % depth does not equal the priced p90 depth', NEW.id;
+        END IF;
+        SELECT p.initial_task_count,r.consumed_tasks,
+               p.buyer_charge_per_task_usd,p.supplier_payout_per_task_usd,
+               p.buyer_charge_per_task_nanos,p.supplier_payout_per_task_nanos
+          INTO plan_initial_tasks,reserve_consumed_tasks,
+               plan_buyer_usd,plan_supplier_usd,plan_buyer_nanos,plan_supplier_nanos
+          FROM job_economic_plans p
+          JOIN job_economic_reserves r ON r.job_id=p.job_id
+         WHERE p.job_id=NEW.job_id
+         FOR UPDATE OF r;
+        IF NOT FOUND THEN
+            RAISE EXCEPTION 'current task % has no frozen plan/reserve authority', NEW.id;
+        END IF;
+        IF NEW.economic_buyer_charge_usd IS DISTINCT FROM plan_buyer_usd OR
+           NEW.economic_supplier_payout_usd IS DISTINCT FROM plan_supplier_usd OR
+           NEW.economic_buyer_charge_nanos IS DISTINCT FROM plan_buyer_nanos OR
+           NEW.economic_supplier_payout_nanos IS DISTINCT FROM plan_supplier_nanos THEN
+            RAISE EXCEPTION 'current task % money does not equal the frozen uniform plan', NEW.id;
+        END IF;
+        SELECT count(*) INTO existing_task_count FROM tasks WHERE job_id=NEW.job_id;
+        IF TG_OP = 'INSERT' AND
+           existing_task_count >= plan_initial_tasks + reserve_consumed_tasks THEN
+            RAISE EXCEPTION 'current task % exceeds initial plus consumed reserve authority', NEW.id;
+        END IF;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS tasks_input_authority_guard ON tasks;
+CREATE TRIGGER tasks_input_authority_guard
+    BEFORE INSERT OR UPDATE OF input_sha256,input_ref,input_depth_band,
+        expected_output_records,chunk_index,is_honeypot,job_id ON tasks
+    FOR EACH ROW EXECUTE FUNCTION cx_validate_task_input_authority();
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS result_key TEXT;
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS expected_output_records BIGINT;
 ALTER TABLE tasks DROP CONSTRAINT IF EXISTS tasks_expected_output_records_positive;
@@ -708,16 +789,19 @@ ALTER TABLE tasks ADD COLUMN IF NOT EXISTS hedged_from UUID;                   -
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS verification_hw_class TEXT;
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS verification_engine TEXT;
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS verification_build_hash TEXT;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS verification_build_identity_policy TEXT;
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS execution_worker_id UUID;
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS execution_supplier_id UUID;
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS execution_hw_class TEXT;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS execution_hardware_identity TEXT;
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS execution_engine TEXT;
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS execution_build_hash TEXT;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS execution_build_identity_policy TEXT;
 ALTER TABLE tasks DROP CONSTRAINT IF EXISTS tasks_execution_identity_complete;
 ALTER TABLE tasks ADD CONSTRAINT tasks_execution_identity_complete CHECK (
     (execution_worker_id IS NULL AND execution_supplier_id IS NULL
-     AND execution_hw_class IS NULL AND execution_engine IS NULL
-     AND execution_build_hash IS NULL)
+     AND execution_hw_class IS NULL AND execution_hardware_identity IS NULL AND execution_engine IS NULL
+     AND execution_build_hash IS NULL AND execution_build_identity_policy IS NULL)
     OR
     (execution_worker_id IS NOT NULL AND execution_supplier_id IS NOT NULL
      AND COALESCE(btrim(execution_hw_class),'') <> ''
@@ -726,6 +810,8 @@ ALTER TABLE tasks ADD CONSTRAINT tasks_execution_identity_complete CHECK (
 );
 ALTER TABLE workers ADD COLUMN IF NOT EXISTS engine TEXT NOT NULL DEFAULT 'candle';
 ALTER TABLE workers ADD COLUMN IF NOT EXISTS build_hash TEXT NOT NULL DEFAULT '';
+ALTER TABLE workers ADD COLUMN IF NOT EXISTS build_identity_policy TEXT NOT NULL DEFAULT '';
+ALTER TABLE workers ADD COLUMN IF NOT EXISTS hardware_identity TEXT NOT NULL DEFAULT '';
 ALTER TABLE workers ADD COLUMN IF NOT EXISTS agent_session_id UUID;
 ALTER TABLE workers ADD COLUMN IF NOT EXISTS agent_session_started_at TIMESTAMPTZ;
 ALTER TABLE workers DROP CONSTRAINT IF EXISTS workers_agent_session_pair;
@@ -857,8 +943,10 @@ UPDATE tasks t
    SET execution_worker_id=vw.worker_id,
        execution_supplier_id=vw.supplier_id,
        execution_hw_class=vw.input_snapshot->>'hw_class',
+       execution_hardware_identity=vw.input_snapshot->>'hardware_identity',
        execution_engine=vw.input_snapshot->>'engine',
-       execution_build_hash=vw.input_snapshot->>'build_hash'
+       execution_build_hash=vw.input_snapshot->>'build_hash',
+       execution_build_identity_policy=NULLIF(vw.input_snapshot->>'build_identity_policy','')
   FROM verification_work vw
  WHERE vw.task_id=t.id AND vw.attempt=COALESCE(t.retry_count,0)
    AND t.execution_worker_id IS NULL
@@ -868,7 +956,9 @@ UPDATE tasks t
 UPDATE tasks t
    SET execution_worker_id=w.id,execution_supplier_id=w.supplier_id,
        execution_hw_class=w.hw_class,execution_engine=w.engine,
-       execution_build_hash=w.build_hash
+       execution_hardware_identity=NULLIF(w.hardware_identity,''),
+       execution_build_hash=w.build_hash,
+       execution_build_identity_policy=NULLIF(w.build_identity_policy,'')
   FROM workers w
  WHERE t.execution_worker_id IS NULL
    AND t.status IN ('running','verifying')
@@ -887,11 +977,11 @@ DO $$ BEGIN
 END $$;
 CREATE OR REPLACE FUNCTION cx_protect_task_execution_identity() RETURNS trigger AS $$
 BEGIN
-    IF (OLD.execution_worker_id,OLD.execution_supplier_id,OLD.execution_hw_class,
-        OLD.execution_engine,OLD.execution_build_hash)
+    IF (OLD.execution_worker_id,OLD.execution_supplier_id,OLD.execution_hw_class,OLD.execution_hardware_identity,
+        OLD.execution_engine,OLD.execution_build_hash,OLD.execution_build_identity_policy)
        IS DISTINCT FROM
-       (NEW.execution_worker_id,NEW.execution_supplier_id,NEW.execution_hw_class,
-        NEW.execution_engine,NEW.execution_build_hash) THEN
+       (NEW.execution_worker_id,NEW.execution_supplier_id,NEW.execution_hw_class,NEW.execution_hardware_identity,
+        NEW.execution_engine,NEW.execution_build_hash,NEW.execution_build_identity_policy) THEN
         IF NOT (
             OLD.status IN ('queued','retrying') AND NEW.status='running'
             AND NEW.execution_worker_id IS NOT NULL
@@ -901,13 +991,17 @@ BEGIN
             AND COALESCE(btrim(NEW.execution_hw_class),'')<>''
             AND COALESCE(btrim(NEW.execution_engine),'')<>''
             AND NEW.execution_build_hash IS NOT NULL
+            AND COALESCE(btrim(NEW.execution_build_identity_policy),'')<>''
             AND EXISTS (
                 SELECT 1 FROM workers w
                  WHERE w.id=NEW.execution_worker_id
                    AND w.supplier_id=NEW.execution_supplier_id
                    AND w.hw_class=NEW.execution_hw_class
+                   AND (NEW.execution_hardware_identity IS NULL
+                        OR COALESCE(w.hardware_identity,'')=NEW.execution_hardware_identity)
                    AND COALESCE(w.engine,'')=NEW.execution_engine
                    AND COALESCE(w.build_hash,'')=NEW.execution_build_hash
+                   AND COALESCE(w.build_identity_policy,'')=NEW.execution_build_identity_policy
             )
         ) THEN
             RAISE EXCEPTION 'task execution identity for % is immutable outside claim transition', OLD.id;
@@ -918,8 +1012,8 @@ END;
 $$ LANGUAGE plpgsql;
 DROP TRIGGER IF EXISTS tasks_execution_identity_immutable ON tasks;
 CREATE TRIGGER tasks_execution_identity_immutable
-    BEFORE UPDATE OF execution_worker_id,execution_supplier_id,execution_hw_class,
-                     execution_engine,execution_build_hash ON tasks
+    BEFORE UPDATE OF execution_worker_id,execution_supplier_id,execution_hw_class,execution_hardware_identity,
+                     execution_engine,execution_build_hash,execution_build_identity_policy ON tasks
     FOR EACH ROW EXECUTE FUNCTION cx_protect_task_execution_identity();
 UPDATE tasks t
    SET verification_hw_class=COALESCE(NULLIF((
@@ -933,7 +1027,11 @@ UPDATE tasks t
        verification_build_hash=COALESCE((
          SELECT vw.input_snapshot->>'build_hash' FROM verification_work vw
           WHERE vw.task_id=anchor.id ORDER BY vw.attempt DESC LIMIT 1
-       ),COALESCE(anchor.execution_build_hash,''))
+       ),COALESCE(anchor.execution_build_hash,'')),
+       verification_build_identity_policy=COALESCE((
+         SELECT vw.input_snapshot->>'build_identity_policy' FROM verification_work vw
+          WHERE vw.task_id=anchor.id ORDER BY vw.attempt DESC LIMIT 1
+       ),COALESCE(anchor.execution_build_identity_policy,''))
   FROM tasks anchor
  WHERE t.is_redundancy=true AND t.hedged_from=anchor.id
    AND NULLIF(COALESCE(t.verification_hw_class,''),'') IS NULL
@@ -1085,12 +1183,14 @@ BEGIN
 		   AND t.reported_duration_ms=NEW.duration_ms AND t.reported_tokens_used=NEW.tokens_used
 		   AND t.reported_hardware_temp_c IS NOT DISTINCT FROM NEW.hardware_temp_c
 		   AND j.status IN ('queued','running','verifying')
-		   AND NEW.snapshot_version=4
+		   AND NEW.snapshot_version=6
 		   AND (NEW.input_snapshot->>'is_honeypot')::boolean=t.is_honeypot
 		   AND (NEW.input_snapshot->>'is_redundancy')::boolean=t.is_redundancy
 		   AND COALESCE(NEW.input_snapshot->>'hw_class','')=COALESCE(t.execution_hw_class,'')
 		   AND COALESCE(NEW.input_snapshot->>'engine','')=COALESCE(t.execution_engine,'')
 		   AND COALESCE(NEW.input_snapshot->>'build_hash','')=COALESCE(t.execution_build_hash,'')
+		   AND COALESCE(NEW.input_snapshot->>'build_identity_policy','')=COALESCE(t.execution_build_identity_policy,'')
+		   AND COALESCE(NEW.input_snapshot->>'hardware_identity','')=COALESCE(t.execution_hardware_identity,'')
 		   AND COALESCE(NEW.input_snapshot->>'job_type','')=j.job_type
 		   AND COALESCE(NEW.input_snapshot->>'input_ref','')=COALESCE(t.input_ref,'')
 		   AND COALESCE(NEW.input_snapshot->>'model_ref','')=COALESCE(j.model_ref,'')
@@ -1179,6 +1279,7 @@ ALTER TABLE workers DROP CONSTRAINT IF EXISTS workers_engine_valid;
 ALTER TABLE workers ADD CONSTRAINT workers_engine_valid CHECK (engine = 'candle') NOT VALID;
 
 ALTER TABLE workers ADD COLUMN IF NOT EXISTS build_hash         TEXT NOT NULL DEFAULT '';
+ALTER TABLE workers ADD COLUMN IF NOT EXISTS build_identity_policy TEXT NOT NULL DEFAULT '';
 
 ALTER TABLE workers ADD COLUMN IF NOT EXISTS effective_memory_gb REAL;          -- allocatable for jobs = available - headroom (NULL -> fall back to memory_gb)
 ALTER TABLE workers ADD COLUMN IF NOT EXISTS available_memory_gb REAL;          -- live free + reclaimable memory (GB)
@@ -1991,7 +2092,7 @@ ALTER TABLE models ALTER COLUMN price_reference_per_1k TYPE NUMERIC(30,18)
 -- transaction, so readers can never observe a half-old/half-new catalogue.
 CREATE TABLE IF NOT EXISTS catalogue_price_schedules (
     sha256                 TEXT PRIMARY KEY CHECK (sha256 ~ '^[0-9a-f]{64}$'),
-    version                INT NOT NULL CHECK (version IN (1,2)),
+    version                INT NOT NULL CHECK (version IN (1,2,3)),
     reference_currency     TEXT NOT NULL CHECK (reference_currency = 'usd'),
     settlement_currency    TEXT NOT NULL CHECK (settlement_currency IN ('usd','cad','jpy')),
     reference_to_settlement_rate DOUBLE PRECISION NOT NULL CHECK (reference_to_settlement_rate > 0),
@@ -2019,7 +2120,7 @@ ALTER TABLE catalogue_price_schedules ALTER COLUMN supplier_share DROP NOT NULL;
 ALTER TABLE catalogue_price_schedules DROP CONSTRAINT IF EXISTS catalogue_price_schedules_version_check;
 ALTER TABLE catalogue_price_schedules DROP CONSTRAINT IF EXISTS catalogue_price_schedules_version_supported;
 ALTER TABLE catalogue_price_schedules ADD CONSTRAINT catalogue_price_schedules_version_supported
-    CHECK (version IN (1,2)) NOT VALID;
+    CHECK (version IN (1,2,3)) NOT VALID;
 ALTER TABLE catalogue_price_schedules DROP CONSTRAINT IF EXISTS catalogue_price_schedules_fx_authority_complete;
 ALTER TABLE catalogue_price_schedules ADD CONSTRAINT catalogue_price_schedules_fx_authority_complete CHECK (
     settlement_currency IN ('usd','cad','jpy')
@@ -2035,7 +2136,7 @@ ALTER TABLE catalogue_price_schedules ADD CONSTRAINT catalogue_price_schedules_s
         AND schedule_json ? 'supplier_share'
         AND COALESCE(schedule_json->>'supplier_share_policy_revision','') = '')
     OR
-    (version = 2
+    (version IN (2,3)
         AND supplier_share IS NULL
         AND schedule_json->>'supplier_share_policy_revision' = 'physical-workload-share-v1')
 ) NOT VALID;
@@ -2043,6 +2144,7 @@ ALTER TABLE catalogue_price_schedules ADD CONSTRAINT catalogue_price_schedules_s
 CREATE TABLE IF NOT EXISTS model_price_history (
     schedule_sha256       TEXT NOT NULL REFERENCES catalogue_price_schedules(sha256),
     model_id              TEXT NOT NULL REFERENCES models(id),
+    job_type              TEXT NOT NULL CHECK (btrim(job_type) <> ''),
     prior_price_per_1k    NUMERIC(30,18),
     prior_price_source    TEXT,
     reference_price_per_1k NUMERIC(30,18) NOT NULL CHECK (reference_price_per_1k > 0),
@@ -2059,6 +2161,10 @@ CREATE TABLE IF NOT EXISTS model_price_history (
 ALTER TABLE model_price_history ADD COLUMN IF NOT EXISTS reference_price_per_1k NUMERIC(30,18);
 ALTER TABLE model_price_history ADD COLUMN IF NOT EXISTS price_currency TEXT;
 ALTER TABLE model_price_history ADD COLUMN IF NOT EXISTS supplier_share DOUBLE PRECISION;
+ALTER TABLE model_price_history ADD COLUMN IF NOT EXISTS job_type TEXT;
+ALTER TABLE model_price_history DROP CONSTRAINT IF EXISTS model_price_history_job_type_valid;
+ALTER TABLE model_price_history ADD CONSTRAINT model_price_history_job_type_valid
+    CHECK (job_type IS NULL OR btrim(job_type) <> '') NOT VALID;
 ALTER TABLE model_price_history ALTER COLUMN prior_price_per_1k TYPE NUMERIC(30,18)
     USING prior_price_per_1k::NUMERIC(30,18);
 ALTER TABLE model_price_history ALTER COLUMN reference_price_per_1k TYPE NUMERIC(30,18)
@@ -2102,7 +2208,7 @@ ALTER TABLE models ADD CONSTRAINT models_market_price_authority_complete CHECK (
         AND price_reference_per_1k > 0
         AND price_currency IN ('usd','cad','jpy')
         AND price_schedule_sha256 IS NOT NULL
-        AND price_schedule_version IN (1,2)
+        AND price_schedule_version IN (1,2,3)
     )
 ) NOT VALID;
 ALTER TABLE models DROP CONSTRAINT IF EXISTS models_price_schedule_fkey;
@@ -4272,12 +4378,22 @@ ALTER TABLE quotes
         compute_plan IS NULL
         OR (
             quote_json IS NOT NULL
-            AND quote_json #>> '{placement_requirement,version}' = '1'
+            AND quote_json #>> '{placement_requirement,version}' IN ('1','2','3')
             AND quote_json #>> '{placement_requirement,job_type}' = job_type
             AND quote_json #>> '{placement_requirement,model_ref}' = COALESCE(model_ref,'')
             AND COALESCE(quote_json #>> '{placement_requirement,runtime_cell_id}','') <> ''
             AND COALESCE(quote_json #>> '{placement_requirement,runtime_id}','') <> ''
             AND COALESCE(quote_json #>> '{placement_requirement,engine}','') <> ''
+            AND (
+                quote_json #>> '{placement_requirement,version}' IN ('1','2')
+                OR (
+                    quote_json #>> '{placement_requirement,engine_build_hash}' ~ '^[0-9a-f]{16}$'
+                    AND quote_json #>> '{placement_requirement,engine_build_identity_policy}' IN
+                        ('merc_agent_running_executable_sha256_v1',
+                         'merc_external_runner_artifact_config_sha256_v1')
+                    AND COALESCE(quote_json #>> '{placement_requirement,hardware_identity}','') <> ''
+                )
+            )
             AND quote_json #>> '{placement_requirement,runtime_matrix_sha256}'
                 ~ '^[0-9a-f]{64}$'
             AND quote_json #>> '{placement_requirement,offered_rate_usd_hr}' IS NOT NULL
@@ -5397,6 +5513,225 @@ CREATE TABLE IF NOT EXISTS runtime_activation_policies (
 CREATE INDEX IF NOT EXISTS runtime_activation_policies_current_idx
     ON runtime_activation_policies (runtime_profile_id, cell_id, policy_revision DESC);
 
+-- A revision header seals the complete row set at transaction commit. Without
+-- it, a later transaction could append a disjoint row to an already committed
+-- rN while copying rN's effective_at. Both revision and time would stay equal
+-- while policy semantics changed underneath every replica cache.
+CREATE TABLE IF NOT EXISTS runtime_activation_policy_epochs (
+    policy_revision BIGINT PRIMARY KEY CHECK (policy_revision >= 1),
+    effective_at    TIMESTAMPTZ NOT NULL,
+    writer_txid     TEXT NOT NULL CHECK (btrim(writer_txid) <> ''),
+    sealed          BOOLEAN NOT NULL DEFAULT false,
+    sealed_at       TIMESTAMPTZ,
+    recorded_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CHECK ((NOT sealed AND sealed_at IS NULL) OR
+           (sealed AND sealed_at IS NOT NULL))
+);
+
+-- Existing revisions predate headers and are already committed, so migration
+-- imports them as sealed. The semantic audit below runs before serving and
+-- refuses any historical row set that cannot be represented as one epoch.
+INSERT INTO runtime_activation_policy_epochs
+  (policy_revision,effective_at,writer_txid,sealed,sealed_at)
+SELECT policy_revision,min(effective_at),'migrated:'||policy_revision,true,clock_timestamp()
+  FROM runtime_activation_policies
+ GROUP BY policy_revision
+ON CONFLICT (policy_revision) DO NOTHING;
+
+-- One policy revision is one global time epoch. If rows inside rN had different
+-- effective_at values, or rN+1 could become effective before rN, the effective
+-- policy could change while MAX(effective policy_revision) stayed unchanged.
+-- A replica would then be unable to distinguish a fresh cache from a stale one.
+--
+-- Take the same global advisory lock as governed policy writers so direct SQL
+-- and concurrent inserts cannot both validate against an incomplete view. The
+-- lock is transaction-scoped and re-entrant when insertActivationPolicyLocked
+-- already holds it.
+CREATE OR REPLACE FUNCTION cx_validate_activation_policy_epoch() RETURNS trigger AS $$
+DECLARE
+    epoch_effective_at TIMESTAMPTZ;
+    epoch_writer_txid TEXT;
+    epoch_sealed BOOLEAN;
+    current_txid TEXT;
+    same_epoch_min TIMESTAMPTZ;
+    same_epoch_max TIMESTAMPTZ;
+    prior_epoch_max TIMESTAMPTZ;
+    later_epoch_min TIMESTAMPTZ;
+    latest_other_revision BIGINT;
+BEGIN
+    PERFORM pg_advisory_xact_lock(5567946963125551961);
+
+    -- Future scheduling is deliberately unsupported. Otherwise a future rN,
+    -- combined with the monotonic epoch rule below, would prevent an immediate
+    -- rN+1 emergency quarantine or rollback until rN's scheduled boundary.
+    IF NEW.effective_at > clock_timestamp() THEN
+        RAISE EXCEPTION
+          'activation policy effective_at % cannot be in the future',
+          NEW.effective_at;
+    END IF;
+
+    current_txid := pg_current_xact_id()::text;
+    INSERT INTO runtime_activation_policy_epochs
+      (policy_revision,effective_at,writer_txid,sealed)
+    VALUES (NEW.policy_revision,NEW.effective_at,current_txid,false)
+    ON CONFLICT (policy_revision) DO NOTHING;
+    SELECT effective_at,writer_txid,sealed
+      INTO epoch_effective_at,epoch_writer_txid,epoch_sealed
+      FROM runtime_activation_policy_epochs
+     WHERE policy_revision=NEW.policy_revision
+     FOR UPDATE;
+    IF epoch_sealed OR epoch_writer_txid <> current_txid THEN
+        RAISE EXCEPTION
+          'activation policy revision % is sealed and cannot accept more rows',
+          NEW.policy_revision;
+    END IF;
+    IF epoch_effective_at <> NEW.effective_at THEN
+        RAISE EXCEPTION
+          'activation policy revision % must use one identical effective_at',
+          NEW.policy_revision;
+    END IF;
+
+    -- Revision is the replica freshness token, so a newly opened epoch must
+    -- advance the global high-water mark. Otherwise a later transaction could
+    -- first create rN+2 and then backfill a missing, disjoint rN+1: policy
+    -- semantics would change while MAX(policy_revision) remained rN+2.
+    SELECT max(policy_revision) INTO latest_other_revision
+      FROM runtime_activation_policy_epochs
+     WHERE policy_revision <> NEW.policy_revision;
+    IF latest_other_revision IS NOT NULL AND
+       NEW.policy_revision <= latest_other_revision THEN
+        RAISE EXCEPTION
+          'activation policy revision % must advance beyond latest existing epoch %',
+          NEW.policy_revision,latest_other_revision;
+    END IF;
+
+    SELECT min(effective_at),max(effective_at)
+      INTO same_epoch_min,same_epoch_max
+      FROM runtime_activation_policies
+     WHERE policy_revision=NEW.policy_revision;
+    IF same_epoch_min IS NOT NULL AND
+       (same_epoch_min <> NEW.effective_at OR same_epoch_max <> NEW.effective_at) THEN
+        RAISE EXCEPTION
+          'activation policy revision % must use one identical effective_at',
+          NEW.policy_revision;
+    END IF;
+
+    SELECT max(effective_at) INTO prior_epoch_max
+      FROM runtime_activation_policies
+     WHERE policy_revision < NEW.policy_revision;
+    IF prior_epoch_max IS NOT NULL AND NEW.effective_at < prior_epoch_max THEN
+        RAISE EXCEPTION
+          'activation policy revision % effective_at % precedes an earlier revision epoch %',
+          NEW.policy_revision,NEW.effective_at,prior_epoch_max;
+    END IF;
+
+    SELECT min(effective_at) INTO later_epoch_min
+      FROM runtime_activation_policies
+     WHERE policy_revision > NEW.policy_revision;
+    IF later_epoch_min IS NOT NULL AND NEW.effective_at > later_epoch_min THEN
+        RAISE EXCEPTION
+          'activation policy revision % effective_at % follows a later revision epoch %',
+          NEW.policy_revision,NEW.effective_at,later_epoch_min;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Deferred sealing lets the governed writer insert several child rows with
+-- separate statements in one transaction, then closes the epoch atomically at
+-- commit. A later transaction has a different txid and sees sealed=true.
+CREATE OR REPLACE FUNCTION cx_seal_activation_policy_epoch() RETURNS trigger AS $$
+BEGIN
+    UPDATE runtime_activation_policy_epochs
+       SET sealed=true,sealed_at=clock_timestamp()
+     WHERE policy_revision=NEW.policy_revision
+       AND writer_txid=pg_current_xact_id()::text
+       AND NOT sealed;
+    IF NOT FOUND AND NOT EXISTS (
+        SELECT 1 FROM runtime_activation_policy_epochs
+         WHERE policy_revision=NEW.policy_revision AND sealed
+    ) THEN
+        RAISE EXCEPTION
+          'activation policy revision % could not be sealed by its writer transaction',
+          NEW.policy_revision;
+    END IF;
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Epoch headers are immutable except for the originating transaction's single
+-- open->sealed transition performed by the deferred trigger above.
+CREATE OR REPLACE FUNCTION cx_refuse_activation_epoch_rewrite() RETURNS trigger AS $$
+BEGIN
+    IF TG_OP='UPDATE' AND NOT OLD.sealed AND NEW.sealed
+       AND OLD.policy_revision=NEW.policy_revision
+       AND OLD.effective_at=NEW.effective_at
+       AND OLD.writer_txid=NEW.writer_txid
+       AND OLD.recorded_at=NEW.recorded_at
+       AND NEW.writer_txid=pg_current_xact_id()::text
+       AND OLD.sealed_at IS NULL AND NEW.sealed_at IS NOT NULL THEN
+        RETURN NEW;
+    END IF;
+    RAISE EXCEPTION
+      'activation policy epoch % is immutable', OLD.policy_revision;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS runtime_activation_policy_epochs_immutable ON runtime_activation_policy_epochs;
+CREATE TRIGGER runtime_activation_policy_epochs_immutable
+    BEFORE UPDATE OR DELETE ON runtime_activation_policy_epochs
+    FOR EACH ROW EXECUTE FUNCTION cx_refuse_activation_epoch_rewrite();
+
+-- Existing databases must prove the invariant before serving. Installing only
+-- the forward trigger would leave a historical split epoch able to cross its
+-- delayed boundary after this migration.
+DO $$
+BEGIN
+    IF EXISTS (
+        WITH epochs AS (
+            SELECT policy_revision,min(effective_at) AS epoch_min,
+                   max(effective_at) AS epoch_max
+              FROM runtime_activation_policies
+             GROUP BY policy_revision
+        ), ordered AS (
+            SELECT policy_revision,epoch_min,epoch_max,
+                   lag(epoch_max) OVER (ORDER BY policy_revision) AS prior_max
+              FROM epochs
+        )
+        SELECT 1 FROM ordered
+         WHERE epoch_max > clock_timestamp()
+            OR epoch_min <> epoch_max
+            OR (prior_max IS NOT NULL AND epoch_min < prior_max)
+    ) THEN
+        RAISE EXCEPTION
+          'runtime_activation_policies contains future, split, or non-monotonic effective epochs';
+    END IF;
+    IF EXISTS (
+        WITH policy_epochs AS (
+            SELECT policy_revision,min(effective_at) AS effective_at
+              FROM runtime_activation_policies GROUP BY policy_revision
+        )
+        SELECT 1
+          FROM runtime_activation_policy_epochs e
+          FULL JOIN policy_epochs p USING (policy_revision)
+         WHERE p.policy_revision IS NULL OR e.policy_revision IS NULL
+            OR NOT e.sealed OR e.effective_at <> p.effective_at
+    ) THEN
+        RAISE EXCEPTION
+          'runtime_activation_policy_epochs does not exactly seal every stored revision';
+    END IF;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS runtime_activation_policies_epoch_valid ON runtime_activation_policies;
+CREATE TRIGGER runtime_activation_policies_epoch_valid
+    BEFORE INSERT ON runtime_activation_policies
+    FOR EACH ROW EXECUTE FUNCTION cx_validate_activation_policy_epoch();
+DROP TRIGGER IF EXISTS runtime_activation_policies_epoch_seal ON runtime_activation_policies;
+CREATE CONSTRAINT TRIGGER runtime_activation_policies_epoch_seal
+    AFTER INSERT ON runtime_activation_policies
+    DEFERRABLE INITIALLY DEFERRED
+    FOR EACH ROW EXECUTE FUNCTION cx_seal_activation_policy_epoch();
+
 -- Policy is evidence. Rolling back writes forward; it never deletes.
 CREATE OR REPLACE FUNCTION cx_refuse_activation_policy_rewrite() RETURNS trigger AS $$
 BEGIN
@@ -5626,15 +5961,14 @@ ALTER TABLE runtime_shadow_selections
     ADD CONSTRAINT runtime_shadow_selections_cells_named
     CHECK (btrim(routed_cell_id) <> '' AND btrim(shadow_cell_id) <> '');
 
--- Which arm of the policy decided the row, and the ONE hardware class the cost
--- comparison was made on.
+-- Legacy v2 selector projection retained for application-only rollback.
 --
--- The basis is stored rather than inferred because the two arms are not
--- interchangeable evidence: a divergence chosen on the lifecycle ladder says the
--- more proven cell was preferred, and a divergence chosen on measured cost says
--- the cheaper verified unit was. A promotion may be argued from the second and
--- never from the first, and a reader cannot tell them apart from the cell ids.
--- Rows written before the scoring half existed keep '', which is neither arm.
+-- Old control binaries embed schema.sql and reapply it at startup. They know only
+-- selection_basis/cost_hw_class and reinstall constraints over those columns, so
+-- renaming or repurposing either column makes an emergency application rollback
+-- fail to start. Keep them as an immutable compatibility projection. Current
+-- binaries leave both blank; a non-empty value is therefore historical v2 state,
+-- never current cost authority.
 ALTER TABLE runtime_shadow_selections
     ADD COLUMN IF NOT EXISTS selection_basis TEXT NOT NULL DEFAULT '';
 ALTER TABLE runtime_shadow_selections
@@ -5644,9 +5978,43 @@ ALTER TABLE runtime_shadow_selections
 ALTER TABLE runtime_shadow_selections
     ADD CONSTRAINT runtime_shadow_selections_basis_known
     CHECK (selection_basis IN ('', 'LIFECYCLE_LADDER', 'MEASURED_VERIFIED_OUTCOME_COST'));
--- A cost comparison names the hardware it was made on, and a decision that made
--- no comparison names none. Without this a row could claim a measured basis while
--- leaving the scope of the measurement unstated.
+ALTER TABLE runtime_shadow_selections
+    DROP CONSTRAINT IF EXISTS runtime_shadow_selections_cost_scope;
+ALTER TABLE runtime_shadow_selections
+    ADD CONSTRAINT runtime_shadow_selections_cost_scope
+    CHECK ((selection_basis = 'MEASURED_VERIFIED_OUTCOME_COST') =
+           (btrim(cost_hw_class) <> ''));
+
+-- Canonical v3 selector authority. This is separate rather than a rename so a
+-- previous binary can reapply its schema over a v3 database and can write new
+-- legacy rows while it is serving a rollback. Reapplying the current schema then
+-- observes those rows unchanged: selection_basis_v3='' means interpret the
+-- non-empty legacy projection only as the historical decision it was.
+ALTER TABLE runtime_shadow_selections
+    ADD COLUMN IF NOT EXISTS selection_basis_v3 TEXT NOT NULL DEFAULT '';
+ALTER TABLE runtime_shadow_selections
+    ADD COLUMN IF NOT EXISTS supplier_liability_hw_class TEXT NOT NULL DEFAULT '';
+ALTER TABLE runtime_shadow_selections
+    ADD COLUMN IF NOT EXISTS supplier_liability_hardware_identity TEXT NOT NULL DEFAULT '';
+ALTER TABLE runtime_shadow_selections
+    ADD COLUMN IF NOT EXISTS economics_refusal TEXT NOT NULL DEFAULT '';
+ALTER TABLE runtime_shadow_selections
+    DROP CONSTRAINT IF EXISTS runtime_shadow_selections_basis_v3_known;
+ALTER TABLE runtime_shadow_selections
+    ADD CONSTRAINT runtime_shadow_selections_basis_v3_known
+    CHECK (selection_basis_v3 IN ('', 'LIFECYCLE_LADDER',
+        'MORE_THROUGHPUT_AT_EQUAL_SUPPLIER_LIABILITY', 'TIE_NO_DECISION'));
+-- Exactly one schema generation may claim a decision basis. New rows use v3 and
+-- leave the compatibility projection blank; rows written by a rolled-back binary
+-- use the legacy projection and receive blank v3 defaults. This also fails closed
+-- on an accidental dual write that could otherwise be read two ways.
+ALTER TABLE runtime_shadow_selections
+    DROP CONSTRAINT IF EXISTS runtime_shadow_selections_basis_generation_single;
+ALTER TABLE runtime_shadow_selections
+    ADD CONSTRAINT runtime_shadow_selections_basis_generation_single
+    CHECK (btrim(selection_basis_v3) = '' OR btrim(selection_basis) = '');
+-- A liability comparison names its hardware. A cost refusal keeps the lifecycle
+-- basis and names the missing platform authority explicitly.
 -- The execution mode the workload was placed in, and the property that decided
 -- it.
 --
@@ -5687,10 +6055,21 @@ ALTER TABLE runtime_shadow_selections
     CHECK (jsonb_typeof(topology_plan) = 'object');
 
 ALTER TABLE runtime_shadow_selections
-    DROP CONSTRAINT IF EXISTS runtime_shadow_selections_cost_scope;
+    DROP CONSTRAINT IF EXISTS runtime_shadow_selections_liability_scope;
 ALTER TABLE runtime_shadow_selections
-    ADD CONSTRAINT runtime_shadow_selections_cost_scope
-    CHECK ((selection_basis = 'MEASURED_VERIFIED_OUTCOME_COST') = (btrim(cost_hw_class) <> ''));
+    ADD CONSTRAINT runtime_shadow_selections_liability_scope
+    CHECK ((btrim(supplier_liability_hw_class) <> '' AND
+            btrim(supplier_liability_hardware_identity) <> '') =
+        (selection_basis_v3 IN ('MORE_THROUGHPUT_AT_EQUAL_SUPPLIER_LIABILITY',
+                                'TIE_NO_DECISION')
+         OR btrim(economics_refusal) <> '')
+       AND ((btrim(supplier_liability_hw_class) <> '') =
+            (btrim(supplier_liability_hardware_identity) <> ''))) NOT VALID;
+ALTER TABLE runtime_shadow_selections
+    DROP CONSTRAINT IF EXISTS runtime_shadow_selections_refusal_basis;
+ALTER TABLE runtime_shadow_selections
+    ADD CONSTRAINT runtime_shadow_selections_refusal_basis
+    CHECK (btrim(economics_refusal) = '' OR selection_basis_v3 = 'LIFECYCLE_LADDER');
 
 CREATE INDEX IF NOT EXISTS runtime_shadow_selections_divergence_idx
     ON runtime_shadow_selections (job_type, model_ref, decided_at DESC)

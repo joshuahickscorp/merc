@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::OnceLock;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
@@ -30,11 +31,8 @@ fn bench_cache_path() -> PathBuf {
     }
 }
 
-fn bench_cache_key(agent_version: &str, build_hash: &str, brand: &str, host_mem_gb: f32) -> String {
-    format!(
-        "{agent_version}|{build_hash}|{brand}|{}",
-        host_mem_gb.round() as i64
-    )
+fn bench_cache_key(agent_version: &str, build_hash: &str, hardware_identity: &str) -> String {
+    format!("{agent_version}|{build_hash}|{hardware_identity}")
 }
 
 fn now_unix() -> u64 {
@@ -44,7 +42,7 @@ fn now_unix() -> u64 {
         .unwrap_or(0)
 }
 
-fn load_bench_cache(key: &str) -> Option<(f32, Vec<BenchResult>)> {
+fn load_bench_cache(key: &str) -> Option<(f32, Vec<BenchResult>, u64)> {
     let path = bench_cache_path();
     let bytes = std::fs::read(&path).ok()?;
     let cache: BenchCache = serde_json::from_slice(&bytes).ok()?;
@@ -62,10 +60,15 @@ fn load_bench_cache(key: &str) -> Option<(f32, Vec<BenchResult>)> {
         path = %path.display(),
         "bench cache: reusing measured startup benchmark (skipping ~45-60s cold re-measure)"
     );
-    Some((cache.memory_bw_gbps, cache.benchmarks))
+    Some((cache.memory_bw_gbps, cache.benchmarks, cache.measured_unix))
 }
 
-fn save_bench_cache(key: &str, memory_bw_gbps: f32, benchmarks: &[BenchResult]) {
+fn save_bench_cache(
+    key: &str,
+    measured_unix: u64,
+    memory_bw_gbps: f32,
+    benchmarks: &[BenchResult],
+) {
     let path = bench_cache_path();
     if let Some(parent) = path.parent() {
         if let Err(e) = std::fs::create_dir_all(parent) {
@@ -75,7 +78,7 @@ fn save_bench_cache(key: &str, memory_bw_gbps: f32, benchmarks: &[BenchResult]) 
     }
     let cache = BenchCache {
         key: key.to_string(),
-        measured_unix: now_unix(),
+        measured_unix,
         memory_bw_gbps,
         benchmarks: benchmarks.to_vec(),
     };
@@ -126,6 +129,11 @@ fn classify(brand: &str) -> HardwareClass {
 
 const CATALOGUE_QUANT: &str = "q4_k_m";
 
+/// Current meaning of the 16-lowerhex engine build credential. Keep this on
+/// both the benchmark and worker wire: equality of an unversioned short hash
+/// cannot prove that both sides used the executable-bound algorithm.
+pub const ENGINE_BUILD_IDENTITY_POLICY: &str = "merc_agent_running_executable_sha256_v1";
+
 // The worker-advertised build hash is an admission credential during the
 // private canary. Bind it to every agent source module and the locked
 // dependency graph, rather than only to the inference kernel, so a protocol,
@@ -134,28 +142,39 @@ const CATALOGUE_QUANT: &str = "q4_k_m";
 const AGENT_CONTENT_SOURCES: &[(&str, &str)] = &[
     ("config.rs", include_str!("config.rs")),
     ("deadline.rs", include_str!("deadline.rs")),
+    ("enrollment.rs", include_str!("enrollment.rs")),
+    ("executor.rs", include_str!("executor.rs")),
+    ("fabric.rs", include_str!("fabric.rs")),
     ("failure.rs", include_str!("failure.rs")),
     ("hardware.rs", include_str!("hardware.rs")),
+    ("inference.rs", include_str!("inference.rs")),
     ("main.rs", include_str!("main.rs")),
+    ("media.rs", include_str!("media.rs")),
     ("models.rs", include_str!("models.rs")),
+    ("openai_serve.rs", include_str!("openai_serve.rs")),
     ("pool.rs", include_str!("pool.rs")),
     ("protocol.rs", include_str!("protocol.rs")),
     (
         "quantized_llama_batched.rs",
         include_str!("quantized_llama_batched.rs"),
     ),
-    ("executor.rs", include_str!("executor.rs")),
+    ("render.rs", include_str!("render.rs")),
     ("runtime_authority.rs", include_str!("runtime_authority.rs")),
+    ("runtime_driver.rs", include_str!("runtime_driver.rs")),
+    ("sandbox_egress.rs", include_str!("sandbox_egress.rs")),
     ("status.rs", include_str!("status.rs")),
+    ("tls.rs", include_str!("tls.rs")),
+    ("token_cache.rs", include_str!("token_cache.rs")),
     ("types.rs", include_str!("types.rs")),
     ("vllm.rs", include_str!("vllm.rs")),
     ("Cargo.lock", include_str!("../Cargo.lock")),
+    ("Cargo.toml", include_str!("../Cargo.toml")),
 ];
 
-pub fn infer_content_id() -> String {
+fn agent_content_id(sources: &[(&str, &str)]) -> String {
     use sha2::{Digest, Sha256};
     let mut h = Sha256::new();
-    for (name, source) in AGENT_CONTENT_SOURCES {
+    for (name, source) in sources {
         h.update((name.len() as u64).to_le_bytes());
         h.update(name.as_bytes());
         h.update((source.len() as u64).to_le_bytes());
@@ -166,6 +185,109 @@ pub fn infer_content_id() -> String {
         .take(8)
         .map(|b| format!("{b:02x}"))
         .collect()
+}
+
+pub fn infer_content_id() -> String {
+    agent_content_id(AGENT_CONTENT_SOURCES)
+}
+
+// Hash the executable actually running, not just the repository inputs that
+// were expected to produce it. This makes Cargo feature selection, rustc and
+// linker versions, target, profile, RUSTFLAGS/codegen, and any other material
+// build variation weight-bearing in the benchmark/worker build credential.
+// Failure is fatal: advertising a source-only fallback would allow a different
+// execution binary to inherit an approved active-hour floor.
+fn execution_binary_sha256() -> &'static str {
+    static DIGEST: OnceLock<String> = OnceLock::new();
+    DIGEST
+        .get_or_init(|| {
+            use sha2::{Digest, Sha256};
+
+            let path = std::env::current_exe().unwrap_or_else(|err| {
+                panic!("cannot resolve running executable for build identity: {err}")
+            });
+            let bytes = std::fs::read(&path).unwrap_or_else(|err| {
+                panic!(
+                    "cannot read running executable {} for build identity: {err}",
+                    path.display()
+                )
+            });
+            let digest = Sha256::digest(bytes);
+            digest.iter().map(|byte| format!("{byte:02x}")).collect()
+        })
+        .as_str()
+}
+
+fn normalized_identity_component(value: &str) -> String {
+    value.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn gpu_core_count() -> Option<u32> {
+    let output = Command::new("ioreg")
+        .args(["-r", "-c", "AGXAccelerator", "-l"])
+        .output()
+        .ok()
+        .filter(|value| value.status.success())?;
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .find_map(|line| {
+            let (key, value) = line.split_once('=')?;
+            if key.trim() != "\"gpu-core-count\"" {
+                return None;
+            }
+            value.trim().parse::<u32>().ok().filter(|count| *count > 0)
+        })
+}
+
+fn hardware_identity_from_parts(
+    brand: &str,
+    model: &str,
+    memory_bytes: u64,
+    cpu_cores: u32,
+    gpu_cores: u32,
+) -> String {
+    format!(
+        "apple_silicon_v1|brand={}|model={}|memory_bytes={memory_bytes}|cpu_cores={cpu_cores}|gpu_cores={gpu_cores}",
+        normalized_identity_component(brand),
+        normalized_identity_component(model),
+    )
+}
+
+/// Exact performance-relevant Apple hardware configuration shared by worker
+/// registration and benchmark receipts. Missing topology is fatal for Apple
+/// Silicon: falling back to a marketing name would allow a lower-core or
+/// different-memory SKU to borrow another device's measured floor.
+pub fn detected_hardware_identity() -> String {
+    static IDENTITY: OnceLock<String> = OnceLock::new();
+    IDENTITY
+        .get_or_init(|| {
+            let brand = sysctl("machdep.cpu.brand_string")
+                .unwrap_or_else(|| "unknown non-Apple CPU".to_string());
+            if classify(&brand) == HardwareClass::Cpu {
+                return format!(
+                    "non_apple_v1|brand={}|arch={}",
+                    normalized_identity_component(&brand),
+                    std::env::consts::ARCH
+                );
+            }
+            let required = |key: &str| {
+                sysctl(key).unwrap_or_else(|| {
+                    panic!("cannot read {key} for exact Apple hardware identity")
+                })
+            };
+            let model = required("hw.model");
+            let memory_bytes = required("hw.memsize")
+                .parse::<u64>()
+                .unwrap_or_else(|err| panic!("invalid hw.memsize for hardware identity: {err}"));
+            let cpu_cores = required("hw.ncpu")
+                .parse::<u32>()
+                .unwrap_or_else(|err| panic!("invalid hw.ncpu for hardware identity: {err}"));
+            let gpu_cores = gpu_core_count().unwrap_or_else(|| {
+                panic!("cannot read gpu-core-count for exact Apple hardware identity")
+            });
+            hardware_identity_from_parts(&brand, &model, memory_bytes, cpu_cores, gpu_cores)
+        })
+        .clone()
 }
 
 fn inference_runtime_tuning_identity(engine: &str) -> String {
@@ -223,6 +345,7 @@ pub fn engine_build_hash_for_class(
         hardware_class,
         crate::runtime_authority::sha256(),
         &infer_content_id(),
+        execution_binary_sha256(),
         &inference_runtime_tuning_identity(engine),
     )
 }
@@ -233,6 +356,7 @@ fn engine_build_hash_inner(
     hardware_class: &str,
     runtime_authority_sha256: &str,
     infer_content_id: &str,
+    execution_binary_sha256: &str,
     runtime_tuning_identity: &str,
 ) -> String {
     use sha2::{Digest, Sha256};
@@ -243,7 +367,9 @@ fn engine_build_hash_inner(
         hardware_class,
         runtime_authority_sha256,
         CATALOGUE_QUANT,
+        ENGINE_BUILD_IDENTITY_POLICY,
         infer_content_id,
+        execution_binary_sha256,
         runtime_tuning_identity,
     ] {
         h.update((field.len() as u32).to_le_bytes());
@@ -357,9 +483,10 @@ pub async fn detect_and_benchmark(
     let memory_gb = host_mem_gb;
 
     let build_hash = engine_build_hash_for_class(engine, agent_version, hw_class.as_wire_str());
-    let cache_key = bench_cache_key(agent_version, &build_hash, &brand, host_mem_gb);
+    let hardware_identity = detected_hardware_identity();
+    let cache_key = bench_cache_key(agent_version, &build_hash, &hardware_identity);
 
-    let (memory_bw_gbps, benchmarks) = match load_bench_cache(&cache_key) {
+    let (memory_bw_gbps, mut benchmarks, measured_unix) = match load_bench_cache(&cache_key) {
         Some(cached) => cached,
         None => {
             tracing::info!("measuring unified-memory bandwidth");
@@ -377,10 +504,14 @@ pub async fn detect_and_benchmark(
                     thermal_ok = b.thermal_ok, "benchmark"
                 );
             }
-            save_bench_cache(&cache_key, memory_bw_gbps, &benchmarks);
-            (memory_bw_gbps, benchmarks)
+            let measured_unix = now_unix();
+            save_bench_cache(&cache_key, measured_unix, memory_bw_gbps, &benchmarks);
+            (memory_bw_gbps, benchmarks, measured_unix)
         }
     };
+    for benchmark in &mut benchmarks {
+        benchmark.measured_unix = measured_unix;
+    }
     let authorized = generated_authorized_capabilities(engine, hw_class);
     let supported_jobs: Vec<String> = authorized
         .iter()
@@ -412,6 +543,8 @@ pub async fn detect_and_benchmark(
         hw_class,
         engine: engine.to_string(),
         build_hash,
+        build_identity_policy: ENGINE_BUILD_IDENTITY_POLICY.to_string(),
+        hardware_identity,
         memory_gb,
         memory_bw_gbps,
         gpu_count: 1,
@@ -507,4 +640,94 @@ pub fn read_thermal_pressure() -> Option<crate::config::ThermalPressure> {
 #[cfg(not(target_os = "macos"))]
 pub fn read_thermal_pressure() -> Option<crate::config::ThermalPressure> {
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        agent_content_id, engine_build_hash_inner, hardware_identity_from_parts,
+        AGENT_CONTENT_SOURCES,
+    };
+
+    #[test]
+    fn execution_module_change_changes_agent_content_identity() {
+        let before = [
+            ("inference.rs", "fn execute() { old_kernel(); }"),
+            ("runtime_driver.rs", "fn dispatch() { execute(); }"),
+        ];
+        let after = [
+            ("inference.rs", "fn execute() { substituted_kernel(); }"),
+            ("runtime_driver.rs", "fn dispatch() { execute(); }"),
+        ];
+        assert_ne!(agent_content_id(&before), agent_content_id(&after));
+    }
+
+    #[test]
+    fn agent_content_identity_covers_every_compiled_source_module() {
+        let mut compiled: Vec<String> =
+            std::fs::read_dir(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src"))
+                .expect("read agent source directory")
+                .filter_map(|entry| entry.ok())
+                .filter_map(|entry| {
+                    let path = entry.path();
+                    (path.extension().and_then(|ext| ext.to_str()) == Some("rs"))
+                        .then(|| path.file_name()?.to_str().map(str::to_owned))
+                        .flatten()
+                })
+                .collect();
+        compiled.sort();
+
+        let mut covered: Vec<String> = AGENT_CONTENT_SOURCES
+            .iter()
+            .filter(|(name, _)| name.ends_with(".rs"))
+            .map(|(name, _)| (*name).to_owned())
+            .collect();
+        covered.sort();
+        assert_eq!(
+            covered, compiled,
+            "agent build identity omitted a source module"
+        );
+        assert!(
+            AGENT_CONTENT_SOURCES
+                .iter()
+                .any(|(name, _)| *name == "Cargo.lock"),
+            "agent build identity omitted the locked dependency graph"
+        );
+        assert!(
+            AGENT_CONTENT_SOURCES
+                .iter()
+                .any(|(name, _)| *name == "Cargo.toml"),
+            "agent build identity omitted features/profile/build configuration"
+        );
+    }
+
+    #[test]
+    fn execution_binary_change_changes_engine_build_identity() {
+        let build = |binary_digest: &str| {
+            engine_build_hash_inner(
+                "candle",
+                "test-agent",
+                "apple_silicon_ultra",
+                "runtime-authority",
+                "source-content",
+                binary_digest,
+                "runtime-tuning",
+            )
+        };
+        assert_ne!(build(&"a".repeat(64)), build(&"b".repeat(64)));
+    }
+
+    #[test]
+    fn exact_hardware_identity_changes_with_performance_relevant_configuration() {
+        let base = hardware_identity_from_parts("Apple M3 Ultra", "Mac15,14", 96, 28, 60);
+        for changed in [
+            hardware_identity_from_parts("Apple M1 Ultra", "Mac15,14", 96, 28, 60),
+            hardware_identity_from_parts("Apple M3 Ultra", "Mac16,12", 96, 28, 60),
+            hardware_identity_from_parts("Apple M3 Ultra", "Mac15,14", 192, 28, 60),
+            hardware_identity_from_parts("Apple M3 Ultra", "Mac15,14", 96, 24, 60),
+            hardware_identity_from_parts("Apple M3 Ultra", "Mac15,14", 96, 28, 76),
+        ] {
+            assert_ne!(base, changed);
+        }
+    }
 }

@@ -42,13 +42,16 @@ func TestCellEntitlementResolutionIsWrittenOnNewAdmission(t *testing.T) {
 			t.Fatalf("%s provenance incomplete: %+v", name, p)
 		}
 	}
-	// Build identity is an honest gap today.
-	if f.BuildIdentity.Knowledge != fieldProvenanceUnknown {
-		t.Fatalf("build identity claims %q; placement binds no build_digest",
+	// Current placement binds the exact receipt-measured execution build and
+	// device; only legacy placements retain the explicit UNKNOWN shape.
+	if f.BuildIdentity.Knowledge != fieldProvenanceMeasured {
+		t.Fatalf("build identity knowledge=%q, want measured exact authority",
 			f.BuildIdentity.Knowledge)
 	}
-	if !strings.Contains(f.BuildIdentity.WouldRequire, "build_digest") {
-		t.Fatalf("build identity must say what would be required: %+v", f.BuildIdentity)
+	if !strings.Contains(f.BuildIdentity.Basis, placement.EngineBuildHash) ||
+		!strings.Contains(f.BuildIdentity.Basis, placement.HardwareIdentity) ||
+		!strings.Contains(f.BuildIdentity.Source, placement.PerformanceAuthority.BenchmarkSnapshotSHA256) {
+		t.Fatalf("build identity does not bind placement build/device/summary: %+v", f.BuildIdentity)
 	}
 	// Platform delivery must be populated under cell resolution.
 	if f.PlatformDeliveryCostStatus == "" || f.PlatformDeliveryCostBasis == "" {
@@ -58,6 +61,29 @@ func TestCellEntitlementResolutionIsWrittenOnNewAdmission(t *testing.T) {
 	if f.PlatformDeliveryCostUSD <= 0 {
 		t.Fatalf("platform delivery total %v; supplier leg should make it positive",
 			f.PlatformDeliveryCostUSD)
+	}
+	if f.PlatformDeliveryCostStatus != platformDeliveryComplete {
+		t.Fatalf("platform delivery leg status=%q, want %q",
+			f.PlatformDeliveryCostStatus, platformDeliveryComplete)
+	}
+	if f.PlatformDeliveryCostStatus == frozenVOCostComplete {
+		t.Fatal("three-leg platform subtotal claims every named economics term is modeled")
+	}
+	if f.ExpectedVOCostStatus != frozenVOCostPartial {
+		t.Fatalf("named cost stack status=%q, want partial while reliability and other terms are unknown",
+			f.ExpectedVOCostStatus)
+	}
+	if f.EnergyKnowledge == string(wattKindAssumed) && f.EnergyPartial.Status != pricingCostUnknown {
+		t.Fatalf("assumed watts entered canonical platform money: %+v", f.EnergyPartial)
+	}
+	if f.EnergyKnowledge == string(wattKindAssumed) && f.EnergyJoules <= 0 {
+		t.Fatalf("assumed energy lost its non-authoritative diagnostic geometry: %+v", f)
+	}
+	if f.ReliabilityCost.Status != pricingCostUnknown ||
+		!strings.Contains(f.ReliabilityCost.Basis, "unpaid") ||
+		strings.Contains(f.ReliabilityCost.Basis, "further supplier entitlement") {
+		t.Fatalf("retry overhead misstates unpaid failures as supplier liability: %+v",
+			f.ReliabilityCost)
 	}
 }
 
@@ -211,14 +237,15 @@ func TestSettledAmountUnchangedWhenBetterBenchmarkPublished(t *testing.T) {
 		beforeCell.PlatformDeliveryCostUSD)
 }
 
-// TestCellResolvedProviderCostDiffersByDuration is the other half of the gate:
-// under cell_resolved_platform_v1, a faster cell produces a genuinely lower
-// provider cost and therefore a lower platform delivery cost. Supplier
-// entitlement (cancelled form) stays identical for equal units.
-func TestCellResolvedProviderCostDiffersByDuration(t *testing.T) {
-	rate, ok := providerRatesByHWClass["nvidia_80gb"]
+// The A40 receipt proves the rate×duration arithmetic for that exact provider
+// allocation, but the accepted nvidia_48gb class is memory-only. Canonical
+// pricing must keep provider cost unknown until placement freezes provider/SKU.
+func TestProviderDurationFormulaCannotAuthorizeGenericCapacityTier(t *testing.T) {
+	_, _, _, _, pricing := distributedPricingFixture(t)
+	catalogue := pricing.Catalogue
+	rate, ok := providerRatesByHWClass["nvidia_48gb"]
 	if !ok || rate.CostPerHrUSD <= 0 {
-		t.Fatal("nvidia_80gb governed rate missing")
+		t.Fatal("A40 reference rate missing")
 	}
 	// Same units, two throughputs: 100 u/s vs 162 u/s (1.62×).
 	const units = 1000.0
@@ -236,52 +263,18 @@ func TestCellResolvedProviderCostDiffersByDuration(t *testing.T) {
 		t.Fatalf("slow cell should cost more provider dollars; delta=%v", delta)
 	}
 
-	// Platform delivery: equal supplier, different provider → different total.
-	supplier := 0.01 // cancelled form, identical
+	// The arithmetic observation cannot become a canonical platform-cost value
+	// for a placement that says only "some 48GB NVIDIA card".
 	slowProvider := providerCostComponentForPlacement(
-		"vllm-cuda-llama1-infer", []string{"nvidia_80gb"}, slowSec,
+		"vllm-cuda-llama1-infer", []string{"nvidia_48gb"}, slowSec, catalogue,
 	)
 	fastProvider := providerCostComponentForPlacement(
-		"vllm-cuda-llama1-infer", []string{"nvidia_80gb"}, fastSec,
+		"vllm-cuda-llama1-infer", []string{"nvidia_48gb"}, fastSec, catalogue,
 	)
-	if slowProvider.Status != pricingCostModeled || fastProvider.Status != pricingCostModeled {
-		t.Fatalf("provider not modeled: slow=%+v fast=%+v", slowProvider, fastProvider)
-	}
-	ver := modeledCost(0.001, "test verification")
-	slowDel := resolveCellPlatformDelivery(supplier, slowProvider, ver, units,
-		cellEntitlementResolutionCellResolved)
-	fastDel := resolveCellPlatformDelivery(supplier, fastProvider, ver, units,
-		cellEntitlementResolutionCellResolved)
-
-	if slowDel.SupplierUSD != fastDel.SupplierUSD {
-		t.Fatalf("supplier leg diverged: slow=%v fast=%v (cancellation broken)",
-			slowDel.SupplierUSD, fastDel.SupplierUSD)
-	}
-	if !(fastDel.TotalUSD < slowDel.TotalUSD) {
-		t.Fatalf("faster cell platform delivery $%v is not lower than slow $%v",
-			fastDel.TotalUSD, slowDel.TotalUSD)
-	}
-	if !(fastDel.ProviderUSD < slowDel.ProviderUSD) {
-		t.Fatalf("faster cell provider $%v is not lower than slow $%v",
-			fastDel.ProviderUSD, slowDel.ProviderUSD)
-	}
-	// Absolute delta, not only a ratio.
-	absDelta := slowDel.TotalUSD - fastDel.TotalUSD
-	t.Logf("CELL-LEVEL ENTITLEMENT: supplier=$%.6f (identical); "+
-		"provider slow=$%.6f fast=$%.6f; platform delivery slow=$%.6f fast=$%.6f; "+
-		"absolute saving $%.6f (%.3f ms/unit-equivalent at 1000 units)",
-		supplier, slowDel.ProviderUSD, fastDel.ProviderUSD,
-		slowDel.TotalUSD, fastDel.TotalUSD, absDelta,
-		(slowSec-fastSec)/units*1000)
-
-	// True-net direction: higher provider → lower true net, all else equal.
-	// Buyer and supplier fixed; provider is the only variable.
-	buyer := 0.05
-	slowTrueNet := buyer - supplier - slowDel.ProviderUSD - ver.Amount
-	fastTrueNet := buyer - supplier - fastDel.ProviderUSD - ver.Amount
-	if !(fastTrueNet > slowTrueNet) {
-		t.Fatalf("faster cell true net $%v is not higher than slow $%v",
-			fastTrueNet, slowTrueNet)
+	if slowProvider.Status != pricingCostUnknown || fastProvider.Status != pricingCostUnknown ||
+		slowProvider.Amount != 0 || fastProvider.Amount != 0 {
+		t.Fatalf("generic 48GB class inherited exact-A40 provider money: slow=%+v fast=%+v",
+			slowProvider, fastProvider)
 	}
 }
 
@@ -311,10 +304,8 @@ func TestCellResolvedCommunitySupplyPlatformDeliveryEqualsSupplier(t *testing.T)
 	}
 }
 
-// TestSelectorPlatformDeliveryDiffersWhenProviderKnown shows the selector
-// projection is no longer blind on cloud-backed cells: platform delivery
-// includes provider and tracks duration.
-func TestSelectorPlatformDeliveryDiffersWhenProviderKnown(t *testing.T) {
+// Selector projections obey the same provider/SKU refusal as canonical pricing.
+func TestSelectorPlatformDeliveryRefusesGenericCapacityTier(t *testing.T) {
 	// Use a real cloud-backed cell id from the authority.
 	cloud, found := cellIsCloudBacked("vllm-cuda-llama1-infer")
 	if !found || !cloud {
@@ -324,12 +315,15 @@ func TestSelectorPlatformDeliveryDiffersWhenProviderKnown(t *testing.T) {
 		ModelID: "meta-llama/Llama-3.2-1B-Instruct", JobType: "batch_infer",
 		ReferencePricePer1K: 0.01, SupplierShare: 0.97,
 	}
-	slow := MeasuredCellCost{
+	slow := MeasuredSupplierLiabilityProxy{
 		CellID: "vllm-cuda-llama1-infer", RuntimeID: "vllm_cuda", Engine: "vllm",
-		JobType: "batch_infer", ModelRef: cat.ModelID, HWClass: "nvidia_80gb",
-		Samples: minCellCostSamples, Units: 1000, MedianMsPerUnit: 10.0, // 100 u/s
-		SupplierUSDPerUnit: 0.0000097, VerificationSamples: 20, Measured: true,
-		Unknown: unknownCostComponents(),
+		JobType: "batch_infer", ModelRef: cat.ModelID, HWClass: "nvidia_48gb",
+		Samples: minSupplierLiabilitySamples, Units: 1000, MedianMsPerUnit: 10.0, // 100 u/s
+		SupplierUSDPerUnit:            0.0000097,
+		VerificationSamples:           minSupplierLiabilitySamples,
+		TerminalAttempts:              minSupplierLiabilitySamples,
+		Measured:                      true,
+		UnknownPlatformCostComponents: unknownPlatformCostComponents(),
 	}
 	fast := slow
 	fast.MedianMsPerUnit = 10.0 / 1.62 // 1.62× faster
@@ -338,32 +332,14 @@ func TestSelectorPlatformDeliveryDiffersWhenProviderKnown(t *testing.T) {
 	pf := ProjectCellEconomics(fast, cat, "batch")
 
 	// Supplier verified-outcome still ties (cancellation + equal reliability).
-	if !VerifiedOutcomeCostsTie(ps, pf) {
+	if !SupplierLiabilityProxiesTie(ps, pf) {
 		t.Fatalf("supplier verified-outcome should still tie: slow=%v fast=%v",
-			ps.VerifiedOutcomeUSDPerUnit, pf.VerifiedOutcomeUSDPerUnit)
+			ps.SupplierLiabilityUSDPerVerifiedUnit, pf.SupplierLiabilityUSDPerVerifiedUnit)
 	}
-	// Platform delivery must see the provider difference when provider is known.
-	if ps.ProviderCost.Knowledge != CategoryKnown && ps.ProviderCost.Knowledge != CategoryAssumed {
-		// nvidia_80gb is governed without DEFECT; if rate missing, skip honestly.
-		if ps.ProviderCost.Knowledge == CategoryUnknown {
-			t.Fatalf("provider unknown for cloud cell: %+v", ps.ProviderCost)
-		}
+	if ps.ProviderCost.Knowledge != CategoryUnknown || pf.ProviderCost.Knowledge != CategoryUnknown ||
+		ps.PlatformDeliveryOK || pf.PlatformDeliveryOK {
+		t.Fatalf("selector converted memory-tier identity into provider/SKU money: slow=%+v fast=%+v", ps, pf)
 	}
-	if !ps.PlatformDeliveryOK || !pf.PlatformDeliveryOK {
-		t.Fatalf("platform delivery not ok: slow=%v (%s) fast=%v (%s)",
-			ps.PlatformDeliveryOK, ps.PlatformDeliveryBasis,
-			pf.PlatformDeliveryOK, pf.PlatformDeliveryBasis)
-	}
-	if !(pf.PlatformDeliveryUSDPerUnit < ps.PlatformDeliveryUSDPerUnit) {
-		t.Fatalf("faster cell platform delivery $%v is not lower than slow $%v",
-			pf.PlatformDeliveryUSDPerUnit, ps.PlatformDeliveryUSDPerUnit)
-	}
-	// Absolute delta.
-	t.Logf("selector platform delivery: slow=$%.10f/unit fast=$%.10f/unit delta=$%.10f; "+
-		"supplier VO tied at $%.10f/unit",
-		ps.PlatformDeliveryUSDPerUnit, pf.PlatformDeliveryUSDPerUnit,
-		ps.PlatformDeliveryUSDPerUnit-pf.PlatformDeliveryUSDPerUnit,
-		ps.VerifiedOutcomeUSDPerUnit)
 }
 
 // TestNoHistoricalRepricePathFromFrozenDecision greps the settlement view:

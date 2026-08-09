@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strings"
 )
 
 // Why two cells on one model contract cost the same, named and quantified.
@@ -39,6 +40,10 @@ const (
 	costTieNotTied = "NO_TIE_TO_EXPLAIN"
 	// costTieUnavailable: fewer than two measured cells.
 	costTieUnavailable = "UNAVAILABLE_FEWER_THAN_TWO_MEASURED_CELLS"
+	// costTieReliabilityRefused: payable liability ties, but at least one arm
+	// lacks clean, sufficient reliability evidence. Failures are unpaid and
+	// therefore do not create a dollar delta; they refuse the comparison.
+	costTieReliabilityRefused = "RELIABILITY_EVIDENCE_REFUSES_COMPARISON"
 )
 
 // CostTieTerm is one cost term that could differ between two cells, with the
@@ -46,6 +51,7 @@ const (
 type CostTieTerm struct {
 	Name      string                 `json:"name"`
 	Knowledge CellEconomicsKnowledge `json:"knowledge"`
+	Currency  string                 `json:"currency,omitempty"`
 
 	CellAID       string  `json:"cell_a_id"`
 	CellBID       string  `json:"cell_b_id"`
@@ -65,6 +71,8 @@ type CostTieTerm struct {
 type CostTieAuthority struct {
 	Verdict string `json:"verdict"`
 	Tied    bool   `json:"tied"`
+	// Currency governs every legacy `_usd` amount in this explanation.
+	Currency string `json:"currency"`
 
 	// The chain that forces it.
 	CatalogueKey          string `json:"catalogue_key"`
@@ -73,9 +81,9 @@ type CostTieAuthority struct {
 	CancellationIdentity  string `json:"cancellation_identity"`
 	ScheduleSHA256        string `json:"catalogue_schedule_sha256,omitempty"`
 
-	SupplierUSDPerUnit float64 `json:"supplier_entitlement_usd_per_unit"`
-	RankingUSDPerUnitA float64 `json:"ranking_verified_outcome_usd_per_unit_a"`
-	RankingUSDPerUnitB float64 `json:"ranking_verified_outcome_usd_per_unit_b"`
+	SupplierUSDPerUnit                  float64 `json:"supplier_entitlement_usd_per_unit"`
+	RankingSupplierLiabilityUSDPerUnitA float64 `json:"ranking_supplier_liability_usd_per_verified_unit_a"`
+	RankingSupplierLiabilityUSDPerUnitB float64 `json:"ranking_supplier_liability_usd_per_verified_unit_b"`
 
 	// Every term that could break the tie, largest relative difference first.
 	DifferentiatingTerms []CostTieTerm `json:"differentiating_terms"`
@@ -90,8 +98,10 @@ type CostTieAuthority struct {
 	// reason to go and measure it properly.
 	LargestAnyShare float64 `json:"largest_any_delta_share"`
 
-	Statement    string   `json:"statement"`
-	WouldRequire []string `json:"what_would_break_the_tie"`
+	ReliabilityStatus   string   `json:"reliability_status"`
+	ReliabilityRefusals []string `json:"reliability_refusals,omitempty"`
+	Statement           string   `json:"statement"`
+	WouldRequire        []string `json:"what_would_break_the_tie"`
 }
 
 // ExplainCostTie builds the explanation for two projected cells.
@@ -103,6 +113,7 @@ func ExplainCostTie(
 	a, b CellEconomicsProjection, catalogue CataloguePriceAuthority,
 ) CostTieAuthority {
 	out := CostTieAuthority{
+		Currency:     a.Currency,
 		CatalogueKey: "(model_id, job_type)",
 		CatalogueKeyAuthority: "control/pricing_decision.go#LoadCataloguePriceAuthorityAtSchedule" +
 			"(schedule_sha256, schedule_version, model_id, job_type) — the lookup takes no " +
@@ -113,20 +124,62 @@ func ExplainCostTie(
 			"seconds = units / unitsPerSec; required = ceiling × seconds / 3600 = " +
 			"units/1000 × price × share. unitsPerSec appears twice and cancels, so a cell " +
 			"that is N× faster earns exactly the same payout for the same units",
-		ScheduleSHA256:     catalogue.ScheduleSHA256,
-		RankingUSDPerUnitA: a.VerifiedOutcomeUSDPerUnit,
-		RankingUSDPerUnitB: b.VerifiedOutcomeUSDPerUnit,
-		SupplierUSDPerUnit: a.SupplierUSDPerUnit,
+		ScheduleSHA256:                      catalogue.ScheduleSHA256,
+		RankingSupplierLiabilityUSDPerUnitA: a.SupplierLiabilityUSDPerVerifiedUnit,
+		RankingSupplierLiabilityUSDPerUnitB: b.SupplierLiabilityUSDPerVerifiedUnit,
+		SupplierUSDPerUnit:                  a.SupplierUSDPerUnit,
 	}
-	if a.CellID == "" || b.CellID == "" || !a.VerifiedOutcomeOK || !b.VerifiedOutcomeOK {
+	if a.Currency == "" || b.Currency == "" || !strings.EqualFold(a.Currency, b.Currency) {
+		clearCostTieMoney(&out)
 		out.Verdict = costTieUnavailable
-		out.Statement = "fewer than two measured cells with a resolvable verified-outcome cost; " +
+		out.Statement = fmt.Sprintf(
+			"cost tie refused: cell money currencies are %q and %q; no cross-currency arithmetic is permitted",
+			a.Currency, b.Currency)
+		return out
+	}
+	_, catalogueCurrency, _ := cellEconomicsSettlementPrice(catalogue)
+	if catalogueCurrency != "" && !sameCellEconomicsCurrency(a.Currency, catalogueCurrency) {
+		clearCostTieMoney(&out)
+		out.Verdict = costTieUnavailable
+		out.Statement = fmt.Sprintf(
+			"cost tie refused: cell money currency %q does not match catalogue settlement currency %q",
+			a.Currency, catalogueCurrency)
+		return out
+	}
+	out.ReliabilityRefusals = append(
+		projectionReliabilityRefusals(a),
+		projectionReliabilityRefusals(b)...,
+	)
+	if a.CellID == "" || b.CellID == "" {
+		out.Verdict = costTieUnavailable
+		out.Statement = "fewer than two measured cells with a resolvable supplier-liability proxy; " +
 			"there is no tie to explain and no comparison to make"
 		return out
 	}
+	if !a.SupplierLiabilityAvailable || !b.SupplierLiabilityAvailable {
+		if len(out.ReliabilityRefusals) > 0 {
+			out.Tied = supplierLiabilitiesTieUSD(a.SupplierUSDPerUnit, b.SupplierUSDPerUnit)
+			out.ReliabilityStatus = "REFUSED"
+			out.Verdict = costTieReliabilityRefused
+			out.Statement = fmt.Sprintf(
+				"payable supplier liability remains observable, but the comparison is refused by reliability evidence: %v. "+
+					"Rejected, retried and terminally failed attempts are unpaid; they do not manufacture a dollar cost delta",
+				out.ReliabilityRefusals)
+			return out
+		}
+		out.Verdict = costTieUnavailable
+		out.Statement = "fewer than two cells have strict measured supplier-liability authority; " +
+			"runtime/build or exact-geometry refusal leaves no comparison to make"
+		return out
+	}
 
-	out.Tied = VerifiedOutcomeCostsTie(a, b)
+	out.Tied = SupplierLiabilityProxiesTie(a, b)
 	out.DifferentiatingTerms = costTieTerms(a, b)
+	if len(out.ReliabilityRefusals) == 0 {
+		out.ReliabilityStatus = "CLEAN_SUFFICIENT"
+	} else {
+		out.ReliabilityStatus = "REFUSED"
+	}
 	for _, t := range out.DifferentiatingTerms {
 		if t.AbsDeltaShare > out.LargestAnyShare {
 			out.LargestAnyShare = t.AbsDeltaShare
@@ -140,8 +193,15 @@ func ExplainCostTie(
 	case !out.Tied:
 		out.Verdict = costTieNotTied
 		out.Statement = fmt.Sprintf(
-			"the two cells do not tie on verified-outcome cost: %s is $%.9f/unit and %s is $%.9f/unit",
-			a.CellID, a.VerifiedOutcomeUSDPerUnit, b.CellID, b.VerifiedOutcomeUSDPerUnit)
+			"the two cells do not tie on measured supplier liability: %s is $%.9f/verified unit and %s is $%.9f/verified unit; this is not a total-cost verdict",
+			a.CellID, a.SupplierLiabilityUSDPerVerifiedUnit,
+			b.CellID, b.SupplierLiabilityUSDPerVerifiedUnit)
+	case len(out.ReliabilityRefusals) > 0:
+		out.Verdict = costTieReliabilityRefused
+		out.Statement = fmt.Sprintf(
+			"payable supplier liability ties, but the comparison is refused by reliability evidence: %v. "+
+				"Rejected, retried and terminally failed attempts are unpaid; they do not manufacture a dollar cost delta",
+			out.ReliabilityRefusals)
 	case out.LargestGovernedShare > 0:
 		out.Verdict = costTieGovernedTermDiffers
 		out.Statement = fmt.Sprintf(
@@ -164,7 +224,44 @@ func ExplainCostTie(
 		"rekeying the catalogue price schedule by runtime cell, which is a pricing decision and not a code change",
 		"a cloud-backed cell on one side, so a governed provider pod rate × duration becomes a real per-cell cost",
 		"a MEASURED sustained-watts receipt for the hardware class, so the energy term stops being ASSUMED and may rule",
-		"a measured per-cell reliability difference, since retries multiply the supplier entitlement and that term is NOT cancelled",
+		"clean sufficient reliability evidence on both cells; retries and failures refuse comparison but do not multiply supplier liability",
+	}
+	return out
+}
+
+func clearCostTieMoney(out *CostTieAuthority) {
+	out.Currency = ""
+	out.SupplierUSDPerUnit = 0
+	out.RankingSupplierLiabilityUSDPerUnitA = 0
+	out.RankingSupplierLiabilityUSDPerUnitB = 0
+}
+
+func projectionReliabilityRefusals(p CellEconomicsProjection) []string {
+	var out []string
+	add := func(reason string) {
+		out = append(out, fmt.Sprintf("%s: %s", p.CellID, reason))
+	}
+	if p.Samples < minSupplierLiabilitySamples {
+		add(fmt.Sprintf("completed samples %d < %d", p.Samples, minSupplierLiabilitySamples))
+	}
+	if math.IsNaN(p.RetryRate) || math.IsInf(p.RetryRate, 0) || p.RetryRate < 0 {
+		add("retry rate is invalid")
+	} else if p.RetryRate != 0 {
+		add(fmt.Sprintf("retry rate %.6g is nonzero", p.RetryRate))
+	}
+	if p.VerificationSamples < minSupplierLiabilitySamples {
+		add(fmt.Sprintf("verification samples %d < %d",
+			p.VerificationSamples, minSupplierLiabilitySamples))
+	}
+	if p.VerificationFails != 0 {
+		add(fmt.Sprintf("verification failures %d are nonzero", p.VerificationFails))
+	}
+	if p.TerminalAttempts < minSupplierLiabilitySamples {
+		add(fmt.Sprintf("terminal attempts %d < %d",
+			p.TerminalAttempts, minSupplierLiabilitySamples))
+	}
+	if p.TerminalFails != 0 {
+		add(fmt.Sprintf("terminal failures %d are nonzero", p.TerminalFails))
 	}
 	return out
 }
@@ -187,9 +284,22 @@ func costTieTerms(a, b CellEconomicsProjection) []CostTieTerm {
 		// The pair's knowledge is the weaker of the two: a term known on one cell
 		// and assumed on the other cannot rule on the difference between them.
 		k := weakerKnowledge(ta.Knowledge, tb.Knowledge)
+		if costTieTermNeedsCurrency(ta) || costTieTermNeedsCurrency(tb) {
+			if !sameCellEconomicsCurrency(ta.Currency, a.Currency) ||
+				!sameCellEconomicsCurrency(tb.Currency, b.Currency) ||
+				!sameCellEconomicsCurrency(ta.Currency, tb.Currency) {
+				return CostTieTerm{
+					Name: name, Knowledge: CategoryUnknown,
+					CellAID: a.CellID, CellBID: b.CellID,
+					Why: fmt.Sprintf(
+						"money comparison refused: term currencies %q and %q do not both match projection currency %q",
+						ta.Currency, tb.Currency, a.Currency),
+				}
+			}
+		}
 		delta := ta.MoneyUSD - tb.MoneyUSD
 		t := CostTieTerm{
-			Name: name, Knowledge: k,
+			Name: name, Knowledge: k, Currency: a.Currency,
 			CellAID: a.CellID, CellBID: b.CellID,
 			CellAUSDUnit: ta.MoneyUSD, CellBUSDUnit: tb.MoneyUSD,
 			DeltaUSDUnit: delta, AbsDeltaShare: share(delta),
@@ -219,31 +329,22 @@ func costTieTerms(a, b CellEconomicsProjection) []CostTieTerm {
 		mk("utilization", a.Utilization, b.Utilization),
 	}
 
-	// Reliability is not a projection term but it is the one multiplier that is
-	// NOT cancelled by the settlement form, so it belongs in any honest account
-	// of what could break the tie.
-	relDelta := a.SupplierUSDPerUnit*a.ReliabilityMultiplier - b.SupplierUSDPerUnit*b.ReliabilityMultiplier
-	relKnowledge := CategoryKnown
-	if a.VerificationSamples == 0 || b.VerificationSamples == 0 {
-		relKnowledge = CategoryUnknown
-	}
-	rel := CostTieTerm{
-		Name: "reliability_multiplier_effect", Knowledge: relKnowledge,
-		CellAID: a.CellID, CellBID: b.CellID,
-		CellAUSDUnit: a.SupplierUSDPerUnit * a.ReliabilityMultiplier,
-		CellBUSDUnit: b.SupplierUSDPerUnit * b.ReliabilityMultiplier,
-		DeltaUSDUnit: relDelta, AbsDeltaShare: share(relDelta),
-		MayRule: relKnowledge == CategoryKnown,
-		Why: "retries and verification failures multiply the supplier entitlement and are " +
-			"NOT cancelled by the settlement form; this is the term most likely to break a " +
-			"tie on real fleet data",
-	}
-	terms = append(terms, rel)
-
 	sort.SliceStable(terms, func(i, j int) bool {
 		return terms[i].AbsDeltaShare > terms[j].AbsDeltaShare
 	})
 	return terms
+}
+
+func costTieTermNeedsCurrency(t CellEconomicsTerm) bool {
+	if t.MoneyUSD != 0 {
+		return true
+	}
+	switch t.Knowledge {
+	case CategoryKnown, CategoryDefaulted, CategoryAssumed:
+		return true
+	default:
+		return false
+	}
 }
 
 // weakerKnowledge returns the less authoritative of two knowledge states.

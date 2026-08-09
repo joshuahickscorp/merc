@@ -7,11 +7,13 @@ import (
 
 func adapterTestWorker() WorkerCapability {
 	return WorkerCapability{
-		Engine:          "candle",
-		HWClass:         "apple_silicon_ultra",
-		MemoryGB:        96,
-		SupportedJobs:   []string{"embed", "batch_infer"},
-		SupportedModels: []string{"all-minilm-l6-v2", "llama-3.2-1b-instruct-q4"},
+		Engine:           "candle",
+		HWClass:          "apple_silicon_ultra",
+		BuildHash:        "97acc6fe17daca56",
+		HardwareIdentity: "Apple M3 Ultra",
+		MemoryGB:         96,
+		SupportedJobs:    []string{"embed", "batch_infer"},
+		SupportedModels:  []string{"all-minilm-l6-v2", "llama-3.2-1b-instruct-q4"},
 		Benchmarks: []BenchResult{
 			{JobType: "batch_infer", ModelID: "llama-3.2-1b-instruct-q4", TPS: 285},
 			{JobType: "embed", ModelID: "all-minilm-l6-v2", EPS: 1200},

@@ -9,18 +9,20 @@ import (
 func tieFixture(t *testing.T) (CellEconomicsProjection, CellEconomicsProjection, CataloguePriceAuthority) {
 	t.Helper()
 	cat := catalogueMinilm()
-	slow := ProjectCellEconomics(MeasuredCellCost{
+	slow := ProjectCellEconomics(MeasuredSupplierLiabilityProxy{
 		CellID: candleEmbedCell, RuntimeID: "candle_metal", Engine: "candle",
 		HWClass: "apple_silicon_ultra", JobType: "embed", ModelRef: "all-minilm-l6-v2",
 		Samples: 40, Units: 320, MedianMsPerUnit: 3.026, Measured: true,
-		SupplierUSDPerUnit: 0.0060625, SourceBinding: BindingBound,
+		SupplierUSDPerUnit: miniLMSupplierUSDPerUnit, Currency: catalogueReferenceCurrency,
+		SourceBinding:       BindingBound,
 		VerificationSamples: 40, TerminalAttempts: 40,
 	}, cat, "batch")
-	fast := ProjectCellEconomics(MeasuredCellCost{
+	fast := ProjectCellEconomics(MeasuredSupplierLiabilityProxy{
 		CellID: llamaEmbedCell, RuntimeID: "llama_cpp_metal", Engine: "llama_cpp",
 		HWClass: "apple_silicon_ultra", JobType: "embed", ModelRef: "all-minilm-l6-v2",
 		Samples: 40, Units: 320, MedianMsPerUnit: 1.864, Measured: true,
-		SupplierUSDPerUnit: 0.0060625, SourceBinding: BindingBound,
+		SupplierUSDPerUnit: miniLMSupplierUSDPerUnit, Currency: catalogueReferenceCurrency,
+		SourceBinding:       BindingBound,
 		VerificationSamples: 40, TerminalAttempts: 40,
 	}, cat, "batch")
 	return slow, fast, cat
@@ -63,30 +65,38 @@ func TestCostTieNamesTheAuthorityAndTheMargin(t *testing.T) {
 	}
 }
 
-// The one term that is NOT cancelled by the settlement form is reliability, and
-// when it genuinely differs the explanation must stop calling the tie forced.
-func TestCostTieBreaksWhenAGovernedTermDiffers(t *testing.T) {
+// Reliability does not multiply payable supplier liability. A failure preserves
+// the dollar tie but refuses the comparison as reliability evidence; it must
+// not be relabeled as a governed monetary difference.
+func TestCostTieDoesNotHideGovernedReliabilityFailure(t *testing.T) {
 	slow, fast, cat := tieFixture(t)
 
-	// Same everything, except the fast cell fails verification on 4 of 40. That
-	// multiplies its supplier entitlement, and unlike duration it does not
-	// cancel.
-	unreliable := ProjectCellEconomics(MeasuredCellCost{
+	// Same everything, except the fast cell fails verification on 4 of 40. Those
+	// rejected results are unpaid and do not change accepted supplier liability;
+	// the separate governed reliability term must still expose the difference.
+	unreliable := ProjectCellEconomics(MeasuredSupplierLiabilityProxy{
 		CellID: llamaEmbedCell, RuntimeID: "llama_cpp_metal", Engine: "llama_cpp",
 		HWClass: "apple_silicon_ultra", JobType: "embed", ModelRef: "all-minilm-l6-v2",
 		Samples: 40, Units: 320, MedianMsPerUnit: 1.864, Measured: true,
-		SupplierUSDPerUnit: 0.0060625, SourceBinding: BindingBound,
+		SupplierUSDPerUnit: miniLMSupplierUSDPerUnit, Currency: catalogueReferenceCurrency,
+		SourceBinding:       BindingBound,
 		VerificationSamples: 40, VerificationFails: 4,
 		TerminalAttempts: 40,
 	}, cat, "batch")
 
 	got := ExplainCostTie(slow, unreliable, cat)
-	if got.Verdict != costTieNotTied {
-		t.Fatalf("a 10%% verification failure rate left the verdict at %q; "+
-			"reliability multiplies entitlement and must move the cost", got.Verdict)
+	if got.Verdict != costTieReliabilityRefused {
+		t.Fatalf("a 10%% verification failure rate left the verdict at %q; want %q",
+			got.Verdict, costTieReliabilityRefused)
 	}
-	if got.Tied {
-		t.Fatal("costs reported as tied while one cell fails verification 10% of the time")
+	if !got.Tied {
+		t.Fatal("verification failures changed the exact accepted supplier-liability tie")
+	}
+	if got.ReliabilityStatus != "REFUSED" || len(got.ReliabilityRefusals) == 0 {
+		t.Fatalf("reliability failure was not preserved as a refusal: %+v", got)
+	}
+	if got.LargestGovernedShare != 0 {
+		t.Fatalf("unpaid failures manufactured a governed dollar delta: %+v", got)
 	}
 	_ = fast
 }
@@ -96,7 +106,7 @@ func TestCostTieBreaksWhenAGovernedTermDiffers(t *testing.T) {
 // forced tie.
 //
 // This is the shape the Metal-versus-CUDA placement question will arrive in: two
-// cells can tie on supplier entitlement × reliability — because the catalogue is
+// cells can tie on accepted supplier entitlement — because the catalogue is
 // keyed by model and duration cancels — while one of them costs Merc a real
 // governed pod rate per second and the other costs nothing. Calling that a tie
 // would hide the only cost difference that is actually allowed to rule.
@@ -110,11 +120,11 @@ func TestCostTieDoesNotSwallowAGovernedProviderDifference(t *testing.T) {
 	// Same ranking cost on both sides — only the platform-side provider term
 	// differs, and it is governed on both.
 	slow.ProviderCost = CellEconomicsTerm{
-		Name: "provider_cost", Knowledge: CategoryKnown, MoneyUSD: 0,
+		Name: "provider_cost", Knowledge: CategoryKnown, Currency: slow.Currency, MoneyUSD: 0,
 		Basis: "owned supply", Source: "test",
 	}
 	fast.ProviderCost = CellEconomicsTerm{
-		Name: "provider_cost", Knowledge: CategoryKnown, MoneyUSD: 0.0004,
+		Name: "provider_cost", Knowledge: CategoryKnown, Currency: fast.Currency, MoneyUSD: 0.0004,
 		Basis: "governed pod rate × duration", Source: "test",
 	}
 
@@ -128,6 +138,53 @@ func TestCostTieDoesNotSwallowAGovernedProviderDifference(t *testing.T) {
 	}
 	if got.LargestGovernedShare <= 0 {
 		t.Fatal("a governed term differs but the governed margin is reported as zero")
+	}
+}
+
+func TestCostTieRefusesProxyAndTermCurrencyMismatch(t *testing.T) {
+	slow, fast, cat := tieFixture(t)
+
+	crossCurrency := fast
+	crossCurrency.Currency = "cad"
+	if SupplierLiabilityProxiesTie(slow, crossCurrency) {
+		t.Fatal("supplier-liability proxy tie compared USD and CAD")
+	}
+	got := ExplainCostTie(slow, crossCurrency, cat)
+	if got.Verdict != costTieUnavailable || got.Tied {
+		t.Fatalf("cross-currency projections produced a tie: %+v", got)
+	}
+	if got.Currency != "" || got.SupplierUSDPerUnit != 0 ||
+		got.RankingSupplierLiabilityUSDPerUnitA != 0 ||
+		got.RankingSupplierLiabilityUSDPerUnitB != 0 {
+		t.Fatalf("cross-currency values survived under one legacy `_usd` label: %+v", got)
+	}
+
+	// Top-level liability currency matches, but the provider operands do not.
+	// Their raw numbers must not be copied into a USD-labelled delta or allowed to
+	// govern the comparison.
+	slow.ProviderCost = CellEconomicsTerm{
+		Name: "provider_cost", Knowledge: CategoryKnown,
+		Currency: "usd", MoneyUSD: 0.0001,
+	}
+	fast.ProviderCost = CellEconomicsTerm{
+		Name: "provider_cost", Knowledge: CategoryKnown,
+		Currency: "cad", MoneyUSD: 0.0002,
+	}
+	got = ExplainCostTie(slow, fast, cat)
+	var provider *CostTieTerm
+	for i := range got.DifferentiatingTerms {
+		if got.DifferentiatingTerms[i].Name == "provider_cost" {
+			provider = &got.DifferentiatingTerms[i]
+			break
+		}
+	}
+	if provider == nil || provider.Knowledge != CategoryUnknown || provider.MayRule ||
+		provider.Currency != "" || provider.CellAUSDUnit != 0 ||
+		provider.CellBUSDUnit != 0 || provider.DeltaUSDUnit != 0 {
+		t.Fatalf("mismatched provider currencies were relabelled or allowed to rule: %+v", provider)
+	}
+	if got.LargestGovernedShare != 0 {
+		t.Fatalf("cross-currency provider delta became governed: %+v", got)
 	}
 }
 

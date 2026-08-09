@@ -123,6 +123,8 @@ ci:
 	python3 scripts/test-bench-accounting.py
 	python3 scripts/test-gateway-parity-receipt.py
 	python3 scripts/validate-evidence-binding.py
+	python3 scripts/test-evidence-binding-dependencies.py
+	python3 scripts/test-evidence-binding-withdrawn.py
 	python3 scripts/verify-lfs-corpus.py
 	python3 scripts/test-evidence-writer-bypass.py
 	bash scripts/test-mutation-test-parallel.sh

@@ -363,6 +363,9 @@ impl MediaTranscodeRunner {
             p99_ms,
             thermal_ok: true,
             load_ms: 0,
+            unit: "media_work_units".to_string(),
+            unit_scope: "single_object_input_byte_quarters".to_string(),
+            measured_unix: 0,
         })
     }
 
@@ -1054,6 +1057,8 @@ mod tests {
             hw_class: HardwareClass::Cpu,
             engine: "ffmpeg".to_string(),
             build_hash: String::new(),
+            build_identity_policy: String::new(),
+            hardware_identity: "TEST_ONLY CPU".into(),
             memory_gb: 8.0,
             memory_bw_gbps: 0.0,
             gpu_count: 0,

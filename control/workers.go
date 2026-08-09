@@ -370,7 +370,14 @@ func (wk *Workers) recoverPinnedTiebreaks(ctx context.Context) error {
 			if excludedWorkers[candidate.ID] || excludedSuppliers[candidate.SupplierID] ||
 				candidate.HWClass != item.HWClass ||
 				(item.Engine != "" && candidate.Engine != item.Engine) ||
-				(item.BuildHash != "" && candidate.BuildHash != item.BuildHash) {
+				(item.BuildHash != "" && candidate.BuildHash != item.BuildHash) ||
+				(item.BuildIdentityPolicy != "" && candidate.BuildIdentityPolicy != item.BuildIdentityPolicy) ||
+				(item.HardwareIdentity != "" && candidate.HardwareIdentity != item.HardwareIdentity) {
+				continue
+			}
+			if item.RuntimeCellID != "" && !matchWorkerRuntimeKeys(
+				[]string{runtimeCapabilityKey(item.RuntimeCellID, item.RuntimeID, item.ModelKind)},
+				candidate.AuthorizedRuntimeKeys) {
 				continue
 			}
 			frozenCandidates = append(frozenCandidates, candidate)
@@ -640,7 +647,8 @@ func (wk *Workers) resolveDisputes(ctx context.Context) error {
 				}
 				continue
 			}
-			peer, perr := wk.store.SelectRedundancyPeerExcluding(ctx, target.JobType, target.ModelRef, target.MinMemGB, target.AnchorWorker, nil, nil)
+			peer, perr := wk.store.SelectRedundancyPeerExcluding(ctx, d.JobID, target.TaskID,
+				target.JobType, target.ModelRef, target.MinMemGB, target.AnchorWorker, nil, nil)
 			if perr != nil {
 				// Bound the no_peer livelock: each failed peer search is
 				// counted; after the attempt/age bound the dispute leaves
@@ -706,7 +714,7 @@ func (wk *Workers) hedgeStragglers(ctx context.Context) error {
 		if rerr != nil {
 			return rerr
 		}
-		peer, perr := wk.store.SelectRedundancyPeerExcluding(ctx, s.JobType, s.ModelRef, s.MinMemGB,
+		peer, perr := wk.store.SelectRedundancyPeerExcluding(ctx, s.JobID, s.TaskID, s.JobType, s.ModelRef, s.MinMemGB,
 			s.WorkerID, nil, representedSuppliers)
 		if errors.Is(perr, ErrNoSupply) {
 			continue // no distinct same-class worker free  -  leave it; the stale reaper still guards it
@@ -749,7 +757,7 @@ func (wk *Workers) raceEndgameTails(ctx context.Context) error {
 		if rerr != nil {
 			return rerr
 		}
-		peer, perr := wk.selectEndgameRacePeerExcluding(ctx, s.JobType, s.ModelRef, s.MinMemGB,
+		peer, perr := wk.selectEndgameRacePeerExcluding(ctx, s.JobID, s.TaskID, s.JobType, s.ModelRef, s.MinMemGB,
 			s.WorkerID, representedSuppliers)
 		if errors.Is(perr, ErrNoSupply) {
 			continue // no idle warm same-class peer  -  the ordinary hedge path still guards this chunk
@@ -812,22 +820,37 @@ func (wk *Workers) representedChunkSuppliers(ctx context.Context, jobID uuid.UUI
 	return suppliers, rows.Err()
 }
 
-func (wk *Workers) selectEndgameRacePeerExcluding(ctx context.Context, jobType, modelRef string,
-	minMemGB float32, anchor uuid.UUID, representedSuppliers []uuid.UUID) (uuid.UUID, error) {
-	primary, err := wk.store.GetWorkerProfile(ctx, anchor)
+func (wk *Workers) selectEndgameRacePeerExcluding(ctx context.Context, jobID, anchorTaskID uuid.UUID,
+	jobType, modelRef string, minMemGB float32, anchor uuid.UUID, representedSuppliers []uuid.UUID) (uuid.UUID, error) {
+	matchTask := MatchTask{JobType: jobType, MinMemoryGB: minMemGB, Tier: "batch"}
+	anchorWorker, anchorSupplier := anchor, uuid.Nil
+	frozen, err := wk.store.frozenDynamicPeerAnchor(ctx, jobID, anchorTaskID)
 	if err != nil {
 		return uuid.Nil, err
+	}
+	if frozen.Current {
+		matchTask = frozen.MatchTask
+		jobType, modelRef, minMemGB = frozen.JobType, frozen.ModelRef, frozen.MinMemoryGB
+		anchorWorker, anchorSupplier = frozen.WorkerID, frozen.SupplierID
+	}
+	if anchorSupplier == uuid.Nil {
+		primary, err := wk.store.GetWorkerProfile(ctx, anchor)
+		if err != nil {
+			return uuid.Nil, err
+		}
+		anchorSupplier = primary.SupplierID
+		matchTask.HWClasses = []string{primary.HWClass}
+		matchTask.PinEngine = primary.Engine
+		matchTask.PinBuildHash = primary.BuildHash
+		matchTask.PinBuildIdentityPolicy = primary.BuildIdentityPolicy
+		matchTask.PinHardwareIdentity = primary.HardwareIdentity
 	}
 	candidates, err := wk.store.CandidateWorkers(ctx, jobType, modelRef, minMemGB)
 	if err != nil {
 		return uuid.Nil, err
 	}
-	pruned := prunePeers(candidates, anchor, primary.SupplierID, nil, representedSuppliers)
-	ranked, err := Match(MatchTask{
-		JobType: jobType, MinMemoryGB: minMemGB,
-		HWClasses: []string{primary.HWClass}, PinEngine: primary.Engine,
-		PinBuildHash: primary.BuildHash, Tier: "batch",
-	}, pruned)
+	pruned := prunePeers(candidates, anchorWorker, anchorSupplier, nil, representedSuppliers)
+	ranked, err := Match(matchTask, pruned)
 	if err != nil {
 		return uuid.Nil, err
 	}

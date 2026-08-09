@@ -55,8 +55,8 @@ func TestRecordedShadowSelectionCarriesItsExecutionMode(t *testing.T) {
 		INSERT INTO runtime_shadow_selections
 		  (job_id, runtime_matrix_sha256, policy_revision, job_type, model_ref,
 		   model_kind, workload_class, latency_class, routed_cell_id, shadow_cell_id,
-		   considered_cells, excluded_cells, selection_policy, selection_basis,
-		   cost_hw_class, execution_mode, execution_mode_reason)
+		   considered_cells, excluded_cells, selection_policy, selection_basis_v3,
+		   supplier_liability_hw_class, execution_mode, execution_mode_reason)
 		VALUES ($1,$2,1,'embed','all-minilm-l6-v2','hf','batch_embedding','standard_batch',
 		        'cell','cell','[]'::jsonb,'[]'::jsonb,'p','LIFECYCLE_LADDER','','POOL','')`,
 		other.JobID, generatedRuntimeMatrixSHA256); err == nil {

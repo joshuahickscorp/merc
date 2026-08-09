@@ -9,9 +9,32 @@ import (
 	"github.com/google/uuid"
 )
 
-// TestBuyerStrangerPublicAPISurface is the code-side half of the buyer stranger
-// loop: everything a stranger can do against the public API without a running
-// agent or engine.
+// strangerBatchCorpus is a prompt corpus for the only successful-current
+// admission fixture in this package: the explicit in-memory TEST_ONLY
+// combined-token batch authority. It must not be reused as production evidence.
+const strangerBatchCorpus = `{"id":"0","prompt":"A verifiable compute network settles every task against a receipt."}
+{"id":"1","prompt":"A stranger should not have to understand GPUs."}
+{"id":"2","prompt":"The cheapest verified outcome is not the cheapest attempt."}
+`
+
+func testOnlyBatchPublicRequest(input string, maxUSD float64) map[string]any {
+	return map[string]any{
+		"job_type": map[string]any{"type": "batch_infer", "max_tokens": 16},
+		"model":    map[string]any{"kind": "gguf", "ref": "llama-3.2-1b-instruct-q4"},
+		"tier":     "batch",
+		"input":    input,
+		"max_usd":  maxUSD,
+		// Avoid claiming a measured batch honeypot answer in this mechanics-only
+		// fixture. Byte-exact redundant execution is a truthful verification shape.
+		"verification": map[string]any{"redundancy_frac": 1.0},
+	}
+}
+
+// TestBuyerStrangerPublicAPISurface is the mechanics-only half of the buyer
+// stranger loop: everything a stranger can do against the public API without a
+// running agent or engine. Successful admission uses the explicit in-memory
+// TEST_ONLY combined-token batch authority; the checked-in production evidence
+// currently exposes no scope-compatible performance lane.
 //
 // Steps covered here:
 //
@@ -27,6 +50,8 @@ import (
 // end-to-end wall-clock to first verified job. That is
 // TestFirstCompleteLoopThroughThePublicAPI.
 func TestBuyerStrangerPublicAPISurface(t *testing.T) {
+	installBoundCataloguePublicationAuthorityForTest(t)
+	installTestOnlyCombinedTokenAuthority(t)
 	strangerDeploymentInputs(t)
 	installSettlementCurrencyForTest(t, "usd")
 
@@ -94,13 +119,7 @@ func TestBuyerStrangerPublicAPISurface(t *testing.T) {
 
 	// 4. deterministic quote with a ceiling the buyer can accept
 	const ceiling = 1.00
-	quoteBody := map[string]any{
-		"job_type": map[string]any{"type": "embed"},
-		"model":    map[string]any{"kind": "hf", "ref": "all-minilm-l6-v2"},
-		"tier":     "batch",
-		"input":    strangerCorpus,
-		"max_usd":  ceiling,
-	}
+	quoteBody := testOnlyBatchPublicRequest(strangerBatchCorpus, ceiling)
 	quoteStart := time.Now()
 	quote := postJSON(t, srv.URL+"/v1/quote", apiKey, quoteBody)
 	quoteLatency := time.Since(quoteStart)
@@ -129,15 +148,9 @@ func TestBuyerStrangerPublicAPISurface(t *testing.T) {
 		quoteLatency, expectedUSD, maxUSD, quoteID)
 
 	// 5. submit under the ceiling (bind firm quote when present)
-	submitBody := map[string]any{
-		"job_type":   map[string]any{"type": "embed"},
-		"model":      map[string]any{"kind": "hf", "ref": "all-minilm-l6-v2"},
-		"tier":       "batch",
-		"input":      strangerCorpus,
-		"max_usd":    ceiling,
-		"quote_id":   quoteID,
-		"firm_quote": true,
-	}
+	submitBody := testOnlyBatchPublicRequest(strangerBatchCorpus, ceiling)
+	submitBody["quote_id"] = quoteID
+	submitBody["firm_quote"] = true
 	submit := postJSONWithHeaders(t, srv.URL+"/v1/jobs", apiKey, map[string]string{
 		"Idempotency-Key": uuid.NewString(),
 	}, submitBody)

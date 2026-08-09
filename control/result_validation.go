@@ -459,7 +459,7 @@ func validateBatchInferResult(body []byte, records resultRecordContract) error {
 		return invalidResultArtifact("batch_infer", resultValidationEnvelope, "job_type/model are missing or incorrect")
 	}
 	// inference_backend is accepted but not required: the verification class is
-	// bound from the worker-declared engine|build_hash, not from the artifact,
+	// bound from the worker-declared engine|build_hash|build_identity_policy, not from the artifact,
 	// and legacy artifacts predate the field.
 	if err := validateResultRecordCount("batch_infer", len(r.Completions), records); err != nil {
 		return err

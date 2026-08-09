@@ -68,11 +68,13 @@ type EconomicsFieldProvenance struct {
 	WouldRequire string `json:"would_require,omitempty"`
 }
 
-// CellPlatformDelivery is the platform's cost of producing the accepted work
-// on one cell: physical supplier + modeled provider + modeled verification.
-// Reliability/retry is excluded when unknown (never summed as zero). Energy,
-// storage, risk and startup stand outside this sum and are named on the
-// frozen block separately.
+// CellPlatformDelivery is a narrow accepted-execution subtotal on one cell:
+// physical supplier + modeled provider + modeled verification. It is not the
+// complete cost of delivery. Reliability/retry is excluded when unknown (never
+// summed as zero); energy, storage, risk and startup stand outside this sum and
+// are named on the frozen block separately. Status therefore uses the explicit
+// PLATFORM_DELIVERY_LEGS vocabulary rather than claiming every named term was
+// modeled.
 type CellPlatformDelivery struct {
 	TotalUSD   float64
 	PerUnitUSD float64
@@ -135,13 +137,13 @@ func resolveCellPlatformDelivery(
 	}
 	switch {
 	case modeled == 0:
-		out.Status = frozenVOCostRefused
+		out.Status = platformDeliveryRefused
 		out.TotalUSD = 0
 		out.PerUnitUSD = 0
 	case unknown == 0:
-		out.Status = frozenVOCostComplete
+		out.Status = platformDeliveryComplete
 	default:
-		out.Status = frozenVOCostPartial
+		out.Status = platformDeliveryPartial
 	}
 	return out
 }
@@ -163,18 +165,40 @@ func modelContractFromCatalogue(catalogue CataloguePriceAuthority) CellEconomics
 	}
 }
 
-// buildIdentityProvenance states that engine build identity is not bound into
-// the placement today. An honest gap, not a plausible default.
+// buildIdentityProvenance reports the exact execution-build, device and model
+// artifact authority frozen by current placement. Older placements remain
+// readable, but their missing policy tag is honestly reported as unknown.
 func buildIdentityProvenance(placement PlacementRequirement) EconomicsFieldProvenance {
+	if placement.Version >= placementRequirementVersion &&
+		engineBuildHashPattern.MatchString(placement.EngineBuildHash) &&
+		validCurrentEngineBuildIdentityPolicy(placement.EngineBuildIdentityPolicy) &&
+		validCanonicalHardwareIdentity(placement.HardwareIdentity) &&
+		placement.PerformanceAuthority != nil &&
+		placement.PerformanceAuthority.Version == frozenRuntimeCellPerformanceVersion {
+		frozen := placement.PerformanceAuthority
+		return EconomicsFieldProvenance{
+			Knowledge: fieldProvenanceMeasured,
+			Source: fmt.Sprintf("%s@benchmark-summary-sha256:%s",
+				frozen.Performance.BenchmarkAuthority, frozen.BenchmarkSnapshotSHA256),
+			Basis: fmt.Sprintf(
+				"accepted engine=%q engine_build_hash=%q engine_build_identity_policy=%q hardware_identity=%q runtime_id=%q cell=%q "+
+					"with exact model artifact pin(s) %v under frozen benchmark authority",
+				placement.Engine, placement.EngineBuildHash, placement.EngineBuildIdentityPolicy,
+				placement.HardwareIdentity,
+				placement.RuntimeID, placement.RuntimeCellID, frozen.ModelArtifactPins),
+		}
+	}
 	return EconomicsFieldProvenance{
 		Knowledge: fieldProvenanceUnknown,
 		Basis: fmt.Sprintf(
-			"placement freezes engine=%q runtime_id=%q cell=%q and runtime_matrix_sha256=%q, "+
-				"but no build_digest or model_artifact_digest is bound into PlacementRequirement",
-			placement.Engine, placement.RuntimeID, placement.RuntimeCellID,
+			"placement freezes engine=%q engine_build_hash=%q engine_build_identity_policy=%q "+
+				"hardware_identity=%q runtime_id=%q cell=%q and runtime_matrix_sha256=%q, but it lacks "+
+				"a complete current exact-build/device/artifact authority",
+			placement.Engine, placement.EngineBuildHash, placement.EngineBuildIdentityPolicy,
+			placement.HardwareIdentity, placement.RuntimeID, placement.RuntimeCellID,
 			placement.RuntimeMatrixSHA256),
-		WouldRequire: "build_digest (and model_artifact_digest where weights apply) bound into " +
-			"the accepted PlacementRequirement from the worker binary / artifact identity at claim time",
+		WouldRequire: "a versioned exact execution-build hash, canonical hardware fingerprint, and exact " +
+			"model artifact pins bound into the accepted PlacementRequirement and rechecked at claim time",
 	}
 }
 

@@ -15,7 +15,7 @@ import (
 //     supplier_input + supplier_output rates on the live offer
 //   + expected retry cost
 //     observed terminal failure rate on execution_contracts for that supplier
-//     and runtime profile (same arithmetic as MeasuredCellCost's delivered term)
+//     and runtime profile (same arithmetic as MeasuredSupplierLiabilityProxy's delivered term)
 //   + expected refund risk
 //     observed full internal-refund rate on verified settlements for that
 //     supplier and runtime profile, when enough samples exist
