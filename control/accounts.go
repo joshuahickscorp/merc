@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"strconv"
@@ -276,15 +277,16 @@ func (s *Store) RevokeSession(ctx context.Context, rawToken string) error {
 // this figure is exhausted and no payment method is on file (see api.go).
 //
 // Committed-money shape matches evaluateRealtimeBuyerFunding and
-// prepaidOpenReservationMicros so the three rails cannot drift:
-//   - open batch estimates
-//   - EXECUTING realtime maxima, excluding contracts already held by an ACTIVE
-//     envelope (counting both would double-hold)
-//   - ACTIVE envelope residual (cap − spent), ceil-nanos → micros → USD
+// prepaidOpenReservationMicros so the three rails cannot drift. It embeds the
+// singular open-exposure definition plus free-credit/realtime siblings
+// (sqlBuyerCommittedMoneyMicros): prepaid residual, service leases, ACTIVE
+// envelopes, orphan envelope spends, non-prepaid reserved residual, and
+// non-envelope EXECUTING ceilings. Free-credit batch holds reserved residual
+// (not estimated) so expansion cannot oversubscribe the grant.
 //
-// When an envelope leaves ACTIVE, the exclusion falls off and still-EXECUTING
-// work is held by the contract term again — the same expiry fallback the other
-// two rails apply.
+// USD-only by design: the grant is free_credit_usd and is never converted.
+// Admission serialisation for free-credit batch jobs is reserveFreeCreditForJobTx
+// inside SubmitJobTx (same advisory lock as realtime), not this pool read.
 func (s *Store) BuyerFreeCreditRemaining(ctx context.Context, buyerID uuid.UUID) (float64, error) {
 	settlement, err := SettlementCurrency()
 	if err != nil {
@@ -304,19 +306,7 @@ func (s *Store) BuyerFreeCreditRemaining(ctx context.Context, buyerID uuid.UUID)
 		                       WHERE buyer_id = b.id
 		                         AND currency = 'usd'
 		                         AND kind IN ('buyer_charge','buyer_refund')), 0)
-		          - COALESCE((SELECT SUM(estimated_usd) FROM jobs
-		                       WHERE buyer_id = b.id AND currency='usd'
-		                         AND status IN ('queued','running','verifying')), 0)
-		          - COALESCE((SELECT SUM(c.maximum_price_usd) FROM execution_contracts c
-		                       WHERE c.buyer_id = b.id AND c.currency='usd' AND c.state = 'EXECUTING'
-		                         AND NOT EXISTS (
-		                           SELECT 1 FROM execution_envelope_spends s
-		                             JOIN execution_envelopes e ON e.id = s.envelope_id
-		                            WHERE s.contract_id = c.id AND e.state = 'ACTIVE'
-		                         )), 0)
-		          - COALESCE((SELECT SUM(((e.cap_nanos - e.spent_nanos) + 999) / 1000)
-		                        FROM execution_envelopes e
-		                       WHERE e.buyer_id = b.id AND e.currency='usd' AND e.state = 'ACTIVE'), 0)::float8 / 1000000.0,
+		          - (`+sqlBuyerCommittedMoneyMicros("b.id", "'usd'")+`)::float8 / 1000000.0,
 		          0)::float8
 		   FROM buyers b WHERE b.id = $1`, buyerID,
 	).Scan(&remaining)
@@ -324,6 +314,75 @@ func (s *Store) BuyerFreeCreditRemaining(ctx context.Context, buyerID uuid.UUID)
 		return 0, nil
 	}
 	return remaining, err
+}
+
+// errInsufficientFreeCredit is returned when a free-credit-funded batch admit
+// cannot cover the reserved buyer charge after open exposure is held.
+var errInsufficientFreeCredit = errors.New("insufficient free credit for reserved buyer charge")
+
+// reserveFreeCreditForJobTx is the free-credit admission serialisation point.
+// It reuses the realtime buyer-funding advisory lock so free-credit batch
+// admits, realtime authorizations, and envelope creates for the same buyer
+// cannot race each other. A saved payment method means the job is not on the
+// free-credit rail (deferred collection); those admits skip this check.
+//
+// Must run inside the job transaction before the jobs row is inserted so the
+// next waiter observes the new reserved residual.
+func reserveFreeCreditForJobTx(ctx context.Context, tx pgx.Tx, buyerID uuid.UUID, needMicros int64) error {
+	if buyerID == uuid.Nil {
+		return errNotFound
+	}
+	if needMicros <= 0 {
+		return fmt.Errorf("free-credit reservation requires positive ledger micros")
+	}
+	settlement, err := SettlementCurrency()
+	if err != nil {
+		return err
+	}
+	// Same lock key as evaluateRealtimeBuyerFunding — one buyer-serialised
+	// critical section across free-credit batch and realtime funding.
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`,
+		"realtime-buyer-funding|"+buyerID.String()); err != nil {
+		return err
+	}
+	var (
+		freeCredit       float64
+		spent            float64
+		hasPaymentMethod bool
+		committedMicros  int64
+	)
+	// Free credit is USD-only. On non-USD settlement the grant contributes
+	// nothing; without a payment method the admit is refused.
+	currencyLit := "'usd'"
+	err = tx.QueryRow(ctx, `
+		SELECT b.free_credit_usd::float8,
+		       COALESCE((SELECT -SUM(amount_usd) FROM ledger_entries
+		                  WHERE buyer_id = b.id
+		                    AND currency = 'usd'
+		                    AND kind IN ('buyer_charge','buyer_refund')), 0)::float8,
+		       EXISTS(SELECT 1 FROM billing_customers bc
+		               WHERE bc.buyer_id=b.id AND COALESCE(bc.default_payment_method,'')<>''),
+		       `+sqlBuyerCommittedMoneyMicros("b.id", currencyLit)+`::bigint
+		  FROM buyers b WHERE b.id=$1 AND b.deleted_at IS NULL FOR UPDATE`, buyerID,
+	).Scan(&freeCredit, &spent, &hasPaymentMethod, &committedMicros)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return errNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if hasPaymentMethod {
+		// Deferred-card / saved-PM path: free credit is not the funding rail.
+		return nil
+	}
+	if settlement.Code() != "usd" {
+		return errInsufficientFreeCredit
+	}
+	remainingMicros := usdToMicros(freeCredit) - usdToMicros(spent) - committedMicros
+	if remainingMicros < needMicros {
+		return errInsufficientFreeCredit
+	}
+	return nil
 }
 
 func (s *Store) BuyerEmail(ctx context.Context, buyerID uuid.UUID) (string, error) {

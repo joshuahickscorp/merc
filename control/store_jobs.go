@@ -411,6 +411,15 @@ func (s *Store) SubmitJobTx(ctx context.Context, j *jobRow, tasks []taskRow) err
 			usdToMicros(j.EconomicPlan.ReservedBuyerChargeUSD)); err != nil {
 			return err
 		}
+	} else {
+		// Free-credit (and non-prepaid) admits: serialise against the same buyer
+		// funding lock realtime uses, and hold the reserved ceiling — not the
+		// initial estimate — so concurrent free-credit batch jobs cannot each
+		// observe the full grant. Saved-PM deferred collection skips inside.
+		if err := reserveFreeCreditForJobTx(ctx, tx, j.BuyerID,
+			usdToMicros(j.EconomicPlan.ReservedBuyerChargeUSD)); err != nil {
+			return err
+		}
 	}
 	if j.QuoteID != uuid.Nil {
 		var quoteComputeSHA256, quoteCurrency, quotePlacementSHA256, quotePricingSHA256 string

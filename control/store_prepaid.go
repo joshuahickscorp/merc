@@ -647,49 +647,12 @@ func prepaidOpenReservationMicrosInCurrency(ctx context.Context, db ledgerExec, 
 		return 0, err
 	}
 	var reserved int64
+	// Singular open-exposure definition (buyer_open_exposure.go). Exactly the
+	// four canonical terms; no free-credit/realtime siblings here — those are
+	// not prepaid cash holds.
 	err := db.QueryRow(ctx, `
-		SELECT (
-		  SELECT COALESCE(SUM(GREATEST(0::bigint,
-		    (p.reserved_buyer_charge_usd * 1000000)::bigint - COALESCE((
-		      SELECT SUM((-le.amount_usd * 1000000)::bigint)
-		        FROM ledger_entries le
-		       WHERE le.kind='prepaid_debit'
-		         AND le.currency=$2
-		         AND (le.task_id IN (SELECT id FROM tasks WHERE job_id=j.id)
-		              OR le.payout_ref='prepaid-sla-' || j.id::text)
-		    ), 0)
-		  )), 0)::bigint
-		    FROM jobs j
-		    JOIN job_economic_plans p ON p.job_id=j.id
-		   WHERE j.buyer_id=$1 AND j.currency=$2 AND j.prepaid_required
-		     AND j.status IN ('queued','running','verifying')
-		) + (
-		  SELECT COALESCE(SUM(l.reserved_buyer_micros),0)::bigint
-		    FROM service_leases l
-		   WHERE l.buyer_id=$1 AND l.pricing_decision->>'currency'=$2
-		     AND l.state IN ('ACTIVE','UPGRADING','FAILOVER_REQUIRED')
-		) + (
-		  -- Active execution envelopes hold (cap - spent) against prepaid, so a
-		  -- concurrent job or service lease cannot oversubscribe the same cash.
-		  SELECT COALESCE(SUM(((e.cap_nanos - e.spent_nanos) + 999) / 1000),0)::bigint
-		    FROM execution_envelopes e
-		   WHERE e.buyer_id=$1 AND e.currency=$2 AND e.state='ACTIVE'
-		) + (
-		  -- Sibling of evaluateRealtimeBuyerFunding's realtimeReserved fallback:
-		  -- EXECUTING contracts whose envelope is not ACTIVE are no longer
-		  -- covered by the ACTIVE-envelope term above. Hold their still-open
-		  -- envelope spend in integer micros so refund/admission cannot treat
-		  -- that cash as free while the supplier is still working.
-		  SELECT COALESCE(SUM(((s.reserved_nanos + 999) / 1000)),0)::bigint
-		    FROM execution_contracts c
-		    JOIN execution_envelope_spends s ON s.contract_id = c.id
-		   WHERE c.buyer_id=$1 AND c.currency=$2 AND c.state='EXECUTING' AND s.state='RESERVED'
-		     AND NOT EXISTS (
-		       SELECT 1 FROM execution_envelope_spends s2
-		         JOIN execution_envelopes e ON e.id = s2.envelope_id
-		        WHERE s2.contract_id=c.id AND e.currency=$2 AND e.state='ACTIVE'
-		     )
-		)`, buyerID, currency).Scan(&reserved)
+		SELECT `+sqlBuyerOpenExposureMicros("$1", "$2"),
+		buyerID, currency).Scan(&reserved)
 	return reserved, err
 }
 

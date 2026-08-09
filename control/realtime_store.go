@@ -54,10 +54,23 @@ var (
 //
 // evaluateRealtimeBuyerFunding locks the buyer row and requires already-settled
 // money (free-credit grant + materialised prepaid balance, net of charges,
-// prepaid debits, open batch estimates, and EXECUTING realtime ceilings) to
-// cover needNanos. Available funds are micros-granular (balance_micros, free
-// credit), so the exact nano need is ceiled to whole micros for the hold —
-// never projected to-nearest. A saved payment method is never treated as funding.
+// prepaid debits, and the singular open-exposure definition) to cover needNanos.
+// Available funds are micros-granular (balance_micros, free credit), so the
+// exact nano need is ceiled to whole micros for the hold — never projected
+// to-nearest. A saved payment method is never treated as funding.
+//
+// Open exposure composition (non-overlapping — see buyer_open_exposure.go):
+//
+//	committed = sqlBuyerOpenExposureMicros          // prepaid residual + leases
+//	            // + ACTIVE envelopes + orphan spends
+//	          + sqlOpenNonPrepaidJobResidualMicros  // free-credit batch
+//	          + sqlOpenNonEnvelopeExecutingCeilingMicros
+//
+// Envelope-backed EXECUTING work is held only by the shared envelope/orphan
+// terms. Pure realtime EXECUTING (no envelope spend) is held by the ceiling
+// sibling. Free-credit batch jobs are held by reserved residual, not estimated.
+// This matches prepaidOpenReservationMicros for every overlapping term so the
+// same prepaid cash cannot back two obligations.
 //
 // Serialization is two-step on purpose: FOR UPDATE on the buyer row alone is
 // not enough under READ COMMITTED when the reservation itself is written to a
@@ -79,7 +92,8 @@ func evaluateRealtimeBuyerFunding(ctx context.Context, tx pgx.Tx, buyerID uuid.U
 	// pg_advisory_xact_lock is held until this transaction ends; FOR UPDATE on
 	// the buyer row still serialises non-authorizer writers of that row. The
 	// batch is not a correctness change — only fewer client/server RTs inside
-	// the buyer-serialised window.
+	// the buyer-serialised window. Round-trip count must stay at one SendBatch
+	// (lock statement + funding SELECT); embedding shared SQL adds no query.
 	batch := &pgx.Batch{}
 	batch.Queue(`SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`,
 		"realtime-buyer-funding|"+buyerID.String())
@@ -96,43 +110,7 @@ func evaluateRealtimeBuyerFunding(ctx context.Context, tx pgx.Tx, buyerID uuid.U
 		                   AND le.kind IN ('buyer_charge','buyer_refund')),0)::float8,
 		       COALESCE((SELECT -sum(le.amount_usd) FROM ledger_entries le
 		                 WHERE le.buyer_id=b.id AND le.currency=$2 AND le.kind='prepaid_debit'),0)::float8,
-		       COALESCE((SELECT sum(j.estimated_usd) FROM jobs j
-		                 WHERE j.buyer_id=b.id AND j.currency=$2
-		                   AND j.status IN ('queued','running','verifying')),0)::float8,
-		       -- Envelope-funded EXECUTING contracts are already reserved on the
-		       -- envelope (cap - spent). Counting them again here would double-hold.
-		       --
-		       -- The exclusion is conditional on the envelope still being ACTIVE,
-		       -- and that condition is load-bearing. The envelope term below only
-		       -- sums ACTIVE envelopes, so the moment expiry flips an envelope to
-		       -- EXPIRED its hold drops to zero. An unconditional exclusion here
-		       -- would then leave a still-running contract held by NEITHER term:
-		       -- the buyer's available funds would jump by the full in-flight
-		       -- amount while the work was still executing, and the next
-		       -- admission would be granted against money already committed.
-		       -- Requiring ACTIVE means an expired envelope's in-flight spends
-		       -- fall back to being held as ordinary realtime reservations, which
-		       -- is what ReleaseExpiredExecutionEnvelopes already claims happens.
-		       --
-		       -- Hold amount is ceil(accepted_ceiling_nanos → micros), matching
-		       -- the admission need. maximum_price_usd is the ledger *projection*
-		       -- (to-nearest) and must not under-count an open ceiling hold.
-		       COALESCE((SELECT SUM(
-		                   CASE
-		                     WHEN COALESCE((c.pricing_decision #>> '{fixed_point,accepted_ceiling_nanos}')::bigint, 0) > 0
-		                     THEN (( (c.pricing_decision #>> '{fixed_point,accepted_ceiling_nanos}')::bigint + 999) / 1000)
-		                     ELSE ROUND(c.maximum_price_usd * 1000000)::bigint
-		                   END)
-		                 FROM execution_contracts c
-		                 WHERE c.buyer_id=b.id AND c.currency=$2 AND c.state='EXECUTING'
-		                   AND NOT EXISTS (
-		                     SELECT 1 FROM execution_envelope_spends s
-		                       JOIN execution_envelopes e ON e.id = s.envelope_id
-		                      WHERE s.contract_id=c.id AND e.currency=$2 AND e.state='ACTIVE'
-		                   )),0)::bigint,
-		       COALESCE((SELECT SUM(((e.cap_nanos - e.spent_nanos) + 999) / 1000)
-		                   FROM execution_envelopes e
-		                  WHERE e.buyer_id=b.id AND e.currency=$2 AND e.state='ACTIVE'),0)::bigint
+		       `+sqlBuyerCommittedMoneyMicros("b.id", "$2")+`::bigint
 		  FROM buyers b WHERE b.id=$1 AND b.deleted_at IS NULL FOR UPDATE`, buyerID, currency)
 	br := tx.SendBatch(ctx, batch)
 	defer br.Close()
@@ -140,12 +118,12 @@ func evaluateRealtimeBuyerFunding(ctx context.Context, tx pgx.Tx, buyerID uuid.U
 		return err
 	}
 	var (
-		freeCredit, freeCreditUSDRaw, spent, prepaidDebited, batchReserved float64
-		prepaidMicros, realtimeReservedMicros, envelopeRemainingMicros     int64
-		hasPaymentMethod                                                   bool
+		freeCredit, freeCreditUSDRaw, spent, prepaidDebited float64
+		prepaidMicros, committedMicros                      int64
+		hasPaymentMethod                                    bool
 	)
 	err := br.QueryRow().Scan(&freeCredit, &freeCreditUSDRaw, &hasPaymentMethod, &prepaidMicros, &spent, &prepaidDebited,
-		&batchReserved, &realtimeReservedMicros, &envelopeRemainingMicros)
+		&committedMicros)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return errNotFound
 	}
@@ -160,8 +138,7 @@ func evaluateRealtimeBuyerFunding(ctx context.Context, tx pgx.Tx, buyerID uuid.U
 	}
 	availableMicros := usdToMicros(freeCredit) + prepaidMicros -
 		usdToMicros(spent) + usdToMicros(prepaidDebited) -
-		usdToMicros(batchReserved) - realtimeReservedMicros -
-		envelopeRemainingMicros
+		committedMicros
 	if availableMicros >= needMicros {
 		return nil
 	}
