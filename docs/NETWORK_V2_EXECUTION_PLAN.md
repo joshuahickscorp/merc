@@ -19,8 +19,9 @@ promote a physical-fleet or launch claim.
   was performed, so remote freshness is not claimed.
 - `refactor/teardown` is clean at `844ab424` and contains 32 mutation-runner
   commits not present on `main`. Two preserved campaigns corroborate 84 caught,
-  0 survived, 0 stale, 0 infrastructure faults in about 259 s and 266 s, but no
-  exact-current-HEAD checkpoint receipt exists.
+  0 survived, 0 stale, 0 infrastructure faults in about 259 s and 266 s. Step 4
+  now also has an exact clean-candidate campaign at `541c1357`: 84 caught, zero
+  survived/stale/infrastructure, 16 isolated workers, 287 s under the 299 s gate.
 - Mutation optimization is closed. The already-built runner may be integrated;
   it is not a new optimization tranche. Use change gates for ordinary work,
   authority gates for authority changes, and one full 84 campaign only at a
@@ -41,8 +42,8 @@ promote a physical-fleet or launch claim.
 | 1 | Exact-state reconciliation | `COMPLETE` | `ae443f69` | 100/100 | frozen reconciliation receipt and exact dirty ownership | step 2 |
 | 2 | Canonical migration register | `COMPLETE` | `ae443f69` | 100/100 | eleven-object deletion and authority register | step 3 |
 | 3 | Validation plane integration | `COMPLETE` | `2ed771c1` | 100/100 | 19 infra commits; all self-tests pass; 84-entry manifest | steps 1–2 |
-| 4 | Runtime-cell economics | `REPAIR_IN_PROGRESS` | `2ed771c1` | pending re-audit | provider, unit, hardware and liability-proxy P1 repairs | steps 1–3 |
-| 5 | PricingDecision and true net | `REPAIR_REQUIRED` | `2ed771c1` | pending | contradictory true-net and duplicate settlement authorities | step 4 |
+| 4 | Runtime-cell economics | `RECONCILED_COMPLETE` | `541c1357` | 100/100 | terminal no-P0/P1 audit; exact 84/84 mutation campaign in 287 s | steps 1–3 |
+| 5 | PricingDecision and true net | `REPAIR_IN_PROGRESS` | `541c1357` | pending | canonical settlement landed; cross-currency prepaid/realtime/service replay repairs in progress | step 4 |
 | 6 | Canonical Capability | `PARTIAL` | `ae443f69` | pending | facts split across worker/profile/offer tables | steps 2, 4 |
 | 7 | Canonical MarketDecision | `PARTIAL` | `ae443f69` | pending | lane-specific clearing receipts only | steps 2, 5–6 |
 | 8 | Canonical RuntimeDecision | `PARTIAL_SHADOW_ONLY` | `ae443f69` | pending | measured economics run after batch commit | steps 6–7 |
@@ -980,6 +981,77 @@ No product performance changed. Two prior complete mutation campaigns remain
 corroborated at about 259 s and 266 s; they do not bind current HEAD.
 
 Verdict: COMPLETE
+```
+
+### Step 4 mini-audit — closed runtime-cell economics authority
+
+```text
+STEP 4 MINI-AUDIT
+
+Plan fidelity: 100 / 100
+Correctness: 100 / 100
+Evidence quality: 100 / 100
+Architectural simplicity: 100 / 100
+Performance impact: 100 / 100
+Security / money safety where applicable: 100 / 100
+Future-network compatibility: 100 / 100
+
+What the plan required:
+Make physical duration, supplier entitlement, active-hour floor and admission
+authority exact for the selected runtime cell, hardware, artifact and execution
+identity; retain historical replay without letting stale evidence authorize new
+money.
+
+What I actually implemented:
+Commit 0450da06 closes publication, placement, claim, lifecycle and settlement
+authority as one chain. It binds exact cell/wire artifact, benchmark bytes,
+engine build-policy/executable identity, hardware fingerprint, Unit/UnitScope,
+conservative sustained throughput, whole-package workload-scoped power, current
+catalogue pointer and activation epoch. Durable quote/job ingress rechecks
+physical authority and maps refusal to 503; bound quotes retain frozen price
+only while the current physical snapshot remains identical. Current distributed
+task economics fail closed to one primary plus exact redundancy clones, preserve
+and verify immutable input digests, and keep dynamic peer pins claim-eligible.
+Settled supplier-liability evidence is read under one repeatable snapshot with
+exact device/build/policy and canonical ledger shape. Checked-in superseded
+benchmark identity remains honestly non-authorizing; TEST_ONLY authorities are
+scoped to mechanics tests and never relabel physical evidence.
+
+Exact proof:
+clean detached candidate: 541c13575aa1f21356c128d0beceb888babb2c7c
+full mutation gate: PASS 84 caught, 0 survived, 0 stale, 0 infrastructure
+workers: 16 isolated worktrees and PostgreSQL clusters
+elapsed: 287 s (hard budget: 299 s)
+timing records: 84 unique; result set={caught}; pathways={PURE,DB}
+terminal Step-4 audit: no remaining P0/P1
+focused physical/publication/quote/activation/dynamic-pin/liability suites: PASS
+schema reapplication and source restoration proofs: PASS
+
+What remains incomplete:
+No production routable cell is manufactured from superseded evidence. Level B
+remains NO_GO and Level C remains NO_GO_PROHIBITED. Pre-refusal orphan object
+cleanup and non-authorizing evidence/metrics hygiene remain lower-severity debt
+for their owning later steps; they do not authorize runtime-cell money.
+
+New concepts added:
+Exact execution build-policy and device fingerprints; schedule physical
+snapshots; current-pointer physical equivalence for bound quotes; uniform-task
+economic authority; canonical input-digest dispatch; immutable activation
+epochs and dynamic-pin eligibility locks.
+
+Old concepts removed:
+Model-level throughput/power as sufficient publication authority; generic
+artifact intersection; unversioned short build tokens; raw/stale public price
+surfaces; mutable/global activation-cache trust; heterogeneous average-task
+economics presented as an exact supplier floor.
+
+Performance:
+The full exact candidate campaign completed in 287 s under the 299 s release
+gate. The clean preflight is split into two deterministic complete DB lanes plus
+independent unit/baseline proofs; mutation count and per-mutant isolation are
+unchanged.
+
+Verdict: RECONCILED_COMPLETE
 ```
 
 ### Step 2 mini-audit — canonical migration and deletion register
