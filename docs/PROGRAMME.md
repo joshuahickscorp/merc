@@ -379,6 +379,22 @@ USD/task and `float64` permitted it. `RemainderCarry` extends the sub-cent fix o
 layer down — 10,000 accruals of 17 nanos post 170 micros and lose nothing, where
 micro-only arithmetic rounded every one to zero.
 
+That last sentence describes the **type**, and it is proven by
+`money_nanos_test.go`. It is not yet a property of the running system, and the
+distinction matters enough to state here rather than let a reader assume it:
+**production settlement does not post through `RemainderCarry`.** Task and
+realtime settlement project each leg independently with `projectNanosToMicros` /
+`LedgerMicrosFromNanos` (`payment.go:135-171`, `realtime_store.go:1745-1753`), so
+sub-micro remainders are rounded per post rather than carried. `RemainderCarry`
+has no non-test caller.
+
+This is precision debt, not lost or created money: the cash domain is a micro
+ledger (`NUMERIC(12,6)`), and exact conservation at acceptance is enforced
+separately by `FixedPoint` (`validateFixedPointPricing`). What it means is that
+nobody may claim the ledger conserves exact nanos per task without residual loss
+until the accrual is actually wired. `TestRemainderCarryHasNoProductionCaller`
+fails the moment that changes, so this paragraph cannot quietly go stale.
+
 There is **no function** that reconstructs an hourly rate from a rounded task
 payout. That is the bug; it is not offered.
 
