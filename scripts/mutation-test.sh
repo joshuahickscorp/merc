@@ -18,26 +18,35 @@ cd "$(dirname "$0")/.." || exit 1
 CONTROL=control
 MERC_MUTATION_FILTER="${MERC_MUTATION_FILTER:-}"
 MERC_MUTATION_UNIT_ONLY="${MERC_MUTATION_UNIT_ONLY:-0}"
-if [ "$MERC_MUTATION_UNIT_ONLY" = "1" ]; then
-  [ -n "$MERC_MUTATION_FILTER" ] || {
-    echo "MERC_MUTATION_UNIT_ONLY=1 requires a narrow MERC_MUTATION_FILTER" >&2
+MERC_MUTATION_LIST="${MERC_MUTATION_LIST:-0}"
+MERC_MUTATION_CASE_IDS="${MERC_MUTATION_CASE_IDS:-}"
+MERC_MUTATION_DB_PREFIX="${MERC_MUTATION_DB_PREFIX:-merc_mutation}"
+MUTATION_LOCK=""
+BACKUP=""
+
+if [ "$MERC_MUTATION_LIST" != "1" ]; then
+  if [ "$MERC_MUTATION_UNIT_ONLY" = "1" ]; then
+    [ -n "$MERC_MUTATION_FILTER" ] || {
+      echo "MERC_MUTATION_UNIT_ONLY=1 requires a narrow MERC_MUTATION_FILTER" >&2
+      exit 2
+    }
+  else
+    : "${MERC_TEST_DATABASE_URL:?mutation testing needs a database}"
+  fi
+
+  repo_lock_id="$(printf '%s' "$PWD" | shasum -a 256 | cut -c1-16)"
+  MUTATION_LOCK="${TMPDIR:-/tmp}/merc-mutation-${repo_lock_id}.lock"
+  if ! mkdir "$MUTATION_LOCK" 2>/dev/null; then
+    echo "another mutation-test process owns $MUTATION_LOCK; refusing concurrent source mutation" >&2
     exit 2
-  }
-else
-  : "${MERC_TEST_DATABASE_URL:?mutation testing needs a database}"
+  fi
+
+  BACKUP="$(mktemp -d "${TMPDIR:-/tmp}/merc-mutation.XXXXXX")"
 fi
 
-repo_lock_id="$(printf '%s' "$PWD" | shasum -a 256 | cut -c1-16)"
-MUTATION_LOCK="${TMPDIR:-/tmp}/merc-mutation-${repo_lock_id}.lock"
-if ! mkdir "$MUTATION_LOCK" 2>/dev/null; then
-  echo "another mutation-test process owns $MUTATION_LOCK; refusing concurrent source mutation" >&2
-  exit 2
-fi
-
-BACKUP="$(mktemp -d "${TMPDIR:-/tmp}/merc-mutation.XXXXXX")"
 cleanup() {
   # Restore every file touched, always.
-  if [ -d "$BACKUP" ]; then
+  if [ -n "$BACKUP" ] && [ -d "$BACKUP" ]; then
     for f in "$BACKUP"/*.bak; do
       [ -e "$f" ] || continue
       base="$(basename "$f" .bak)"
@@ -45,7 +54,9 @@ cleanup() {
     done
     rm -rf "$BACKUP"
   fi
-  rmdir "$MUTATION_LOCK" 2>/dev/null || true
+  if [ -n "$MUTATION_LOCK" ]; then
+    rmdir "$MUTATION_LOCK" 2>/dev/null || true
+  fi
 }
 
 # A signal must restore AND STOP. Sharing one handler across EXIT and the
@@ -79,7 +90,7 @@ run_mutation_tests() {
     # correctly query platform-wide state; reusing one database across mutants
     # lets fixture residue hide a new row behind a LIMIT and makes a mutation
     # result describe the previous mutant's database rather than this source.
-    MERC_ISOLATED_TEST_DB_PREFIX=merc_mutation \
+    MERC_ISOLATED_TEST_DB_PREFIX="$MERC_MUTATION_DB_PREFIX" \
       bash scripts/with-isolated-test-db.sh \
       bash -c 'cd "$1" && go test -count=1 ./... >/dev/null 2>&1' _ "$CONTROL"
   fi
@@ -186,6 +197,45 @@ MUTATIONS=(
 "runtime_cost_tie_authority.go|a governed term that differs is swallowed by the tie verdict|s#case out.LargestGovernedShare > 0:#case false:#"
 )
 
+if [ "$MERC_MUTATION_LIST" = "1" ]; then
+  index=0
+  for entry in "${MUTATIONS[@]}"; do
+    index=$((index + 1))
+    rest="${entry#*|}"
+    desc="${rest%%|*}"
+    printf '%s\t%s\n' "$index" "$desc"
+  done
+  exit 0
+fi
+
+if [ -n "$MERC_MUTATION_CASE_IDS" ]; then
+  if ! [[ "$MERC_MUTATION_CASE_IDS" =~ ^[1-9][0-9]*(,[1-9][0-9]*)*$ ]]; then
+    echo "MERC_MUTATION_CASE_IDS must be comma-separated positive case IDs" >&2
+    exit 2
+  fi
+  duplicates="$(printf '%s\n' "$MERC_MUTATION_CASE_IDS" | tr ',' '\n' | sort | uniq -d)"
+  if [ -n "$duplicates" ]; then
+    echo "MERC_MUTATION_CASE_IDS contains duplicate case IDs: $duplicates" >&2
+    exit 2
+  fi
+  total_mutations="${#MUTATIONS[@]}"
+  while IFS= read -r requested; do
+    if [ "$requested" -gt "$total_mutations" ]; then
+      echo "MERC_MUTATION_CASE_IDS names $requested but only $total_mutations cases exist" >&2
+      exit 2
+    fi
+  done < <(printf '%s\n' "$MERC_MUTATION_CASE_IDS" | tr ',' '\n')
+fi
+
+case_is_selected() {
+  local candidate="$1"
+  [ -z "$MERC_MUTATION_CASE_IDS" ] && return 0
+  case ",$MERC_MUTATION_CASE_IDS," in
+    *",$candidate,"*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 caught=0
 survived=0
 declare -a SURVIVORS=()
@@ -197,11 +247,18 @@ declare -a SURVIVORS=()
 # itself. Stale patterns now fail the run.
 stale=0
 declare -a STALE=()
+case_index=0
+selected_cases=0
 
 printf '%-58s %s\n' "mutation" "result"
 printf '%-58s %s\n' "--------" "------"
 
 for entry in "${MUTATIONS[@]}"; do
+  case_index=$((case_index + 1))
+  if ! case_is_selected "$case_index"; then
+    continue
+  fi
+  selected_cases=$((selected_cases + 1))
   file="${entry%%|*}"
   rest="${entry#*|}"
   desc="${rest%%|*}"
@@ -239,6 +296,14 @@ for entry in "${MUTATIONS[@]}"; do
 
   cp "$BACKUP/${file//\//__}.bak" "$src"
 done
+
+if [ -n "$MERC_MUTATION_CASE_IDS" ]; then
+  requested_cases="$(printf '%s\n' "$MERC_MUTATION_CASE_IDS" | tr ',' '\n' | wc -l | tr -d ' ')"
+  if [ "$selected_cases" -ne "$requested_cases" ]; then
+    echo "mutation-test: selected $selected_cases of $requested_cases requested cases" >&2
+    exit 2
+  fi
+fi
 
 echo
 echo "mutation-test: $caught caught, $survived survived, $stale stale"

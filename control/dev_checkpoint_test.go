@@ -104,8 +104,8 @@ func TestWorktreeDigestNoticesAContentChange(t *testing.T) {
 	}
 }
 
-// The frozen release branch must not be checkpointed: the mutation suite writes
-// to the tree, and that tree is frozen.
+// The frozen release branch must not be checkpointed: a checkpoint binds a
+// working candidate rather than a sealed release branch.
 func TestCheckpointRefusesTheFrozenReleaseBranch(t *testing.T) {
 	if !devCheckpointFrozenBranches["release/rc1-go-closure"] {
 		t.Fatal("release/rc1-go-closure is no longer listed as frozen")
@@ -180,5 +180,29 @@ func TestCheckpointReadsTheMutationScriptsOwnLock(t *testing.T) {
 	_ = os.Remove(want)
 	if _, held := mutationLockHeld(root); held {
 		t.Fatal("the checkpoint reports a lock that is gone")
+	}
+}
+
+func TestCheckpointUsesTheIsolatedParallelMutationRunner(t *testing.T) {
+	root, err := git(".", "rev-parse", "--show-toplevel")
+	if err != nil {
+		t.Skipf("not inside a git repository: %v", err)
+	}
+	checkpoint, err := os.ReadFile(filepath.Join(root, "control", "dev_checkpoint.go"))
+	must(t, err)
+	if !strings.Contains(string(checkpoint), `"bash", "scripts/mutation-test-parallel.sh"`) {
+		t.Fatal("checkpoint no longer runs the isolated parallel mutation campaign")
+	}
+	parallel, err := os.ReadFile(filepath.Join(root, "scripts", "mutation-test-parallel.sh"))
+	must(t, err)
+	for _, fragment := range []string{
+		`git worktree add --detach`,
+		`MERC_MUTATION_CASE_IDS`,
+		`MERC_MUTATION_WALLCLOCK_SECONDS`,
+		`candidate tree changed while shards ran`,
+	} {
+		if !strings.Contains(string(parallel), fragment) {
+			t.Fatalf("parallel mutation runner is missing required isolation guard %q", fragment)
+		}
 	}
 }

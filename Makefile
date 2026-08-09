@@ -1,6 +1,6 @@
 DATABASE_URL ?= postgres://cx:cx@localhost:5432/cx?sslmode=disable
 
-.PHONY: credentials credentials-check droplet-deploy private-canary realtime-sdk-conformance up down dev-up dev-down test-unit license-register release-gates alert-delivery-test backup-age-metric-test migrate seed control agent-run agent-bench agent-characterize prove-local metrics build fmt test ci audit loc docker-build install uninstall backup restore-drill backup-envelope-test local-independent-restore local-production-tls local-rollback restart-storm-local technical-exercises alert-check alert-page render-staging validate-staging soak-15m soak-2h soak-24h soak-24h-persistent soak-24h-status release-doctor stripe-simulate stripe-check stripe-matrix secret-audit approvals-check mutation-test
+.PHONY: credentials credentials-check droplet-deploy private-canary realtime-sdk-conformance up down dev-up dev-down test-unit license-register release-gates alert-delivery-test backup-age-metric-test migrate seed control agent-run agent-bench agent-characterize prove-local metrics build fmt test ci audit loc docker-build install uninstall backup restore-drill backup-envelope-test local-independent-restore local-production-tls local-rollback restart-storm-local technical-exercises alert-check alert-page render-staging validate-staging soak-15m soak-2h soak-24h soak-24h-persistent soak-24h-status release-doctor stripe-simulate stripe-check stripe-matrix secret-audit approvals-check mutation-test mutation-test-parallel
 
 up:
 	docker compose up -d --build
@@ -125,6 +125,7 @@ ci:
 	python3 scripts/validate-evidence-binding.py
 	python3 scripts/verify-lfs-corpus.py
 	python3 scripts/test-evidence-writer-bypass.py
+	bash scripts/test-mutation-test-parallel.sh
 	bash scripts/test-readiness-gaming.sh
 	bash scripts/test-agent-review-gaming.sh
 	bash scripts/test-technical-exercises-fail-closed.sh
@@ -295,6 +296,12 @@ private-canary:
 
 mutation-test:
 	bash scripts/mutation-test.sh
+
+# Full candidate campaign in isolated worktrees/databases. This leaves the
+# candidate source tree untouched and fails if its 25-minute default budget is
+# exceeded; see scripts/mutation-test-parallel.sh for explicit tuning knobs.
+mutation-test-parallel:
+	bash scripts/mutation-test-parallel.sh
 
 # The local gate that makes pushing an unverified tree fail closed.
 #

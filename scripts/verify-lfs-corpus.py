@@ -97,8 +97,16 @@ def lfs_object_path(common: Path, oid: str) -> Path:
     return common / "lfs" / "objects" / oid[:2] / oid[2:4] / oid
 
 
-def load_ledger(root: Path) -> dict[str, Any]:
-    path = root / LEDGER_REL
+def load_ledger(root: Path, ledger_path: Path | None = None) -> tuple[dict[str, Any], Path]:
+    """Load the expected-count ledger.
+
+    The normal authority is the ledger tracked beside the repository root.  A
+    disposable-clone adversarial test may instead supply a read-only ledger
+    from the source candidate: that lets the fixture exercise an uncommitted
+    verifier without copying an evidence file into the fixture's synthetic
+    ``evidence/`` directory.
+    """
+    path = ledger_path if ledger_path is not None else root / LEDGER_REL
     if not path.is_file():
         raise Fail(f"missing corpus ledger: {LEDGER_REL}")
     try:
@@ -118,7 +126,7 @@ def load_ledger(root: Path) -> dict[str, Any]:
     for key in required:
         if key not in expected or not isinstance(expected[key], int):
             raise Fail(f"{LEDGER_REL}: expected.{key} must be an int")
-    return data
+    return data, path
 
 
 def load_index(root: Path) -> list[tuple[str, str, int]]:
@@ -172,8 +180,8 @@ def run_fsck_supplementary(root: Path) -> dict[str, Any]:
     }
 
 
-def verify_corpus(root: Path) -> dict[str, Any]:
-    ledger = load_ledger(root)
+def verify_corpus(root: Path, ledger_path: Path | None = None) -> dict[str, Any]:
+    ledger, loaded_ledger_path = load_ledger(root, ledger_path)
     expected = ledger["expected"]
     common = git_common_dir(root)
     entries = load_index(root)
@@ -310,7 +318,7 @@ def verify_corpus(root: Path) -> dict[str, Any]:
     result = {
         "kind": "lfs_corpus_verification",
         "root": str(root),
-        "ledger": LEDGER_REL,
+        "ledger": str(loaded_ledger_path),
         "observed": observed,
         "expected": expected,
         "ok": len(failures) == 0,
@@ -386,6 +394,15 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="repository root (default: parent of scripts/)",
     )
+    ap.add_argument(
+        "--ledger",
+        type=Path,
+        default=None,
+        help=(
+            "read-only expected-count ledger (default: "
+            "evidence/state/lfs-corpus-ledger.json under --root)"
+        ),
+    )
     ap.add_argument("--json", action="store_true", help="emit machine-readable JSON")
     args = ap.parse_args(argv)
 
@@ -402,7 +419,8 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     try:
-        result = verify_corpus(root)
+        ledger_path = args.ledger.resolve() if args.ledger is not None else None
+        result = verify_corpus(root, ledger_path)
     except Fail as exc:
         print(f"lfs-corpus: FAIL {exc}", file=sys.stderr)
         return 1

@@ -18,6 +18,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 HEAD="$(git rev-parse HEAD)"
+CORPUS_LEDGER="$ROOT/evidence/state/lfs-corpus-ledger.json"
 
 # Prefer the main merc checkout as clone source when this is a worktree, so
 # git-lfs clean filters cannot hang on the shared store under sandbox.
@@ -72,13 +73,8 @@ GIT_NOLFS=( -c filter.lfs.smudge= -c filter.lfs.clean= -c filter.lfs.process= -c
 overlay_authority() {
   local dest="$1"
   # Uncommitted (or just-added) authority files live in the worktree ROOT.
-  mkdir -p "$dest/scripts" "$dest/evidence/state" "$dest/control"
+  mkdir -p "$dest/scripts" "$dest/control"
   cp -f "$ROOT/scripts/verify-lfs-corpus.py" "$dest/scripts/"
-  cp -f "$ROOT/evidence/state/lfs-corpus-ledger.json" "$dest/evidence/state/" 2>/dev/null || true
-  # Optional incident receipt — not required for the gate.
-  if [[ -f "$ROOT/evidence/state/lfs-corruption-incident-20260804.json" ]]; then
-    cp -f "$ROOT/evidence/state/lfs-corruption-incident-20260804.json" "$dest/evidence/state/"
-  fi
   if [[ -f "$ROOT/control/lfs_corpus_integrity_test.go" ]]; then
     cp -f "$ROOT/control/lfs_corpus_integrity_test.go" "$dest/control/"
   fi
@@ -86,6 +82,14 @@ overlay_authority() {
     # Keep Go test imports consistent when running in the clone.
     cp -f "$ROOT/control/evidence.go" "$dest/control/" 2>/dev/null || true
   fi
+}
+
+verify_disposable_corpus() {
+  local dest="$1"
+  # The clone supplies the pointer index and LFS object store.  The source
+  # candidate supplies the read-only expected-count ledger, so this fixture
+  # never emits or copies an evidence body into its disposable clone.
+  python3 "$dest/scripts/verify-lfs-corpus.py" --root "$dest" --ledger "$CORPUS_LEDGER"
 }
 
 make_disposable_clone() {
@@ -142,7 +146,7 @@ else
   OBJ="$CLONE/.git/lfs/objects/${OID:0:2}/${OID:2:2}/$OID"
   rm -f "$OBJ"
   set +e
-  OUT="$(python3 "$CLONE/scripts/verify-lfs-corpus.py" --root "$CLONE" 2>&1)"
+  OUT="$(verify_disposable_corpus "$CLONE" 2>&1)"
   RC=$?
   set -e
   log "$OUT"
@@ -165,7 +169,7 @@ else
   OBJ="$CLONE/.git/lfs/objects/${OID:0:2}/${OID:2:2}/$OID"
   printf 'CORRUPT-BYTES-NOT-MATCHING-OID-%s\n' "$OID" >"$OBJ"
   set +e
-  OUT="$(python3 "$CLONE/scripts/verify-lfs-corpus.py" --root "$CLONE" 2>&1)"
+  OUT="$(verify_disposable_corpus "$CLONE" 2>&1)"
   RC=$?
   set -e
   log "$OUT"
@@ -191,7 +195,7 @@ else
   cp "$OBJ" "$CLONE/$REL"
   printf '\nTAMPER\n' >>"$CLONE/$REL"
   set +e
-  OUT="$(python3 "$CLONE/scripts/verify-lfs-corpus.py" --root "$CLONE" 2>&1)"
+  OUT="$(verify_disposable_corpus "$CLONE" 2>&1)"
   RC=$?
   set -e
   log "$OUT"
@@ -320,7 +324,7 @@ else
 fi
 
 set +e
-OUT="$(python3 "$EMPTY/scripts/verify-lfs-corpus.py" --root "$EMPTY" 2>&1)"
+OUT="$(verify_disposable_corpus "$EMPTY" 2>&1)"
 RC=$?
 set -e
 log "$OUT"

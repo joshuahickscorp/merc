@@ -205,6 +205,38 @@ def line_no(text: str, pos: int) -> int:
     return text.count("\n", 0, pos) + 1
 
 
+def known_non_evidence_json_handles(text: str) -> set[str]:
+    """Return JSON file handles statically opened outside ``evidence/``.
+
+    Reading committed evidence is not itself evidence production.  A report
+    generator can therefore legitimately read a census from ``evidence/`` and
+    write its report under ``ops/``.  Keep that distinction narrow: this only
+    recognizes a literal, context-managed write handle whose path is visibly
+    outside evidence.  Everything dynamic or evidence-addressed remains a
+    fail-closed finding.
+    """
+    handles: set[str] = set()
+    pattern = re.compile(
+        r"""\bwith\s+open\(\s*[\"'](?P<path>[^\"']+)[\"']\s*,\s*[
+            \"'](?:w|a)[\"']\s*\)\s+as\s+(?P<handle>[A-Za-z_]\w*)""",
+        re.VERBOSE,
+    )
+    for match in pattern.finditer(text):
+        path = match.group("path")
+        if not path.startswith("evidence/"):
+            handles.add(match.group("handle"))
+    return handles
+
+
+def json_dump_uses_known_non_evidence_handle(
+    text: str, match: re.Match[str], handles: set[str]
+) -> bool:
+    """Return true only for a simple JSON dump to a proven ops-style handle."""
+    line = text.splitlines()[line_no(text, match.start()) - 1]
+    target = re.search(r"""\bjson\.dump\s*\([^,\n]+,\s*([A-Za-z_]\w*)""", line)
+    return target is not None and target.group(1) in handles
+
+
 def find_violations(rel: str, text: str) -> list[str]:
     hits: list[str] = []
 
@@ -251,8 +283,16 @@ def find_violations(rel: str, text: str) -> list[str]:
         and EVIDENCE_PRODUCER.search(text)
         and not uses_bound_writer(text)
     ):
+        non_evidence_handles = known_non_evidence_json_handles(text)
         for cre, label in PY_UNSAFE_WHEN_UNBOUND:
             for m in cre.finditer(text):
+                if (
+                    label == "json.dump without bound writer"
+                    and json_dump_uses_known_non_evidence_handle(
+                        text, m, non_evidence_handles
+                    )
+                ):
+                    continue
                 ln = line_no(text, m.start())
                 snippet = text.splitlines()[ln - 1].strip()[:140]
                 hits.append(f"L{ln}: {label}: {snippet}")
@@ -280,6 +320,27 @@ def find_violations(rel: str, text: str) -> list[str]:
     return hits
 
 
+def run_self_tests() -> list[str]:
+    """Keep the read-vs-write distinction narrow and mechanically covered."""
+    failures: list[str] = []
+    ops_reporter = '''\
+with open("evidence/census/input.json") as source:
+    payload = json.load(source)
+with open("ops/report.json", "w") as report:
+    json.dump(payload, report)
+'''
+    if find_violations("scripts/ops-reporter.py", ops_reporter):
+        failures.append("a known ops-only JSON handle was treated as evidence output")
+
+    unbound_evidence_writer = '''\
+with open("evidence/state/receipt.json", "w") as receipt:
+    json.dump({}, receipt)
+'''
+    if not find_violations("scripts/unbound-evidence-writer.py", unbound_evidence_writer):
+        failures.append("an unbound literal evidence JSON writer was not detected")
+    return failures
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument(
@@ -293,6 +354,13 @@ def main() -> int:
         help="exit 0 only when at least one bypass is found (prove pre-fix tree)",
     )
     args = ap.parse_args()
+
+    self_test_failures = run_self_tests()
+    if self_test_failures:
+        print("test-evidence-writer-bypass: FAIL self-test", file=sys.stderr)
+        for failure in self_test_failures:
+            print(f"  - {failure}", file=sys.stderr)
+        return 1
 
     violations: list[tuple[str, list[str]]] = []
     scanned = 0
