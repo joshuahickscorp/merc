@@ -165,6 +165,23 @@ TopologyDecision, VerificationContract and SettlementPlan when those concepts
 exist. Accepted historical PricingDecisions remain immutable and validate under
 their original schema version.
 
+`PricingDecision` is **acceptance-time forecast authority and nothing more.** It
+does not become settlement authority because execution later completed, however
+complete its modeled costs were. Every decision carries an explicit
+`ContributionStage`, and the only authority permitted to state a true net
+contribution is `ContributionSettlement`, keyed by the accepted decision's
+digest, its subject, and its currency. `TrueNetNanos` is structurally absent
+outside `FINAL_SETTLEMENT`, and an unknown component carries no amount rather
+than a zero. An empty `ContributionStage` is the historical wire shape: it stays
+replayable and may never be promoted to settlement authority.
+
+`CostPolicy` freezes the schedule body and job-object retention authority into
+the decision, not merely their digest, so replay re-derives storage, egress and
+risk-reserve nanos from the rates actually accepted. A digest without that body
+is an explicit legacy boundary — readable as history, refused for settlement,
+because the original rates cannot be recovered from today's environment without
+rewriting history.
+
 ### Conversion, allocation, and loss
 
 | Edge | Allocation/copy | Current loss | V2 disposition |
@@ -172,6 +189,9 @@ their original schema version.
 | economic scenario → PricingDecision | value construction/JSON once at acceptance | older lanes omit canonical decision identities and some costs are explicitly unknown | extend schema versions; never encode unknown as zero |
 | PricingDecision → `EconomicPlan`/float columns | value projection | nanos may be rounded for display/legacy queries | compatibility read only; money writers use fixed point |
 | PricingDecision → settlement | snapshot validation/read | lifecycle rules live elsewhere | SettlementPlan binds lifecycle while replaying exact PricingDecision amounts |
+| PricingDecision → `ContributionSettlement` | digest/subject/currency key; staged reduction of accepted and observed facts | accepted forecast alone cannot close true net; unknown components stay absent | ContributionSettlement is the sole true-net authority; PricingDecision is never promoted |
+| settlement majors → legacy `*_usd` columns and `*USD` Go fields | value projection | **the name says USD and the value is settlement-major** | compatibility read only. On a non-USD deployment `maximum_price_usd`, `estimated_price_usd`, `buyer_charge_usd` and the matching `MaximumPriceUSD`/`EstimatedPriceUSD` fields carry the settlement currency, not USD. Every comparison against them is same-denominator and each row carries `currency`, so no arithmetic is wrong today — but the names are a trap for the next reader and the next writer. Exact `*_nanos` columns plus `currency` are the authority. Deletion milestone: with SettlementPlan (step 13), when no production writer or reader depends on the float projections. |
+| free credit → realtime funding | not converted | free credit is frozen micro-USD and contributes nothing under non-USD settlement | deliberate: no silent FX on granted credit. The refusal names the currency mismatch rather than reporting an empty balance, so a buyer is never told to top up money they already hold. |
 
 ### Removal sequence and proof
 
@@ -180,6 +200,17 @@ PricingDecision/SettlementPlan, not `EconomicPlan` or floats. Legacy projections
 are removed from production writers after all historical-read tests pass.
 Completion remains exact currency/ceiling/floor/conservation/true-net status
 across every lane. Any historical repricing or unknown-as-zero cost is rollback.
+
+Currency is part of that completion, and step 5 made it explicit rather than
+assumed. Prepaid balances are keyed `(buyer_id, currency)`; unlabeled pre-currency
+rows are reconstructed from their own collected operations history and a non-zero
+balance whose currency cannot be determined fails the migration rather than
+defaulting to USD. Ledger rows for a job's risk reserve and SLA refund are
+authorized by that job's frozen currency loaded under lock, so an accepted
+obligation finishes in the currency it was accepted in even after the deployment's
+settlement currency changes. Holding a ceiling ceils to whole micros while
+projecting money into the ledger rounds to nearest — the directions differ on
+purpose, and conflating them under-holds concurrent admissions.
 
 ## 4. MarketDecision
 
