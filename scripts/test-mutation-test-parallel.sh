@@ -43,6 +43,17 @@ for line in sys.argv[1].splitlines():
         raise SystemExit(f"shard did not start with a pure warmup: {ids}")
 PY
 
+# The serial runner must execute the planner's supplied sequence, rather than
+# treating it as a set and silently falling back to declaration order. This is
+# what makes the pure warmup at the start of each worker shard real.
+ordered_cases="$(MERC_TEST_DATABASE_URL='postgres://cx:cx@127.0.0.1:1/cx?sslmode=disable' \
+  MERC_MUTATION_CASE_IDS=66,53,61,69 MERC_MUTATION_DRY_ORDER=1 \
+  bash scripts/mutation-test.sh)"
+[ "$ordered_cases" = $'66\n53\n61\n69' ] || {
+  echo "mutation worker did not honor its planned case order: $ordered_cases" >&2
+  exit 1
+}
+
 if MERC_MUTATION_WORKERS=33 bash scripts/mutation-test-parallel.sh --plan >/dev/null 2>&1; then
   echo "parallel mutation runner accepted an unsafe worker count" >&2
   exit 1

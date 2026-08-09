@@ -31,6 +31,7 @@ MERC_MUTATION_DB_TEMPLATE="${MERC_MUTATION_DB_TEMPLATE:-}"
 MERC_MUTATION_TIMINGS_FILE="${MERC_MUTATION_TIMINGS_FILE:-}"
 MERC_MUTATION_GLOBAL_UNIT_PREFLIGHT="${MERC_MUTATION_GLOBAL_UNIT_PREFLIGHT:-0}"
 MERC_MUTATION_PREFLIGHT_CACHE="${MERC_MUTATION_PREFLIGHT_CACHE:-}"
+MERC_MUTATION_DRY_ORDER="${MERC_MUTATION_DRY_ORDER:-0}"
 MUTATION_LOCK=""
 BACKUP=""
 MUTATION_OBSERVATION=""
@@ -66,6 +67,11 @@ if [ "$MERC_MUTATION_LIST" != "1" ]; then
   fi
 
   BACKUP="$(mktemp -d "${TMPDIR:-/tmp}/merc-mutation.XXXXXX")"
+fi
+
+if [ "$MERC_MUTATION_DRY_ORDER" != "0" ] && [ "$MERC_MUTATION_DRY_ORDER" != "1" ]; then
+  echo "MERC_MUTATION_DRY_ORDER must be 0 or 1" >&2
+  exit 2
 fi
 
 cleanup() {
@@ -449,6 +455,7 @@ if [ "$MERC_MUTATION_LIST" = "1" ]; then
   exit 0
 fi
 
+total_mutations="${#MUTATIONS[@]}"
 if [ -n "$MERC_MUTATION_CASE_IDS" ]; then
   if ! [[ "$MERC_MUTATION_CASE_IDS" =~ ^[1-9][0-9]*(,[1-9][0-9]*)*$ ]]; then
     echo "MERC_MUTATION_CASE_IDS must be comma-separated positive case IDs" >&2
@@ -459,13 +466,30 @@ if [ -n "$MERC_MUTATION_CASE_IDS" ]; then
     echo "MERC_MUTATION_CASE_IDS contains duplicate case IDs: $duplicates" >&2
     exit 2
   fi
-  total_mutations="${#MUTATIONS[@]}"
   while IFS= read -r requested; do
     if [ "$requested" -gt "$total_mutations" ]; then
       echo "MERC_MUTATION_CASE_IDS names $requested but only $total_mutations cases exist" >&2
       exit 2
     fi
   done < <(printf '%s\n' "$MERC_MUTATION_CASE_IDS" | tr ',' '\n')
+fi
+
+# Parallel shards deliberately supply an ordered case list. Membership alone is
+# not enough: the first pure case warms a disposable checkout before a costly
+# database fallback. Serial runs retain the declaration order.
+declare -a MUTATION_CASE_ORDER=()
+if [ -n "$MERC_MUTATION_CASE_IDS" ]; then
+  while IFS= read -r requested; do
+    MUTATION_CASE_ORDER+=("$requested")
+  done < <(printf '%s\n' "$MERC_MUTATION_CASE_IDS" | tr ',' '\n')
+else
+  for ((requested = 1; requested <= total_mutations; requested++)); do
+    MUTATION_CASE_ORDER+=("$requested")
+  done
+fi
+if [ "$MERC_MUTATION_DRY_ORDER" = "1" ]; then
+  printf '%s\n' "${MUTATION_CASE_ORDER[@]}"
+  exit 0
 fi
 
 case_is_selected() {
@@ -526,17 +550,13 @@ stale=0
 declare -a STALE=()
 infrastructure=0
 declare -a INFRASTRUCTURE=()
-case_index=0
 selected_cases=0
 
 printf '%-58s %s\n' "mutation" "result"
 printf '%-58s %s\n' "--------" "------"
 
-for entry in "${MUTATIONS[@]}"; do
-  case_index=$((case_index + 1))
-  if ! case_is_selected "$case_index"; then
-    continue
-  fi
+for case_index in "${MUTATION_CASE_ORDER[@]}"; do
+  entry="${MUTATIONS[$((case_index - 1))]}"
   selected_cases=$((selected_cases + 1))
   file="${entry%%|*}"
   rest="${entry#*|}"
