@@ -4,9 +4,10 @@
 # The serial mutation runner intentionally edits its own source tree, so it
 # must own that tree.  This orchestrator keeps the candidate tree read-only:
 # every shard receives a detached worktree at the same exact commit and every
-# mutant still receives a fresh disposable PostgreSQL database.  That gives the
-# full 84-case campaign useful wall-clock parallelism without letting concurrent
-# tests share source bytes or database state.
+# shard receives its own temporary PostgreSQL cluster. Every mutant still gets
+# a fresh disposable database inside that cluster. That gives the full 84-case
+# campaign useful wall-clock parallelism without letting concurrent tests share
+# source bytes, database state, or one server's WAL lock.
 #
 # The default is deliberately aggressive enough for a 28-core development host:
 # 16 workers, a 25-minute mutation budget.  The run fails rather than quietly
@@ -15,6 +16,7 @@
 #
 #   MERC_MUTATION_WORKERS=16              # 1..32; default 16
 #   MERC_MUTATION_WALLCLOCK_SECONDS=1500  # default 25 minutes
+#   MERC_MUTATION_POSTGRES_PORT_BASE=0     # 0 finds an unused local range
 #   MERC_MUTATION_KEEP_WORKDIR=1          # retain failed shard logs/worktrees
 #
 #   bash scripts/mutation-test-parallel.sh --plan
@@ -44,12 +46,17 @@ esac
 
 workers="${MERC_MUTATION_WORKERS:-16}"
 budget_seconds="${MERC_MUTATION_WALLCLOCK_SECONDS:-1500}"
+postgres_port_base="${MERC_MUTATION_POSTGRES_PORT_BASE:-0}"
 if ! [[ "$workers" =~ ^[1-9][0-9]*$ ]] || [ "$workers" -gt 32 ]; then
   echo "MERC_MUTATION_WORKERS must be an integer from 1 through 32" >&2
   exit 2
 fi
 if ! [[ "$budget_seconds" =~ ^[1-9][0-9]*$ ]]; then
   echo "MERC_MUTATION_WALLCLOCK_SECONDS must be a positive integer" >&2
+  exit 2
+fi
+if ! [[ "$postgres_port_base" =~ ^[0-9]+$ ]]; then
+  echo "MERC_MUTATION_POSTGRES_PORT_BASE must be zero or a TCP port" >&2
   exit 2
 fi
 
@@ -79,7 +86,7 @@ fi
 
 print_plan() {
   local worker index separator ids
-  printf 'parallel-mutation-test: candidate=%s cases=%s workers=%s budget=%ss\n' \
+  printf 'parallel-mutation-test: candidate=%s cases=%s workers=%s budget=%ss db=isolated-clusters\n' \
     "$(git rev-parse HEAD)" "$case_count" "$workers" "$budget_seconds"
   worker=1
   while [ "$worker" -le "$workers" ]; do
@@ -102,6 +109,12 @@ if [ "$mode" = "plan" ]; then
 fi
 
 : "${MERC_TEST_DATABASE_URL:?parallel mutation testing needs a database}"
+for command in initdb pg_ctl createdb; do
+  command -v "$command" >/dev/null 2>&1 || {
+    echo "parallel mutation testing needs $command for isolated PostgreSQL clusters" >&2
+    exit 2
+  }
+done
 
 candidate="$(git rev-parse HEAD)"
 if [ -n "$(git status --porcelain)" ]; then
@@ -123,11 +136,24 @@ run_root="$(mktemp -d "${TMPDIR:-/tmp}/merc-mutation-parallel.XXXXXX")"
 declare -a worktrees=()
 declare -a worker_pids=()
 declare -a worker_logs=()
+declare -a cluster_dirs=()
+declare -a cluster_ports=()
 run_ok=0
 
 cleanup() {
-  local worktree
+  local worktree cluster
   trap - EXIT INT TERM
+  # Stop clusters before removing their worktree/log parent. Fast shutdown is
+  # safe here: these clusters are test-only and every test database is already
+  # disposable.
+  for cluster in "${cluster_dirs[@]:-}"; do
+    [[ -n "$cluster" ]] || continue
+    case "$cluster" in
+      "$run_root"/postgres-*)
+        pg_ctl -D "$cluster" -m fast -w stop >/dev/null 2>&1 || true
+        ;;
+    esac
+  done
   for worktree in "${worktrees[@]:-}"; do
     [[ -n "$worktree" ]] || continue
     case "$worktree" in
@@ -146,6 +172,40 @@ cleanup() {
   elif [ "$run_ok" -ne 1 ]; then
     echo "parallel-mutation-test: retained diagnostics at $run_root" >&2
   fi
+}
+
+find_cluster_port_base() {
+  python3 - "$workers" "$postgres_port_base" <<'PY'
+import socket
+import sys
+
+workers = int(sys.argv[1])
+requested = int(sys.argv[2])
+if requested:
+    candidates = [requested]
+else:
+    candidates = range(56000, 65000 - workers)
+
+for base in candidates:
+    if base < 1024 or base + workers - 1 > 65535:
+        continue
+    sockets = []
+    try:
+        for port in range(base, base + workers):
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.bind(("127.0.0.1", port))
+            sockets.append(sock)
+    except OSError:
+        pass
+    else:
+        print(base)
+        raise SystemExit(0)
+    finally:
+        for sock in sockets:
+            sock.close()
+
+raise SystemExit("no contiguous local PostgreSQL port range is available")
+PY
 }
 
 stop_workers() {
@@ -169,6 +229,8 @@ trap on_signal INT TERM
 
 print_plan
 
+cluster_port_base="$(find_cluster_port_base)"
+
 for ((worker = 1; worker <= workers; worker++)); do
   shard_file="$run_root/shard-$worker.ids"
   index=$((worker - 1))
@@ -186,16 +248,30 @@ for ((worker = 1; worker <= workers; worker++)); do
   fi
 done
 
+for ((worker = 1; worker <= workers; worker++)); do
+  cluster="$run_root/postgres-$worker"
+  port=$((cluster_port_base + worker - 1))
+  initdb --no-locale --encoding=UTF8 --auth-host=trust --auth-local=trust \
+    --username=cx -D "$cluster" >/dev/null
+  cluster_dirs+=("$cluster")
+  cluster_ports+=("$port")
+  pg_ctl -D "$cluster" -l "$run_root/postgres-$worker.log" \
+    -o "-h 127.0.0.1 -p $port" -w start >/dev/null
+  createdb --host=127.0.0.1 --port="$port" --username=cx \
+    --maintenance-db=postgres cx
+done
+
 started="$(date +%s)"
 for ((worker = 1; worker <= workers; worker++)); do
   worktree="${worktrees[$((worker - 1))]}"
+  port="${cluster_ports[$((worker - 1))]}"
   shard_file="$run_root/shard-$worker.ids"
   shard_ids="$(paste -sd, "$shard_file")"
   log="$run_root/worker-$worker.log"
   worker_logs+=("$log")
   (
     cd "$worktree"
-    export MERC_TEST_DATABASE_URL
+    export MERC_TEST_DATABASE_URL="postgres://cx@127.0.0.1:${port}/cx?sslmode=disable"
     export MERC_MUTATION_CASE_IDS="$shard_ids"
     export MERC_MUTATION_DB_PREFIX="merc_mutation_w${worker}"
     exec bash scripts/mutation-test.sh

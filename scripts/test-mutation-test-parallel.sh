@@ -10,7 +10,7 @@ plan="$(MERC_MUTATION_WORKERS=16 MERC_MUTATION_WALLCLOCK_SECONDS=1500 \
 printf '%s\n' "$plan"
 
 header="$(printf '%s\n' "$plan" | sed -n '1p')"
-printf '%s\n' "$header" | grep -Eq 'cases=84 workers=16 budget=1500s' || {
+printf '%s\n' "$header" | grep -Eq 'cases=84 workers=16 budget=1500s db=isolated-clusters' || {
   echo "parallel mutation plan has an unexpected header" >&2
   exit 1
 }

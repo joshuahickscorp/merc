@@ -199,6 +199,8 @@ func TestCheckpointUsesTheIsolatedParallelMutationRunner(t *testing.T) {
 		`git worktree add --detach`,
 		`MERC_MUTATION_CASE_IDS`,
 		`MERC_MUTATION_WALLCLOCK_SECONDS`,
+		`initdb --no-locale`,
+		`pg_ctl -D "$cluster"`,
 		`candidate tree changed while shards ran`,
 	} {
 		if !strings.Contains(string(parallel), fragment) {
