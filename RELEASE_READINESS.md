@@ -47,11 +47,30 @@ for the remaining 16 points is `docs/PROGRAMME.md § "Facet external action pack
   carries a single sample. No 15-minute, two-hour or 24-hour soak receipt exists,
   and `.artifacts/local-soak-failures/` records the 15-minute attempts that ended
   in an OOM kill and in a control restart. Soak duration is therefore NOT
-  EXECUTED beyond 300 s. Payment evidence is labelled SIMULATED; Stripe test mode
-  remains NOT EXECUTED.
-- Fourteen independent review domains contain the required scope, failure model,
+  EXECUTED beyond 300 s. Payment evidence is labelled SIMULATED.
+- Stripe test mode has been exercised, but not in a form that closes its gate.
+  `evidence/canary/stripe-cad-supplier-matrix-0a4b66cb.json` records real
+  test-mode provider object identifiers with `provider_mode: test`,
+  `live_mode: PROHIBITED` and status PASS. That receipt is **UNBOUND** and does
+  not sit at the formal `evidence/external/stripe-sandbox_matrix` path, so
+  `P1-STRIPE-TEST` correctly remains open in `ops/go-no-go.json`. Corrected
+  2026-08-09: this bullet previously read "Stripe test mode remains NOT
+  EXECUTED", which was not true of the work and made an unbound-evidence problem
+  look like an unattempted one. The gate is open because the receipt is not
+  bound, not because nothing ran.
+- Fourteen **agent** review domains contain the required scope, failure model,
   findings, severity, evidence, repair, verification, and residual risk fields in
-  `ops/independent-reviews.json`.
+  `ops/agent-review-notes.json`. Corrected 2026-08-09: this bullet previously
+  described them as "independent review domains" and pointed at
+  `ops/independent-reviews.json`, a path that does not exist. The artifact it
+  was renamed to states its own limits — `artifact_kind: agent_review_notes`,
+  `independence_claim: NOT_CLAIMED`, `method: parallel-agent source and receipt
+  inspection` — and `scripts/validate-independent-reviews.py` says the same in
+  its header. Independent human review has **not** happened. Section 19 forbids
+  an LLM inventing external approval, and calling agent inspection "independent
+  review" in the release-readiness document is that, whatever the underlying
+  artifact says about itself: a later reader closes the gate on the summary, not
+  on the JSON.
 
 The latest complete precommit proof used a unique disposable Compose project
 and volumes, so it could not replay prior jobs or idempotency keys. It is bound
