@@ -97,11 +97,18 @@ trap cleanup EXIT
 trap on_signal INT TERM
 
 run_unit_tests() {
-  (
+  local label="${1:-unit}"
+  local log
+  log="${BACKUP:-${TMPDIR:-/tmp}}/mutation-unit-${label}.log"
+  if (
     cd "$CONTROL" &&
       env -u MERC_TEST_DATABASE_URL MERC_ALLOW_SKIPPING_DB_TESTS=1 \
-        go test -count=1 -timeout=2m ./... >/dev/null 2>&1
-  )
+        go test -count=1 -timeout=2m ./... >"$log" 2>&1
+  ); then
+    return 0
+  fi
+  cat "$log" >&2 || true
+  return 1
 }
 
 run_contract_tests() {
@@ -131,7 +138,7 @@ run_mutation_tests() {
       # The unit suite catches most arithmetic/authority defects in seconds.
       # A pass is deliberately not a pass for the mutant: it must also pass the
       # source-specific database contract, where it should be caught.
-      if ! run_unit_tests; then
+      if ! run_unit_tests "mutant"; then
         return 1
       fi
       run_contract_tests "$source"
@@ -158,7 +165,7 @@ preflight_mutation_strategy() {
       return 0
       ;;
     adaptive)
-      if ! run_unit_tests; then
+      if ! run_unit_tests "baseline"; then
         echo "mutation-test: clean unit-suite preflight failed" >&2
         return 1
       fi
