@@ -15,6 +15,7 @@ import (
 
 func TestRealtimeMarketLiquidityRetainsOfferAndCapacityEvidence(t *testing.T) {
 	installSettlementCurrencyForTest(t, "cad")
+	installRealtimeCADFXForTest(t)
 	ctx, store, pool := openPayoutTestStore(t)
 	t.Setenv("MERC_TOKEN_KEY", "liquidity-test-key-with-at-least-32-bytes")
 	// This report is intentionally a current fleet snapshot. Reset only the
@@ -182,13 +183,16 @@ func TestRealtimeMarketClearingReceiptBindsOfferBookAndPricing(t *testing.T) {
 	})
 	must(t, err)
 	market := contract.MarketClearing
-	if market == nil || market.Version != 1 || market.CandidateCount != 2 || market.SelectedRank != 1 ||
+	if market == nil || market.Version != 3 || market.ReferenceCurrency != "usd" ||
+		market.SettlementCurrency != "cad" || market.CandidateCount != 2 || market.SelectedRank != 1 ||
+		market.SupplierRateCurrency != "usd" || market.BuyerMoneyCurrency != "cad" ||
 		market.SelectedWorkerID != cheapWorker.WorkerID || market.SelectedSupplierID != cheapWorker.SupplierID ||
 		market.PricingDecisionSHA256 != contract.PricingDecisionSHA256 || market.BuyerCeilingNanos <= 0 ||
 		market.PositiveContributionNanos <= 0 ||
 		market.AcceptedCeilingNanos != contract.Pricing.FixedPoint.AcceptedCeilingNanos ||
 		market.OrderBookPolicy != realtimeOrderBookPolicy ||
-		market.RankingInputs == nil || market.RankingInputs.VerifiedOutcomeCostNanos <= 0 ||
+		market.RankingInputs == nil || market.RankingInputs.RateCurrency != "usd" ||
+		market.RankingInputs.VerifiedOutcomeCostNanos <= 0 ||
 		market.RankingInputs.Warmth != "WARM" || len(market.RankingInputs.OmittedTerms) == 0 {
 		t.Fatalf("realtime market receipt did not bind live offer book under verified-outcome ranking: %+v contract=%+v hot=%+v",
 			market, contract, hotWorker)
@@ -214,7 +218,7 @@ func TestRealtimeAdmissionEventRejectsFabricatedPlacement(t *testing.T) {
 }
 
 func TestServiceLeaseMarketLiquidityUsesRealOfferAndBuyerAdmissionPaths(t *testing.T) {
-	installSettlementCurrencyForTest(t, "cad")
+	installSettlementCurrencyForTest(t, "usd")
 	ctx, store, pool := openPayoutTestStore(t)
 	buyerID := uuid.New()
 	if _, err := pool.Exec(ctx, `INSERT INTO buyers (id,email) VALUES ($1,$2)`, buyerID, buyerID.String()+"@service-liquidity.invalid"); err != nil {
@@ -245,7 +249,7 @@ func TestServiceLeaseMarketLiquidityUsesRealOfferAndBuyerAdmissionPaths(t *testi
 	if got := post("/v1/worker/service-leases/offers", workerToken, offer).Code; got != http.StatusOK {
 		t.Fatalf("service offer status=%d", got)
 	}
-	request := ServiceLeaseRequest{RuntimeProfileID: profile.RuntimeProfileID, Region: offer.Region,
+	request := ServiceLeaseRequest{RuntimeProfileID: profile.RuntimeProfileID, Region: offer.Region, Currency: "usd",
 		MinimumReplicas: 1, MaximumReplicas: 3, TermSeconds: 60, MaximumP95LatencyMilliseconds: 500,
 		BuyerDeclaredCeilingNanos: 135_000_000}
 	if created := post("/v1/service-leases", buyerKey, request); created.Code != http.StatusCreated {
@@ -256,8 +260,9 @@ func TestServiceLeaseMarketLiquidityUsesRealOfferAndBuyerAdmissionPaths(t *testi
 	}
 	receipt, err := store.ServiceLeaseMarketLiquidity(ctx, time.Hour)
 	must(t, err)
-	if receipt.RegionScope != "SUPPLIER_DECLARED_OPERATIONAL_REGION_ONLY" {
-		t.Fatalf("service liquidity promoted supplier region: %q", receipt.RegionScope)
+	if receipt.Currency != "usd" || receipt.RegionScope != "SUPPLIER_DECLARED_OPERATIONAL_REGION_ONLY" {
+		t.Fatalf("service liquidity lost USD/operational-region scope: currency=%q region=%q",
+			receipt.Currency, receipt.RegionScope)
 	}
 	var matched, unmatched *ServiceLeaseMarketLiquiditySlice
 	for i := range receipt.Slices {
@@ -280,6 +285,42 @@ func TestServiceLeaseMarketLiquidityUsesRealOfferAndBuyerAdmissionPaths(t *testi
 	if unmatched == nil || unmatched.Admitted != 0 || unmatched.NoCapacity != 1 ||
 		unmatched.CapacityFillNumerator != 0 || unmatched.CapacityFillDenominator != 1 {
 		t.Fatalf("capacity refusal was not kept separate from matched supply: %+v", unmatched)
+	}
+	baselineOfferSamples := matched.OfferSamples
+	if _, err := pool.Exec(ctx, `INSERT INTO service_lease_offer_samples
+		(worker_id,supplier_id,runtime_profile_id,runtime_profile_sha256,region,
+		 worker_declared_hw_class,status,maximum_warm_replicas,available_warm_replicas,
+		 supplier_nanos_per_replica_hour,residency_nanos_per_replica_hour,currency)
+		SELECT worker_id,supplier_id,runtime_profile_id,runtime_profile_sha256,region,
+		       worker_declared_hw_class,status,maximum_warm_replicas,available_warm_replicas,
+		       supplier_nanos_per_replica_hour,residency_nanos_per_replica_hour,NULL
+		  FROM service_lease_offer_samples
+		 WHERE worker_id=$1 ORDER BY observed_at,id LIMIT 1`, worker.WorkerID); err != nil {
+		t.Fatal(err)
+	}
+	// Migration leaves pre-currency offer observations NULL. Prove the unbound
+	// numeric rate does not enter the explicitly USD receipt.
+	filtered, err := store.ServiceLeaseMarketLiquidity(ctx, time.Hour)
+	must(t, err)
+	var filteredMatched *ServiceLeaseMarketLiquiditySlice
+	for i := range filtered.Slices {
+		candidate := &filtered.Slices[i]
+		if candidate.RuntimeProfileID == profile.RuntimeProfileID && candidate.Region == request.Region &&
+			candidate.WorkerDeclaredHWClass != serviceLiquidityUnmatchedHardware {
+			filteredMatched = candidate
+			break
+		}
+	}
+	if filtered.Currency != "usd" || filteredMatched == nil || filteredMatched.Admitted != 1 ||
+		filteredMatched.OfferSamples != baselineOfferSamples {
+		t.Fatalf("legacy NULL service evidence entered USD liquidity receipt: receipt=%+v matched=%+v",
+			filtered, filteredMatched)
+	}
+	badCurrency := request
+	badCurrency.Currency = "cad"
+	if err := store.RecordServiceLeaseAdmissionEvent(ctx, buyerID, badCurrency,
+		serviceLeaseAdmissionNoCapacity, uuid.Nil); err == nil || !strings.Contains(err.Error(), "currency") {
+		t.Fatalf("non-USD service admission telemetry was persisted: %v", err)
 	}
 	var sampleID uuid.UUID
 	if err := pool.QueryRow(ctx, `SELECT id FROM service_lease_offer_samples
@@ -311,6 +352,7 @@ func TestNetworkMarketLiquidityComposesBoundedLaneReceipts(t *testing.T) {
 	if receipt.Version != 1 || receipt.Window != time.Hour.String() ||
 		receipt.MarketScope != "MERC_RETAINED_REALTIME_AND_WARM_SERVICE_LANES_ONLY_NO_GLOBAL_OR_LEGAL_REGION_CLAIM" ||
 		receipt.Realtime.Version != 1 || receipt.Services.Version != 1 ||
+		receipt.Services.Currency != "usd" ||
 		receipt.WindowStart.IsZero() || receipt.WindowEnd.Before(receipt.WindowStart) {
 		t.Fatalf("network liquidity receipt lost bounded lane authority: %+v", receipt)
 	}

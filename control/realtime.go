@@ -18,7 +18,6 @@ import (
 	"net/http/httptrace"
 	"net/url"
 	"os"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -245,12 +244,16 @@ func (s *Server) handleRealtimeWorkerHeartbeat(w http.ResponseWriter, r *http.Re
 type preparedRealtimeRequest struct {
 	Body                      []byte
 	Profile                   VLLMRuntimeProfile
+	FX                        RealtimeFXAuthority
 	Stream                    bool
 	InputCommitment           string
 	RequestSHA256             string
 	MaximumPriceUSD           float64
 	EstimatedPriceUSD         float64
 	MaxPriceCeiling           float64
+	MaximumPriceUSDNanos      int64
+	EstimatedPriceUSDNanos    int64
+	MaxPriceCeilingUSDNanos   int64
 	MaximumPromptTokens       int64
 	MaximumCompletionTokens   int64
 	EstimatedPromptTokens     int64
@@ -340,32 +343,32 @@ func prepareRealtimeRequest(raw []byte, headerCeiling string) (preparedRealtimeR
 		payload["stream_options"] = streamOptions
 	}
 
-	var requestCeiling float64
+	var requestCeilingNanos int64
 	if rawCX, exists := payload["cx"]; exists {
 		cx, ok := rawCX.(map[string]any)
 		if !ok {
 			return preparedRealtimeRequest{}, errors.New("cx must be an object")
 		}
 		if value, exists := cx["maximum_price_usd"]; exists {
-			switch value := value.(type) {
-			case json.Number:
-				requestCeiling, _ = strconv.ParseFloat(value.String(), 64)
-			case float64:
-				requestCeiling = value
-			}
-			if requestCeiling <= 0 {
+			number, ok := value.(json.Number)
+			if !ok {
 				return preparedRealtimeRequest{}, errors.New("cx.maximum_price_usd must be positive")
+			}
+			var err error
+			requestCeilingNanos, err = parsePositiveUSDNanos(number.String())
+			if err != nil {
+				return preparedRealtimeRequest{}, errors.New("cx.maximum_price_usd must be a positive USD decimal with at most 9 fractional digits")
 			}
 		}
 		delete(payload, "cx")
 	}
 	if strings.TrimSpace(headerCeiling) != "" {
-		ceiling, err := strconv.ParseFloat(strings.TrimSpace(headerCeiling), 64)
-		if err != nil || ceiling <= 0 {
-			return preparedRealtimeRequest{}, errors.New("X-Merc-Max-USD must be a positive number")
+		ceiling, err := parsePositiveUSDNanos(headerCeiling)
+		if err != nil {
+			return preparedRealtimeRequest{}, errors.New("X-Merc-Max-USD must be a positive USD decimal with at most 9 fractional digits")
 		}
-		if requestCeiling == 0 || ceiling < requestCeiling {
-			requestCeiling = ceiling
+		if requestCeilingNanos == 0 || ceiling < requestCeilingNanos {
+			requestCeilingNanos = ceiling
 		}
 	}
 
@@ -409,28 +412,48 @@ func prepareRealtimeRequest(raw []byte, headerCeiling string) (preparedRealtimeR
 	if contextBudget := int64(profile.MaxModelLength) - maxOutput; estimatedInputTokens > contextBudget {
 		return preparedRealtimeRequest{}, errors.New("request exceeds the runtime profile context bound")
 	}
-	maximumPrice, err := tokenCharge(maxInputTokens, maxOutput,
-		profile.BuyerInputUSDPerMillionTokens, profile.BuyerOutputUSDPerMillionTokens)
+	maximumPriceExact, err := tokenChargeExact(maxInputTokens, maxOutput,
+		profile.BuyerInputUSDPerMillionTokens, profile.BuyerOutputUSDPerMillionTokens, false)
 	if err != nil {
 		return preparedRealtimeRequest{}, fmt.Errorf("derive maximum realtime price: %w", err)
 	}
-	estimatedPrice, err := tokenCharge(estimatedInputTokens, (maxOutput+1)/2,
-		profile.BuyerInputUSDPerMillionTokens, profile.BuyerOutputUSDPerMillionTokens)
+	estimatedPriceExact, err := tokenChargeExact(estimatedInputTokens, (maxOutput+1)/2,
+		profile.BuyerInputUSDPerMillionTokens, profile.BuyerOutputUSDPerMillionTokens, false)
 	if err != nil {
 		return preparedRealtimeRequest{}, fmt.Errorf("derive estimated realtime price: %w", err)
 	}
-	if estimatedPrice > maximumPrice {
-		estimatedPrice = maximumPrice
+	if estimatedPriceExact.Nanos > maximumPriceExact.Nanos {
+		estimatedPriceExact = maximumPriceExact
 	}
-	if requestCeiling > 0 && maximumPrice > requestCeiling {
-		return preparedRealtimeRequest{}, fmt.Errorf("maximum quoted price %.6f USD exceeds buyer ceiling %.6f USD", maximumPrice, requestCeiling)
+	if requestCeilingNanos > 0 && maximumPriceExact.Nanos > requestCeilingNanos {
+		return preparedRealtimeRequest{}, fmt.Errorf(
+			"maximum quoted price %d nano-USD exceeds buyer ceiling %d nano-USD",
+			maximumPriceExact.Nanos, requestCeilingNanos)
+	}
+	maximumPrice, err := projectRealtimeNanosToMajor(maximumPriceExact)
+	if err != nil {
+		return preparedRealtimeRequest{}, err
+	}
+	estimatedPrice, err := projectRealtimeNanosToMajor(estimatedPriceExact)
+	if err != nil {
+		return preparedRealtimeRequest{}, err
+	}
+	settlement, err := SettlementCurrency()
+	if err != nil {
+		return preparedRealtimeRequest{}, err
+	}
+	fx, err := loadRealtimeFXAuthority(settlement)
+	if err != nil {
+		return preparedRealtimeRequest{}, err
 	}
 	return preparedRealtimeRequest{
-		Body: upstreamBody, Profile: profile, Stream: stream,
+		Body: upstreamBody, Profile: profile, FX: fx, Stream: stream,
 		InputCommitment: hex.EncodeToString(inputDigest[:]),
 		RequestSHA256:   hex.EncodeToString(requestDigest[:]),
 		MaximumPriceUSD: maximumPrice, EstimatedPriceUSD: estimatedPrice,
-		MaxPriceCeiling: requestCeiling, MaximumPromptTokens: maxInputTokens,
+		MaxPriceCeiling:      float64(requestCeilingNanos) / float64(NanosPerMajorUnit),
+		MaximumPriceUSDNanos: maximumPriceExact.Nanos, EstimatedPriceUSDNanos: estimatedPriceExact.Nanos,
+		MaxPriceCeilingUSDNanos: requestCeilingNanos, MaximumPromptTokens: maxInputTokens,
 		MaximumCompletionTokens: maxOutput, EstimatedPromptTokens: estimatedInputTokens,
 		EstimatedCompletionTokens: (maxOutput + 1) / 2,
 	}, nil
@@ -846,6 +869,18 @@ func formatRealtimePathMarks(marks map[string]time.Duration) string {
 // did not pass through authBuyer.
 type ctxAuthLookupDuration struct{}
 
+func setRealtimeMaximumUSDHeader(w http.ResponseWriter, contract RealtimeContract) {
+	maximumUSD, err := realtimeContractMaximumReferenceUSD(contract)
+	if err != nil || maximumUSD <= 0 {
+		// Historical non-USD v1 contracts never froze an FX authority. Omitting
+		// the USD header is the only truthful replay; emitting the legacy
+		// settlement-major number under a USD name would repeat the defect.
+		log.Printf("realtime contract %s has no truthful X-Merc-Max-USD projection: %v", contract.ID, err)
+		return
+	}
+	w.Header().Set("X-Merc-Max-USD", fmt.Sprintf("%.6f", maximumUSD))
+}
+
 func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	pathTiming := newRealtimePathTiming()
 	if d, ok := r.Context().Value(ctxAuthLookupDuration{}).(time.Duration); ok {
@@ -908,7 +943,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			receiptPath := "/v1/realtime/requests/" + reuseContract.ID.String() + "/receipt"
 			w.Header().Set("X-Merc-Contract-ID", reuseContract.ID.String())
 			w.Header().Set("X-Merc-Receipt", receiptPath)
-			w.Header().Set("X-Merc-Max-USD", fmt.Sprintf("%.6f", reuseContract.MaximumPriceUSD))
+			setRealtimeMaximumUSDHeader(w, reuseContract)
 			w.Header().Set("X-Merc-Exact-Reuse", "1")
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
@@ -945,7 +980,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			receiptPath := "/v1/realtime/requests/" + coalescedContract.ID.String() + "/receipt"
 			w.Header().Set("X-Merc-Contract-ID", coalescedContract.ID.String())
 			w.Header().Set("X-Merc-Receipt", receiptPath)
-			w.Header().Set("X-Merc-Max-USD", fmt.Sprintf("%.6f", coalescedContract.MaximumPriceUSD))
+			setRealtimeMaximumUSDHeader(w, coalescedContract)
 			// A distinct header from X-Merc-Exact-Reuse. The buyer got the same
 			// discount and it came from a different mechanism; reporting them as
 			// one would make the two impossible to tell apart in the field.
@@ -1028,14 +1063,17 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	stage = time.Now()
 	contract, replay, err := s.store.AuthorizeRealtimeContract(r.Context(), RealtimeContractAuthorization{
 		RequestID: requestID, BuyerID: auth.BuyerID, Profile: prepared.Profile,
+		FX:              prepared.FX,
 		InputCommitment: prepared.InputCommitment, RequestSHA256: prepared.RequestSHA256,
 		MaximumPriceUSD: prepared.MaximumPriceUSD, EstimatedPriceUSD: prepared.EstimatedPriceUSD,
-		MaximumPromptTokens:       prepared.MaximumPromptTokens,
-		MaximumCompletionTokens:   prepared.MaximumCompletionTokens,
-		EstimatedPromptTokens:     prepared.EstimatedPromptTokens,
-		EstimatedCompletionTokens: prepared.EstimatedCompletionTokens,
-		BuyerDeclaredCeilingUSD:   prepared.MaxPriceCeiling,
-		DeadlineAt:                time.Now().Add(defaultRealtimeTimeout), IdempotencyKey: idempotencyKey,
+		MaximumPriceUSDNanos: prepared.MaximumPriceUSDNanos, EstimatedPriceUSDNanos: prepared.EstimatedPriceUSDNanos,
+		MaximumPromptTokens:          prepared.MaximumPromptTokens,
+		MaximumCompletionTokens:      prepared.MaximumCompletionTokens,
+		EstimatedPromptTokens:        prepared.EstimatedPromptTokens,
+		EstimatedCompletionTokens:    prepared.EstimatedCompletionTokens,
+		BuyerDeclaredCeilingUSD:      prepared.MaxPriceCeiling,
+		BuyerDeclaredCeilingUSDNanos: prepared.MaxPriceCeilingUSDNanos,
+		DeadlineAt:                   time.Now().Add(defaultRealtimeTimeout), IdempotencyKey: idempotencyKey,
 		EnvelopeID: envelopeID,
 	})
 	pathTiming.mark("authorize_contract", stage)
@@ -1070,7 +1108,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	receiptPath := "/v1/realtime/requests/" + contract.ID.String() + "/receipt"
 	w.Header().Set("X-Merc-Contract-ID", contract.ID.String())
 	w.Header().Set("X-Merc-Receipt", receiptPath)
-	w.Header().Set("X-Merc-Max-USD", fmt.Sprintf("%.6f", contract.MaximumPriceUSD))
+	setRealtimeMaximumUSDHeader(w, contract)
 	if replay {
 		writeOpenAIError(w, http.StatusConflict, "idempotent request already has a contract; inspect X-Merc-Receipt", "invalid_request_error", "idempotent_replay")
 		return
@@ -1497,7 +1535,7 @@ func (s *Server) tryRealtimeExactReuse(
 	if err != nil {
 		return RealtimeContract{}, nil, false, err
 	}
-	money, err := SettleRealtimeReuseHitMoney(currency, delivered,
+	money, err := SettleRealtimeReuseHitMoneyWithFX(currency, prepared.FX, delivered,
 		prepared.Profile.BuyerInputUSDPerMillionTokens, prepared.Profile.BuyerOutputUSDPerMillionTokens)
 	if err != nil || !money.Conserved() || !money.ConservedExact() || money.SupplierLiabilityMicros != 0 {
 		return RealtimeContract{}, nil, false, fmt.Errorf("reuse money invariant broken: %+v", money)
@@ -1505,11 +1543,11 @@ func (s *Server) tryRealtimeExactReuse(
 	sum := sha256.Sum256(body)
 	contract, _, err := s.store.SettleRealtimeExactReuse(ctx, RealtimeContractAuthorization{
 		RequestID: requestID, BuyerID: buyerID, Profile: prepared.Profile,
+		FX:              prepared.FX,
 		InputCommitment: prepared.InputCommitment, RequestSHA256: prepared.RequestSHA256,
-		MaximumPriceUSD:         microsToUSD(money.BuyerDebitMicros),
-		EstimatedPriceUSD:       microsToUSD(money.BuyerDebitMicros),
 		BuyerDeclaredCeilingUSD: prepared.MaxPriceCeiling, ReuseClass: ClassExactResultReuse,
-		DeadlineAt: time.Now().Add(defaultRealtimeTimeout), IdempotencyKey: idempotencyKey,
+		BuyerDeclaredCeilingUSDNanos: prepared.MaxPriceCeilingUSDNanos,
+		DeadlineAt:                   time.Now().Add(defaultRealtimeTimeout), IdempotencyKey: idempotencyKey,
 	}, hit, money, hex.EncodeToString(sum[:]))
 	if err != nil {
 		return RealtimeContract{}, nil, false, err
@@ -1617,7 +1655,7 @@ func (s *Server) tryRealtimeCoalescedDelivery(
 	if err != nil {
 		return "", "", RealtimeContract{}, nil, false, err
 	}
-	money, err := SettleRealtimeReuseHitMoney(currency, delivered,
+	money, err := SettleRealtimeReuseHitMoneyWithFX(currency, prepared.FX, delivered,
 		prepared.Profile.BuyerInputUSDPerMillionTokens, prepared.Profile.BuyerOutputUSDPerMillionTokens)
 	if err != nil || !money.Conserved() || !money.ConservedExact() || money.SupplierLiabilityMicros != 0 {
 		return "", "", RealtimeContract{}, nil, false,
@@ -1626,12 +1664,12 @@ func (s *Server) tryRealtimeCoalescedDelivery(
 	hit := ExactCacheHit{ResultRef: result.ResultRef, OutputTokens: delivered}
 	contract, _, err = s.store.SettleRealtimeExactReuse(ctx, RealtimeContractAuthorization{
 		RequestID: requestID, BuyerID: buyerID, Profile: prepared.Profile,
+		FX:              prepared.FX,
 		InputCommitment: prepared.InputCommitment, RequestSHA256: prepared.RequestSHA256,
-		MaximumPriceUSD:         microsToUSD(money.BuyerDebitMicros),
-		EstimatedPriceUSD:       microsToUSD(money.BuyerDebitMicros),
 		BuyerDeclaredCeilingUSD: prepared.MaxPriceCeiling, ReuseClass: ClassCoalescedDelivery,
-		CoalescedLeaderContractID: result.LeaderContractID,
-		DeadlineAt:                time.Now().Add(defaultRealtimeTimeout), IdempotencyKey: idempotencyKey,
+		BuyerDeclaredCeilingUSDNanos: prepared.MaxPriceCeilingUSDNanos,
+		CoalescedLeaderContractID:    result.LeaderContractID,
+		DeadlineAt:                   time.Now().Add(defaultRealtimeTimeout), IdempotencyKey: idempotencyKey,
 	}, hit, money, result.ResultSHA256)
 	if err != nil {
 		return "", "", RealtimeContract{}, nil, false, err

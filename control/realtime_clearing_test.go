@@ -424,7 +424,7 @@ func TestServiceLeaseClearingRanksByTotalSupplierPlusResidency(t *testing.T) {
 	// of the lease price, so ranking by supplier ask alone would let a cheap
 	// supplier with expensive residency clear above a higher supplier ask whose
 	// total (supplier+residency) is lower. Total cost is the verified ranking.
-	installSettlementCurrencyForTest(t, "cad")
+	installSettlementCurrencyForTest(t, "usd")
 	ctx, store, pool := openPayoutTestStore(t)
 	profile := sortedVLLMProfiles()[0]
 	buyerID := uuid.New()
@@ -475,7 +475,7 @@ func TestServiceLeaseClearingRanksByTotalSupplierPlusResidency(t *testing.T) {
 	})
 	// Ceiling must admit the winner's total pricing path.
 	request := ServiceLeaseRequest{
-		RuntimeProfileID: profile.RuntimeProfileID, Region: region,
+		RuntimeProfileID: profile.RuntimeProfileID, Region: region, Currency: "usd",
 		MinimumReplicas: 1, MaximumReplicas: 1, TermSeconds: 60, MaximumP95LatencyMilliseconds: 500,
 		BuyerDeclaredCeilingNanos: 500_000_000,
 	}

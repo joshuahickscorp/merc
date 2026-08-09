@@ -9,6 +9,7 @@ import (
 func realtimeReusePricingFixture(t *testing.T) RealtimeReusePricingInputs {
 	t.Helper()
 	installSettlementCurrencyForTest(t, "cad")
+	installRealtimeCADFXForTest(t)
 	profile := sortedVLLMProfiles()[0]
 	return RealtimeReusePricingInputs{Profile: profile,
 		InputCommitment: strings.Repeat("a", 64), RequestSHA256: strings.Repeat("b", 64),
@@ -29,7 +30,9 @@ func TestAttachRealtimeReusePricingRefusesPersistedAuthorityDrift(t *testing.T) 
 	contract := RealtimeContract{RuntimeProfileID: in.Profile.RuntimeProfileID,
 		RuntimeProfileSHA256: in.Profile.ProfileSHA256, InputCommitment: in.InputCommitment,
 		RequestSHA256: in.RequestSHA256, MaximumPriceUSD: maximum, EstimatedPriceUSD: expected,
-		Currency: in.Currency.Code(), ReuseClass: in.ReuseClass, ReuseResultCommitment: in.ResultCommitment,
+		BuyerInputUSDPerMillionTokens:  in.Profile.BuyerInputUSDPerMillionTokens,
+		BuyerOutputUSDPerMillionTokens: in.Profile.BuyerOutputUSDPerMillionTokens,
+		Currency:                       in.Currency.Code(), ReuseClass: in.ReuseClass, ReuseResultCommitment: in.ResultCommitment,
 		ReuseDeliveredTokens: in.DeliveredTokens, BuyerDeclaredCeilingNanos: p.RealtimeReuse.BuyerDeclaredCeilingNanos,
 		PricingDecisionSHA256: digest}
 	if err := attachRealtimeContractPricing(&contract, raw); err != nil || contract.Pricing == nil {
@@ -48,7 +51,9 @@ func TestRealtimeReusePricingDecisionBindsZeroPhysicalExactAuthority(t *testing.
 	must(t, err)
 	if p.ExecutionMode != pricingExecutionRealtimeReuse || p.Realtime != nil || p.RealtimeReuse == nil ||
 		p.FixedPoint == nil || p.FixedPoint.SupplierEntitlementsNanos != 0 ||
-		p.FixedPoint.BuyerChargeNanos != 1_260 || p.FixedPoint.TrueNetContributionNanos != nil ||
+		p.RealtimeReuse.ReferenceCurrency != "usd" || p.RealtimeReuse.SettlementCurrency != "cad" ||
+		p.RealtimeReuse.ReferenceBuyerChargeNanos != 1_260 ||
+		p.FixedPoint.BuyerChargeNanos != 1_727 || p.FixedPoint.TrueNetContributionNanos != nil ||
 		p.FixedPoint.KnownCostContributionNanos != p.FixedPoint.BuyerChargeNanos {
 		t.Fatalf("reuse PricingDecision misstates physical work, exact money, or true net: %+v", p)
 	}

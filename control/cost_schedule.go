@@ -19,22 +19,28 @@ import (
 // cannot drift. See provider_cost_authority.go.
 //
 // Historical PricingDecisions without CostScheduleSHA256 keep their frozen
-// arithmetic and unknown categories forever. New components apply only when the
-// digest is bound into the decision.
+// display arithmetic and unknown categories forever. Digest-only decisions
+// predate the complete body and are explicitly unreplayable; current decisions
+// bind both the digest and FrozenCostPolicySnapshot.
 type CostSchedule struct {
 	Revision string `json:"revision"`
-	// Currency is the ISO settlement currency every nano amount is denominated in.
-	Currency string `json:"currency"`
+	// ReferenceCurrency names the currency of the published source rates.
+	// SettlementCurrency names the currency used by the converted nano rates.
+	// Keeping both prevents a USD rate from being numerically relabeled CAD.
+	ReferenceCurrency  string `json:"reference_currency"`
+	SettlementCurrency string `json:"settlement_currency"`
 
-	// StorageNanosPerGiBMonth is the object-storage rate for retained job
-	// payload bytes (input + output under the job prefix).
-	StorageNanosPerGiBMonth int64  `json:"storage_nanos_per_gib_month"`
-	StorageProvenance       string `json:"storage_provenance"`
+	// StorageReferenceNanosPerGiBMonth is the exact published reference rate.
+	// StorageNanosPerGiBMonth is its governed settlement-currency conversion.
+	StorageReferenceNanosPerGiBMonth int64  `json:"storage_reference_nanos_per_gib_month"`
+	StorageNanosPerGiBMonth          int64  `json:"storage_nanos_per_gib_month"`
+	StorageProvenance                string `json:"storage_provenance"`
 
-	// EgressNanosPerGiB is the result-delivery rate for bytes transferred to
-	// the buyer (output only; inputs were already on the platform).
-	EgressNanosPerGiB int64  `json:"egress_nanos_per_gib"`
-	EgressProvenance  string `json:"egress_provenance"`
+	// EgressReferenceNanosPerGiB is the exact published reference rate.
+	// EgressNanosPerGiB is its governed settlement-currency conversion.
+	EgressReferenceNanosPerGiB int64  `json:"egress_reference_nanos_per_gib"`
+	EgressNanosPerGiB          int64  `json:"egress_nanos_per_gib"`
+	EgressProvenance           string `json:"egress_provenance"`
 
 	// RiskReserveBasisPoints is a declared policy reserve on the buyer charge.
 	// It is real money: accrued to a platform risk-reserve ledger account at
@@ -44,10 +50,58 @@ type CostSchedule struct {
 }
 
 const (
+	frozenCostPolicySnapshotVersionV1 = 1
+	frozenCostPolicySnapshotVersion   = frozenCostPolicySnapshotVersionV1
+	// frozenCostPolicyV1RetentionPolicyRevision is historical replay authority,
+	// not an alias for whichever retention policy new admissions use today. A
+	// future retention-policy revision therefore requires a new frozen snapshot
+	// version instead of making already-accepted v1 decisions unreadable.
+	frozenCostPolicyV1RetentionPolicyRevision       = "job-object-retention-v1"
+	costFXAuthorityVersion                          = 1
+	costReferenceCurrency                           = "usd"
+	costFXRateScale                           int64 = NanosPerMajorUnit
+	costFXRoundingPolicy                            = "reference-cost-rate-times-fx-ceil-nanos-v1"
+)
+
+// CostFXAuthority is the batch cost lane's exact conversion from published USD
+// rates into the PricingDecision settlement currency. It is cross-bound to the
+// catalogue's governed FX identity, but remains lane-specific: unlike token
+// charging, cost rates always round up before byte/duration prorating so a
+// positive platform liability cannot disappear.
+type CostFXAuthority struct {
+	Version                    int     `json:"version"`
+	ReferenceCurrency          string  `json:"reference_currency"`
+	SettlementCurrency         string  `json:"settlement_currency"`
+	ReferenceToSettlementRate  float64 `json:"reference_to_settlement_rate"`
+	ReferenceToSettlementNanos int64   `json:"reference_to_settlement_nanos"`
+	FXRevision                 string  `json:"fx_revision"`
+	RoundingPolicy             string  `json:"rounding_policy"`
+}
+
+// FrozenCostPolicySnapshot is the complete cost-policy authority accepted by a
+// distributed PricingDecision. CostScheduleSHA256 alone can detect that a
+// caller supplied a different rate card, but it cannot reconstruct the old
+// card after a deploy. Retention was even weaker: only today's environment was
+// available. Freezing both authorities makes replay and byte settlement
+// independent of process configuration.
+type FrozenCostPolicySnapshot struct {
+	Version int `json:"version"`
+
+	Schedule       CostSchedule    `json:"schedule"`
+	ScheduleSHA256 string          `json:"schedule_sha256"`
+	FX             CostFXAuthority `json:"fx"`
+
+	RetentionSeconds        int64  `json:"retention_seconds"`
+	RetentionPolicyRevision string `json:"retention_policy_revision"`
+	RetentionBasis          string `json:"retention_basis"`
+}
+
+const (
 	// costScheduleRevisionEnv selects the active policy revision. Required when
 	// loading from the environment so a deploy cannot silently run without a
 	// named cost policy.
 	costScheduleRevisionEnv = "MERC_COST_SCHEDULE_REVISION"
+	costScheduleRevision    = "cost-schedule-v2"
 
 	// Published AWS S3 Standard storage (us-east-1) as of the rate card this
 	// schedule freezes: $0.023 per GB-month. 1 GiB = 2^30 bytes; the rate card
@@ -58,11 +112,11 @@ const (
 	// Provenance string is frozen into every decision that uses this default so
 	// a later rate-card change cannot silently reprice a historical decision.
 	defaultStorageNanosPerGiBMonth int64 = 23_000_000 // $0.023
-	defaultStorageProvenance             = "AWS S3 Standard us-east-1 published storage rate $0.023/GB-month (policy model, not a metered invoice)"
+	defaultStorageProvenance             = "AWS S3 Standard us-east-1 published storage rate USD 0.023/GB-month (policy model, not a metered invoice)"
 
 	// Published AWS data-transfer-out (internet) first 10 TB tier: $0.09/GB.
 	defaultEgressNanosPerGiB int64 = 90_000_000 // $0.09
-	defaultEgressProvenance        = "AWS data transfer out to internet published rate $0.09/GB first 10TB tier (policy model, not a metered invoice)"
+	defaultEgressProvenance        = "AWS data transfer out to internet published rate USD 0.09/GB first 10TB tier (policy model, not a metered invoice)"
 
 	// Platform dispute-window risk reserve: 50 basis points of the buyer charge.
 	// Policy, not a measured loss cohort. Accrual/release/consume make the cash
@@ -79,20 +133,28 @@ const (
 	secondsPerMonth = 30 * 24 * 3600
 )
 
-// DefaultCostSchedule returns the governed default cost policy for the given
-// settlement currency. Every rate has provenance; nothing is zero without a
-// stated reason.
-func DefaultCostSchedule(currency string) CostSchedule {
-	return CostSchedule{
-		Revision:                "cost-schedule-v1",
-		Currency:                currency,
-		StorageNanosPerGiBMonth: defaultStorageNanosPerGiBMonth,
-		StorageProvenance:       defaultStorageProvenance,
-		EgressNanosPerGiB:       defaultEgressNanosPerGiB,
-		EgressProvenance:        defaultEgressProvenance,
-		RiskReserveBasisPoints:  defaultRiskReserveBasisPoints,
-		RiskReserveProvenance:   defaultRiskReserveProvenance,
+// DefaultCostSchedule returns the governed USD reference policy and explicitly
+// names the requested settlement currency. For USD, the settlement rates are
+// exact identity. For any other currency they deliberately remain unresolved
+// until applyCostScheduleFX receives a governed CostFXAuthority; they are never
+// populated by relabeling the USD numbers.
+func DefaultCostSchedule(settlementCurrency string) CostSchedule {
+	schedule := CostSchedule{
+		Revision:                         costScheduleRevision,
+		ReferenceCurrency:                costReferenceCurrency,
+		SettlementCurrency:               settlementCurrency,
+		StorageReferenceNanosPerGiBMonth: defaultStorageNanosPerGiBMonth,
+		StorageProvenance:                defaultStorageProvenance,
+		EgressReferenceNanosPerGiB:       defaultEgressNanosPerGiB,
+		EgressProvenance:                 defaultEgressProvenance,
+		RiskReserveBasisPoints:           defaultRiskReserveBasisPoints,
+		RiskReserveProvenance:            defaultRiskReserveProvenance,
 	}
+	if settlementCurrency == costReferenceCurrency {
+		schedule.StorageNanosPerGiBMonth = schedule.StorageReferenceNanosPerGiBMonth
+		schedule.EgressNanosPerGiB = schedule.EgressReferenceNanosPerGiB
+	}
+	return schedule
 }
 
 // LoadCostScheduleFromEnv loads the cost schedule. When MERC_COST_SCHEDULE_REVISION
@@ -101,10 +163,17 @@ func DefaultCostSchedule(currency string) CostSchedule {
 // policy rather than inventing rates. An explicitly set revision that disagrees
 // with the built-in default fails closed: this process only knows the default
 // rates, and a named unknown revision must not silently substitute them.
-func LoadCostScheduleFromEnv() (CostSchedule, error) {
+func LoadCostScheduleFromEnv(fx CostFXAuthority) (CostSchedule, error) {
 	currency := SettlementCurrencyCode()
 	if currency == "" {
 		return CostSchedule{}, errors.New("cost schedule requires a configured settlement currency")
+	}
+	settlement, err := ParseCurrency(currency)
+	if err != nil {
+		return CostSchedule{}, err
+	}
+	if err := validateCostFXAuthority(fx, settlement); err != nil {
+		return CostSchedule{}, fmt.Errorf("cost schedule FX authority: %w", err)
 	}
 	schedule := DefaultCostSchedule(currency)
 	if rev := strings.TrimSpace(os.Getenv(costScheduleRevisionEnv)); rev != "" {
@@ -138,28 +207,164 @@ func LoadCostScheduleFromEnv() (CostSchedule, error) {
 					"governed default; change DefaultCostSchedule with provenance")
 		}
 	}
+	schedule, err = applyCostScheduleFX(schedule, fx)
+	if err != nil {
+		return CostSchedule{}, err
+	}
+	return schedule, nil
+}
+
+func validateCostFXAuthority(fx CostFXAuthority, settlement Currency) error {
+	if !settlement.Valid() || fx.Version != costFXAuthorityVersion ||
+		fx.ReferenceCurrency != costReferenceCurrency ||
+		fx.SettlementCurrency != settlement.Code() ||
+		fx.RoundingPolicy != costFXRoundingPolicy {
+		return errors.New("cost FX authority has unsupported version, currency pair, or rounding policy")
+	}
+	if !finiteNonNegative(fx.ReferenceToSettlementRate) ||
+		fx.ReferenceToSettlementRate <= 0 || fx.ReferenceToSettlementNanos <= 0 {
+		return errors.New("cost FX authority lacks a finite positive rate")
+	}
+	exact, err := nanoRatePerMillionFromFloat(fx.ReferenceToSettlementRate)
+	if err != nil || int64(exact) != fx.ReferenceToSettlementNanos {
+		return errors.New("cost FX display rate disagrees with exact nano authority")
+	}
+	if strings.TrimSpace(fx.FXRevision) == "" || len(fx.FXRevision) > 128 ||
+		strings.ContainsAny(fx.FXRevision, "\r\n\t") {
+		return errors.New("cost FX authority lacks a valid governed revision")
+	}
+	if fx.ReferenceCurrency == fx.SettlementCurrency {
+		if fx.ReferenceToSettlementRate != 1 ||
+			fx.ReferenceToSettlementNanos != costFXRateScale ||
+			fx.FXRevision != "identity-"+fx.ReferenceCurrency {
+			return errors.New("same-currency cost FX authority is not exact identity")
+		}
+	} else if strings.HasPrefix(fx.FXRevision, "identity-") {
+		return errors.New("cross-currency cost FX authority falsely claims identity")
+	}
+	return nil
+}
+
+// costFXAuthorityFromCatalogue closes the catalogue's governed float FX field
+// into a 1e-9 exact factor. The catalogue remains the source of truth for the
+// pair and revision; this snapshot makes later cost arithmetic integer-only.
+func costFXAuthorityFromCatalogue(catalogue CataloguePriceAuthority) (CostFXAuthority, error) {
+	if catalogue.ReferenceCurrency != costReferenceCurrency {
+		return CostFXAuthority{}, fmt.Errorf(
+			"cost policy reference currency %q is unsupported; published rates are %s",
+			catalogue.ReferenceCurrency, costReferenceCurrency,
+		)
+	}
+	settlement, err := ParseCurrency(catalogue.SettlementCurrency)
+	if err != nil || settlement.Code() != catalogue.SettlementCurrency {
+		return CostFXAuthority{}, errors.New("cost policy catalogue settlement currency is unsupported")
+	}
+	exact, err := nanoRatePerMillionFromFloat(catalogue.ReferenceToSettlementRate)
+	if err != nil || exact <= 0 {
+		return CostFXAuthority{}, errors.New("cost policy catalogue lacks an exact positive FX factor")
+	}
+	fx := CostFXAuthority{
+		Version: costFXAuthorityVersion, ReferenceCurrency: catalogue.ReferenceCurrency,
+		SettlementCurrency:         catalogue.SettlementCurrency,
+		ReferenceToSettlementRate:  catalogue.ReferenceToSettlementRate,
+		ReferenceToSettlementNanos: int64(exact), FXRevision: catalogue.FXRevision,
+		RoundingPolicy: costFXRoundingPolicy,
+	}
+	if err := validateCostFXAuthority(fx, settlement); err != nil {
+		return CostFXAuthority{}, err
+	}
+	return fx, nil
+}
+
+func validateCostFXCatalogueBinding(fx CostFXAuthority, catalogue CataloguePriceAuthority) error {
+	want, err := costFXAuthorityFromCatalogue(catalogue)
+	if err != nil {
+		return err
+	}
+	if fx != want {
+		return errors.New("frozen cost FX authority disagrees with catalogue FX authority")
+	}
+	return nil
+}
+
+func applyCostScheduleFX(schedule CostSchedule, fx CostFXAuthority) (CostSchedule, error) {
+	settlement, err := ParseCurrency(schedule.SettlementCurrency)
+	if err != nil {
+		return CostSchedule{}, err
+	}
+	if err := validateCostFXAuthority(fx, settlement); err != nil {
+		return CostSchedule{}, err
+	}
+	if schedule.ReferenceCurrency != fx.ReferenceCurrency ||
+		schedule.SettlementCurrency != fx.SettlementCurrency {
+		return CostSchedule{}, errors.New("cost schedule and FX authority currency pairs disagree")
+	}
+	storage, err := mulDiv(
+		schedule.StorageReferenceNanosPerGiBMonth,
+		fx.ReferenceToSettlementNanos, costFXRateScale, true,
+	)
+	if err != nil {
+		return CostSchedule{}, fmt.Errorf("convert storage cost rate: %w", err)
+	}
+	egress, err := mulDiv(
+		schedule.EgressReferenceNanosPerGiB,
+		fx.ReferenceToSettlementNanos, costFXRateScale, true,
+	)
+	if err != nil {
+		return CostSchedule{}, fmt.Errorf("convert egress cost rate: %w", err)
+	}
+	schedule.StorageNanosPerGiBMonth = storage
+	schedule.EgressNanosPerGiB = egress
 	if reason := validateCostSchedule(schedule); reason != "" {
 		return CostSchedule{}, fmt.Errorf("invalid cost schedule: %s", reason)
 	}
 	return schedule, nil
 }
 
+func validateCostScheduleFXBinding(schedule CostSchedule, fx CostFXAuthority) error {
+	want := schedule
+	want.StorageNanosPerGiBMonth = 0
+	want.EgressNanosPerGiB = 0
+	want, err := applyCostScheduleFX(want, fx)
+	if err != nil {
+		return err
+	}
+	if schedule.StorageNanosPerGiBMonth != want.StorageNanosPerGiBMonth ||
+		schedule.EgressNanosPerGiB != want.EgressNanosPerGiB {
+		return errors.New("cost schedule settlement rates do not match reference rates and frozen FX")
+	}
+	return nil
+}
+
 func validateCostSchedule(s CostSchedule) string {
 	if strings.TrimSpace(s.Revision) == "" {
 		return "cost schedule revision is required"
 	}
-	currency, err := ParseCurrency(s.Currency)
-	if err != nil || s.Currency != currency.Code() {
-		return "cost schedule currency must be a supported ISO settlement currency"
+	reference, err := ParseCurrency(s.ReferenceCurrency)
+	if err != nil || s.ReferenceCurrency != reference.Code() ||
+		s.ReferenceCurrency != costReferenceCurrency {
+		return "cost schedule reference currency must be canonical usd"
 	}
-	if s.StorageNanosPerGiBMonth < 0 {
-		return "storage_nanos_per_gib_month must be non-negative"
+	settlement, err := ParseCurrency(s.SettlementCurrency)
+	if err != nil || s.SettlementCurrency != settlement.Code() {
+		return "cost schedule settlement currency must be a supported canonical ISO currency"
+	}
+	if s.StorageReferenceNanosPerGiBMonth < 0 {
+		return "storage_reference_nanos_per_gib_month must be non-negative"
+	}
+	if s.StorageNanosPerGiBMonth < 0 ||
+		(s.StorageReferenceNanosPerGiBMonth > 0 && s.StorageNanosPerGiBMonth == 0) {
+		return "storage_nanos_per_gib_month must be positive when the reference rate is positive"
 	}
 	if strings.TrimSpace(s.StorageProvenance) == "" {
 		return "storage_provenance is required for every storage rate"
 	}
-	if s.EgressNanosPerGiB < 0 {
-		return "egress_nanos_per_gib must be non-negative"
+	if s.EgressReferenceNanosPerGiB < 0 {
+		return "egress_reference_nanos_per_gib must be non-negative"
+	}
+	if s.EgressNanosPerGiB < 0 ||
+		(s.EgressReferenceNanosPerGiB > 0 && s.EgressNanosPerGiB == 0) {
+		return "egress_nanos_per_gib must be positive when the reference rate is positive"
 	}
 	if strings.TrimSpace(s.EgressProvenance) == "" {
 		return "egress_provenance is required for every egress rate"
@@ -178,6 +383,154 @@ func costScheduleDigest(s CostSchedule) (string, error) {
 		return "", errors.New(reason)
 	}
 	return canonicalDigest("cost schedule", s)
+}
+
+// freezeCurrentCostPolicySnapshot is an admission-only loader. Historical
+// validation and settlement must use validateFrozenCostPolicySnapshot on the
+// snapshot already stored in the PricingDecision instead.
+func freezeCurrentCostPolicySnapshot(
+	catalogue CataloguePriceAuthority,
+	currency string,
+) (*FrozenCostPolicySnapshot, error) {
+	if parsed, err := ParseCurrency(currency); err != nil || parsed.Code() != currency {
+		return nil, errors.New("cost policy requires a supported canonical settlement currency")
+	}
+	if catalogue.SettlementCurrency != currency {
+		return nil, errors.New("cost policy catalogue and decision settlement currencies disagree")
+	}
+	fx, err := costFXAuthorityFromCatalogue(catalogue)
+	if err != nil {
+		return nil, fmt.Errorf("freeze catalogue cost FX: %w", err)
+	}
+	schedule, err := LoadCostScheduleFromEnv(fx)
+	if err != nil {
+		return nil, fmt.Errorf("load current cost schedule: %w", err)
+	}
+	if schedule.SettlementCurrency != currency {
+		return nil, fmt.Errorf(
+			"current cost schedule currency %q does not match decision currency %q",
+			schedule.SettlementCurrency, currency,
+		)
+	}
+	digest, err := costScheduleDigest(schedule)
+	if err != nil {
+		return nil, fmt.Errorf("cost schedule digest: %w", err)
+	}
+	retention := currentJobObjectRetentionPolicy()
+	if err := validateCurrentRetentionPolicyForFrozenCostVersion(
+		frozenCostPolicySnapshotVersion, retention,
+	); err != nil {
+		return nil, err
+	}
+	snapshot := &FrozenCostPolicySnapshot{
+		Version:                 frozenCostPolicySnapshotVersion,
+		Schedule:                schedule,
+		ScheduleSHA256:          digest,
+		FX:                      fx,
+		RetentionSeconds:        int64(retention.Duration / time.Second),
+		RetentionPolicyRevision: retention.Revision,
+		RetentionBasis:          retention.Basis,
+	}
+	if err := validateFrozenCostPolicySnapshot(snapshot, currency); err != nil {
+		return nil, err
+	}
+	if err := validateCostFXCatalogueBinding(snapshot.FX, catalogue); err != nil {
+		return nil, err
+	}
+	return snapshot, nil
+}
+
+func frozenCostPolicyRetentionRevision(version int) (string, bool) {
+	switch version {
+	case frozenCostPolicySnapshotVersionV1:
+		return frozenCostPolicyV1RetentionPolicyRevision, true
+	default:
+		return "", false
+	}
+}
+
+// validateCurrentRetentionPolicyForFrozenCostVersion is admission-only. It
+// prevents a developer from advancing the live retention revision while still
+// emitting v1 snapshots whose historical validator must retain v1 semantics.
+func validateCurrentRetentionPolicyForFrozenCostVersion(
+	version int,
+	retention JobObjectRetentionPolicy,
+) error {
+	want, ok := frozenCostPolicyRetentionRevision(version)
+	if !ok {
+		return fmt.Errorf("unsupported current cost policy snapshot version %d", version)
+	}
+	if retention.Revision != want {
+		return fmt.Errorf(
+			"current retention policy revision %q is incompatible with frozen cost policy v%d revision %q; bump the frozen snapshot version before admission",
+			retention.Revision, version, want,
+		)
+	}
+	return nil
+}
+
+func validateFrozenCostPolicySnapshot(snapshot *FrozenCostPolicySnapshot, currency string) error {
+	if snapshot == nil {
+		return errors.New("cost policy snapshot is required")
+	}
+	retentionRevision, ok := frozenCostPolicyRetentionRevision(snapshot.Version)
+	if !ok {
+		return fmt.Errorf("unsupported cost policy snapshot version %d", snapshot.Version)
+	}
+	if reason := validateCostSchedule(snapshot.Schedule); reason != "" {
+		return fmt.Errorf("invalid frozen cost schedule: %s", reason)
+	}
+	settlement, err := ParseCurrency(currency)
+	if err != nil || settlement.Code() != currency {
+		return errors.New("frozen cost policy settlement currency is unsupported")
+	}
+	if err := validateCostFXAuthority(snapshot.FX, settlement); err != nil {
+		return fmt.Errorf("invalid frozen cost FX authority: %w", err)
+	}
+	if snapshot.Schedule.SettlementCurrency != currency {
+		return fmt.Errorf(
+			"frozen cost schedule currency %q does not match decision currency %q",
+			snapshot.Schedule.SettlementCurrency, currency,
+		)
+	}
+	if snapshot.Schedule.ReferenceCurrency != snapshot.FX.ReferenceCurrency ||
+		snapshot.Schedule.SettlementCurrency != snapshot.FX.SettlementCurrency {
+		return errors.New("frozen cost schedule and FX authority currency pairs disagree")
+	}
+	if err := validateCostScheduleFXBinding(snapshot.Schedule, snapshot.FX); err != nil {
+		return err
+	}
+	digest, err := costScheduleDigest(snapshot.Schedule)
+	if err != nil {
+		return err
+	}
+	if !validSHA256(snapshot.ScheduleSHA256) || digest != snapshot.ScheduleSHA256 {
+		return errors.New("frozen cost schedule digest does not match its canonical body")
+	}
+	if snapshot.RetentionPolicyRevision != retentionRevision {
+		return fmt.Errorf(
+			"unsupported retention policy revision %q",
+			snapshot.RetentionPolicyRevision,
+		)
+	}
+	minimumSeconds := int64((8 * 24 * time.Hour) / time.Second)
+	maximumSeconds := int64(^uint64(0)>>1) / int64(time.Second)
+	if snapshot.RetentionSeconds < minimumSeconds ||
+		snapshot.RetentionSeconds > maximumSeconds ||
+		snapshot.RetentionSeconds%int64((24*time.Hour)/time.Second) != 0 {
+		return errors.New("frozen retention must be a representable whole-day period of at least 8 days")
+	}
+	if strings.TrimSpace(snapshot.RetentionBasis) == "" {
+		return errors.New("frozen retention basis is required")
+	}
+	return nil
+}
+
+func frozenCostPolicyRetention(snapshot *FrozenCostPolicySnapshot, currency string) (time.Duration, error) {
+	if err := validateFrozenCostPolicySnapshot(snapshot, currency); err != nil {
+		return 0, err
+	}
+	return time.Duration(snapshot.RetentionSeconds) * time.Second, nil
 }
 
 // storageNanosForBytes models object storage cost for `bytes` retained for

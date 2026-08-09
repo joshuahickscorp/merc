@@ -9,6 +9,7 @@ import (
 func realtimePricingFixture(t *testing.T) RealtimePricingInputs {
 	t.Helper()
 	installSettlementCurrencyForTest(t, "cad")
+	installRealtimeCADFXForTest(t)
 	profiles := sortedVLLMProfiles()
 	if len(profiles) == 0 {
 		t.Fatal("no realtime profile")
@@ -37,6 +38,10 @@ func TestRealtimePricingDecisionBindsExactCompositeAuthority(t *testing.T) {
 	must(t, err)
 	if decision.ExecutionMode != pricingExecutionRealtime || decision.Currency != "cad" ||
 		decision.Realtime == nil || decision.FixedPoint == nil ||
+		decision.Realtime.ReferenceCurrency != "usd" ||
+		decision.Realtime.SettlementCurrency != "cad" ||
+		decision.Realtime.FX.ReferenceToSettlementNanos != 1_370_000_000 ||
+		decision.Realtime.BuyerInputReferenceNanosPerMillion == decision.Realtime.BuyerInputNanosPerMillion ||
 		decision.FixedPoint.TrueNetContributionNanos != nil ||
 		decision.FixedPoint.KnownCostContributionNanos <= 0 ||
 		decision.FixedPoint.BuyerChargeNanos != decision.FixedPoint.SupplierEntitlementsNanos+
@@ -46,6 +51,26 @@ func TestRealtimePricingDecisionBindsExactCompositeAuthority(t *testing.T) {
 	must(t, ValidateRealtimePricingDecisionSnapshot(decision, in))
 	if digest, err := pricingDecisionDigest(decision); err != nil || !validSHA256(digest) {
 		t.Fatalf("pricing digest=(%q,%v)", digest, err)
+	}
+}
+
+func TestLegacyRealtimePricingAuthoritiesOmitFutureFXFields(t *testing.T) {
+	physical, err := json.Marshal(RealtimePricingAuthority{
+		Version: realtimePricingLegacyVersion, Currency: "cad",
+		RoundingPolicy: realtimePricingLegacyRounding,
+	})
+	must(t, err)
+	reuse, err := json.Marshal(RealtimeReusePricingAuthority{
+		Version: realtimeReusePricingLegacyVersion, Currency: "cad",
+		RoundingPolicy: realtimeReusePricingLegacyRounding,
+	})
+	must(t, err)
+	for name, raw := range map[string][]byte{"physical": physical, "reuse": reuse} {
+		if strings.Contains(string(raw), `"fx"`) ||
+			strings.Contains(string(raw), `"reference_currency"`) ||
+			strings.Contains(string(raw), `"settlement_currency"`) {
+			t.Fatalf("legacy %s authority changed its canonical JSON with future FX fields: %s", name, raw)
+		}
 	}
 }
 
@@ -60,6 +85,23 @@ func TestRealtimePricingDecisionRefusesTamperingAndCeilingBreach(t *testing.T) {
 	in.BuyerDeclaredCeiling = 0.000001
 	if _, err := newRealtimePricingDecision(in); err == nil || !strings.Contains(err.Error(), "exceeds buyer ceiling") {
 		t.Fatalf("buyer ceiling breach passed: %v", err)
+	}
+}
+
+func TestRealtimePricingDecisionPreservesExactCeilingBeyondFloatIntegerRange(t *testing.T) {
+	in := realtimePricingFixture(t)
+	const exactCeilingNanos int64 = 10_000_000_000_000_001
+	in.BuyerDeclaredCeilingReferenceNanos = exactCeilingNanos
+	in.BuyerDeclaredCeiling = float64(exactCeilingNanos) / float64(NanosPerMajorUnit)
+	decision, err := newRealtimePricingDecision(in)
+	must(t, err)
+	if decision.Realtime.BuyerDeclaredCeilingReferenceNanos != exactCeilingNanos {
+		t.Fatalf("exact USD ceiling crossed a float round trip: got=%d want=%d",
+			decision.Realtime.BuyerDeclaredCeilingReferenceNanos, exactCeilingNanos)
+	}
+	in.BuyerDeclaredCeiling++
+	if _, err := newRealtimePricingDecision(in); err == nil || !strings.Contains(err.Error(), "disagree") {
+		t.Fatalf("inconsistent ceiling float projection was accepted: %v", err)
 	}
 }
 
@@ -91,10 +133,15 @@ func TestAttachRealtimeContractPricingRefusesDigestAndLegacyAuthorityDrift(t *te
 	must(t, err)
 	expected, maximum, err := realtimePricingLegacyProjection(decision)
 	must(t, err)
+	placementSHA, err := realtimePlacementPlanDigest(in.Placement)
+	must(t, err)
 	contract := RealtimeContract{
 		RuntimeProfileID: in.Profile.RuntimeProfileID, RuntimeProfileSHA256: in.Profile.ProfileSHA256,
 		InputCommitment: in.InputCommitment, RequestSHA256: in.RequestSHA256,
-		PlacementPlan: in.Placement, MaximumPriceUSD: maximum, EstimatedPriceUSD: expected,
+		PlacementPlan: in.Placement, PlacementPlanSHA256: placementSHA,
+		MaximumPriceUSD: maximum, EstimatedPriceUSD: expected,
+		BuyerInputUSDPerMillionTokens:     in.Profile.BuyerInputUSDPerMillionTokens,
+		BuyerOutputUSDPerMillionTokens:    in.Profile.BuyerOutputUSDPerMillionTokens,
 		SupplierInputUSDPerMillionTokens:  in.SupplierInputRate,
 		SupplierOutputUSDPerMillionTokens: in.SupplierOutputRate,
 		MaximumPromptTokens:               in.MaximumPromptTokens, MaximumCompletionTokens: in.MaximumCompletionTokens,
@@ -104,6 +151,14 @@ func TestAttachRealtimeContractPricingRefusesDigestAndLegacyAuthorityDrift(t *te
 	}
 	if err := attachRealtimeContractPricing(&contract, raw); err != nil || contract.Pricing == nil {
 		t.Fatalf("valid frozen realtime authority did not attach: pricing=%v err=%v", contract.Pricing, err)
+	}
+	// Historical replay must use the frozen FX/profile digest, not today's
+	// operator rate. A later current rate cannot rewrite accepted money.
+	t.Setenv(priceFXRateEnv, "1.99")
+	t.Setenv(priceFXRevisionEnv, "later-rate-must-not-reprice-history")
+	contract.Pricing = nil
+	if err := attachRealtimeContractPricing(&contract, raw); err != nil {
+		t.Fatalf("historical realtime authority depended on current FX: %v", err)
 	}
 	contract.Pricing = nil
 	contract.PricingDecisionSHA256 = strings.Repeat("f", 64)

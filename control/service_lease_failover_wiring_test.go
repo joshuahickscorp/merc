@@ -13,7 +13,7 @@ import (
 // suppliers for their own intervals. Before FailoverPendingServiceLeases was
 // wired into recoverServiceLeases this path required a test-only direct call.
 func TestRecoverServiceLeasesSweepFailsoverToReplacement(t *testing.T) {
-	installSettlementCurrencyForTest(t, "cad")
+	installSettlementCurrencyForTest(t, "usd")
 	ctx, store, pool := openIsolatedTestStore(t)
 	buyerID := uuid.New()
 	if _, err := pool.Exec(ctx, `INSERT INTO buyers (id,email) VALUES ($1,$2)`,
@@ -29,7 +29,7 @@ func TestRecoverServiceLeasesSweepFailsoverToReplacement(t *testing.T) {
 	primaryOffer.Region = region
 	must(t, store.UpsertServiceLeaseOffer(ctx, primary, primaryOffer))
 	lease, err := store.CreateServiceLease(ctx, buyerID, ServiceLeaseRequest{
-		RuntimeProfileID: profile.RuntimeProfileID, Region: region,
+		RuntimeProfileID: profile.RuntimeProfileID, Region: region, Currency: "usd",
 		MinimumReplicas: 1, MaximumReplicas: 1, TermSeconds: 120, MaximumP95LatencyMilliseconds: 500,
 		BuyerDeclaredCeilingNanos: 135_000_000,
 	})
@@ -114,7 +114,7 @@ func TestRecoverServiceLeasesSweepFailsoverToReplacement(t *testing.T) {
 // When no replacement clears the frozen ceiling, the sweep must terminate the
 // lease and release the prepaid reservation rather than holding it to expires_at.
 func TestRecoverServiceLeasesSweepTerminatesWhenNoReplacement(t *testing.T) {
-	installSettlementCurrencyForTest(t, "cad")
+	installSettlementCurrencyForTest(t, "usd")
 	ctx, store, pool := openIsolatedTestStore(t)
 	buyerID := uuid.New()
 	if _, err := pool.Exec(ctx, `INSERT INTO buyers (id,email) VALUES ($1,$2)`,
@@ -134,7 +134,7 @@ func TestRecoverServiceLeasesSweepTerminatesWhenNoReplacement(t *testing.T) {
 	// pushed forward so the bug under test (holding reserve until term end)
 	// would still have days of residual reservation without termination.
 	lease, err := store.CreateServiceLease(ctx, buyerID, ServiceLeaseRequest{
-		RuntimeProfileID: profile.RuntimeProfileID, Region: region,
+		RuntimeProfileID: profile.RuntimeProfileID, Region: region, Currency: "usd",
 		MinimumReplicas: 1, MaximumReplicas: 1, TermSeconds: 120, MaximumP95LatencyMilliseconds: 500,
 		BuyerDeclaredCeilingNanos: 135_000_000,
 	})

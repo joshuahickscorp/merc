@@ -1,6 +1,7 @@
 package main
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -9,7 +10,7 @@ import (
 )
 
 // chargeBatchEconomicSchedule is the modern economic schedule that freezes
-// fixed-point pricing (true net lives there).
+// fixed-point accepted pricing. Final true net lives in ContributionSettlement.
 func chargeBatchEconomicSchedule(t *testing.T) EconomicSchedule {
 	t.Helper()
 	return EconomicSchedule{
@@ -27,7 +28,8 @@ func chargeBatchEconomicSchedule(t *testing.T) EconomicSchedule {
 
 // trueNetDistributedFixture builds a distributed pricing decision under the
 // cost schedule on community (non-cloud) supply so provider is not_applicable
-// and true net is reachable.
+// and accepted known-cost contribution is reachable. Runtime-cell unknowns still
+// prevent acceptance from masquerading as final settlement.
 func trueNetDistributedFixture(t *testing.T) (
 	WorkloadDecision, ComputePlan, PlacementRequirement, EconomicPlan, PricingDecision, CostSchedule,
 ) {
@@ -91,7 +93,7 @@ func reloadSettlementCurrencyForTest() error {
 	return nil
 }
 
-func TestTrueNetCommunitySupplyPopulatesExactContribution(t *testing.T) {
+func TestDistributedAcceptancePublishesKnownCostContributionButNotSettlement(t *testing.T) {
 	_, _, _, economic, pricing, _ := trueNetDistributedFixture(t)
 
 	if pricing.CostScheduleSHA256 == "" {
@@ -133,11 +135,13 @@ func TestTrueNetCommunitySupplyPopulatesExactContribution(t *testing.T) {
 		t.Fatalf("supplier leg %d != plan entitlement %d × %d tasks",
 			fixed.SupplierEntitlementsNanos, economic.SupplierPayoutPerTaskNanos, scenario.AcceptedTasks)
 	}
-	if len(fixed.UnknownCostCategories) != 0 {
-		t.Fatalf("unknown categories remain: %v", fixed.UnknownCostCategories)
+	if len(fixed.UnknownCostCategories) == 0 ||
+		!strings.HasPrefix(fixed.UnknownCostCategories[0], "runtime cell:") {
+		t.Fatalf("runtime-cell blockers did not reach fixed-point acceptance: %v",
+			fixed.UnknownCostCategories)
 	}
-	if fixed.TrueNetContributionNanos == nil {
-		t.Fatal("true net contribution is nil on community supply")
+	if fixed.TrueNetContributionNanos != nil {
+		t.Fatal("accepted forecast published a true-net settlement number")
 	}
 	// Exact integer identity:
 	// true_net = buyer - supplier - processor - control - storage - egress - provider - risk
@@ -152,17 +156,19 @@ func TestTrueNetCommunitySupplyPopulatesExactContribution(t *testing.T) {
 		fixed.SupplierEntitlementsNanos -
 		toNanos(pricing.PaymentCost) -
 		toNanos(pricing.ControlPlaneCost) -
-		toNanos(pricing.StorageCost) -
-		toNanos(pricing.EgressCost) -
+		pricing.StorageAcceptedNanos -
+		pricing.EgressAcceptedNanos -
 		toNanos(pricing.ProviderCost) -
-		toNanos(pricing.RiskReserve)
-	if *fixed.TrueNetContributionNanos != want {
-		t.Fatalf("true net %d != buyer-supplier-costs %d (fixed=%+v)",
-			*fixed.TrueNetContributionNanos, want, fixed)
+		pricing.RiskReserveAcceptedNanos
+	if fixed.KnownCostContributionNanos != want {
+		t.Fatalf("accepted known-cost contribution %d != buyer-supplier-known-costs %d (fixed=%+v)",
+			fixed.KnownCostContributionNanos, want, fixed)
 	}
-	if *fixed.TrueNetContributionNanos != fixed.KnownCostContributionNanos {
-		t.Fatalf("true net %d != known contribution %d",
-			*fixed.TrueNetContributionNanos, fixed.KnownCostContributionNanos)
+	forecast, err := acceptedForecastContributionSettlement("quote", "q_test", pricing)
+	mustf(t, err, "accepted contribution forecast: %v")
+	if forecast.Stage != ContributionStageAcceptedForecast || forecast.TrueNetNanos != nil ||
+		forecast.AcceptedKnownCostContributionNanos != want {
+		t.Fatalf("quote forecast crossed the settlement boundary: %+v", forecast)
 	}
 	t.Logf("WORKED EXAMPLE (community supply, exact plan nanos):")
 	t.Logf("  plan supplier_payout_per_task_nanos = %d", economic.SupplierPayoutPerTaskNanos)
@@ -173,12 +179,12 @@ func TestTrueNetCommunitySupplyPopulatesExactContribution(t *testing.T) {
 		fixed.SupplierEntitlementsNanos, wantSupplier)
 	t.Logf("  payment (processor) nanos           = %d", toNanos(pricing.PaymentCost))
 	t.Logf("  control_plane nanos                 = %d", toNanos(pricing.ControlPlaneCost))
-	t.Logf("  storage nanos (status=%s)           = %d", pricing.StorageCost.Status, toNanos(pricing.StorageCost))
-	t.Logf("  egress nanos (status=%s)            = %d", pricing.EgressCost.Status, toNanos(pricing.EgressCost))
+	t.Logf("  storage nanos (status=%s)           = %d", pricing.StorageCost.Status, pricing.StorageAcceptedNanos)
+	t.Logf("  egress nanos (status=%s)            = %d", pricing.EgressCost.Status, pricing.EgressAcceptedNanos)
 	t.Logf("  provider nanos (status=%s)          = %d", pricing.ProviderCost.Status, toNanos(pricing.ProviderCost))
-	t.Logf("  risk_reserve nanos                  = %d", toNanos(pricing.RiskReserve))
+	t.Logf("  risk_reserve nanos                  = %d", pricing.RiskReserveAcceptedNanos)
 	t.Logf("  known_variable_costs_nanos          = %d", fixed.KnownVariableCostsNanos)
-	t.Logf("  true_net_contribution_nanos         = %d", *fixed.TrueNetContributionNanos)
+	t.Logf("  accepted_known_cost_contribution    = %d", fixed.KnownCostContributionNanos)
 	t.Logf("  conservation: buyer(%d) = supplier(%d) + variable(%d) + contribution(%d)",
 		fixed.BuyerChargeNanos, fixed.SupplierEntitlementsNanos,
 		fixed.KnownVariableCostsNanos, fixed.KnownCostContributionNanos)
@@ -319,73 +325,42 @@ func TestModeledCostOmittedFromKnownVariableCostsIsRefused(t *testing.T) {
 	if err == nil {
 		t.Fatal("modeled storage left out of KnownVariableCostsNanos was accepted")
 	}
-	if !strings.Contains(err.Error(), "not accounted for in KnownVariableCostsNanos") {
+	if !strings.Contains(err.Error(), "does not conserve fixed-point known variable costs") {
 		t.Fatalf("error not greppable: %v", err)
 	}
 }
 
-func TestRiskReserveAccrueReleaseConsumeLedgerBalances(t *testing.T) {
-	ctx, store, pool := openIsolatedMoneyPathStore(t)
-	jobID := uuid.New()
-	buyerID := uuid.New()
-	// Minimal job row for FK.
-	if _, err := pool.Exec(ctx, `
-		INSERT INTO buyers (id, email) VALUES ($1, $2)
-		ON CONFLICT DO NOTHING`, buyerID, "risk-reserve-"+buyerID.String()+"@test.local"); err != nil {
-		// buyers schema may differ; try jobs-only path via existing fixture helper.
-		t.Logf("buyer insert: %v", err)
-	}
-	// Use a pricing decision with a modeled risk reserve.
-	pricing := PricingDecision{
-		Currency:           "usd",
-		CostScheduleSHA256: strings.Repeat("c", 64),
-		RiskReserve:        modeledCost(0.05, "test risk reserve"),
-	}
-	// Insert job if the table requires it for nothing — accrual uses payout_ref only.
-	// Accrue.
-	if err := store.AccrueRiskReserveAtSettlement(ctx, jobID, pricing); err != nil {
-		// May need release_at form; try the Tx helper against the pool.
-		if err2 := AccrueRiskReserveAtSettlementTx(ctx, pool, jobID, pricing); err2 != nil {
-			t.Fatalf("accrue: %v / %v", err, err2)
-		}
-	}
-	bal, err := store.RiskReserveBalanceMicros(ctx, jobID)
-	mustf(t, err, "balance after accrue: %v")
-	if bal != usdToMicros(0.05) {
-		t.Fatalf("balance after accrue = %d, want %d", bal, usdToMicros(0.05))
+func TestContributionSettlementUsesCausalRiskReserveFinality(t *testing.T) {
+	facts := canonicalContributionFacts(t, "usd")
+	facts.Pricing.RiskReserve = modeledCost(0.05, "accepted reserve forecast")
+	facts.Pricing.FixedPoint.KnownVariableCostsNanos += 50_000_000
+	facts.Pricing.FixedPoint.KnownCostContributionNanos -= 50_000_000
+	accepted := facts.Pricing.FixedPoint.KnownCostContributionNanos
+	facts.Pricing.FixedPoint.TrueNetContributionNanos = &accepted
+	facts.Pricing.PlatformContribution = modeledCost(0.4, "accepted reserve-adjusted contribution")
+	pricingSHA, err := pricingDecisionDigest(facts.Pricing)
+	must(t, err)
+	facts.PricingSHA256 = pricingSHA
+	facts.RiskCanonical = true
+	facts.RiskAccrualNanos = 50_000_000
+	facts.RiskHeldNanos = 50_000_000
+
+	held, err := reduceContributionJobFacts(uuid.New(), facts)
+	must(t, err)
+	if held.Stage != ContributionStageProvisionalSettlement || held.TrueNetNanos != nil ||
+		!strings.Contains(strings.Join(held.Blockers, " "), "lifecycle remains open") {
+		t.Fatalf("held reserve did not block final contribution: %+v", held)
 	}
 
-	// Release before window must fail.
-	if err := store.ReleaseRiskReserveAfterDisputeWindow(ctx, jobID, time.Now()); err == nil {
-		// AccrueRiskReserveAtSettlement (non-Tx) may not set release_at; the Tx form does.
-		// If release succeeded without release_at, check whether release_at was null.
-		t.Log("release before window succeeded — checking release_at was unset path")
+	facts.RiskHeldNanos = 0
+	facts.RiskReleaseNanos = 50_000_000
+	released, err := reduceContributionJobFacts(uuid.New(), facts)
+	must(t, err)
+	if released.Stage != ContributionStageFinalSettlement || released.TrueNetNanos == nil ||
+		*released.TrueNetNanos != 450_000_000 || released.RiskReserve.AmountNanos == nil ||
+		*released.RiskReserve.AmountNanos != 0 {
+		t.Fatalf("released reserve did not close at zero actual cost: %+v", released)
 	}
-
-	// Force release_at into the past and release.
-	if _, err := pool.Exec(ctx, `
-		UPDATE ledger_entries SET release_at = now() - interval '1 hour'
-		 WHERE payout_ref = $1`, riskReserveAccrualRef(jobID)); err != nil {
-		t.Fatalf("backdate release_at: %v", err)
-	}
-	mustf(t, store.ReleaseRiskReserveAfterDisputeWindow(ctx, jobID, time.Now()), "release after window: %v")
-	bal, err = store.RiskReserveBalanceMicros(ctx, jobID)
-	mustf(t, err, "balance after release: %v")
-	if bal != 0 {
-		t.Fatalf("balance after release = %d, want 0", bal)
-	}
-
-	// Fresh job for consume path.
-	job2 := uuid.New()
-	mustf(t, AccrueRiskReserveAtSettlementTx(ctx, pool, job2, pricing), "accrue job2: %v")
-	mustf(t, store.ConsumeRiskReserveOnRefund(ctx, job2), "consume: %v")
-	bal, err = store.RiskReserveBalanceMicros(ctx, job2)
-	mustf(t, err, "balance after consume: %v")
-	if bal != 0 {
-		t.Fatalf("balance after consume = %d, want 0", bal)
-	}
-	// Double-consume is idempotent (same payout_ref).
-	mustf(t, store.ConsumeRiskReserveOnRefund(ctx, job2), "idempotent consume: %v")
 }
 
 func TestHistoricalDecisionWithUnknownsKeepsTrueNetUnavailable(t *testing.T) {
@@ -439,10 +414,24 @@ func TestHistoricalDecisionWithUnknownsKeepsTrueNetUnavailable(t *testing.T) {
 	}
 }
 
+func identityCostCatalogueAndFX(t *testing.T) (CataloguePriceAuthority, CostFXAuthority) {
+	t.Helper()
+	catalogue := CataloguePriceAuthority{
+		ReferenceCurrency:         costReferenceCurrency,
+		SettlementCurrency:        "usd",
+		ReferenceToSettlementRate: 1,
+		FXRevision:                "identity-usd",
+	}
+	fx, err := costFXAuthorityFromCatalogue(catalogue)
+	mustf(t, err, "build identity cost FX fixture: %v")
+	return catalogue, fx
+}
+
 func TestStorageEgressSettleFromActualBytesBesideAcceptedBound(t *testing.T) {
 	schedule := DefaultCostSchedule("usd")
 	digest, err := costScheduleDigest(schedule)
 	must(t, err)
+	catalogue, fx := identityCostCatalogueAndFX(t)
 	retention := 30 * 24 * time.Hour
 	acceptedStorage, acceptedEgress := int64(10*BytesPerGiB), int64(1*BytesPerGiB)
 	storageAcceptedNanos, err := storageNanosForBytes(schedule, acceptedStorage, retention)
@@ -450,16 +439,30 @@ func TestStorageEgressSettleFromActualBytesBesideAcceptedBound(t *testing.T) {
 	egressAcceptedNanos, err := egressNanosForBytes(schedule, acceptedEgress)
 	must(t, err)
 	pricing := PricingDecision{
+		Currency:             "usd",
+		Catalogue:            catalogue,
 		CostScheduleSHA256:   digest,
+		CostScheduleRevision: schedule.Revision,
+		CostPolicy: &FrozenCostPolicySnapshot{
+			Version:                 frozenCostPolicySnapshotVersion,
+			Schedule:                schedule,
+			ScheduleSHA256:          digest,
+			FX:                      fx,
+			RetentionSeconds:        int64(retention / time.Second),
+			RetentionPolicyRevision: jobObjectRetentionPolicyRevision,
+			RetentionBasis:          defaultJobObjectRetentionBasis,
+		},
 		StorageAcceptedBytes: acceptedStorage,
 		EgressAcceptedBytes:  acceptedEgress,
+		StorageAcceptedNanos: storageAcceptedNanos,
+		EgressAcceptedNanos:  egressAcceptedNanos,
 		StorageCost:          modeledCost(nanosToEconomicUSD(storageAcceptedNanos), "accepted bound"),
 		EgressCost:           modeledCost(nanosToEconomicUSD(egressAcceptedNanos), "accepted bound"),
 	}
 	// Actuals are half the bound.
 	actualStorage, actualEgress := acceptedStorage/2, acceptedEgress/2
 	actuals, err := settleStorageEgressFromBytes(
-		schedule, pricing, actualStorage, actualEgress, retention, time.Now(),
+		pricing, actualStorage, actualEgress, time.Now(),
 	)
 	must(t, err)
 	if actuals.StorageAcceptedBytes != acceptedStorage || actuals.EgressAcceptedBytes != acceptedEgress {
@@ -480,9 +483,96 @@ func TestStorageEgressSettleFromActualBytesBesideAcceptedBound(t *testing.T) {
 	bad := pricing
 	bad.CostScheduleSHA256 = strings.Repeat("f", 64)
 	if _, err := settleStorageEgressFromBytes(
-		schedule, bad, actualStorage, actualEgress, retention, time.Now(),
+		bad, actualStorage, actualEgress, time.Now(),
 	); err == nil {
 		t.Fatal("settlement accepted a mismatched cost schedule digest")
+	}
+}
+
+func TestFrozenCostSettlementPersistsIdempotentlyAcrossConfigChange(t *testing.T) {
+	installSettlementCurrencyForTest(t, "cad")
+	t.Setenv(costScheduleRevisionEnv, "")
+	ctx, store, pool := openIsolatedTestStore(t)
+	buyerID, jobID := uuid.New(), uuid.New()
+	mustf(t, pool.QueryRow(ctx, `
+		INSERT INTO buyers (id,email)
+		VALUES ($1,$2)
+		RETURNING id`, buyerID, "cost-policy-"+buyerID.String()+"@example.invalid").
+		Scan(&buyerID), "insert cost-policy buyer: %v")
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO jobs
+		  (id,buyer_id,status,job_type,tier,input_ref,output_ref,created_at,terminal_at)
+		VALUES ($1,$2,'complete','embed','batch','cost/input','cost/output',now(),now())`,
+		jobID, buyerID); err != nil {
+		t.Fatalf("insert cost-policy job: %v", err)
+	}
+
+	catalogue := CataloguePriceAuthority{
+		ReferenceCurrency: costReferenceCurrency, SettlementCurrency: "cad",
+		ReferenceToSettlementRate: 1.375, FXRevision: "test-cad-cost-persistence",
+	}
+	fx, err := costFXAuthorityFromCatalogue(catalogue)
+	mustf(t, err, "build CAD persistence FX: %v")
+	schedule, err := LoadCostScheduleFromEnv(fx)
+	mustf(t, err, "load CAD persistence schedule: %v")
+	digest, err := costScheduleDigest(schedule)
+	must(t, err)
+	retention := 30 * 24 * time.Hour
+	storageAcceptedNanos, err := storageNanosForBytes(
+		schedule, 4*BytesPerGiB, retention,
+	)
+	must(t, err)
+	egressAcceptedNanos, err := egressNanosForBytes(schedule, BytesPerGiB)
+	must(t, err)
+	pricing := PricingDecision{
+		Currency:             "cad",
+		Catalogue:            catalogue,
+		CostScheduleSHA256:   digest,
+		CostScheduleRevision: schedule.Revision,
+		CostPolicy: &FrozenCostPolicySnapshot{
+			Version:                 frozenCostPolicySnapshotVersion,
+			Schedule:                schedule,
+			ScheduleSHA256:          digest,
+			FX:                      fx,
+			RetentionSeconds:        int64(retention / time.Second),
+			RetentionPolicyRevision: jobObjectRetentionPolicyRevision,
+			RetentionBasis:          defaultJobObjectRetentionBasis,
+		},
+		StorageAcceptedBytes: 4 * BytesPerGiB,
+		EgressAcceptedBytes:  BytesPerGiB,
+		StorageAcceptedNanos: storageAcceptedNanos,
+		EgressAcceptedNanos:  egressAcceptedNanos,
+		StorageCost: modeledCost(
+			nanosToEconomicUSD(storageAcceptedNanos), "accepted storage bound"),
+		EgressCost: modeledCost(
+			nanosToEconomicUSD(egressAcceptedNanos), "accepted egress bound"),
+	}
+	now := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
+	accepted, err := settleStorageEgressFromBytes(
+		pricing, 2*BytesPerGiB, BytesPerGiB/2, now,
+	)
+	mustf(t, err, "settle frozen cost policy: %v")
+	mustf(t, store.PersistCostSettlementActuals(ctx, jobID, accepted),
+		"persist frozen cost settlement: %v")
+
+	t.Setenv(costScheduleRevisionEnv, "cost-schedule-future")
+	t.Setenv("MERC_JOB_OBJECT_RETENTION_DAYS", "8")
+	t.Setenv(priceFXRateEnv, "1.99")
+	t.Setenv(priceFXRevisionEnv, "future-cad-fx")
+	replayed, err := settleStorageEgressFromBytes(
+		pricing, 2*BytesPerGiB, BytesPerGiB/2, now,
+	)
+	mustf(t, err, "replay frozen cost settlement: %v")
+	if !reflect.DeepEqual(accepted, replayed) {
+		t.Fatalf("persisted cost settlement moved under current config:\n accepted=%+v\n replayed=%+v",
+			accepted, replayed)
+	}
+	mustf(t, store.PersistCostSettlementActuals(ctx, jobID, replayed),
+		"idempotently persist replayed cost settlement: %v")
+	stored, err := store.LoadCostSettlementActuals(ctx, jobID)
+	mustf(t, err, "load frozen cost settlement: %v")
+	if stored == nil || !reflect.DeepEqual(*stored, accepted) {
+		t.Fatalf("stored frozen cost settlement=%+v, want %+v", stored, accepted)
 	}
 }
 

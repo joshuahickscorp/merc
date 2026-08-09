@@ -19,10 +19,49 @@ import (
 func serviceLeaseOffer(profile VLLMRuntimeProfile) ServiceLeaseOfferRegistration {
 	return ServiceLeaseOfferRegistration{
 		RuntimeProfileID: profile.RuntimeProfileID, RuntimeProfileSHA256: profile.ProfileSHA256,
-		Region: "ca-central-1", MaximumWarmReplicas: 3, AvailableWarmReplicas: 3,
+		Region: "ca-central-1", Currency: "usd", MaximumWarmReplicas: 3, AvailableWarmReplicas: 3,
 		SupplierNanosPerReplicaHour: 2_000_000_000, ResidencyNanosPerReplicaHour: 200_000_000,
 		SupportsRollingUpgrade: true, P95LatencyMillis: 200, LatencyMeasurementCount: 5,
 		LatencyWindowSeconds: 15, LatencyMeasurementKind: "DATA_PLANE_COMPLETIONS_V1", Status: "READY",
+	}
+}
+
+func TestServiceLeaseUnboundLegacyOfferCannotClearUSDOrder(t *testing.T) {
+	installSettlementCurrencyForTest(t, "usd")
+	ctx, store, pool := openPayoutTestStore(t)
+	profile := sortedVLLMProfiles()[0]
+	worker, _ := newFabricMeasurementWorker(t, ctx, store)
+	seedMeasuredWarmResidency(t, ctx, pool, worker.WorkerID, profile.ModelAlias)
+	offer := serviceLeaseOffer(profile)
+	offer.Region = "ca-unbound-" + uuid.NewString()
+	must(t, store.UpsertServiceLeaseOffer(ctx, worker, offer))
+	// NULL is the migration quarantine for rows whose pre-currency offer cannot
+	// prove whether its nanos were USD or a deployment's former settlement unit.
+	// A quarantined offer cannot remain READY or be promoted back to READY until
+	// the current agent re-registers an explicit USD rate.
+	if _, err := pool.Exec(ctx, `UPDATE service_lease_worker_offers
+		SET status='DRAINING',currency=NULL
+		WHERE worker_id=$1 AND runtime_profile_id=$2 AND region=$3`,
+		worker.WorkerID, profile.RuntimeProfileID, offer.Region); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE service_lease_worker_offers SET status='READY'
+		WHERE worker_id=$1 AND runtime_profile_id=$2 AND region=$3`,
+		worker.WorkerID, profile.RuntimeProfileID, offer.Region); err == nil {
+		t.Fatal("unbound legacy offer was promoted to READY without explicit USD currency")
+	}
+	buyerID := uuid.New()
+	if _, err := pool.Exec(ctx, `INSERT INTO buyers (id,email) VALUES ($1,$2)`,
+		buyerID, buyerID.String()+"@service-unbound.invalid"); err != nil {
+		t.Fatal(err)
+	}
+	_, err := store.CreateServiceLease(ctx, buyerID, ServiceLeaseRequest{
+		RuntimeProfileID: profile.RuntimeProfileID, Region: offer.Region, Currency: "usd",
+		MinimumReplicas: 1, MaximumReplicas: 1, TermSeconds: 60,
+		MaximumP95LatencyMilliseconds: 500, BuyerDeclaredCeilingNanos: 135_000_000,
+	})
+	if !errors.Is(err, errRealtimeNoSupply) {
+		t.Fatalf("unbound legacy offer cleared a USD buyer order: %v", err)
 	}
 }
 
@@ -62,7 +101,7 @@ func seedMeasuredWarmResidency(t *testing.T, ctx context.Context, pool *pgxpool.
 }
 
 func TestServiceLeaseMarketClearingReceiptBindsLiveOfferBook(t *testing.T) {
-	installSettlementCurrencyForTest(t, "cad")
+	installSettlementCurrencyForTest(t, "usd")
 	ctx, store, pool := openPayoutTestStore(t)
 	profile := sortedVLLMProfiles()[0]
 	buyerID := uuid.New()
@@ -81,7 +120,7 @@ func TestServiceLeaseMarketClearingReceiptBindsLiveOfferBook(t *testing.T) {
 	secondOffer.SupplierNanosPerReplicaHour += 100_000_000
 	must(t, store.UpsertServiceLeaseOffer(ctx, first, firstOffer))
 	must(t, store.UpsertServiceLeaseOffer(ctx, second, secondOffer))
-	request := ServiceLeaseRequest{RuntimeProfileID: profile.RuntimeProfileID, Region: region,
+	request := ServiceLeaseRequest{RuntimeProfileID: profile.RuntimeProfileID, Region: region, Currency: "usd",
 		MinimumReplicas: 1, MaximumReplicas: 1, TermSeconds: 60, MaximumP95LatencyMilliseconds: 500,
 		BuyerDeclaredCeilingNanos: 135_000_000}
 	lease, err := store.CreateServiceLease(ctx, buyerID, request)
@@ -106,7 +145,7 @@ func TestServiceLeaseMarketClearingReceiptBindsLiveOfferBook(t *testing.T) {
 }
 
 func TestServiceLeaseOfferRefreshCannotRaceCapacityReservation(t *testing.T) {
-	installSettlementCurrencyForTest(t, "cad")
+	installSettlementCurrencyForTest(t, "usd")
 	ctx, store, pool := openPayoutTestStore(t)
 	profile := sortedVLLMProfiles()[0]
 	worker, _ := newFabricMeasurementWorker(t, ctx, store)
@@ -125,7 +164,7 @@ func TestServiceLeaseOfferRefreshCannotRaceCapacityReservation(t *testing.T) {
 		// accidental funding shortage, is what this test is measuring.
 		must(t, store.SeedPrepaidBalance(ctx, buyerID, 1_000_000, "service-race-"+buyerID.String()))
 	}
-	request := ServiceLeaseRequest{RuntimeProfileID: profile.RuntimeProfileID, Region: offer.Region,
+	request := ServiceLeaseRequest{RuntimeProfileID: profile.RuntimeProfileID, Region: offer.Region, Currency: "usd",
 		MinimumReplicas: 1, MaximumReplicas: 1, TermSeconds: 60, MaximumP95LatencyMilliseconds: 500,
 		BuyerDeclaredCeilingNanos: 135_000_000}
 
@@ -173,7 +212,7 @@ func TestServiceLeaseOfferRefreshCannotRaceCapacityReservation(t *testing.T) {
 }
 
 func TestServiceLeaseRequiresCollectedPrepaidCashAndFreezesItsMaximum(t *testing.T) {
-	installSettlementCurrencyForTest(t, "cad")
+	installSettlementCurrencyForTest(t, "usd")
 	ctx, store, pool := openPayoutTestStore(t)
 	buyerID := uuid.New()
 	// The legacy grant is intentionally generous: if this path ever starts
@@ -187,13 +226,13 @@ func TestServiceLeaseRequiresCollectedPrepaidCashAndFreezesItsMaximum(t *testing
 	offer := serviceLeaseOffer(profile)
 	offer.Region = "ca-prepaid-" + uuid.NewString()
 	must(t, store.UpsertServiceLeaseOffer(ctx, worker, offer))
-	request := ServiceLeaseRequest{RuntimeProfileID: profile.RuntimeProfileID, Region: offer.Region,
+	request := ServiceLeaseRequest{RuntimeProfileID: profile.RuntimeProfileID, Region: offer.Region, Currency: "usd",
 		MinimumReplicas: 1, MaximumReplicas: 3, TermSeconds: 60, MaximumP95LatencyMilliseconds: 500,
 		BuyerDeclaredCeilingNanos: 135_000_000}
-	pricing, err := newServiceLeasePricingDecision(serviceLeasePricingInputs(profile, MustParseCurrency("cad"), request,
+	pricing, err := newServiceLeasePricingDecision(serviceLeasePricingInputs(profile, MustParseCurrency("usd"), request,
 		offer.SupplierNanosPerReplicaHour, offer.ResidencyNanosPerReplicaHour))
 	must(t, err)
-	reserve, err := LedgerMicrosFromNanos(MoneyNanos{Currency: MustParseCurrency("cad"), Nanos: pricing.FixedPoint.AcceptedCeilingNanos})
+	reserve, err := LedgerMicrosFromNanos(MoneyNanos{Currency: MustParseCurrency("usd"), Nanos: pricing.FixedPoint.AcceptedCeilingNanos})
 	if err != nil || reserve <= 1 {
 		t.Fatalf("service reserve=%d err=%v", reserve, err)
 	}
@@ -215,8 +254,8 @@ func TestServiceLeaseRequiresCollectedPrepaidCashAndFreezesItsMaximum(t *testing
 	}
 }
 
-func TestServiceLeaseCADBuyerAndWorkerPathUsesFrozenPricingAndCumulativeMetering(t *testing.T) {
-	installSettlementCurrencyForTest(t, "cad")
+func TestServiceLeaseUSDBuyerAndWorkerPathUsesFrozenPricingAndCumulativeMetering(t *testing.T) {
+	installSettlementCurrencyForTest(t, "usd")
 	// RecoverServiceLeases and FinalizeExpiredServiceLeases are platform-wide
 	// sweeps. A shared suite database can contain another expired fixture under
 	// -race, which would make the returned count unrelated to this test's one
@@ -252,7 +291,7 @@ func TestServiceLeaseCADBuyerAndWorkerPathUsesFrozenPricingAndCumulativeMetering
 	if got := post("/v1/worker/service-leases/offers", workerToken, offer).Code; got != http.StatusOK {
 		t.Fatalf("offer registration status=%d", got)
 	}
-	request := ServiceLeaseRequest{RuntimeProfileID: profile.RuntimeProfileID, Region: offer.Region,
+	request := ServiceLeaseRequest{RuntimeProfileID: profile.RuntimeProfileID, Region: offer.Region, Currency: "usd",
 		MinimumReplicas: 1, MaximumReplicas: 3, TermSeconds: 60, MaximumP95LatencyMilliseconds: 500,
 		BuyerDeclaredCeilingNanos: 135_000_000}
 	tooStrict := request
@@ -268,7 +307,8 @@ func TestServiceLeaseCADBuyerAndWorkerPathUsesFrozenPricingAndCumulativeMetering
 	must(t, json.Unmarshal(created.Body.Bytes(), &lease))
 	if lease.Pricing.ExecutionMode != pricingExecutionServiceLease || lease.Pricing.FixedPoint == nil ||
 		lease.Pricing.FixedPoint.AcceptedCeilingNanos != request.BuyerDeclaredCeilingNanos || lease.ActiveReplicas != 1 ||
-		lease.ReservedBuyerMicros != 135_000 {
+		lease.ReservedBuyerMicros != 135_000 || lease.PricingAcceptanceID == nil ||
+		*lease.PricingAcceptanceID != lease.ID || lease.PricingAuthoritySource != serviceLeasePricingSourceAcceptance {
 		t.Fatalf("lease lost frozen pricing/capacity authority: %+v", lease)
 	}
 	// The agent refreshes this offer continuously. Its static configuration says
@@ -348,11 +388,21 @@ func TestServiceLeaseCADBuyerAndWorkerPathUsesFrozenPricingAndCumulativeMetering
 	}
 	var receipt ServiceLeaseReceipt
 	must(t, json.Unmarshal(rec.Body.Bytes(), &receipt))
+	blockers := make(map[string]bool, len(receipt.ReceiptBlockers))
+	for _, blocker := range receipt.ReceiptBlockers {
+		blockers[blocker] = true
+	}
 	if receipt.Lease.State != "ACTIVE" || receipt.Lease.BuyerChargeNanos <= 0 ||
 		receipt.Lease.BuyerChargeNanos != receipt.Lease.SupplierPayableNanos+receipt.Lease.KnownVariableCostNanos+receipt.Lease.KnownContributionNanos ||
 		receipt.BuyerFundingState != "PREPAID_MAXIMUM_RESERVED" ||
 		receipt.SupplierSettlementState != "ACCRUED_PREPAID_RESERVED_UNSETTLED" ||
-		receipt.TrueNetContributionStatus != "UNKNOWN_PROCESSOR_FEE_UNALLOCATED" ||
+		receipt.TrueNetContributionStatus != "UNKNOWN_ECONOMIC_FINALITY_BLOCKERS" ||
+		receipt.Lease.Pricing.ServiceLease.RiskReserveNanosPerReplicaHour != 0 ||
+		receipt.Lease.Pricing.RiskReserve.Status != pricingCostUnknown ||
+		receipt.Lease.Pricing.EgressCost.Status != pricingCostUnknown ||
+		receipt.EgressAuthorityStatus != "APPLICATION_BYTES_DIAGNOSTIC_ONLY_PROVIDER_BILLING_UNKNOWN" ||
+		len(blockers) != 4 || !blockers[serviceLeaseBlockerProcessor] || !blockers[serviceLeaseBlockerEgress] ||
+		!blockers[serviceLeaseBlockerResidency] || !blockers[serviceLeaseBlockerReserve] ||
 		receipt.DataPlaneAuthorityStatus != "WORKER_ATTESTED_PROBE_NOT_BUYER_REQUEST" || receipt.LatestSLOEvidence == nil ||
 		receipt.LatestSLOEvidence.P95LatencyMillis != 200 || receipt.LatestSLOEvidence.LatencyMeasurementCount != 5 ||
 		receipt.LatestSLOEvidence.LatencyMeasurementKind != "DATA_PLANE_COMPLETIONS_V1" ||
@@ -385,7 +435,7 @@ func TestServiceLeaseCADBuyerAndWorkerPathUsesFrozenPricingAndCumulativeMetering
 	var activation serviceLeaseActivationDetail
 	must(t, json.Unmarshal(activationRaw, &activation))
 	if activation.PricingDecisionSHA256 != lease.PricingDecisionSHA256 ||
-		activation.Currency != "cad" || activation.ReservedCeilingNanos != request.BuyerDeclaredCeilingNanos ||
+		activation.Currency != "usd" || activation.ReservedCeilingNanos != request.BuyerDeclaredCeilingNanos ||
 		activation.ReservedBuyerMicros != lease.ReservedBuyerMicros ||
 		activation.SupplierFloorNanosPerReplicaHour != lease.Pricing.ServiceLease.SupplierNanosPerReplicaHour ||
 		activation.ResidencyNanosPerReplicaHour != lease.Pricing.ServiceLease.ResidencyNanosPerReplicaHour ||
@@ -396,7 +446,9 @@ func TestServiceLeaseCADBuyerAndWorkerPathUsesFrozenPricingAndCumulativeMetering
 		activation.SupplierEntitlementsNanos != lease.Pricing.FixedPoint.SupplierEntitlementsNanos ||
 		activation.KnownVariableCostsNanos != lease.Pricing.FixedPoint.KnownVariableCostsNanos ||
 		activation.KnownCostContributionNanos != lease.Pricing.FixedPoint.KnownCostContributionNanos ||
-		activation.TrueNetContributionStatus != "UNKNOWN_PROCESSOR_FEE_UNALLOCATED" {
+		activation.RiskReserveNanosPerReplicaHour != 0 ||
+		activation.ResidencyLiabilityPolicy != "SELECTED_SUPPLIER_ALL_IN_WARM_CAPACITY_ENTITLEMENT_V2" ||
+		activation.TrueNetContributionStatus != "UNKNOWN_ECONOMIC_FINALITY_BLOCKERS" {
 		t.Fatalf("activation event lost frozen economic authority: %+v lease=%+v", activation, lease.Pricing)
 	}
 
@@ -433,7 +485,7 @@ func TestServiceLeaseCADBuyerAndWorkerPathUsesFrozenPricingAndCumulativeMetering
 	if completedReceipt.Settlement == nil ||
 		completedReceipt.BuyerFundingState != "PREPAID_FINAL_DEBIT_RECORDED" ||
 		completedReceipt.SupplierSettlementState != "SUPPLIER_CREDIT_HELD_PREPAID_COLLECTION_ALLOCATION_REQUIRED" ||
-		completedReceipt.Settlement.Currency != "cad" ||
+		completedReceipt.Settlement.Currency != "usd" ||
 		completedReceipt.Settlement.BuyerChargeMicros != completedReceipt.Settlement.PrepaidDebitMicros ||
 		completedReceipt.Settlement.BuyerChargeMicros != completedReceipt.Settlement.SupplierCreditMicros+completedReceipt.Settlement.PlatformGrossMicros ||
 		completedReceipt.Settlement.SupplierPayoutStatus != PayoutHeld ||
@@ -450,7 +502,40 @@ func TestServiceLeaseCADBuyerAndWorkerPathUsesFrozenPricingAndCumulativeMetering
 		len(creditedSuppliers) != 2 || !creditedSuppliers[primaryWorker.SupplierID] || !creditedSuppliers[fallback.SupplierID] {
 		t.Fatalf("service failover payout was not attributed to each metered supplier: %+v", completedReceipt.Settlement.SupplierCredits)
 	}
-	wantBuyerMicros, err := LedgerMicrosFromNanos(MoneyNanos{Currency: MustParseCurrency("cad"), Nanos: completedReceipt.Lease.BuyerChargeNanos})
+	// Every immutable failover interval credits the supplier's complete frozen
+	// all-in ask. Residency is not left behind as platform gross merely because
+	// the current worker changed between cumulative meter snapshots.
+	meterRows, err := pool.Query(ctx, `SELECT m.cumulative_replica_nanoseconds,
+		sm.supplier_id,sm.supplier_payable_delta_nanos
+		FROM service_lease_meterings m
+		JOIN service_lease_supplier_meterings sm USING (lease_id,sequence)
+		WHERE m.lease_id=$1 ORDER BY m.sequence`, lease.ID)
+	must(t, err)
+	defer meterRows.Close()
+	var previousCumulative, previousAllIn int64
+	intervalSuppliers := map[uuid.UUID]bool{}
+	for meterRows.Next() {
+		var cumulative, payableDelta int64
+		var supplierID uuid.UUID
+		must(t, meterRows.Scan(&cumulative, &supplierID, &payableDelta))
+		allIn, moneyErr := ServiceLeaseMoneyForReplicaDuration(MustParseCurrency("usd"),
+			*completedReceipt.Lease.Pricing.ServiceLease, cumulative)
+		must(t, moneyErr)
+		if payableDelta != allIn.SupplierPayable.Nanos-previousAllIn {
+			t.Fatalf("supplier %s interval [%d,%d] payable=%d, want all-in delta=%d",
+				supplierID, previousCumulative, cumulative, payableDelta,
+				allIn.SupplierPayable.Nanos-previousAllIn)
+		}
+		if payableDelta > 0 {
+			intervalSuppliers[supplierID] = true
+		}
+		previousCumulative, previousAllIn = cumulative, allIn.SupplierPayable.Nanos
+	}
+	must(t, meterRows.Err())
+	if !intervalSuppliers[primaryWorker.SupplierID] || !intervalSuppliers[fallback.SupplierID] {
+		t.Fatalf("failover intervals did not carry all-in liability for both suppliers: %v", intervalSuppliers)
+	}
+	wantBuyerMicros, err := LedgerMicrosFromNanos(MoneyNanos{Currency: MustParseCurrency("usd"), Nanos: completedReceipt.Lease.BuyerChargeNanos})
 	if err != nil || completedReceipt.Settlement.BuyerChargeMicros != wantBuyerMicros || wantBuyerMicros <= 0 {
 		t.Fatalf("terminal buyer projection=%d receipt=%+v err=%v", wantBuyerMicros, completedReceipt.Settlement, err)
 	}
@@ -464,6 +549,12 @@ func TestServiceLeaseCADBuyerAndWorkerPathUsesFrozenPricingAndCumulativeMetering
 	var terminalLedgerRows int
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM ledger_entries WHERE payout_ref=ANY($1)`, terminalRefs).Scan(&terminalLedgerRows); err != nil || terminalLedgerRows != len(terminalRefs) {
 		t.Fatalf("terminal service ledger rows=%d err=%v, want %d exact rows", terminalLedgerRows, err, len(terminalRefs))
+	}
+	var phantomReserveRows int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM ledger_entries
+		WHERE payout_ref LIKE $1 AND kind IN ('risk_reserve_accrual','risk_reserve_release','risk_reserve_consume')`,
+		"service-lease-ledger-"+lease.ID.String()+":%").Scan(&phantomReserveRows); err != nil || phantomReserveRows != 0 {
+		t.Fatalf("service lease acquired %d phantom risk-reserve ledger rows: %v", phantomReserveRows, err)
 	}
 	if completed, err := store.FinalizeExpiredServiceLeases(ctx, 10); err != nil || completed != 0 {
 		t.Fatalf("terminal service settlement replay completed=%d err=%v", completed, err)
@@ -494,7 +585,7 @@ func TestServiceLeaseCADBuyerAndWorkerPathUsesFrozenPricingAndCumulativeMetering
 }
 
 func TestBuyerCancelsServiceLeaseAtLastAuthenticatedMeterAndReleasesUnusedReserve(t *testing.T) {
-	installSettlementCurrencyForTest(t, "cad")
+	installSettlementCurrencyForTest(t, "usd")
 	ctx, store, pool := openPayoutTestStore(t)
 	buyerID := uuid.New()
 	if _, err := pool.Exec(ctx, `INSERT INTO buyers (id,email) VALUES ($1,$2)`, buyerID, buyerID.String()+"@lease-cancel.invalid"); err != nil {
@@ -510,7 +601,7 @@ func TestBuyerCancelsServiceLeaseAtLastAuthenticatedMeterAndReleasesUnusedReserv
 	offer.Region = "ca-cancel-" + uuid.NewString()
 	must(t, store.UpsertServiceLeaseOffer(ctx, worker, offer))
 	lease, err := store.CreateServiceLease(ctx, buyerID, ServiceLeaseRequest{
-		RuntimeProfileID: profile.RuntimeProfileID, Region: offer.Region,
+		RuntimeProfileID: profile.RuntimeProfileID, Region: offer.Region, Currency: "usd",
 		MinimumReplicas: 1, MaximumReplicas: 1, TermSeconds: 90, MaximumP95LatencyMilliseconds: 500,
 		BuyerDeclaredCeilingNanos: 135_000_000,
 	})

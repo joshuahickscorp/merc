@@ -190,6 +190,7 @@ var declaredMoneyAuthoritySinks = []string{
 	"stubPayout.RefundCharge",         // payment.go
 	// 5. Settlement amount
 	"SettleRealtimeReuseHitMoney",             // exact_reuse.go
+	"SettleRealtimeReuseHitMoneyWithFX",       // exact_reuse.go
 	"Store.SettleJobSLA",                      // collect.go
 	"Store.SettleRealtimeExactReuse",          // realtime_store.go
 	"clampSettlementToContributionFloorNanos", // observed_output_settlement.go
@@ -238,7 +239,7 @@ var declaredMoneyAuthoritySinks = []string{
 }
 
 // Full declared authority set: reverse-reachable closure of the sink
-// catalogue under the package call graph at land time (379 symbols).
+// catalogue under the package call graph at land time (392 symbols).
 // This is the machine-checked half of View 1; the sink catalogue above is
 // the human-readable core. Edit deliberately when observation changes.
 var declaredMoneyAuthority = []string{
@@ -283,7 +284,6 @@ var declaredMoneyAuthority = []string{
 	"Server.handlePriceEstimate",                          // api.go
 	"Server.handleProjectCompile",                         // project_compile_api.go
 	"Server.handleQuote",                                  // quote.go
-	"Server.handleRealtimeReceipt",                        // realtime.go
 	"Server.handleStripeWebhook",                          // billing.go
 	"Server.handleSupplierOnboard",                        // suppliers.go
 	"Server.handleSupplierStatus",                         // suppliers.go
@@ -299,6 +299,7 @@ var declaredMoneyAuthority = []string{
 	"Server.tryRealtimeCoalescedDelivery",                 // realtime.go
 	"Server.tryRealtimeExactReuse",                        // realtime.go
 	"SettleRealtimeReuseHitMoney",                         // exact_reuse.go
+	"SettleRealtimeReuseHitMoneyWithFX",                   // exact_reuse.go
 	"Store.AccrueRiskReserveAtSettlement",                 // risk_reserve_ledger.go
 	"Store.ApplyActivationPolicy",                         // activation_policy.go
 	"Store.ApplyRepricing",                                // pricing.go
@@ -313,6 +314,7 @@ var declaredMoneyAuthority = []string{
 	"Store.ClaimPayout",                                   // store_payouts.go
 	"Store.ClawbackTaskCredit",                            // store_tasks.go
 	"Store.CompletePrepaidRefund",                         // store_prepaid.go
+	"Store.ContributionSettlementForJob",                  // contribution_settlement.go
 	"Store.ConsumeRiskReserveOnRefund",                    // risk_reserve_ledger.go
 	"Store.CreateExecutionEnvelope",                       // execution_envelope.go
 	"Store.CreateServiceLease",                            // service_leases.go
@@ -344,12 +346,12 @@ var declaredMoneyAuthority = []string{
 	"Store.MeasuredSupplierLiabilityProxies",              // runtime_cell_cost.go
 	"Store.MeasuredSupplierLiabilityProxiesByHardware",    // runtime_cell_cost.go
 	"Store.Migrate",                                       // store.go
-	"Store.RealtimeReceipt",                               // realtime_store.go
 	"Store.ReconcileBuyerChargeOperation",                 // buyer_charge_operations.go
 	"Store.RecoverOrphanEnvelopeSpends",                   // execution_envelope.go
 	"Store.RecoverStaleRealtimeContracts",                 // realtime_store.go
 	"Store.RefreshActivationPolicy",                       // activation_policy.go
 	"Store.RefundRealtimeContract",                        // realtime_store.go
+	"Store.ReleaseEligibleRiskReserves",                   // risk_reserve_ledger.go
 	"Store.ReleaseExpiredExecutionEnvelopes",              // execution_envelope.go
 	"Store.ReleasePayoutTx",                               // store_payouts.go
 	"Store.ReleaseRiskReserveAfterDisputeWindow",          // risk_reserve_ledger.go
@@ -365,6 +367,8 @@ var declaredMoneyAuthority = []string{
 	"Store.SubmitExactReuseBatchJob",                      // exact_reuse_batch.go
 	"Store.SubmitJobTx",                                   // store_jobs.go
 	"Store.TerminateServiceLeaseNoReplacement",            // service_leases.go
+	"Store.TrueNetContributionForAccount",                 // store_billing.go
+	"Store.TrueNetContributionForWorkloadClass",           // store_billing.go
 	"Store.UpsertWorker",                                  // store_workers.go
 	"Store.ValidateAdvertisedRuntimeCatalog",              // runtime_matrix.go
 	"Store.VerifyJobTx",                                   // verification_apply.go
@@ -417,6 +421,7 @@ var declaredMoneyAuthority = []string{
 	"Workers.recoverServiceLeases",                        // workers.go
 	"Workers.recoverVerification",                         // workers.go
 	"Workers.releaseExpiredExecutionEnvelopes",            // workers.go
+	"Workers.releaseMaturedRiskReserves",                  // workers.go
 	"Workers.releasePayouts",                              // workers.go
 	"Workers.resolveDisputes",                             // workers.go
 	"Workers.retryFailedSingle",                           // collect.go
@@ -436,7 +441,6 @@ var declaredMoneyAuthority = []string{
 	"applyDisputeBuyerRefundFundingTx",                    // store_disputes.go
 	"applyStripeChargeRefundState",                        // stripe_cash_events.go
 	"applyStripeDisputeState",                             // stripe_cash_events.go
-	"attachRealtimeContractPricing",                       // realtime_store.go
 	"authorityCell.Routable",                              // runtime_authority.go
 	"authorizePaymentOperation",                           // payment_authority.go
 	"authorizePaymentOperationAt",                         // payment_authority.go
@@ -463,6 +467,10 @@ var declaredMoneyAuthority = []string{
 	"cmdVerify",                                           // prove.go
 	"compileLaunchPlan",                                   // release_launch.go
 	"compileProject",                                      // project_compiler.go
+	"consumeLegacyRiskReserveForCauseTx",                  // risk_reserve_ledger.go
+	"consumeRiskReserveForCauseTx",                        // risk_reserve_ledger.go
+	"consumeRiskReserveForDisputeRefundTx",                // risk_reserve_ledger.go
+	"consumeRiskReserveForSLARefundTx",                    // risk_reserve_ledger.go
 	"creditPrepaidBalanceTx",                              // store_prepaid.go
 	"currentRuntimeCellBenchmarkIdentity",                 // cell_authority_binding.go
 	"currentActivation",                                   // activation_policy.go
@@ -512,6 +520,8 @@ var declaredMoneyAuthority = []string{
 	"launchSource",                                        // release_launch.go
 	"lfsObjectPath",                                       // evidence.go
 	"loadActivationAtStartup",                             // activation_policy.go
+	"loadContributionJobFacts",                            // contribution_settlement.go
+	"loadContributionObservedOutputRebate",                // contribution_settlement.go
 	"loadLFSIndex",                                        // evidence.go
 	"loadObservedOutputSettlement",                        // observed_output_settlement.go
 	"main",                                                // main.go
@@ -542,6 +552,8 @@ var declaredMoneyAuthority = []string{
 	"readActivationSnapshot",                              // activation_policy.go
 	"recordStripeFee",                                     // billing.go
 	"releaseEnvelopeSpendForContractTx",                   // execution_envelope.go
+	"releaseLegacyRiskReserveTx",                          // risk_reserve_ledger.go
+	"releaseRiskReserveTx",                                // risk_reserve_ledger.go
 	"repoRootOrCwd",                                       // prove.go
 	"reserveBuyerTopupPayoutFunding",                      // store_payouts.go
 	"reserveEnvelopeSpendTx",                              // execution_envelope.go
@@ -572,7 +584,6 @@ var declaredMoneyAuthority = []string{
 	"runtimeActivation.cellRoutable",                      // activation_policy.go
 	"runtimeCapabilityForBindingDirected",                 // workload_classification.go
 	"runtimeProfileByID",                                  // runtime_profile_admission.go
-	"scanRealtimeContract",                                // realtime_store.go
 	"settleFinalServiceLeaseTx",                           // service_leases.go
 	"settleLoRAExact",                                     // lora_settlement.go
 	"settleLoRARun",                                       // lora_settlement.go

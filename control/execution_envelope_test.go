@@ -288,7 +288,13 @@ func TestExecutionEnvelopeAuthorizeAndSettlePath(t *testing.T) {
 	buyerID := envelopeTestBuyer(t, ctx, store, pool, 10_000_000)
 
 	maxUSD, estUSD, maxPrompt, maxCompletion := realtimeAuthCeiling(t, profile, 7, 2)
-	needNanos := usdToMicros(maxUSD) * NanosPerMicro
+	maximumExact, err := tokenChargeExact(maxPrompt, maxCompletion,
+		profile.BuyerInputUSDPerMillionTokens, profile.BuyerOutputUSDPerMillionTokens, false)
+	must(t, err)
+	estimatedExact, err := tokenChargeExact(7, 2,
+		profile.BuyerInputUSDPerMillionTokens, profile.BuyerOutputUSDPerMillionTokens, false)
+	must(t, err)
+	needNanos := maximumExact.Nanos
 	// Cap covers several requests.
 	env, err := store.CreateExecutionEnvelope(ctx, buyerID, ExecutionEnvelopeCreateRequest{
 		RuntimeProfileID:       profile.RuntimeProfileID,
@@ -303,6 +309,7 @@ func TestExecutionEnvelopeAuthorizeAndSettlePath(t *testing.T) {
 		RequestID: "req-env-" + uuid.NewString(), BuyerID: buyerID, Profile: profile,
 		InputCommitment: stringsRepeat("a", 64), RequestSHA256: stringsRepeat("b", 64),
 		MaximumPriceUSD: maxUSD, EstimatedPriceUSD: estUSD,
+		MaximumPriceUSDNanos: maximumExact.Nanos, EstimatedPriceUSDNanos: estimatedExact.Nanos,
 		DeadlineAt:              time.Now().Add(time.Minute),
 		IdempotencyKey:          "env-auth-" + uuid.NewString(),
 		MaximumPromptTokens:     maxPrompt,

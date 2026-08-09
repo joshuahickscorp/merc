@@ -2961,14 +2961,34 @@ FOR EACH ROW EXECUTE FUNCTION cx_webhook_lifecycle_guard();
 --
 -- free_credit_usd on buyers is a sandbox spend grant that does not represent
 -- collected cash (see accounts.go). Prepaid balance is a platform liability in
--- integer micro-USD: cash taken via Stripe top-up, reconcilable to ledger kinds
--- prepaid_topup / prepaid_debit / prepaid_refund. Keep the two systems distinct.
+-- integer micro-units of an explicit currency: cash taken via Stripe top-up,
+-- reconcilable to ledger kinds prepaid_topup / prepaid_debit / prepaid_refund.
+-- A buyer may retain liabilities in more than one currency across a governed
+-- deployment cutover; those buckets must never be numerically relabelled.
+-- Keep collected cash distinct from free_credit_usd, which is USD-only.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS buyer_prepaid_balances (
-    buyer_id        UUID PRIMARY KEY REFERENCES buyers(id) ON DELETE RESTRICT,
+    buyer_id        UUID NOT NULL REFERENCES buyers(id) ON DELETE RESTRICT,
+    currency        TEXT NOT NULL CHECK (currency IN ('usd','cad','jpy')),
     balance_micros  BIGINT NOT NULL DEFAULT 0 CHECK (balance_micros >= 0),
-    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (buyer_id,currency)
 );
+
+-- Existing rows predate currency-labelled balances and were explicitly
+-- micro-USD. Preserve that historical meaning; never fill them from today's
+-- process settlement currency.
+ALTER TABLE buyer_prepaid_balances ADD COLUMN IF NOT EXISTS currency TEXT;
+UPDATE buyer_prepaid_balances SET currency='usd' WHERE currency IS NULL;
+ALTER TABLE buyer_prepaid_balances ALTER COLUMN currency SET NOT NULL;
+ALTER TABLE buyer_prepaid_balances DROP CONSTRAINT IF EXISTS buyer_prepaid_balances_pkey;
+ALTER TABLE buyer_prepaid_balances
+    ADD CONSTRAINT buyer_prepaid_balances_pkey PRIMARY KEY (buyer_id,currency);
+ALTER TABLE buyer_prepaid_balances
+    DROP CONSTRAINT IF EXISTS buyer_prepaid_balances_currency_supported;
+ALTER TABLE buyer_prepaid_balances
+    ADD CONSTRAINT buyer_prepaid_balances_currency_supported
+    CHECK (currency IN ('usd','cad','jpy'));
 
 -- Funding authority is accepted with a job, not inferred from a future
 -- process environment.  Legacy jobs deliberately default to deferred-card
@@ -3001,7 +3021,7 @@ CREATE TABLE IF NOT EXISTS prepaid_topup_operations (
     CHECK (status <> 'succeeded' OR (payment_intent IS NOT NULL AND charge_id IS NOT NULL AND credited_at IS NOT NULL))
 );
 CREATE INDEX IF NOT EXISTS prepaid_topup_buyer_idx
-    ON prepaid_topup_operations (buyer_id, status, created_at);
+    ON prepaid_topup_operations (buyer_id, currency, status, created_at);
 
 CREATE TABLE IF NOT EXISTS prepaid_refund_operations (
     operation_key   TEXT PRIMARY KEY CHECK (btrim(operation_key) <> ''),
@@ -3053,6 +3073,28 @@ UPDATE prepaid_refund_operations SET refund_key = operation_key WHERE refund_key
 ALTER TABLE prepaid_refund_operations ALTER COLUMN refund_key SET NOT NULL;
 CREATE INDEX IF NOT EXISTS prepaid_refund_key_idx
     ON prepaid_refund_operations (refund_key);
+
+-- The source currency is part of both card-operation identities. Status and
+-- provider identifiers may advance, but no retry or direct SQL writer may
+-- retag already-collected/refunded cash into another currency.
+CREATE OR REPLACE FUNCTION cx_guard_prepaid_operation_authority() RETURNS trigger AS $$
+BEGIN
+    IF OLD.buyer_id IS DISTINCT FROM NEW.buyer_id
+       OR OLD.amount_cents IS DISTINCT FROM NEW.amount_cents
+       OR OLD.currency IS DISTINCT FROM NEW.currency THEN
+        RAISE EXCEPTION 'prepaid operation money authority is immutable';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS prepaid_topup_money_authority_immutable ON prepaid_topup_operations;
+CREATE TRIGGER prepaid_topup_money_authority_immutable
+    BEFORE UPDATE OF buyer_id,amount_cents,currency ON prepaid_topup_operations
+    FOR EACH ROW EXECUTE FUNCTION cx_guard_prepaid_operation_authority();
+DROP TRIGGER IF EXISTS prepaid_refund_money_authority_immutable ON prepaid_refund_operations;
+CREATE TRIGGER prepaid_refund_money_authority_immutable
+    BEFORE UPDATE OF buyer_id,amount_cents,currency ON prepaid_refund_operations
+    FOR EACH ROW EXECUTE FUNCTION cx_guard_prepaid_operation_authority();
 
 CREATE UNIQUE INDEX IF NOT EXISTS ledger_prepaid_topup_ref_uniq
     ON ledger_entries (payout_ref) WHERE kind = 'prepaid_topup';
@@ -3798,6 +3840,7 @@ CREATE TABLE IF NOT EXISTS service_lease_worker_offers (
     available_warm_replicas           INT NOT NULL CHECK (available_warm_replicas BETWEEN 0 AND maximum_warm_replicas),
     supplier_nanos_per_replica_hour   BIGINT NOT NULL CHECK (supplier_nanos_per_replica_hour > 0),
     residency_nanos_per_replica_hour  BIGINT NOT NULL CHECK (residency_nanos_per_replica_hour > 0),
+    currency                          TEXT CHECK (currency IS NULL OR currency='usd'),
     supports_rolling_upgrade          BOOLEAN NOT NULL,
     p95_latency_milliseconds          BIGINT NOT NULL CHECK (p95_latency_milliseconds > 0),
     latency_measurement_count         INT NOT NULL CHECK (latency_measurement_count >= 5),
@@ -3815,6 +3858,10 @@ ALTER TABLE service_lease_worker_offers ADD COLUMN IF NOT EXISTS p95_latency_mil
 ALTER TABLE service_lease_worker_offers ADD COLUMN IF NOT EXISTS latency_measurement_count INT;
 ALTER TABLE service_lease_worker_offers ADD COLUMN IF NOT EXISTS latency_window_seconds BIGINT;
 ALTER TABLE service_lease_worker_offers ADD COLUMN IF NOT EXISTS latency_measurement_kind TEXT;
+ALTER TABLE service_lease_worker_offers ADD COLUMN IF NOT EXISTS currency TEXT;
+ALTER TABLE service_lease_worker_offers DROP CONSTRAINT IF EXISTS service_lease_offer_currency_supported;
+ALTER TABLE service_lease_worker_offers ADD CONSTRAINT service_lease_offer_currency_supported
+    CHECK (currency IS NULL OR currency='usd');
 ALTER TABLE service_lease_worker_offers DROP CONSTRAINT IF EXISTS service_lease_offer_measurement_check;
 ALTER TABLE service_lease_worker_offers ADD CONSTRAINT service_lease_offer_measurement_check CHECK (
     status <> 'READY' OR (
@@ -3823,6 +3870,18 @@ ALTER TABLE service_lease_worker_offers ADD CONSTRAINT service_lease_offer_measu
         latency_measurement_kind = 'DATA_PLANE_COMPLETIONS_V1'
     )
 ) NOT VALID;
+CREATE OR REPLACE FUNCTION cx_require_current_service_offer_currency() RETURNS trigger AS $$
+BEGIN
+    IF NEW.status='READY' AND NEW.currency IS DISTINCT FROM 'usd' THEN
+        RAISE EXCEPTION 'READY service lease offer requires explicit USD rate currency';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS service_lease_offer_currency_required ON service_lease_worker_offers;
+CREATE TRIGGER service_lease_offer_currency_required
+    BEFORE INSERT OR UPDATE OF status,currency ON service_lease_worker_offers
+    FOR EACH ROW EXECUTE FUNCTION cx_require_current_service_offer_currency();
 CREATE INDEX IF NOT EXISTS service_lease_offer_route_idx
     ON service_lease_worker_offers (runtime_profile_id,region,supplier_nanos_per_replica_hour,last_seen_at DESC)
     WHERE status='READY' AND available_warm_replicas > 0;
@@ -3844,8 +3903,13 @@ CREATE TABLE IF NOT EXISTS service_lease_offer_samples (
     available_warm_replicas         INT NOT NULL CHECK (available_warm_replicas BETWEEN 0 AND maximum_warm_replicas),
     supplier_nanos_per_replica_hour BIGINT NOT NULL CHECK (supplier_nanos_per_replica_hour > 0),
     residency_nanos_per_replica_hour BIGINT NOT NULL CHECK (residency_nanos_per_replica_hour > 0),
+    currency                        TEXT CHECK (currency IS NULL OR currency='usd'),
     observed_at                     TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE service_lease_offer_samples ADD COLUMN IF NOT EXISTS currency TEXT;
+ALTER TABLE service_lease_offer_samples DROP CONSTRAINT IF EXISTS service_lease_offer_sample_currency_supported;
+ALTER TABLE service_lease_offer_samples ADD CONSTRAINT service_lease_offer_sample_currency_supported
+    CHECK (currency IS NULL OR currency='usd');
 CREATE INDEX IF NOT EXISTS service_lease_offer_samples_liquidity_idx
     ON service_lease_offer_samples (runtime_profile_id,region,worker_declared_hw_class,observed_at DESC);
 CREATE INDEX IF NOT EXISTS service_lease_offer_samples_worker_idx
@@ -3883,6 +3947,11 @@ CREATE TABLE IF NOT EXISTS service_leases (
     -- scale. This remains reserved (not spent) until the lease finalizes, so
     -- a prepaid refund cannot strip funding from already-warm supplier capacity.
     reserved_buyer_micros             BIGINT NOT NULL DEFAULT 0 CHECK (reserved_buyer_micros >= 0),
+    -- Current admissions point at an append-only acceptance row. NULL is
+    -- reserved for leases that already existed when acceptance rows were
+    -- introduced; their inline pricing pair is frozen in place below and is
+    -- replayed explicitly as legacy authority rather than being backfilled.
+    pricing_acceptance_id              UUID,
     pricing_decision                 JSONB NOT NULL,
     pricing_decision_sha256          TEXT NOT NULL CHECK (pricing_decision_sha256 ~ '^[0-9a-f]{64}$'),
     started_at                       TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -3905,9 +3974,137 @@ CREATE TABLE IF NOT EXISTS service_leases (
 ALTER TABLE service_leases
     ADD COLUMN IF NOT EXISTS reserved_buyer_micros BIGINT NOT NULL DEFAULT 0
     CHECK (reserved_buyer_micros >= 0);
+ALTER TABLE service_leases
+    ADD COLUMN IF NOT EXISTS pricing_acceptance_id UUID;
+ALTER TABLE service_leases
+    DROP CONSTRAINT IF EXISTS service_leases_current_reservation_positive;
+ALTER TABLE service_leases
+    ADD CONSTRAINT service_leases_current_reservation_positive CHECK (
+        pricing_acceptance_id IS NULL OR reserved_buyer_micros > 0
+    ) NOT VALID;
 CREATE INDEX IF NOT EXISTS service_leases_buyer_created_idx ON service_leases (buyer_id,created_at DESC);
 CREATE INDEX IF NOT EXISTS service_leases_recovery_idx ON service_leases (state,last_worker_heartbeat_at)
     WHERE state IN ('ACTIVE','UPGRADING','FAILOVER_REQUIRED');
+
+-- A service lease prices every meter and terminal ledger row from the exact
+-- decision accepted at admission. Keeping that authority in an append-only
+-- row prevents a later lease-state update, repair script, or compromised API
+-- path from replacing both the JSON and its matching digest in place.
+--
+-- The key is deliberately the future lease id, so admission can insert this
+-- row before the lease without a circular foreign key. The lease-side CHECK
+-- and FK below make the relationship one-to-one. Existing leases are not
+-- backfilled: copying their current mutable projection would manufacture a
+-- historical acceptance fact that the old schema never recorded.
+CREATE TABLE IF NOT EXISTS service_lease_pricing_acceptances (
+    id                       UUID PRIMARY KEY,
+    pricing_decision         JSONB NOT NULL CHECK (jsonb_typeof(pricing_decision) = 'object'),
+    pricing_decision_sha256  TEXT NOT NULL CHECK (pricing_decision_sha256 ~ '^[0-9a-f]{64}$'),
+    authority_kind           TEXT NOT NULL DEFAULT 'SERVICE_LEASE_PRICING_ACCEPTANCE_V1'
+        CHECK (authority_kind = 'SERVICE_LEASE_PRICING_ACCEPTANCE_V1'),
+    accepted_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CHECK (pricing_decision->>'execution_mode' = 'service_lease'),
+    CHECK (pricing_decision->'service_lease' IS NOT NULL),
+    CHECK (pricing_decision->>'currency' = pricing_decision #>> '{service_lease,currency}')
+);
+
+ALTER TABLE service_leases
+    DROP CONSTRAINT IF EXISTS service_leases_pricing_acceptance_identity;
+ALTER TABLE service_leases
+    ADD CONSTRAINT service_leases_pricing_acceptance_identity CHECK (
+        pricing_acceptance_id IS NULL OR pricing_acceptance_id = id
+    ) NOT VALID;
+ALTER TABLE service_leases
+    DROP CONSTRAINT IF EXISTS service_leases_pricing_acceptance_fkey;
+ALTER TABLE service_leases
+    ADD CONSTRAINT service_leases_pricing_acceptance_fkey
+    FOREIGN KEY (pricing_acceptance_id)
+    REFERENCES service_lease_pricing_acceptances(id) ON DELETE RESTRICT NOT VALID;
+CREATE UNIQUE INDEX IF NOT EXISTS service_leases_pricing_acceptance_unique_idx
+    ON service_leases (pricing_acceptance_id)
+    WHERE pricing_acceptance_id IS NOT NULL;
+
+CREATE OR REPLACE FUNCTION cx_refuse_service_lease_pricing_acceptance_rewrite()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    RAISE EXCEPTION 'service lease pricing acceptance % is append-only', OLD.id;
+END;
+$$;
+DROP TRIGGER IF EXISTS service_lease_pricing_acceptances_append_only
+    ON service_lease_pricing_acceptances;
+CREATE TRIGGER service_lease_pricing_acceptances_append_only
+    BEFORE UPDATE OR DELETE ON service_lease_pricing_acceptances
+    FOR EACH ROW EXECUTE FUNCTION cx_refuse_service_lease_pricing_acceptance_rewrite();
+
+CREATE OR REPLACE FUNCTION cx_validate_service_lease_pricing_acceptance_insert()
+RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+    accepted_decision JSONB;
+    accepted_sha256 TEXT;
+    accepted_ceiling_nanos BIGINT;
+    projected_reservation_micros BIGINT;
+BEGIN
+    IF NEW.pricing_acceptance_id IS NULL THEN
+        RAISE EXCEPTION 'new service lease % requires append-only pricing acceptance', NEW.id;
+    END IF;
+    IF NEW.pricing_acceptance_id <> NEW.id THEN
+        RAISE EXCEPTION 'service lease % pricing acceptance reference must equal lease identity', NEW.id;
+    END IF;
+    SELECT pricing_decision,pricing_decision_sha256
+      INTO accepted_decision,accepted_sha256
+      FROM service_lease_pricing_acceptances
+     WHERE id=NEW.pricing_acceptance_id;
+    IF accepted_decision IS NOT NULL THEN
+        accepted_ceiling_nanos := (accepted_decision #>> '{fixed_point,accepted_ceiling_nanos}')::bigint;
+        IF accepted_ceiling_nanos > 0 THEN
+            projected_reservation_micros := GREATEST(
+                1,
+                accepted_ceiling_nanos / 1000
+                + CASE WHEN (accepted_ceiling_nanos % 1000) * 2 >= 1000 THEN 1 ELSE 0 END
+            );
+        END IF;
+    END IF;
+    IF accepted_decision IS NULL OR accepted_sha256 IS NULL OR
+       accepted_decision IS DISTINCT FROM NEW.pricing_decision OR
+       accepted_sha256 IS DISTINCT FROM NEW.pricing_decision_sha256 OR
+       accepted_decision #>> '{service_lease,runtime_profile_id}' IS DISTINCT FROM NEW.runtime_profile_id OR
+       accepted_decision #>> '{service_lease,runtime_profile_sha256}' IS DISTINCT FROM NEW.runtime_profile_sha256 OR
+       accepted_decision #>> '{service_lease,region}' IS DISTINCT FROM NEW.region OR
+       (accepted_decision #>> '{service_lease,minimum_replicas}')::int IS DISTINCT FROM NEW.minimum_replicas OR
+       (accepted_decision #>> '{service_lease,maximum_replicas}')::int IS DISTINCT FROM NEW.maximum_replicas OR
+       (accepted_decision #>> '{service_lease,term_seconds}')::bigint IS DISTINCT FROM NEW.term_seconds OR
+       (accepted_decision #>> '{service_lease,maximum_p95_latency_milliseconds}')::bigint
+           IS DISTINCT FROM NEW.maximum_p95_latency_milliseconds OR
+       accepted_ceiling_nanos IS NULL OR accepted_ceiling_nanos <= 0 OR
+       projected_reservation_micros IS DISTINCT FROM NEW.reserved_buyer_micros THEN
+        RAISE EXCEPTION 'service lease % inline pricing projection differs from accepted authority', NEW.id;
+    END IF;
+    RETURN NEW;
+END;
+$$;
+DROP TRIGGER IF EXISTS service_leases_pricing_acceptance_required
+    ON service_leases;
+CREATE TRIGGER service_leases_pricing_acceptance_required
+    BEFORE INSERT ON service_leases
+    FOR EACH ROW EXECUTE FUNCTION cx_validate_service_lease_pricing_acceptance_insert();
+
+CREATE OR REPLACE FUNCTION cx_refuse_service_lease_pricing_authority_update()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    IF OLD.pricing_acceptance_id IS DISTINCT FROM NEW.pricing_acceptance_id OR
+       OLD.pricing_decision IS DISTINCT FROM NEW.pricing_decision OR
+       OLD.pricing_decision_sha256 IS DISTINCT FROM NEW.pricing_decision_sha256 OR
+       OLD.reserved_buyer_micros IS DISTINCT FROM NEW.reserved_buyer_micros THEN
+        RAISE EXCEPTION 'accepted pricing authority for service lease % is immutable', OLD.id;
+    END IF;
+    RETURN NEW;
+END;
+$$;
+DROP TRIGGER IF EXISTS service_leases_pricing_authority_immutable
+    ON service_leases;
+CREATE TRIGGER service_leases_pricing_authority_immutable
+    BEFORE UPDATE OF pricing_acceptance_id,pricing_decision,pricing_decision_sha256,reserved_buyer_micros ON service_leases
+    FOR EACH ROW EXECUTE FUNCTION cx_refuse_service_lease_pricing_authority_update();
 
 -- The payout-funding table is declared earlier because ordinary job payouts
 -- predate service leases. Bind the optional service-liability reference only
@@ -3938,6 +4135,27 @@ CREATE TABLE IF NOT EXISTS service_lease_admission_events (
 );
 ALTER TABLE service_lease_admission_events
     ADD COLUMN IF NOT EXISTS worker_declared_hw_class TEXT NOT NULL DEFAULT 'UNMATCHED';
+ALTER TABLE service_lease_admission_events
+    ADD COLUMN IF NOT EXISTS currency TEXT;
+ALTER TABLE service_lease_admission_events
+    DROP CONSTRAINT IF EXISTS service_lease_admission_event_currency_supported;
+ALTER TABLE service_lease_admission_events
+    ADD CONSTRAINT service_lease_admission_event_currency_supported
+    CHECK (currency IS NULL OR currency='usd');
+CREATE OR REPLACE FUNCTION cx_require_current_service_admission_currency()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    IF NEW.currency IS DISTINCT FROM 'usd' THEN
+        RAISE EXCEPTION 'current service lease admission telemetry requires explicit USD currency';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+DROP TRIGGER IF EXISTS service_lease_admission_currency_required
+    ON service_lease_admission_events;
+CREATE TRIGGER service_lease_admission_currency_required
+    BEFORE INSERT ON service_lease_admission_events
+    FOR EACH ROW EXECUTE FUNCTION cx_require_current_service_admission_currency();
 CREATE INDEX IF NOT EXISTS service_lease_admission_events_liquidity_idx
     ON service_lease_admission_events (runtime_profile_id,region,worker_declared_hw_class,decision,observed_at DESC);
 
@@ -3984,6 +4202,38 @@ ALTER TABLE service_lease_events
     ADD CONSTRAINT service_lease_events_kind_check
     CHECK (kind IN ('ACTIVATED','METERED','SLO_MEASURED','ROLLING_UPDATE_STARTED','ROLLING_UPDATE_COMPLETED','WORKER_LOSS','FAILOVER_COMPLETED','FAILOVER_TERMINATED','EXPIRED','CANCELLED'));
 CREATE INDEX IF NOT EXISTS service_lease_events_lease_idx ON service_lease_events (lease_id,created_at,id);
+
+-- Reserved-service proxy payload sizes are diagnostics for later egress
+-- reconciliation. They are application bytes only: no row is a wire-byte
+-- measurement, provider invoice, or settlement authority. The worker/supplier
+-- pair records the exact failover interval that served the request without
+-- retaining prompts or response bodies.
+CREATE TABLE IF NOT EXISTS service_lease_data_plane_diagnostics (
+    id                          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    lease_id                    UUID NOT NULL REFERENCES service_leases(id) ON DELETE RESTRICT,
+    buyer_id                    UUID NOT NULL REFERENCES buyers(id) ON DELETE RESTRICT,
+    worker_id                   UUID NOT NULL REFERENCES workers(id) ON DELETE RESTRICT,
+    supplier_id                 UUID NOT NULL REFERENCES suppliers(id) ON DELETE RESTRICT,
+    request_application_bytes   BIGINT NOT NULL CHECK (request_application_bytes >= 0),
+    response_application_bytes  BIGINT NOT NULL CHECK (response_application_bytes >= 0),
+    authority_status            TEXT NOT NULL
+        CHECK (authority_status = 'APPLICATION_BYTES_DIAGNOSTIC_NOT_PROVIDER_BILLING'),
+    observed_at                 TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS service_lease_data_plane_diagnostics_lease_idx
+    ON service_lease_data_plane_diagnostics (lease_id,observed_at,id);
+
+CREATE OR REPLACE FUNCTION cx_refuse_service_lease_data_plane_diagnostic_rewrite()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    RAISE EXCEPTION 'service lease data-plane diagnostics are append-only';
+END;
+$$;
+DROP TRIGGER IF EXISTS service_lease_data_plane_diagnostics_append_only
+    ON service_lease_data_plane_diagnostics;
+CREATE TRIGGER service_lease_data_plane_diagnostics_append_only
+    BEFORE UPDATE OR DELETE ON service_lease_data_plane_diagnostics
+    FOR EACH ROW EXECUTE FUNCTION cx_refuse_service_lease_data_plane_diagnostic_rewrite();
 
 -- Continuous-metering facts and service receipts are append-only. Current
 -- aggregate state lives on service_leases solely to make the next delta cheap.
@@ -4109,6 +4359,44 @@ ALTER TABLE realtime_settlements ADD CONSTRAINT realtime_settlements_exact_pair 
    AND known_cost_contribution_nanos > 0
    AND buyer_charge_nanos = supplier_gross_nanos + known_cost_contribution_nanos)
 );
+
+-- A historical settlement may retain the legacy NULL currency/exact-nano
+-- shape only when its contract predates PricingDecision authority. Every
+-- current settlement inherits the immutable contract currency; a rolling
+-- deployment must never relabel an accepted contract with the process's
+-- present-day configuration.
+CREATE OR REPLACE FUNCTION cx_validate_realtime_settlement_currency()
+RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+    contract_currency TEXT;
+    contract_pricing JSONB;
+BEGIN
+    SELECT currency,pricing_decision
+      INTO contract_currency,contract_pricing
+      FROM execution_contracts
+     WHERE id=NEW.contract_id;
+    IF contract_currency IS NULL THEN
+        RAISE EXCEPTION 'realtime settlement names no execution contract currency';
+    END IF;
+    IF NEW.currency IS NULL THEN
+        IF contract_pricing IS NOT NULL THEN
+            RAISE EXCEPTION 'current realtime settlement requires frozen contract currency';
+        END IF;
+        RETURN NEW;
+    END IF;
+    IF NEW.currency IS DISTINCT FROM contract_currency THEN
+        RAISE EXCEPTION 'realtime settlement currency % does not match contract currency %',
+            NEW.currency,contract_currency;
+    END IF;
+    RETURN NEW;
+END;
+$$;
+DROP TRIGGER IF EXISTS realtime_settlement_currency_bound
+    ON realtime_settlements;
+CREATE CONSTRAINT TRIGGER realtime_settlement_currency_bound
+    AFTER INSERT ON realtime_settlements
+    DEFERRABLE INITIALLY DEFERRED
+    FOR EACH ROW EXECUTE FUNCTION cx_validate_realtime_settlement_currency();
 
 -- Each successful in-flight follower is linked to the one already-finalized
 -- physical leader before its own zero-physical settlement commits. The amount
@@ -4620,15 +4908,16 @@ CREATE TRIGGER charge_batches_currency_immutable
 CREATE OR REPLACE FUNCTION cx_reject_ledger_currency_target_update() RETURNS trigger AS $$
 BEGIN
     IF OLD.currency IS DISTINCT FROM NEW.currency
-       OR OLD.task_id IS DISTINCT FROM NEW.task_id THEN
-        RAISE EXCEPTION 'ledger currency/task authority for % is immutable', OLD.id;
+	   OR OLD.task_id IS DISTINCT FROM NEW.task_id
+	   OR OLD.execution_contract_id IS DISTINCT FROM NEW.execution_contract_id THEN
+		RAISE EXCEPTION 'ledger currency/target authority for % is immutable', OLD.id;
     END IF;
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 DROP TRIGGER IF EXISTS ledger_currency_target_immutable ON ledger_entries;
 CREATE TRIGGER ledger_currency_target_immutable
-    BEFORE UPDATE OF currency,task_id ON ledger_entries
+	BEFORE UPDATE OF currency,task_id,execution_contract_id ON ledger_entries
     FOR EACH ROW EXECUTE FUNCTION cx_reject_ledger_currency_target_update();
 
 -- Task ledger rows inherit their accepted job's immutable currency. This
@@ -4654,6 +4943,32 @@ CREATE CONSTRAINT TRIGGER ledger_task_currency_bound
     AFTER INSERT OR UPDATE ON ledger_entries
     DEFERRABLE INITIALLY DEFERRED
     FOR EACH ROW EXECUTE FUNCTION cx_validate_task_ledger_currency();
+
+-- Realtime ledger rows inherit the immutable execution contract currency.
+-- This is the database half of the source-bound historical settlement path:
+-- an old contract may finish after a deployment cutover, but no writer may
+-- choose a different supported code merely because it is syntactically valid.
+CREATE OR REPLACE FUNCTION cx_validate_execution_contract_ledger_currency() RETURNS trigger AS $$
+DECLARE contract_currency TEXT;
+BEGIN
+    IF NEW.execution_contract_id IS NULL THEN
+        RETURN NEW;
+    END IF;
+    SELECT currency INTO contract_currency
+      FROM execution_contracts
+     WHERE id=NEW.execution_contract_id;
+    IF contract_currency IS NULL OR contract_currency <> NEW.currency THEN
+        RAISE EXCEPTION 'ledger execution contract % currency % does not match contract currency %',
+            NEW.execution_contract_id,NEW.currency,contract_currency;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS ledger_execution_contract_currency_bound ON ledger_entries;
+CREATE CONSTRAINT TRIGGER ledger_execution_contract_currency_bound
+    AFTER INSERT OR UPDATE ON ledger_entries
+    DEFERRABLE INITIALLY DEFERRED
+    FOR EACH ROW EXECUTE FUNCTION cx_validate_execution_contract_ledger_currency();
 
 -- Drop legacy currency='usd'-only CHECKs (auto-named or explicit) and install
 -- the supported-currency CHECK. Idempotent: never touch an already-correct
@@ -6957,3 +7272,310 @@ CREATE TABLE IF NOT EXISTS execution_envelope_events (
 );
 CREATE INDEX IF NOT EXISTS execution_envelope_events_envelope_idx
     ON execution_envelope_events (envelope_id, created_at, id);
+
+-- ── canonical batch-job risk-reserve lifecycle ───────────────────────────────
+-- Pricing used to subtract a modeled reserve from contribution and write three
+-- loosely-related micro-ledger rows. There was no canonical balance, no causal
+-- refund binding, and release raced dispute filing. This exact-nano row is the
+-- state machine. The ledger remains the immutable accounting projection.
+CREATE TABLE IF NOT EXISTS job_risk_reserves (
+    job_id                    UUID NOT NULL REFERENCES jobs(id) ON DELETE RESTRICT,
+    pricing_decision_sha256   TEXT NOT NULL
+                              CHECK (pricing_decision_sha256 ~ '^[0-9a-f]{64}$'),
+    currency                  TEXT NOT NULL CHECK (currency IN ('usd','cad','jpy')),
+    policy_revision           TEXT NOT NULL CHECK (btrim(policy_revision) <> ''),
+    accrual_policy            TEXT NOT NULL CHECK (accrual_policy IN (
+                                  'FROZEN_COST_POLICY_BPS_V1',
+                                  'LEGACY_FROZEN_ACCEPTED_RATIO_V1')),
+    risk_basis_points         BIGINT CHECK (
+                                  risk_basis_points IS NULL OR
+                                  (risk_basis_points >= 0 AND risk_basis_points < 10000)),
+    settled_charge_nanos      BIGINT NOT NULL CHECK (settled_charge_nanos > 0),
+    accrued_nanos             BIGINT NOT NULL CHECK (accrued_nanos > 0),
+    held_nanos                BIGINT NOT NULL CHECK (held_nanos >= 0),
+    consumed_nanos            BIGINT NOT NULL DEFAULT 0 CHECK (consumed_nanos >= 0),
+    released_nanos            BIGINT NOT NULL DEFAULT 0 CHECK (released_nanos >= 0),
+    ledger_accrued_micros     BIGINT NOT NULL CHECK (ledger_accrued_micros > 0),
+    ledger_held_micros        BIGINT NOT NULL CHECK (ledger_held_micros >= 0),
+    ledger_consumed_micros    BIGINT NOT NULL DEFAULT 0 CHECK (ledger_consumed_micros >= 0),
+    ledger_released_micros    BIGINT NOT NULL DEFAULT 0 CHECK (ledger_released_micros >= 0),
+    release_eligible_at       TIMESTAMPTZ NOT NULL,
+    accrued_at                TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at                TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (job_id, pricing_decision_sha256, currency),
+    UNIQUE (job_id),
+    CHECK (accrued_nanos = held_nanos + consumed_nanos + released_nanos),
+    CHECK (ledger_accrued_micros =
+           ledger_held_micros + ledger_consumed_micros + ledger_released_micros),
+    CHECK ((accrual_policy = 'FROZEN_COST_POLICY_BPS_V1' AND risk_basis_points IS NOT NULL)
+        OR (accrual_policy = 'LEGACY_FROZEN_ACCEPTED_RATIO_V1' AND risk_basis_points IS NULL))
+);
+CREATE INDEX IF NOT EXISTS job_risk_reserves_release_idx
+    ON job_risk_reserves (release_eligible_at, job_id)
+    WHERE held_nanos > 0;
+
+-- Events are append-only causal evidence. A consumption can cite only an
+-- already-written SLA/dispute refund in the same transaction; a release cites
+-- the expired filing window. ledger_micros may be zero for a sub-micro partial
+-- consumption, while the exact nano state still moves.
+CREATE TABLE IF NOT EXISTS job_risk_reserve_events (
+    id                        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    job_id                    UUID NOT NULL,
+    pricing_decision_sha256   TEXT NOT NULL,
+    currency                  TEXT NOT NULL,
+    kind                      TEXT NOT NULL CHECK (kind IN ('ACCRUED','CONSUMED','RELEASED')),
+    amount_nanos              BIGINT NOT NULL CHECK (amount_nanos > 0),
+    ledger_micros             BIGINT NOT NULL CHECK (ledger_micros >= 0),
+    causal_kind               TEXT NOT NULL CHECK (causal_kind IN (
+                                  'SETTLED_CHARGE','SLA_REFUND','DISPUTE_REFUND',
+                                  'FILING_WINDOW_ELAPSED')),
+    causal_ref                TEXT NOT NULL CHECK (btrim(causal_ref) <> ''),
+    causal_refund_nanos       BIGINT CHECK (
+                                  causal_refund_nanos IS NULL OR causal_refund_nanos > 0),
+    ledger_payout_ref         TEXT CHECK (
+                                  ledger_payout_ref IS NULL OR btrim(ledger_payout_ref) <> ''),
+    created_at                TIMESTAMPTZ NOT NULL DEFAULT now(),
+    FOREIGN KEY (job_id, pricing_decision_sha256, currency)
+        REFERENCES job_risk_reserves(job_id, pricing_decision_sha256, currency)
+        ON DELETE RESTRICT,
+    UNIQUE (job_id, pricing_decision_sha256, currency, kind, causal_kind, causal_ref),
+    CHECK ((kind = 'ACCRUED' AND causal_kind = 'SETTLED_CHARGE'
+            AND causal_refund_nanos IS NULL)
+        OR (kind = 'CONSUMED' AND causal_kind IN ('SLA_REFUND','DISPUTE_REFUND')
+            AND causal_refund_nanos IS NOT NULL
+            AND amount_nanos <= causal_refund_nanos)
+        OR (kind = 'RELEASED' AND causal_kind = 'FILING_WINDOW_ELAPSED'
+            AND causal_refund_nanos IS NULL)),
+    CHECK ((ledger_micros = 0 AND ledger_payout_ref IS NULL)
+        OR (ledger_micros > 0 AND ledger_payout_ref IS NOT NULL))
+);
+CREATE INDEX IF NOT EXISTS job_risk_reserve_events_job_idx
+    ON job_risk_reserve_events (job_id, created_at, id);
+
+CREATE UNIQUE INDEX IF NOT EXISTS ledger_risk_reserve_ref_uniq
+    ON ledger_entries (payout_ref)
+    WHERE kind IN ('risk_reserve_accrual','risk_reserve_release','risk_reserve_consume');
+
+CREATE OR REPLACE FUNCTION cx_validate_job_risk_reserve_insert() RETURNS trigger AS $$
+DECLARE
+    job_pricing TEXT;
+    job_currency TEXT;
+    job_terminal TIMESTAMPTZ;
+    actual_nanos BIGINT;
+BEGIN
+    SELECT pricing_decision_sha256,currency,terminal_at
+      INTO job_pricing,job_currency,job_terminal
+      FROM jobs WHERE id=NEW.job_id;
+    IF job_pricing IS DISTINCT FROM NEW.pricing_decision_sha256
+       OR job_currency IS DISTINCT FROM NEW.currency THEN
+        RAISE EXCEPTION 'risk reserve identity does not match job pricing/currency authority';
+    END IF;
+    IF job_terminal IS NULL
+       OR NEW.release_eligible_at IS DISTINCT FROM job_terminal + interval '7 days' THEN
+        RAISE EXCEPTION 'risk reserve release window is not bound to job terminal time';
+    END IF;
+    SELECT COALESCE(SUM((-le.amount_usd * 1000000000)::bigint),0)
+      INTO actual_nanos
+      FROM ledger_entries le
+     WHERE le.kind='buyer_charge' AND le.amount_usd < 0
+       AND le.currency=NEW.currency
+       AND (le.task_id IN (SELECT id FROM tasks WHERE job_id=NEW.job_id)
+            OR le.payout_ref='sla-premium-' || NEW.job_id::text);
+    IF actual_nanos IS DISTINCT FROM NEW.settled_charge_nanos THEN
+        RAISE EXCEPTION 'risk reserve settled charge is not the job ledger settlement';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS job_risk_reserve_insert_binding ON job_risk_reserves;
+CREATE TRIGGER job_risk_reserve_insert_binding
+BEFORE INSERT ON job_risk_reserves
+FOR EACH ROW EXECUTE FUNCTION cx_validate_job_risk_reserve_insert();
+
+CREATE OR REPLACE FUNCTION cx_guard_job_risk_reserve_transition() RETURNS trigger AS $$
+BEGIN
+    IF ROW(OLD.job_id,OLD.pricing_decision_sha256,OLD.currency,
+           OLD.policy_revision,OLD.accrual_policy,OLD.risk_basis_points,
+           OLD.settled_charge_nanos,OLD.accrued_nanos,
+           OLD.ledger_accrued_micros,OLD.release_eligible_at,OLD.accrued_at)
+       IS DISTINCT FROM
+       ROW(NEW.job_id,NEW.pricing_decision_sha256,NEW.currency,
+           NEW.policy_revision,NEW.accrual_policy,NEW.risk_basis_points,
+           NEW.settled_charge_nanos,NEW.accrued_nanos,
+           NEW.ledger_accrued_micros,NEW.release_eligible_at,NEW.accrued_at) THEN
+        RAISE EXCEPTION 'risk reserve accepted authority is immutable';
+    END IF;
+    IF NEW.held_nanos > OLD.held_nanos
+       OR NEW.consumed_nanos < OLD.consumed_nanos
+       OR NEW.released_nanos < OLD.released_nanos
+       OR NEW.ledger_held_micros > OLD.ledger_held_micros
+       OR NEW.ledger_consumed_micros < OLD.ledger_consumed_micros
+       OR NEW.ledger_released_micros < OLD.ledger_released_micros THEN
+        RAISE EXCEPTION 'risk reserve lifecycle cannot move backwards';
+    END IF;
+    IF OLD.held_nanos - NEW.held_nanos IS DISTINCT FROM
+       (NEW.consumed_nanos-OLD.consumed_nanos) +
+       (NEW.released_nanos-OLD.released_nanos)
+       OR OLD.ledger_held_micros - NEW.ledger_held_micros IS DISTINCT FROM
+       (NEW.ledger_consumed_micros-OLD.ledger_consumed_micros) +
+       (NEW.ledger_released_micros-OLD.ledger_released_micros) THEN
+        RAISE EXCEPTION 'risk reserve transition does not conserve its held balance';
+    END IF;
+    IF (NEW.consumed_nanos > OLD.consumed_nanos AND NEW.released_nanos > OLD.released_nanos)
+       OR (NEW.ledger_consumed_micros > OLD.ledger_consumed_micros
+           AND NEW.ledger_released_micros > OLD.ledger_released_micros) THEN
+        RAISE EXCEPTION 'risk reserve consume and release must be separate causal transitions';
+    END IF;
+    NEW.updated_at := now();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS job_risk_reserve_transition_guard ON job_risk_reserves;
+CREATE TRIGGER job_risk_reserve_transition_guard
+BEFORE UPDATE ON job_risk_reserves
+FOR EACH ROW EXECUTE FUNCTION cx_guard_job_risk_reserve_transition();
+
+CREATE OR REPLACE FUNCTION cx_reject_job_risk_reserve_delete() RETURNS trigger AS $$
+BEGIN
+    RAISE EXCEPTION 'job risk reserves are durable money authority';
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS job_risk_reserve_delete_guard ON job_risk_reserves;
+CREATE TRIGGER job_risk_reserve_delete_guard
+BEFORE DELETE ON job_risk_reserves
+FOR EACH ROW EXECUTE FUNCTION cx_reject_job_risk_reserve_delete();
+
+CREATE OR REPLACE FUNCTION cx_reject_job_risk_reserve_event_mutation() RETURNS trigger AS $$
+BEGIN
+    RAISE EXCEPTION 'job risk reserve events are append-only';
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS job_risk_reserve_events_append_only ON job_risk_reserve_events;
+CREATE TRIGGER job_risk_reserve_events_append_only
+BEFORE UPDATE OR DELETE ON job_risk_reserve_events
+FOR EACH ROW EXECUTE FUNCTION cx_reject_job_risk_reserve_event_mutation();
+
+-- Validate the complete event and micro-ledger projection at commit, after the
+-- writer has inserted its event and advanced the state row in either order.
+CREATE OR REPLACE FUNCTION cx_validate_job_risk_reserve_reconciliation() RETURNS trigger AS $$
+DECLARE
+    rid_job UUID;
+    rid_pricing TEXT;
+    rid_currency TEXT;
+    reserve_row job_risk_reserves%ROWTYPE;
+    event_accrued BIGINT;
+    event_consumed BIGINT;
+    event_released BIGINT;
+    event_ledger_accrued BIGINT;
+    event_ledger_consumed BIGINT;
+    event_ledger_released BIGINT;
+    ev RECORD;
+    ledger_kind TEXT;
+    ledger_currency TEXT;
+    ledger_row_micros BIGINT;
+    causal_nanos BIGINT;
+BEGIN
+    rid_job := COALESCE(NEW.job_id,OLD.job_id);
+    rid_pricing := COALESCE(NEW.pricing_decision_sha256,OLD.pricing_decision_sha256);
+    rid_currency := COALESCE(NEW.currency,OLD.currency);
+    SELECT * INTO reserve_row FROM job_risk_reserves
+     WHERE job_id=rid_job AND pricing_decision_sha256=rid_pricing AND currency=rid_currency;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'risk reserve reconciliation lost its state row';
+    END IF;
+    SELECT COALESCE(SUM(amount_nanos) FILTER (WHERE kind='ACCRUED'),0),
+           COALESCE(SUM(amount_nanos) FILTER (WHERE kind='CONSUMED'),0),
+           COALESCE(SUM(amount_nanos) FILTER (WHERE kind='RELEASED'),0),
+           COALESCE(SUM(e.ledger_micros) FILTER (WHERE e.kind='ACCRUED'),0),
+           COALESCE(SUM(e.ledger_micros) FILTER (WHERE e.kind='CONSUMED'),0),
+           COALESCE(SUM(e.ledger_micros) FILTER (WHERE e.kind='RELEASED'),0)
+      INTO event_accrued,event_consumed,event_released,
+           event_ledger_accrued,event_ledger_consumed,event_ledger_released
+      FROM job_risk_reserve_events e
+     WHERE e.job_id=rid_job AND e.pricing_decision_sha256=rid_pricing AND e.currency=rid_currency;
+    IF ROW(event_accrued,event_consumed,event_released,
+           event_ledger_accrued,event_ledger_consumed,event_ledger_released)
+       IS DISTINCT FROM
+       ROW(reserve_row.accrued_nanos,reserve_row.consumed_nanos,reserve_row.released_nanos,
+           reserve_row.ledger_accrued_micros,reserve_row.ledger_consumed_micros,
+           reserve_row.ledger_released_micros) THEN
+        RAISE EXCEPTION 'risk reserve state does not reconcile to append-only events';
+    END IF;
+    FOR ev IN SELECT * FROM job_risk_reserve_events
+               WHERE job_id=rid_job AND pricing_decision_sha256=rid_pricing
+                 AND currency=rid_currency LOOP
+        IF ev.ledger_micros > 0 THEN
+            SELECT kind,currency,(amount_usd*1000000)::bigint
+              INTO ledger_kind,ledger_currency,ledger_row_micros
+              FROM ledger_entries WHERE payout_ref=ev.ledger_payout_ref;
+            IF ledger_currency IS DISTINCT FROM ev.currency
+               OR ledger_kind IS DISTINCT FROM (CASE ev.kind
+                    WHEN 'ACCRUED' THEN 'risk_reserve_accrual'
+                    WHEN 'CONSUMED' THEN 'risk_reserve_consume'
+                    ELSE 'risk_reserve_release' END)
+               OR ledger_row_micros IS DISTINCT FROM (CASE WHEN ev.kind='ACCRUED'
+                    THEN ev.ledger_micros ELSE -ev.ledger_micros END) THEN
+                RAISE EXCEPTION 'risk reserve event does not match its micro-ledger projection';
+            END IF;
+        END IF;
+        IF ev.kind='CONSUMED' AND ev.causal_kind='SLA_REFUND' THEN
+            SELECT COALESCE(SUM((amount_usd*1000000000)::bigint),0)
+              INTO causal_nanos FROM ledger_entries
+             WHERE kind='sla_refund' AND payout_ref=ev.causal_ref
+               AND currency=ev.currency;
+            IF ev.causal_ref IS DISTINCT FROM 'sla-' || ev.job_id::text
+               OR causal_nanos IS DISTINCT FROM ev.causal_refund_nanos THEN
+                RAISE EXCEPTION 'risk reserve consumption lacks its exact SLA refund';
+            END IF;
+        ELSIF ev.kind='CONSUMED' AND ev.causal_kind='DISPUTE_REFUND' THEN
+            SELECT COALESCE(SUM((le.amount_usd*1000000000)::bigint),0)
+              INTO causal_nanos
+              FROM ledger_entries le
+             WHERE le.kind='buyer_refund' AND le.currency=ev.currency
+               AND (le.payout_ref LIKE 'dispute-refund-' || ev.causal_ref || '-%'
+                    OR le.payout_ref='dispute-sla-refund-' || ev.causal_ref)
+               AND EXISTS (SELECT 1 FROM disputes d
+                            WHERE d.id::text=ev.causal_ref AND d.job_id=ev.job_id
+                              AND d.status='upheld');
+            IF causal_nanos IS DISTINCT FROM ev.causal_refund_nanos THEN
+                RAISE EXCEPTION 'risk reserve consumption lacks its exact upheld-dispute refund';
+            END IF;
+        ELSIF ev.kind='RELEASED' THEN
+            IF now() <= reserve_row.release_eligible_at OR EXISTS (
+                SELECT 1 FROM disputes d WHERE d.job_id=ev.job_id
+                 AND d.status IN ('open','no_peer','reverifying','unresolvable')
+            ) OR EXISTS (
+                SELECT 1 FROM jobs j WHERE j.id=ev.job_id
+                 AND COALESCE(j.sla_guarantee_secs,0)>0 AND j.sla_met IS NULL
+            ) THEN
+                RAISE EXCEPTION 'risk reserve release lacks an elapsed clean filing window';
+            END IF;
+        END IF;
+    END LOOP;
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS job_risk_reserve_state_reconcile ON job_risk_reserves;
+CREATE CONSTRAINT TRIGGER job_risk_reserve_state_reconcile
+AFTER INSERT OR UPDATE ON job_risk_reserves DEFERRABLE INITIALLY DEFERRED
+FOR EACH ROW EXECUTE FUNCTION cx_validate_job_risk_reserve_reconciliation();
+DROP TRIGGER IF EXISTS job_risk_reserve_event_reconcile ON job_risk_reserve_events;
+CREATE CONSTRAINT TRIGGER job_risk_reserve_event_reconcile
+AFTER INSERT ON job_risk_reserve_events DEFERRABLE INITIALLY DEFERRED
+FOR EACH ROW EXECUTE FUNCTION cx_validate_job_risk_reserve_reconciliation();
+
+CREATE OR REPLACE FUNCTION cx_reject_risk_reserve_ledger_mutation() RETURNS trigger AS $$
+BEGIN
+    IF OLD.kind IN ('risk_reserve_accrual','risk_reserve_release','risk_reserve_consume') THEN
+        RAISE EXCEPTION 'risk reserve ledger facts are immutable';
+    END IF;
+    IF TG_OP='DELETE' THEN
+        RETURN OLD;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS risk_reserve_ledger_append_only ON ledger_entries;
+CREATE TRIGGER risk_reserve_ledger_append_only
+BEFORE UPDATE OR DELETE ON ledger_entries
+FOR EACH ROW EXECUTE FUNCTION cx_reject_risk_reserve_ledger_mutation();

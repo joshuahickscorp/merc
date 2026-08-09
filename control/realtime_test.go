@@ -57,6 +57,53 @@ func TestPrepareRealtimeRequestCanonicalizesDefaultsAndPriceCeiling(t *testing.T
 	}
 }
 
+func TestPrepareRealtimeRequestKeepsUSDCeilingSeparateFromCADSettlement(t *testing.T) {
+	installSettlementCurrencyForTest(t, "cad")
+	installRealtimeCADFXForTest(t)
+	raw := []byte(`{"model":"cx-chat-1b","messages":[{"role":"user","content":"hello"}],"max_tokens":8}`)
+	prepared, err := prepareRealtimeRequest(raw, "1.000000000")
+	must(t, err)
+	if prepared.FX.ReferenceCurrency != "usd" || prepared.FX.SettlementCurrency != "cad" ||
+		prepared.FX.ReferenceToSettlementNanos != 1_370_000_000 ||
+		prepared.MaxPriceCeilingUSDNanos != NanosPerMajorUnit {
+		t.Fatalf("prepared request lost explicit USD/CAD authority: %+v", prepared)
+	}
+	converted, err := convertRealtimeReferenceNanos(
+		prepared.MaximumPriceUSDNanos, cad(t), prepared.FX, true)
+	must(t, err)
+	if converted.Nanos == prepared.MaximumPriceUSDNanos {
+		t.Fatal("CAD settlement numerically relabeled the USD maximum instead of converting it")
+	}
+}
+
+func TestPrepareRealtimeRequestRefusesCADWithoutGovernedFX(t *testing.T) {
+	installSettlementCurrencyForTest(t, "cad")
+	t.Setenv(priceFXRateEnv, "")
+	t.Setenv(priceFXRevisionEnv, "")
+	_, err := prepareRealtimeRequest(
+		[]byte(`{"model":"cx-chat-1b","messages":[{"role":"user","content":"hello"}]}`), "1.00")
+	if err == nil || !strings.Contains(err.Error(), priceFXRateEnv) {
+		t.Fatalf("CAD realtime request did not fail closed without governed FX: %v", err)
+	}
+}
+
+func TestPrepareRealtimeRequestRefusesAmbiguousUSDCeilingSyntax(t *testing.T) {
+	raw := []byte(`{"model":"cx-chat-1b","messages":[{"role":"user","content":"hello"}]}`)
+	for _, ceiling := range []string{"1e0", "+1.00", "1.0000000001", "NaN", "-1"} {
+		if _, err := prepareRealtimeRequest(raw, ceiling); err == nil ||
+			!strings.Contains(err.Error(), "X-Merc-Max-USD") {
+			t.Fatalf("ambiguous USD ceiling %q was accepted: %v", ceiling, err)
+		}
+	}
+	for _, ceiling := range []string{"1e0", "1.0000000001", "-1", "0"} {
+		body := []byte(`{"model":"cx-chat-1b","messages":[{"role":"user","content":"hello"}],"cx":{"maximum_price_usd":` + ceiling + `}}`)
+		if _, err := prepareRealtimeRequest(body, ""); err == nil ||
+			!strings.Contains(err.Error(), "cx.maximum_price_usd") {
+			t.Fatalf("ambiguous body USD ceiling %q was accepted: %v", ceiling, err)
+		}
+	}
+}
+
 func TestPrepareRealtimeRequestPreservesLargeIntegerFields(t *testing.T) {
 	const seed = "9007199254740993"
 	prepared, err := prepareRealtimeRequest([]byte(`{"model":"cx-chat-1b","messages":[{"role":"user","content":"hello"}],"seed":`+seed+`}`), "")

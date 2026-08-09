@@ -102,6 +102,12 @@ type FixedPointPricingDecision struct {
 type PricingDecision struct {
 	Version        int    `json:"version"`
 	PolicyRevision string `json:"policy_revision"`
+	// ContributionStage states what this immutable document can authorize.
+	// New distributed decisions are ACCEPTED_FORECAST even when every accepted
+	// cost was modeled. Settlement is a separate ContributionSettlement keyed by
+	// this decision's digest. Empty is the historical wire shape and remains
+	// replayable; consumers still may not promote it to settlement authority.
+	ContributionStage string `json:"contribution_stage,omitempty"`
 	// ExecutionMode is the billing axis for this decision ("distributed",
 	// "exact_result_reuse", "realtime_physical", "realtime_exact_reuse",
 	// "service_lease"). It is NOT the network placement axis in
@@ -124,12 +130,24 @@ type PricingDecision struct {
 	// and are never re-read under a later schedule.
 	CostScheduleSHA256   string `json:"cost_schedule_sha256,omitempty"`
 	CostScheduleRevision string `json:"cost_schedule_revision,omitempty"`
+	// CostPolicy freezes the full schedule body and job-object retention
+	// authority. A digest/revision without this body is an explicit legacy
+	// boundary: it can be displayed as accepted history, but deterministic
+	// replay and settlement refuse because the original rates/retention cannot
+	// be recovered from today's environment without rewriting history.
+	CostPolicy *FrozenCostPolicySnapshot `json:"cost_policy,omitempty"`
 	// StorageAcceptedBytes / EgressAcceptedBytes are the upper-bound byte counts
 	// used to model those components at acceptance. Settlement records actual
 	// bytes beside these bounds in job_cost_settlements, never by rewriting this
 	// decision.
-	StorageAcceptedBytes             int64  `json:"storage_accepted_bytes,omitempty"`
-	EgressAcceptedBytes              int64  `json:"egress_accepted_bytes,omitempty"`
+	StorageAcceptedBytes int64 `json:"storage_accepted_bytes,omitempty"`
+	EgressAcceptedBytes  int64 `json:"egress_accepted_bytes,omitempty"`
+	// Exact accepted cost amounts retain sub-micro nanos that the legacy float
+	// component projections cannot represent. They are deterministically
+	// re-derived from CostPolicy during replay and settlement.
+	StorageAcceptedNanos             int64  `json:"storage_accepted_nanos,omitempty"`
+	EgressAcceptedNanos              int64  `json:"egress_accepted_nanos,omitempty"`
+	RiskReserveAcceptedNanos         int64  `json:"risk_reserve_accepted_nanos,omitempty"`
 	OriginQuotePricingDecisionSHA256 string `json:"origin_quote_pricing_decision_sha256,omitempty"`
 	OriginPricingDecisionSHA256      string `json:"origin_pricing_decision_sha256,omitempty"`
 
@@ -375,7 +393,12 @@ func validateFixedPointPricing(p PricingDecision) error {
 			f.KnownVariableCostsNanos+f.KnownCostContributionNanos {
 		return errors.New("fixed-point pricing violates currency, ceiling, or conservation authority")
 	}
-	if len(f.UnknownCostCategories) == 0 {
+	if p.ExecutionMode == computeExecutionDistributed &&
+		p.ContributionStage == ContributionStageAcceptedForecast {
+		if f.TrueNetContributionNanos != nil {
+			return errors.New("accepted distributed pricing forecast claims settled true net contribution")
+		}
+	} else if len(f.UnknownCostCategories) == 0 {
 		if f.TrueNetContributionNanos == nil ||
 			*f.TrueNetContributionNanos != f.KnownCostContributionNanos {
 			return errors.New("complete fixed-point pricing lacks true net contribution")
@@ -440,22 +463,72 @@ func validateModeledCostsAccountedInFixedPoint(p PricingDecision) error {
 		}
 	}
 
-	variableParts := []PricingCostComponent{
-		p.PaymentCost, p.ControlPlaneCost, p.StorageCost, p.EgressCost,
-		p.ProviderCost, p.RiskReserve,
+	if _, err := proveAcceptedContributionCostNanos(p); err != nil {
+		return fmt.Errorf("modeled variable costs lack exact component authority: %w", err)
 	}
-	var sum int64
-	for _, c := range variableParts {
-		if c.Status != pricingCostModeled {
-			continue
-		}
-		sum += toNanos(c.Amount)
+	return nil
+}
+
+func validateAcceptedCostNanos(p PricingDecision) error {
+	if p.CostPolicy == nil {
+		return nil
 	}
-	if sum != f.KnownVariableCostsNanos {
+	if p.StorageAcceptedBytes < 0 || p.EgressAcceptedBytes < 0 {
+		return errors.New("accepted cost byte bounds cannot be negative")
+	}
+	retention, err := frozenCostPolicyRetention(p.CostPolicy, p.Currency)
+	if err != nil {
+		return err
+	}
+	wantStorage, err := storageNanosForBytes(
+		p.CostPolicy.Schedule, p.StorageAcceptedBytes, retention,
+	)
+	if err != nil {
+		return err
+	}
+	wantEgress, err := egressNanosForBytes(
+		p.CostPolicy.Schedule, p.EgressAcceptedBytes,
+	)
+	if err != nil {
+		return err
+	}
+	buyerNanos := usdToMicros(p.BuyerPrice) * NanosPerMicro
+	if p.FixedPoint != nil {
+		buyerNanos = p.FixedPoint.BuyerChargeNanos
+	}
+	wantRisk, err := riskReserveNanos(p.CostPolicy.Schedule, buyerNanos)
+	if err != nil {
+		return err
+	}
+	if p.StorageAcceptedNanos != wantStorage ||
+		p.EgressAcceptedNanos != wantEgress ||
+		p.RiskReserveAcceptedNanos != wantRisk {
 		return fmt.Errorf(
-			"modeled variable cost components %d nanos are not accounted for in "+
-				"KnownVariableCostsNanos %d",
-			sum, f.KnownVariableCostsNanos)
+			"accepted exact cost nanos disagree with frozen policy: storage=%d/%d egress=%d/%d risk=%d/%d",
+			p.StorageAcceptedNanos, wantStorage, p.EgressAcceptedNanos, wantEgress,
+			p.RiskReserveAcceptedNanos, wantRisk,
+		)
+	}
+	for _, projection := range []struct {
+		name      string
+		component PricingCostComponent
+		nanos     int64
+	}{
+		{"storage", p.StorageCost, p.StorageAcceptedNanos},
+		{"egress", p.EgressCost, p.EgressAcceptedNanos},
+		{"risk reserve", p.RiskReserve, p.RiskReserveAcceptedNanos},
+	} {
+		if projection.component.Status == pricingCostModeled {
+			want := nanosToEconomicUSD(projection.nanos)
+			if projection.component.Amount != want {
+				return fmt.Errorf(
+					"%s float projection %.9f does not match exact accepted nanos %d (%.9f)",
+					projection.name, projection.component.Amount, projection.nanos, want,
+				)
+			}
+		} else if projection.nanos != 0 {
+			return fmt.Errorf("%s exact accepted nanos require modeled status", projection.name)
+		}
 	}
 	return nil
 }
@@ -1517,6 +1590,12 @@ func newDistributedPricingDecision(
 // takes the rate from a stored record must first put it through
 // governedAdmissionUnitRates, which is what ValidateDistributedPricingDecisionSnapshot
 // does.
+type distributedPricingHistoricalAuthority struct {
+	RuntimeCell       *FrozenRuntimeCellEconomics
+	CostPolicy        *FrozenCostPolicySnapshot
+	ContributionStage string
+}
+
 func distributedPricingDecisionAtRate(
 	workload WorkloadDecision,
 	compute ComputePlan,
@@ -1526,14 +1605,18 @@ func distributedPricingDecisionAtRate(
 	tier string,
 	originQuotePricingSHA string,
 	unitsPerSec float64,
-	historicalRuntimeCells ...*FrozenRuntimeCellEconomics,
+	historicalAuthorities ...distributedPricingHistoricalAuthority,
 ) (PricingDecision, error) {
-	if len(historicalRuntimeCells) > 1 {
-		return PricingDecision{}, errors.New("pricing reconstruction received more than one frozen runtime-cell snapshot")
+	if len(historicalAuthorities) > 1 {
+		return PricingDecision{}, errors.New("pricing reconstruction received more than one historical authority set")
 	}
 	var historicalRuntimeCell *FrozenRuntimeCellEconomics
-	if len(historicalRuntimeCells) == 1 {
-		historicalRuntimeCell = historicalRuntimeCells[0]
+	var historicalCostPolicy *FrozenCostPolicySnapshot
+	contributionStage := ContributionStageAcceptedForecast
+	if len(historicalAuthorities) == 1 {
+		historicalRuntimeCell = historicalAuthorities[0].RuntimeCell
+		historicalCostPolicy = historicalAuthorities[0].CostPolicy
+		contributionStage = historicalAuthorities[0].ContributionStage
 	}
 	if err := ValidateComputePlanEconomicSnapshot(compute, workload, economic); err != nil {
 		return PricingDecision{}, err
@@ -1661,31 +1744,38 @@ func distributedPricingDecisionAtRate(
 			"fixed account/invoice overhead is allocated over the collector's minimum economic charge batch")
 	}
 
-	// Cost schedule attribution. Always bind the governed default for new
-	// decisions so storage/egress/provider/risk can leave the unknown set.
-	// Historical decisions rebuilt without a schedule keep the pre-schedule
-	// unknown markers via the migration path below only when schedule load fails
-	// closed — LoadCostScheduleFromEnv always returns a validated schedule.
-	costSchedule, cerr := LoadCostScheduleFromEnv()
-	if cerr != nil {
-		// Fall back to currency-bound default when env is incomplete in tests.
-		costSchedule = DefaultCostSchedule(economic.Schedule.Currency)
-		if reason := validateCostSchedule(costSchedule); reason != "" {
-			return PricingDecision{}, fmt.Errorf("cost schedule unavailable: %w", cerr)
+	// Cost policy attribution. New admission loads today's governed policy once
+	// and freezes its complete body. Historical replay receives the accepted
+	// body explicitly and never consults process configuration.
+	var costPolicy *FrozenCostPolicySnapshot
+	if historicalCostPolicy != nil {
+		if err := validateFrozenCostPolicySnapshot(
+			historicalCostPolicy, economic.Schedule.Currency,
+		); err != nil {
+			return PricingDecision{}, fmt.Errorf("historical cost policy: %w", err)
+		}
+		if err := validateCostFXCatalogueBinding(historicalCostPolicy.FX, catalogue); err != nil {
+			return PricingDecision{}, fmt.Errorf("historical cost policy catalogue FX: %w", err)
+		}
+		frozen := *historicalCostPolicy
+		costPolicy = &frozen
+	} else {
+		var cerr error
+		costPolicy, cerr = freezeCurrentCostPolicySnapshot(catalogue, economic.Schedule.Currency)
+		if cerr != nil {
+			return PricingDecision{}, fmt.Errorf("cost policy unavailable: %w", cerr)
 		}
 	}
-	if costSchedule.Currency != economic.Schedule.Currency {
-		costSchedule.Currency = economic.Schedule.Currency
-	}
-	costSHA, cerr := costScheduleDigest(costSchedule)
-	if cerr != nil {
-		return PricingDecision{}, fmt.Errorf("cost schedule digest: %w", cerr)
-	}
+	costSchedule := costPolicy.Schedule
+	costSHA := costPolicy.ScheduleSHA256
 
 	// Storage and egress: upper-bound from frozen compute plan geometry and the
 	// job-object retention period. Settlement recomputes from actual bytes.
 	storageBytes, egressBytes := declaredOutputBytesBound(compute)
-	retention := jobObjectRetentionPeriod()
+	retention, rterr := frozenCostPolicyRetention(costPolicy, economic.Schedule.Currency)
+	if rterr != nil {
+		return PricingDecision{}, fmt.Errorf("cost policy retention: %w", rterr)
+	}
 	storageNanos, serr := storageNanosForBytes(costSchedule, storageBytes, retention)
 	if serr != nil {
 		return PricingDecision{}, fmt.Errorf("storage cost model: %w", serr)
@@ -1695,11 +1785,19 @@ func distributedPricingDecisionAtRate(
 		return PricingDecision{}, fmt.Errorf("egress cost model: %w", eerr)
 	}
 	storageCost := modeledCost(nanosToEconomicUSD(storageNanos),
-		fmt.Sprintf("policy storage bound: %d bytes × retention %s at schedule rate; %s",
-			storageBytes, retention, costSchedule.StorageProvenance))
+		fmt.Sprintf("policy storage bound: %d bytes × retention %s at %d nano-%s/GiB-month; "+
+			"converted from %d nano-%s at exact FX %d/1e9 revision %s; %s",
+			storageBytes, retention, costSchedule.StorageNanosPerGiBMonth,
+			costSchedule.SettlementCurrency, costSchedule.StorageReferenceNanosPerGiBMonth,
+			costSchedule.ReferenceCurrency, costPolicy.FX.ReferenceToSettlementNanos,
+			costPolicy.FX.FXRevision, costSchedule.StorageProvenance))
 	egressCost := modeledCost(nanosToEconomicUSD(egressNanos),
-		fmt.Sprintf("policy egress bound: %d result bytes at schedule rate; %s",
-			egressBytes, costSchedule.EgressProvenance))
+		fmt.Sprintf("policy egress bound: %d result bytes at %d nano-%s/GiB; "+
+			"converted from %d nano-%s at exact FX %d/1e9 revision %s; %s",
+			egressBytes, costSchedule.EgressNanosPerGiB,
+			costSchedule.SettlementCurrency, costSchedule.EgressReferenceNanosPerGiB,
+			costSchedule.ReferenceCurrency, costPolicy.FX.ReferenceToSettlementNanos,
+			costPolicy.FX.FXRevision, costSchedule.EgressProvenance))
 	// A workload that stores nothing (no input, no declared output) is N/A.
 	if storageBytes == 0 {
 		storageCost = notApplicableCost(
@@ -1731,8 +1829,15 @@ func distributedPricingDecisionAtRate(
 		}
 	}
 
-	// Risk reserve: real policy money on the buyer charge.
-	buyerNanos := usdToMicros(economic.InitialBuyerChargeUSD) * NanosPerMicro
+	// Risk reserve: real policy money on the exact buyer charge. Asking the
+	// fixed-point builder for the zero-extra base keeps the risk basis identical
+	// to the buyer integer that final conservation will use, including any
+	// sub-micro plan authority.
+	baseFixed, berr := fixedPointPricingFromPlanWithExtras(economic, scenario, 0, nil)
+	if berr != nil {
+		return PricingDecision{}, fmt.Errorf("risk reserve buyer authority: %w", berr)
+	}
+	buyerNanos := baseFixed.BuyerChargeNanos
 	riskNanos, rerr := riskReserveNanos(costSchedule, buyerNanos)
 	if rerr != nil {
 		return PricingDecision{}, fmt.Errorf("risk reserve model: %w", rerr)
@@ -1741,18 +1846,17 @@ func distributedPricingDecisionAtRate(
 		fmt.Sprintf("%d bps of buyer charge as platform risk reserve; %s",
 			costSchedule.RiskReserveBasisPoints, costSchedule.RiskReserveProvenance))
 
-	// Extra variable costs beyond processor+control, in the same micro-aligned
-	// nanos the fixed-point layer and validateModeledCostsAccountedInFixedPoint
-	// use. Taking the rounded component amounts (not the pre-projection nanos)
-	// keeps conservation exact under the six-decimal ledger float.
+	// Extra variable costs beyond processor+control. Cost-schedule components use
+	// their pre-projection exact nanos; only the older provider component remains
+	// a six-decimal projection. The fixed-point residual absorbs sub-micro cost
+	// nanos without changing buyer or supplier authority.
 	componentNanos := func(c PricingCostComponent) int64 {
 		if c.Status != pricingCostModeled {
 			return 0
 		}
 		return usdToMicros(c.Amount) * NanosPerMicro
 	}
-	extraVariableNanos := componentNanos(storageCost) + componentNanos(egressCost) +
-		componentNanos(providerCost) + componentNanos(riskCost)
+	extraVariableNanos := storageNanos + egressNanos + riskNanos + componentNanos(providerCost)
 
 	// Contribution basis text; the residual amount is taken from fixed-point
 	// after the extras are applied so float and nano legs cannot disagree.
@@ -1764,7 +1868,7 @@ func distributedPricingDecisionAtRate(
 		riskCost.Status == pricingCostUnknown {
 		contributionBasis += "; not true net while named costs remain unknown"
 	} else {
-		contributionBasis += "; true net when every named cost is modeled or not applicable"
+		contributionBasis += "; complete accepted forecast coverage, but final true net still requires settlement"
 	}
 	contributionUSD := scenario.ContributionMarginUSD
 	if extraVariableNanos > 0 {
@@ -1786,22 +1890,27 @@ func distributedPricingDecisionAtRate(
 		unknowns = append(unknowns, "risk reserve")
 	}
 	pricingAssumptions = append(pricingAssumptions,
-		"storage and egress use cost-schedule policy rates on declared compute-plan byte bounds and job-object retention; settlement remeasures actual artifact bytes",
+		"storage and egress use exact reference nano rates converted by the catalogue-bound frozen FX authority, then apply declared compute-plan byte bounds and frozen job-object retention; settlement remeasures actual artifact bytes",
 		"provider cost is not_applicable for owned/community supply and governed pod-rate × seconds for cloud-backed cells",
 		"risk reserve is accrued to a platform ledger account at settlement and released or consumed after the dispute window",
 	)
 
 	out := PricingDecision{
 		Version: pricingDecisionVersion, PolicyRevision: pricingDecisionPolicyRevision,
-		ExecutionMode: computeExecutionDistributed,
-		Currency:      economic.Schedule.Currency, Tier: tier,
+		ContributionStage: contributionStage,
+		ExecutionMode:     computeExecutionDistributed,
+		Currency:          economic.Schedule.Currency, Tier: tier,
 		WorkloadDecisionSHA256: workloadSHA, ComputePlanSHA256: computeSHA,
 		PlacementRequirementSHA256: placementSHA,
 		EconomicPlanSHA256:         economicSHA, EconomicScheduleSHA256: scheduleSHA,
 		CostScheduleSHA256:               costSHA,
 		CostScheduleRevision:             costSchedule.Revision,
+		CostPolicy:                       costPolicy,
 		StorageAcceptedBytes:             storageBytes,
 		EgressAcceptedBytes:              egressBytes,
+		StorageAcceptedNanos:             storageNanos,
+		EgressAcceptedNanos:              egressNanos,
+		RiskReserveAcceptedNanos:         riskNanos,
 		OriginQuotePricingDecisionSHA256: originQuotePricingSHA,
 		Catalogue:                        catalogue,
 		BillableUnits:                    billableUnits,
@@ -1906,6 +2015,28 @@ func distributedPricingDecisionAtRate(
 			return PricingDecision{}, fcerr
 		}
 		out.RuntimeCell = frozenCell
+	}
+	if out.ContributionStage == ContributionStageAcceptedForecast && out.FixedPoint != nil {
+		// The fixed-point block is accepted economics, not settlement, so a new
+		// distributed decision never publishes a numeric true-net field. Historical
+		// decisions without the stage marker retain their byte-identical raw body for
+		// audit/replay, while public consumers route through ContributionSettlement.
+		out.FixedPoint.TrueNetContributionNanos = nil
+		// A complete batch cost schedule cannot overrule a frozen runtime cell that
+		// still names unknown energy/reliability/residency terms. Carry those
+		// blockers into the accepted fixed-point authority as well.
+		if out.RuntimeCell == nil || !out.RuntimeCell.MercTrueNetAvailable() {
+			categories := []string{"runtime-cell economics unavailable"}
+			if out.RuntimeCell != nil && len(out.RuntimeCell.UnknownCategories) > 0 {
+				categories = out.RuntimeCell.UnknownCategories
+			}
+			for _, category := range categories {
+				label := "runtime cell: " + category
+				out.FixedPoint.UnknownCostCategories = appendContributionBlocker(
+					out.FixedPoint.UnknownCostCategories, label)
+				out.Unknowns = appendContributionBlocker(out.Unknowns, label)
+			}
+		}
 	}
 
 	return out, validatePricingCostShape(out)
@@ -2083,6 +2214,10 @@ func validatePricingCostShape(p PricingDecision) error {
 	}
 	switch p.ExecutionMode {
 	case computeExecutionDistributed:
+		if p.ContributionStage != "" &&
+			p.ContributionStage != ContributionStageAcceptedForecast {
+			return errors.New("distributed pricing decision can authorize only an accepted contribution forecast")
+		}
 		if p.Realtime != nil || p.RealtimeReuse != nil || p.Currency != p.Catalogue.SettlementCurrency ||
 			!validSHA256(p.WorkloadDecisionSHA256) || !validSHA256(p.ComputePlanSHA256) {
 			return errors.New("physical batch pricing decision lacks core digest or currency authority")
@@ -2133,11 +2268,28 @@ func validatePricingCostShape(p PricingDecision) error {
 		if math.Abs(conserved-p.BuyerPrice) > 0.000002 {
 			return errors.New("physical pricing decision does not conserve modeled buyer price")
 		}
-		// Cost schedule, when present, must be a valid SHA-256 and match a
-		// decision that has left storage/egress/provider/risk as unknown only
-		// for honest reasons (unknown status with a basis), never as a silent
-		// zero.
-		if p.CostScheduleSHA256 != "" && !validSHA256(p.CostScheduleSHA256) {
+		// A current distributed decision carries the complete cost policy. Older
+		// accepted bodies may have only a digest (or no cost attribution at all),
+		// but the deterministic replay boundary below refuses those rather than
+		// reconstructing them from today's environment.
+		if p.CostPolicy != nil {
+			if p.ContributionStage != ContributionStageAcceptedForecast {
+				return errors.New("current distributed pricing decision lacks accepted-forecast contribution stage")
+			}
+			if err := validateFrozenCostPolicySnapshot(p.CostPolicy, p.Currency); err != nil {
+				return fmt.Errorf("physical pricing decision cost policy: %w", err)
+			}
+			if err := validateCostFXCatalogueBinding(p.CostPolicy.FX, p.Catalogue); err != nil {
+				return fmt.Errorf("physical pricing decision cost policy catalogue FX: %w", err)
+			}
+			if err := validateAcceptedCostNanos(p); err != nil {
+				return fmt.Errorf("physical pricing decision accepted cost nanos: %w", err)
+			}
+			if p.CostScheduleSHA256 != p.CostPolicy.ScheduleSHA256 ||
+				p.CostScheduleRevision != p.CostPolicy.Schedule.Revision {
+				return errors.New("physical pricing decision cost policy disagrees with its schedule identity")
+			}
+		} else if p.CostScheduleSHA256 != "" && !validSHA256(p.CostScheduleSHA256) {
 			return errors.New("physical pricing decision cost schedule digest is not a sha256")
 		}
 	case computeExecutionExactReuse:
@@ -2205,7 +2357,7 @@ func validatePricingCostShape(p PricingDecision) error {
 			p.SupplierGrossNanos != 0 || p.SupplierRequiredNanos != 0 ||
 			p.SupplierEntitlementPolicy != "" || p.TaskEconomicPolicy != "" ||
 			p.VerificationCost.Status != pricingCostNotApplicable ||
-			p.StorageCost.Status != pricingCostNotApplicable || p.EgressCost.Status != pricingCostNotApplicable {
+			p.StorageCost.Status != pricingCostNotApplicable {
 			return errors.New("service lease pricing decision carries unrelated execution authority")
 		}
 		if err := validateServiceLeasePricingAuthority(*p.ServiceLease, p.Currency); err != nil {
@@ -2214,8 +2366,27 @@ func validatePricingCostShape(p PricingDecision) error {
 		if p.FixedPoint == nil {
 			return errors.New("service lease pricing decision lacks exact fixed-point authority")
 		}
-		conserved := p.PrimarySupplierCost.Amount + p.ControlPlaneCost.Amount +
-			p.ProviderCost.Amount + p.RiskReserve.Amount + p.PlatformContribution.Amount
+		var conserved float64
+		switch p.ServiceLease.Version {
+		case serviceLeasePricingAuthorityLegacyVersion:
+			if p.EgressCost.Status != pricingCostNotApplicable {
+				return errors.New("legacy service lease pricing must keep egress not applicable")
+			}
+			conserved = p.PrimarySupplierCost.Amount + p.ControlPlaneCost.Amount +
+				p.ProviderCost.Amount + p.RiskReserve.Amount + p.PlatformContribution.Amount
+		case serviceLeasePricingAuthorityVersion:
+			if p.PrimarySupplierCost.Status != pricingCostModeled ||
+				p.PaymentCost.Status != pricingCostUnknown ||
+				p.EgressCost.Status != pricingCostUnknown ||
+				p.RiskReserve.Status != pricingCostUnknown ||
+				p.ProviderCost.Status != pricingCostNotApplicable {
+				return errors.New("current service lease pricing must expose processor, egress, and reserve blockers without double-attributing all-in supplier residency")
+			}
+			conserved = p.PrimarySupplierCost.Amount + p.ControlPlaneCost.Amount +
+				p.PlatformContribution.Amount
+		default:
+			return errors.New("service lease pricing decision has unsupported authority version")
+		}
 		if math.Abs(conserved-p.BuyerPrice) > 0.000000002 {
 			return errors.New("service lease pricing decision does not conserve modeled buyer price")
 		}
@@ -2250,6 +2421,17 @@ func ValidateDistributedPricingDecisionSnapshot(
 	placement PlacementRequirement,
 	economic EconomicPlan,
 ) error {
+	if decision.CostPolicy == nil {
+		if decision.CostScheduleSHA256 != "" {
+			return errors.New(
+				"legacy pricing decision binds only a cost-schedule digest; its original " +
+					"schedule body and retention policy are unavailable for deterministic replay",
+			)
+		}
+		return errors.New(
+			"legacy pre-cost-policy pricing decision is historical display-only and cannot be deterministically replayed",
+		)
+	}
 	if placement.Version >= 2 {
 		if err := validateFrozenRuntimeCellPerformance(placement.PerformanceAuthority); err != nil {
 			return fmt.Errorf("pricing placement performance authority: %w", err)
@@ -2273,7 +2455,11 @@ func ValidateDistributedPricingDecisionSnapshot(
 	rebuilt, err := distributedPricingDecisionAtRate(
 		workload, compute, placement, economic, decision.Catalogue, decision.Tier,
 		decision.OriginQuotePricingDecisionSHA256, decision.ExpectedSupplierUnitsPerSec,
-		decision.RuntimeCell,
+		distributedPricingHistoricalAuthority{
+			RuntimeCell:       decision.RuntimeCell,
+			CostPolicy:        decision.CostPolicy,
+			ContributionStage: decision.ContributionStage,
+		},
 	)
 	if err != nil {
 		return err

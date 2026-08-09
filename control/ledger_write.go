@@ -64,11 +64,24 @@ type ledgerInsert struct {
 	// Currency is the ISO code this row settles in. Empty means "use the
 	// process settlement currency" (new money). Explicit values allow
 	// historical clawbacks to preserve the source row's currency.
-	Currency     string
-	PayoutStatus string
-	ReleaseAt    *time.Time
-	PayoutRef    string
+	Currency string
+	// CurrencyAuthority is set only after a caller has loaded and locked an
+	// immutable historical source (currently a prepaid card operation/balance
+	// or an execution contract). It permits preserving that supported currency
+	// after a deployment cutover; it is never an FX/conversion escape hatch.
+	CurrencyAuthority ledgerCurrencyAuthority
+	PayoutStatus      string
+	ReleaseAt         *time.Time
+	PayoutRef         string
 }
+
+type ledgerCurrencyAuthority string
+
+const (
+	ledgerCurrencyAuthorityNone              ledgerCurrencyAuthority = ""
+	ledgerCurrencyAuthorityPrepaid           ledgerCurrencyAuthority = "prepaid_source"
+	ledgerCurrencyAuthorityExecutionContract ledgerCurrencyAuthority = "execution_contract_source"
+)
 
 func ledgerInsertFromEntry(e LedgerEntry) ledgerInsert {
 	cur := e.Currency
@@ -144,12 +157,13 @@ func insertLedgerEntryIfAbsentByRefTx(ctx context.Context, db ledgerExec, e ledg
 	}
 	return db.Exec(ctx, `
 		INSERT INTO ledger_entries
-		  (kind, supplier_id, buyer_id, task_id, amount_usd, currency, payout_status, release_at, payout_ref)
-		SELECT $1, $2, $3, $4, ($5::numeric / 1000000), $6, $7, $8, $9
+		  (kind, supplier_id, buyer_id, task_id, execution_contract_id,
+		   amount_usd, currency, payout_status, release_at, payout_ref)
+		SELECT $1, $2, $3, $4, $5, ($6::numeric / 1000000), $7, $8, $9, $10
 		 WHERE NOT EXISTS (
-		   SELECT 1 FROM ledger_entries WHERE kind = $1 AND payout_ref = $9
+		   SELECT 1 FROM ledger_entries WHERE kind = $1 AND payout_ref = $10
 		 )`,
-		e.Kind, e.SupplierID, e.BuyerID, e.TaskID,
+		e.Kind, e.SupplierID, e.BuyerID, e.TaskID, e.ExecutionContractID,
 		e.AmountMicros, e.Currency, e.PayoutStatus, e.ReleaseAt, e.PayoutRef,
 	)
 }
@@ -395,13 +409,29 @@ func resolveLedgerInsert(e ledgerInsert) (ledgerInsert, error) {
 	if serr != nil {
 		return ledgerInsert{}, serr
 	}
-	// Reversal kinds may preserve the historical currency of the row they
-	// reverse (clawback, buyer_refund, platform_refund). New money must match
-	// the process settlement currency.
+	// Reversal kinds preserve the historical currency of the row they reverse.
+	// Source-bound prepaid and execution-contract writers may also finish an
+	// already accepted historical obligation after a deployment cutover. The
+	// caller and database triggers prove the immutable source; arbitrary new
+	// money continues to require the current process currency.
+	sourceBound := false
+	switch e.CurrencyAuthority {
+	case ledgerCurrencyAuthorityNone:
+	case ledgerCurrencyAuthorityPrepaid:
+		sourceBound = e.Kind == KindPrepaidTopup || e.Kind == KindPrepaidDebit || e.Kind == KindPrepaidRefund
+	case ledgerCurrencyAuthorityExecutionContract:
+		sourceBound = e.ExecutionContractID != nil
+	default:
+		return ledgerInsert{}, fmt.Errorf("ledger insert has unknown currency authority %q", e.CurrencyAuthority)
+	}
+	if e.CurrencyAuthority != ledgerCurrencyAuthorityNone && !sourceBound {
+		return ledgerInsert{}, fmt.Errorf("ledger insert currency authority %q does not bind this row", e.CurrencyAuthority)
+	}
 	if !got.Equal(settle) &&
 		e.Kind != KindClawback &&
 		e.Kind != KindBuyerRefund &&
-		e.Kind != KindPlatformRefund {
+		e.Kind != KindPlatformRefund &&
+		!sourceBound {
 		return ledgerInsert{}, fmt.Errorf("%w: ledger insert currency %s does not match settlement %s",
 			errCurrencyMismatch, got, settle)
 	}

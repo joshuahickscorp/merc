@@ -30,35 +30,48 @@ type CostSettlementActuals struct {
 	EgressAcceptedNanos int64 `json:"egress_accepted_nanos"`
 	EgressSettledNanos  int64 `json:"egress_settled_nanos"`
 
-	// RetentionSecs is the retention period used for both bound and actual
-	// storage modeling, frozen at settlement from jobObjectRetentionPeriod().
+	// RetentionSecs is the accepted retention period used for both bound and
+	// actual storage modeling. It comes from PricingDecision.CostPolicy, never
+	// from the settlement process environment.
 	RetentionSecs int64 `json:"retention_secs"`
 
 	SettledAt time.Time `json:"settled_at"`
 }
 
 // settleStorageEgressFromBytes recomputes storage and egress from actual
-// artifact bytes under the same CostSchedule the decision froze. Returns the
-// accepted bound (from the decision) beside the settled actual.
+// artifact bytes under the complete CostPolicy the decision froze. The caller
+// cannot supply today's schedule or retention, so historical settlement cannot
+// accidentally reprice accepted work after a deploy.
 func settleStorageEgressFromBytes(
-	schedule CostSchedule,
 	pricing PricingDecision,
 	storageSettledBytes, egressSettledBytes int64,
-	retention time.Duration,
 	now time.Time,
 ) (CostSettlementActuals, error) {
 	if pricing.CostScheduleSHA256 == "" {
 		return CostSettlementActuals{}, errors.New(
 			"cost settlement refuses a pricing decision with no cost schedule digest")
 	}
-	digest, err := costScheduleDigest(schedule)
-	if err != nil {
-		return CostSettlementActuals{}, err
+	if pricing.CostPolicy == nil {
+		return CostSettlementActuals{}, errors.New(
+			"cost settlement refuses a legacy pricing decision whose full cost policy was not frozen",
+		)
 	}
-	if digest != pricing.CostScheduleSHA256 {
-		return CostSettlementActuals{}, fmt.Errorf(
-			"cost settlement schedule digest %s does not match decision %s",
-			digest, pricing.CostScheduleSHA256)
+	retention, err := frozenCostPolicyRetention(pricing.CostPolicy, pricing.Currency)
+	if err != nil {
+		return CostSettlementActuals{}, fmt.Errorf("cost settlement policy: %w", err)
+	}
+	if err := validateCostFXCatalogueBinding(pricing.CostPolicy.FX, pricing.Catalogue); err != nil {
+		return CostSettlementActuals{}, fmt.Errorf("cost settlement catalogue FX: %w", err)
+	}
+	if err := validateAcceptedCostNanos(pricing); err != nil {
+		return CostSettlementActuals{}, fmt.Errorf("cost settlement accepted nanos: %w", err)
+	}
+	schedule := pricing.CostPolicy.Schedule
+	digest := pricing.CostPolicy.ScheduleSHA256
+	if digest != pricing.CostScheduleSHA256 ||
+		pricing.CostScheduleRevision != schedule.Revision {
+		return CostSettlementActuals{}, errors.New(
+			"cost settlement frozen schedule identity does not match decision digest/revision")
 	}
 	if storageSettledBytes < 0 || egressSettledBytes < 0 {
 		return CostSettlementActuals{}, errors.New(
@@ -72,19 +85,18 @@ func settleStorageEgressFromBytes(
 	if err != nil {
 		return CostSettlementActuals{}, err
 	}
-	// Accepted nanos: recompute from the decision's frozen accepted bytes when
-	// present; otherwise from the modeled component amount projected to nanos.
-	storageAcceptedNanos := usdToMicros(pricing.StorageCost.Amount) * NanosPerMicro
-	egressAcceptedNanos := usdToMicros(pricing.EgressCost.Amount) * NanosPerMicro
+	// Accepted nanos are re-derived exactly from the accepted bytes and frozen
+	// policy. The PricingCostComponent float is a display/ledger projection and
+	// can discard sub-micro nanos.
 	return CostSettlementActuals{
 		CostScheduleSHA256:   digest,
 		StorageAcceptedBytes: pricing.StorageAcceptedBytes,
 		StorageSettledBytes:  storageSettledBytes,
-		StorageAcceptedNanos: storageAcceptedNanos,
+		StorageAcceptedNanos: pricing.StorageAcceptedNanos,
 		StorageSettledNanos:  storageSettled,
 		EgressAcceptedBytes:  pricing.EgressAcceptedBytes,
 		EgressSettledBytes:   egressSettledBytes,
-		EgressAcceptedNanos:  egressAcceptedNanos,
+		EgressAcceptedNanos:  pricing.EgressAcceptedNanos,
 		EgressSettledNanos:   egressSettled,
 		RetentionSecs:        int64(retention / time.Second),
 		SettledAt:            now.UTC(),

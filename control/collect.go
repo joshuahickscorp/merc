@@ -718,6 +718,14 @@ func (s *Store) SettleJobSLA(ctx context.Context, jobID uuid.UUID) (SLASettleRes
 		}); err != nil {
 			return res, err
 		}
+		// The refund and its risk-reserve consumption are one money fact. A
+		// standalone reserve debit is refused, and rolling either write back rolls
+		// both back. Jobs accepted before canonical reserves remain a no-op here.
+		if err := consumeRiskReserveForSLARefundTx(
+			ctx, tx, jobID, slaRefundRef(jobID),
+		); err != nil {
+			return res, fmt.Errorf("consume risk reserve for SLA refund: %w", err)
+		}
 	}
 	if _, err := tx.Exec(ctx,
 		`UPDATE jobs SET sla_met = false WHERE id = $1 AND sla_met IS NULL`, jobID); err != nil {

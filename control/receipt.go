@@ -39,6 +39,7 @@ type PricingReconciliation struct {
 	// unknown.
 	SettledPlatformGrossSpread float64                   `json:"settled_platform_gross_spread"`
 	SettledContribution        *EconomicContributionView `json:"settled_contribution,omitempty"`
+	ContributionSettlement     *ContributionSettlement   `json:"contribution_settlement,omitempty"`
 	ModeledPaymentCost         float64                   `json:"modeled_payment_cost"`
 	SettledPaymentCost         *float64                  `json:"settled_payment_cost,omitempty"`
 	CatalogueScheduleSHA256    string                    `json:"catalogue_schedule_sha256"`
@@ -155,7 +156,33 @@ func assembleClearingReceipt(
 			reconciliation.SettledPlatformTake = inv.PlatformTakeUSD
 			reconciliation.SettledPlatformGrossSpread = inv.PlatformGrossSpreadUSD
 			reconciliation.SettledContribution = inv.Contribution
+			reconciliation.ContributionSettlement = inv.ContributionSettlement
 			reconciliation.SettledPaymentCost = inv.ProcessorFeeAllocatedUSD
+			if settlement := inv.ContributionSettlement; settlement != nil {
+				componentUSD := func(component ContributionSettlementComponent) (float64, bool) {
+					if component.AmountNanos == nil {
+						return 0, false
+					}
+					return float64(*component.AmountNanos) / float64(NanosPerMajorUnit), true
+				}
+				if amount, ok := componentUSD(settlement.BuyerNetAmount); ok {
+					reconciliation.SettledBuyerPrice = amount
+				}
+				if amount, ok := componentUSD(settlement.SupplierEntitlements); ok {
+					reconciliation.SettledSupplierCost = amount
+				}
+				if buyer, buyerOK := componentUSD(settlement.BuyerNetAmount); buyerOK {
+					if supplier, supplierOK := componentUSD(settlement.SupplierEntitlements); supplierOK {
+						gross := buyer - supplier
+						reconciliation.SettledPlatformTake = gross
+						reconciliation.SettledPlatformGrossSpread = gross
+					}
+				}
+				if amount, ok := componentUSD(settlement.ProcessorFee); ok &&
+					settlement.ProcessorFee.Status == contributionComponentSettled {
+					reconciliation.SettledPaymentCost = &amount
+				}
+			}
 		}
 		out.Reconciliation = reconciliation
 	}

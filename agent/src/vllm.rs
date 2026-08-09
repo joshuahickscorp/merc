@@ -72,6 +72,10 @@ pub struct VllmAgentConfig {
 #[serde(deny_unknown_fields)]
 pub struct ServiceLeaseConfig {
     pub region: String,
+    // Reserved-service rates currently have no frozen FX authority. Requiring
+    // an explicit USD declaration prevents the agent from relabeling configured
+    // nanos when the control plane runs another settlement currency.
+    pub currency: String,
     pub maximum_warm_replicas: u32,
     pub available_warm_replicas: u32,
     pub supplier_nanos_per_replica_hour: i64,
@@ -332,6 +336,7 @@ fn validate_config(config: &VllmAgentConfig, profile: &RuntimeProfile) -> Result
                 .bytes()
                 .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-');
         if !region_valid
+            || service.currency != "usd"
             || service.maximum_warm_replicas == 0
             || service.available_warm_replicas == 0
             || service.available_warm_replicas > service.maximum_warm_replicas
@@ -980,6 +985,7 @@ fn service_offer(
         runtime_profile_id: profile.runtime_profile_id.clone(),
         runtime_profile_sha256: profile_sha256.to_string(),
         region: service.region.clone(),
+        currency: service.currency.clone(),
         maximum_warm_replicas: service.maximum_warm_replicas,
         available_warm_replicas: service.available_warm_replicas,
         supplier_nanos_per_replica_hour: service.supplier_nanos_per_replica_hour,
@@ -1593,6 +1599,7 @@ mod tests {
         let mut configured = config();
         configured.service_lease = Some(ServiceLeaseConfig {
             region: "ca-central-1".into(),
+            currency: "usd".into(),
             maximum_warm_replicas: 1,
             available_warm_replicas: 1,
             supplier_nanos_per_replica_hour: 2_000_000_000,
@@ -1603,6 +1610,26 @@ mod tests {
             probe_max_tokens: 1,
         });
         assert!(validate_config(&configured, &profile).is_ok());
+        let mut samples = ServiceLatencySamples::new();
+        for latency in [10, 11, 12, 13, 14] {
+            samples.record(latency).unwrap();
+        }
+        let offer = service_offer(
+            &profile,
+            &"a".repeat(64),
+            configured.service_lease.as_ref().unwrap(),
+            &samples,
+            "READY",
+        )
+        .unwrap();
+        assert_eq!(offer.currency, "usd");
+        assert_eq!(
+            serde_json::to_value(&offer).unwrap()["currency"],
+            serde_json::json!("usd")
+        );
+        configured.service_lease.as_mut().unwrap().currency = "cad".into();
+        assert!(validate_config(&configured, &profile).is_err());
+        configured.service_lease.as_mut().unwrap().currency = "usd".into();
         configured
             .service_lease
             .as_mut()

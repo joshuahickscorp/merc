@@ -16,9 +16,11 @@ import (
 
 const (
 	serviceLeaseHeartbeatTimeout = 45 * time.Second
-	serviceLeaseControlNanosHour = int64(100_000_000)
-	serviceLeaseRiskNanosHour    = int64(100_000_000)
-	serviceLeaseContributionHour = int64(300_000_000)
+	// Current service policy rates are explicitly USD. A future non-USD service
+	// authority must convert them through a frozen FX snapshot, not reuse these
+	// numerics under another currency label.
+	serviceLeaseControlUSDNanosHour = int64(100_000_000)
+	serviceLeaseContributionUSDHour = int64(300_000_000)
 )
 
 var serviceLeaseRegionPattern = regexp.MustCompile(`^[a-z0-9-]{2,64}$`)
@@ -29,6 +31,7 @@ type ServiceLeaseOfferRegistration struct {
 	RuntimeProfileID             string `json:"runtime_profile_id"`
 	RuntimeProfileSHA256         string `json:"runtime_profile_sha256"`
 	Region                       string `json:"region"`
+	Currency                     string `json:"currency"`
 	MaximumWarmReplicas          int    `json:"maximum_warm_replicas"`
 	AvailableWarmReplicas        int    `json:"available_warm_replicas"`
 	SupplierNanosPerReplicaHour  int64  `json:"supplier_nanos_per_replica_hour"`
@@ -44,6 +47,7 @@ type ServiceLeaseOfferRegistration struct {
 type ServiceLeaseRequest struct {
 	RuntimeProfileID              string `json:"runtime_profile_id"`
 	Region                        string `json:"region"`
+	Currency                      string `json:"currency"`
 	MinimumReplicas               int    `json:"minimum_replicas"`
 	MaximumReplicas               int    `json:"maximum_replicas"`
 	TermSeconds                   int64  `json:"term_seconds"`
@@ -109,7 +113,12 @@ type ServiceLease struct {
 	UpgradeGeneration       string    `json:"upgrade_generation,omitempty"`
 	// ReservedBuyerMicros is the exact prepaid maximum held for this lease.
 	// It is a ledger-scale amount, never a USD display projection.
-	ReservedBuyerMicros    int64           `json:"reserved_buyer_micros"`
+	ReservedBuyerMicros int64 `json:"reserved_buyer_micros"`
+	// PricingAcceptanceID names the append-only authority used by current
+	// admissions. A nil value is an explicit historical state: the lease
+	// predates acceptance rows and replays its migration-frozen inline pair.
+	PricingAcceptanceID    *uuid.UUID      `json:"pricing_acceptance_id,omitempty"`
+	PricingAuthoritySource string          `json:"pricing_authority_source"`
 	Pricing                PricingDecision `json:"pricing_decision"`
 	PricingDecisionSHA256  string          `json:"pricing_decision_sha256"`
 	StartedAt              time.Time       `json:"started_at"`
@@ -131,16 +140,32 @@ type ServiceLeaseReceipt struct {
 	TrueNetContributionStatus string                            `json:"true_net_contribution_status"`
 	DataPlaneAuthorityStatus  string                            `json:"data_plane_authority_status"`
 	ResidencyAuthorityStatus  string                            `json:"residency_authority_status"`
+	EgressAuthorityStatus     string                            `json:"egress_authority_status"`
+	ReserveRefundStatus       string                            `json:"reserve_refund_status"`
+	ReceiptBlockers           []string                          `json:"receipt_blockers"`
 	MeteringSemantics         string                            `json:"metering_semantics"`
 	MarketClearing            *serviceLeaseMarketClearingDetail `json:"market_clearing,omitempty"`
 	Settlement                *ServiceLeaseSettlement           `json:"settlement,omitempty"`
 	LatestSLOEvidence         *ServiceLeaseSLOEvidence          `json:"latest_slo_evidence,omitempty"`
+	DataPlaneDiagnostics      *ServiceLeaseDataPlaneDiagnostics `json:"data_plane_diagnostics,omitempty"`
+}
+
+// ServiceLeaseDataPlaneDiagnostics is a prompt-free aggregate of application
+// payload sizes observed by the reserved proxy. It is useful for future egress
+// reconciliation, but is explicitly not a provider invoice, wire-byte count,
+// or settlement authority.
+type ServiceLeaseDataPlaneDiagnostics struct {
+	SuccessfulRequests       int64  `json:"successful_requests"`
+	RequestApplicationBytes  int64  `json:"request_application_bytes"`
+	ResponseApplicationBytes int64  `json:"response_application_bytes"`
+	AuthorityStatus          string `json:"authority_status"`
 }
 
 // serviceLeaseActivationDetail is the immutable admission-side economic
-// receipt. The lease row keeps the full PricingDecision, while this compact
-// event makes the selected supplier floor, every allocated cost, and the
-// fixed-point conservation identity auditable from the append-only event
+// receipt. The append-only pricing acceptance keeps the canonical full
+// PricingDecision (with an immutable inline lease projection for compatibility),
+// while this compact event makes the selected supplier floor, every allocated
+// cost, and the fixed-point conservation identity auditable from the event
 // stream alone. It is deliberately explicit that processor fees are not yet
 // allocated: a gross platform spread must never be mistaken for true net
 // contribution.
@@ -164,6 +189,7 @@ type serviceLeaseActivationDetail struct {
 	KnownCostContributionNanos       int64                             `json:"known_cost_contribution_nanos"`
 	TrueNetContributionStatus        string                            `json:"true_net_contribution_status"`
 	UnknownCostCategories            []string                          `json:"unknown_cost_categories,omitempty"`
+	ResidencyLiabilityPolicy         string                            `json:"residency_liability_policy"`
 	MarketClearing                   *serviceLeaseMarketClearingDetail `json:"market_clearing,omitempty"`
 }
 
@@ -191,17 +217,22 @@ func serviceLeaseActivationEventDetail(pricing PricingDecision, digest string, r
 		KnownVariableCostsNanos:          fixed.KnownVariableCostsNanos,
 		MercGrossSpreadNanos:             fixed.MercGrossSpreadNanos,
 		KnownCostContributionNanos:       fixed.KnownCostContributionNanos,
-		TrueNetContributionStatus:        "UNKNOWN_PROCESSOR_FEE_UNALLOCATED",
+		TrueNetContributionStatus:        "UNKNOWN_ECONOMIC_FINALITY_BLOCKERS",
 		UnknownCostCategories:            append([]string(nil), fixed.UnknownCostCategories...),
+		ResidencyLiabilityPolicy:         "SELECTED_SUPPLIER_ALL_IN_WARM_CAPACITY_ENTITLEMENT_V2",
 		MarketClearing:                   market,
+	}
+	if authority.Version == serviceLeasePricingAuthorityLegacyVersion {
+		detail.ResidencyLiabilityPolicy = "LEGACY_PLATFORM_VARIABLE_COST_BENEFICIARY_UNBOUND"
 	}
 	return json.Marshal(detail)
 }
 
 // ServiceLeaseSettlement is the terminal ledger projection of the cumulative
-// meter. PlatformGrossMicros intentionally includes known residency/control/
-// risk costs as well as contribution; it is not a claim about true net Merc
-// contribution after processor fees.
+// meter. Under current authority PlatformGrossMicros contains only the control
+// allocation plus modeled contribution: residency is paid in the selected
+// supplier's all-in credit, and no lease risk reserve is charged. Historical v1
+// receipts retain their accepted arithmetic and label the unresolved liability.
 type ServiceLeaseSettlement struct {
 	Currency              string                       `json:"currency"`
 	BuyerChargeMicros     int64                        `json:"buyer_charge_micros"`
@@ -300,8 +331,19 @@ func insertServiceLeaseLedgerEntryTx(ctx context.Context, tx pgx.Tx, leaseID uui
 // prepaid cash is real buyer funding, but the payout rail has not yet bound a
 // particular top-up collection to this service liability.
 func settleFinalServiceLeaseTx(ctx context.Context, tx pgx.Tx, lease *ServiceLease) error {
-	if lease == nil || lease.ID == uuid.Nil || lease.ReservedBuyerMicros <= 0 {
-		return nil // historical/unfunded leases must not acquire invented cash facts.
+	if lease == nil || lease.ID == uuid.Nil {
+		return errors.New("service terminal settlement requires an accepted lease")
+	}
+	if lease.ReservedBuyerMicros <= 0 {
+		if lease.PricingAcceptanceID != nil {
+			return errors.New("accepted service lease has no positive frozen prepaid reservation")
+		}
+		// Explicit legacy rows predate collected-prepaid acceptance. They remain
+		// readable/replayable but must not acquire invented cash facts.
+		return nil
+	}
+	if err := validateServiceLeaseAcceptedPricingBinding(*lease); err != nil {
+		return err
 	}
 	currency, err := ParseCurrency(lease.Pricing.Currency)
 	if err != nil {
@@ -404,6 +446,9 @@ func serviceLeaseSupplierPayables(ctx context.Context, db serviceLeaseMeterReade
 }
 
 func validateServiceLeaseOffer(reg ServiceLeaseOfferRegistration) (VLLMRuntimeProfile, error) {
+	if _, err := validateCurrentServiceLeaseCurrency(reg.Currency); err != nil {
+		return VLLMRuntimeProfile{}, err
+	}
 	profile, ok := vllmProfileByID(strings.TrimSpace(reg.RuntimeProfileID))
 	if !ok || profile.ProfileSHA256 != reg.RuntimeProfileSHA256 {
 		return VLLMRuntimeProfile{}, errors.New("service lease offer runtime profile does not match authority")
@@ -443,13 +488,13 @@ func (s *Store) UpsertServiceLeaseOffer(ctx context.Context, auth WorkerAuth, re
 	// buyer reserved warm capacity and overbook the host.
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO service_lease_worker_offers
-		 (worker_id,supplier_id,runtime_profile_id,runtime_profile_sha256,region,
-		  maximum_warm_replicas,available_warm_replicas,supplier_nanos_per_replica_hour,
-		  residency_nanos_per_replica_hour,supports_rolling_upgrade,p95_latency_milliseconds,
-		  latency_measurement_count,latency_window_seconds,latency_measurement_kind,status,last_seen_at,updated_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,now(),now())
+			 (worker_id,supplier_id,runtime_profile_id,runtime_profile_sha256,region,currency,
+			  maximum_warm_replicas,available_warm_replicas,supplier_nanos_per_replica_hour,
+			  residency_nanos_per_replica_hour,supports_rolling_upgrade,p95_latency_milliseconds,
+			  latency_measurement_count,latency_window_seconds,latency_measurement_kind,status,last_seen_at,updated_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,now(),now())
 		ON CONFLICT (worker_id,runtime_profile_id,region) DO NOTHING`,
-		auth.WorkerID, auth.SupplierID, reg.RuntimeProfileID, reg.RuntimeProfileSHA256, reg.Region,
+		auth.WorkerID, auth.SupplierID, reg.RuntimeProfileID, reg.RuntimeProfileSHA256, reg.Region, reg.Currency,
 		reg.MaximumWarmReplicas, reg.AvailableWarmReplicas, reg.SupplierNanosPerReplicaHour,
 		reg.ResidencyNanosPerReplicaHour, reg.SupportsRollingUpgrade, reg.P95LatencyMillis,
 		reg.LatencyMeasurementCount, reg.LatencyWindowSeconds, reg.LatencyMeasurementKind, reg.Status); err != nil {
@@ -487,13 +532,13 @@ func (s *Store) UpsertServiceLeaseOffer(ctx context.Context, auth WorkerAuth, re
 		available = measured
 	}
 	if _, err := tx.Exec(ctx, `UPDATE service_lease_worker_offers SET
-		supplier_id=$4,maximum_warm_replicas=$5,available_warm_replicas=$6,
-		supplier_nanos_per_replica_hour=$7,residency_nanos_per_replica_hour=$8,
-		supports_rolling_upgrade=$9,p95_latency_milliseconds=$10,
-		latency_measurement_count=$11,latency_window_seconds=$12,
-		latency_measurement_kind=$13,status=$14,last_seen_at=now(),updated_at=now()
+		supplier_id=$4,currency=$5,maximum_warm_replicas=$6,available_warm_replicas=$7,
+		supplier_nanos_per_replica_hour=$8,residency_nanos_per_replica_hour=$9,
+		supports_rolling_upgrade=$10,p95_latency_milliseconds=$11,
+		latency_measurement_count=$12,latency_window_seconds=$13,
+		latency_measurement_kind=$14,status=$15,last_seen_at=now(),updated_at=now()
 		WHERE worker_id=$1 AND runtime_profile_id=$2 AND region=$3`,
-		auth.WorkerID, reg.RuntimeProfileID, reg.Region, auth.SupplierID,
+		auth.WorkerID, reg.RuntimeProfileID, reg.Region, auth.SupplierID, reg.Currency,
 		reg.MaximumWarmReplicas, available, reg.SupplierNanosPerReplicaHour,
 		reg.ResidencyNanosPerReplicaHour, reg.SupportsRollingUpgrade, reg.P95LatencyMillis,
 		reg.LatencyMeasurementCount, reg.LatencyWindowSeconds, reg.LatencyMeasurementKind, reg.Status); err != nil {
@@ -514,21 +559,22 @@ func recordServiceLeaseOfferSampleTx(ctx context.Context, tx pgx.Tx, workerID uu
 		supplierID, workerHW, profileSHA, status string
 		maximum, available                       int
 		supplierRate, residencyRate              int64
+		currency                                 *string
 	)
 	if err := tx.QueryRow(ctx, `SELECT o.supplier_id,COALESCE(NULLIF(btrim(w.hw_class),''),'UNDECLARED'),
 		o.runtime_profile_sha256,o.status,o.maximum_warm_replicas,o.available_warm_replicas,
-		o.supplier_nanos_per_replica_hour,o.residency_nanos_per_replica_hour
+		o.supplier_nanos_per_replica_hour,o.residency_nanos_per_replica_hour,o.currency
 		FROM service_lease_worker_offers o JOIN workers w ON w.id=o.worker_id
 		WHERE o.worker_id=$1 AND o.runtime_profile_id=$2 AND o.region=$3`, workerID, runtimeProfileID, region).Scan(
-		&supplierID, &workerHW, &profileSHA, &status, &maximum, &available, &supplierRate, &residencyRate); err != nil {
+		&supplierID, &workerHW, &profileSHA, &status, &maximum, &available, &supplierRate, &residencyRate, &currency); err != nil {
 		return err
 	}
 	_, err := tx.Exec(ctx, `INSERT INTO service_lease_offer_samples
 		(worker_id,supplier_id,runtime_profile_id,runtime_profile_sha256,region,worker_declared_hw_class,
 		 status,maximum_warm_replicas,available_warm_replicas,supplier_nanos_per_replica_hour,
-		 residency_nanos_per_replica_hour)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, workerID, supplierID, runtimeProfileID,
-		profileSHA, region, workerHW, status, maximum, available, supplierRate, residencyRate)
+		 residency_nanos_per_replica_hour,currency)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`, workerID, supplierID, runtimeProfileID,
+		profileSHA, region, workerHW, status, maximum, available, supplierRate, residencyRate, currency)
 	return err
 }
 
@@ -596,9 +642,9 @@ func serviceLeasePricingInputs(profile VLLMRuntimeProfile, currency Currency, re
 		MinimumReplicas: request.MinimumReplicas, MaximumReplicas: request.MaximumReplicas,
 		TermSeconds: request.TermSeconds, MaximumP95LatencyMilliseconds: request.MaximumP95LatencyMilliseconds,
 		SupplierNanosPerReplicaHour: supplierRate, ResidencyNanosPerReplicaHour: residencyRate,
-		ControlPlaneNanosPerReplicaHour: serviceLeaseControlNanosHour,
-		RiskReserveNanosPerReplicaHour:  serviceLeaseRiskNanosHour,
-		ContributionNanosPerReplicaHour: serviceLeaseContributionHour,
+		ControlPlaneNanosPerReplicaHour: serviceLeaseControlUSDNanosHour,
+		RiskReserveNanosPerReplicaHour:  0,
+		ContributionNanosPerReplicaHour: serviceLeaseContributionUSDHour,
 		BuyerDeclaredCeilingNanos:       request.BuyerDeclaredCeilingNanos,
 	}
 }
@@ -607,13 +653,13 @@ func (s *Store) CreateServiceLease(ctx context.Context, buyerID uuid.UUID, reque
 	if buyerID == uuid.Nil || !serviceLeaseRegionPattern.MatchString(request.Region) || request.BuyerDeclaredCeilingNanos <= 0 {
 		return ServiceLease{}, errors.New("service lease request has invalid buyer, region, or ceiling")
 	}
+	currency, err := validateCurrentServiceLeaseCurrency(request.Currency)
+	if err != nil {
+		return ServiceLease{}, err
+	}
 	profile, ok := vllmProfileByID(request.RuntimeProfileID)
 	if !ok {
 		return ServiceLease{}, errors.New("unknown service lease runtime profile")
-	}
-	currency, err := SettlementCurrency()
-	if err != nil {
-		return ServiceLease{}, err
 	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -636,13 +682,13 @@ func (s *Store) CreateServiceLease(ctx context.Context, buyerID uuid.UUID, reque
 		SELECT worker_id,supplier_id,supplier_nanos_per_replica_hour,
 		       residency_nanos_per_replica_hour,available_warm_replicas
 		  FROM service_lease_worker_offers
-		 WHERE runtime_profile_id=$1 AND runtime_profile_sha256=$2 AND region=$3 AND status='READY'
+		 WHERE runtime_profile_id=$1 AND runtime_profile_sha256=$2 AND region=$3 AND currency=$6 AND status='READY'
 		   AND p95_latency_milliseconds>0 AND latency_measurement_count>=5
 		   AND latency_window_seconds BETWEEN 1 AND 300 AND latency_measurement_kind='DATA_PLANE_COMPLETIONS_V1'
 		   AND p95_latency_milliseconds <= $5 AND last_seen_at > now()-interval '45 seconds' AND available_warm_replicas >= $4
 		 ORDER BY (supplier_nanos_per_replica_hour + residency_nanos_per_replica_hour) ASC,
 		          supplier_nanos_per_replica_hour ASC,worker_id ASC
-		 FOR UPDATE`, profile.RuntimeProfileID, profile.ProfileSHA256, request.Region, request.MaximumReplicas, request.MaximumP95LatencyMilliseconds)
+		 FOR UPDATE`, profile.RuntimeProfileID, profile.ProfileSHA256, request.Region, request.MaximumReplicas, request.MaximumP95LatencyMilliseconds, currency.Code())
 	if err != nil {
 		return ServiceLease{}, err
 	}
@@ -688,7 +734,10 @@ func (s *Store) CreateServiceLease(ctx context.Context, buyerID uuid.UUID, reque
 	supplierRate, residencyRate := selectedCandidate.SupplierNanosPerReplicaHour, selectedCandidate.ResidencyNanosPerReplicaHour
 	pricing := selectedPricing
 	reservedMicros, err := LedgerMicrosFromNanos(MoneyNanos{Currency: currency, Nanos: pricing.FixedPoint.AcceptedCeilingNanos})
-	if err != nil {
+	if err != nil || reservedMicros <= 0 {
+		if err == nil {
+			err = errors.New("service lease accepted ceiling has no positive prepaid projection")
+		}
 		return ServiceLease{}, err
 	}
 	// Services are not allowed to borrow from free_credit_usd, deferred-card
@@ -710,20 +759,27 @@ func (s *Store) CreateServiceLease(ctx context.Context, buyerID uuid.UUID, reque
 		return ServiceLease{}, err
 	}
 	now := time.Now().UTC()
-	lease := ServiceLease{ID: uuid.New(), BuyerID: buyerID, WorkerID: workerID, SupplierID: supplierID,
+	leaseID := uuid.New()
+	lease := ServiceLease{ID: leaseID, BuyerID: buyerID, WorkerID: workerID, SupplierID: supplierID,
 		RuntimeProfileID: profile.RuntimeProfileID, RuntimeProfileSHA256: profile.ProfileSHA256,
 		Region: request.Region, MinimumReplicas: request.MinimumReplicas, MaximumReplicas: request.MaximumReplicas,
 		MaximumP95LatencyMillis: request.MaximumP95LatencyMilliseconds, TermSeconds: request.TermSeconds,
-		State: "ACTIVE", ActiveReplicas: request.MinimumReplicas, Pricing: pricing, PricingDecisionSHA256: pricingSHA,
+		State: "ACTIVE", ActiveReplicas: request.MinimumReplicas,
+		PricingAcceptanceID: &leaseID, PricingAuthoritySource: serviceLeasePricingSourceAcceptance,
+		Pricing: pricing, PricingDecisionSHA256: pricingSHA,
 		ReservedBuyerMicros: reservedMicros,
 		StartedAt:           now, ExpiresAt: now.Add(time.Duration(request.TermSeconds) * time.Second),
 		LastMeteredAt: now, LastWorkerHeartbeatAt: now}
+	if err := insertServiceLeasePricingAcceptanceTx(ctx, tx, lease.ID, pricingJSON, pricingSHA); err != nil {
+		return ServiceLease{}, err
+	}
 	_, err = tx.Exec(ctx, `
 		INSERT INTO service_leases
 		 (id,buyer_id,worker_id,supplier_id,runtime_profile_id,runtime_profile_sha256,region,
 		  minimum_replicas,maximum_replicas,maximum_p95_latency_milliseconds,term_seconds,state,
-		  active_replicas,reserved_buyer_micros,pricing_decision,pricing_decision_sha256,started_at,expires_at,last_metered_at,last_worker_heartbeat_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'ACTIVE',$8,$12,$13,$14,$15,$16,$15,$15)`,
+		  active_replicas,reserved_buyer_micros,pricing_acceptance_id,pricing_decision,pricing_decision_sha256,
+		  started_at,expires_at,last_metered_at,last_worker_heartbeat_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'ACTIVE',$8,$12,$1,$13,$14,$15,$16,$15,$15)`,
 		lease.ID, lease.BuyerID, lease.WorkerID, lease.SupplierID, lease.RuntimeProfileID,
 		lease.RuntimeProfileSHA256, lease.Region, lease.MinimumReplicas, lease.MaximumReplicas,
 		lease.MaximumP95LatencyMillis, lease.TermSeconds, lease.ReservedBuyerMicros, pricingJSON, pricingSHA, now, lease.ExpiresAt)
@@ -783,13 +839,73 @@ func decodeServiceLeasePricing(raw []byte, digest string) (PricingDecision, erro
 	return pricing, nil
 }
 
+const (
+	serviceLeasePricingSourceAcceptance = "APPEND_ONLY_ACCEPTANCE_V1"
+	serviceLeasePricingSourceLegacy     = "LEGACY_INLINE_FROZEN_AT_MIGRATION"
+)
+
+// insertServiceLeasePricingAcceptanceTx is the only production writer for an
+// accepted service price. The database makes the resulting row append-only;
+// this store boundary additionally proves that the supplied digest is the
+// canonical digest of a complete service-lease PricingDecision before either
+// the acceptance or its lease projection can become visible.
+func insertServiceLeasePricingAcceptanceTx(ctx context.Context, tx pgx.Tx, leaseID uuid.UUID, raw []byte, digest string) error {
+	if leaseID == uuid.Nil {
+		return errors.New("service lease pricing acceptance lacks lease identity")
+	}
+	if _, err := decodeServiceLeasePricing(raw, digest); err != nil {
+		return fmt.Errorf("validate service lease pricing acceptance: %w", err)
+	}
+	_, err := tx.Exec(ctx, `INSERT INTO service_lease_pricing_acceptances
+		(id,pricing_decision,pricing_decision_sha256)
+		VALUES ($1,$2::jsonb,$3)`, leaseID, raw, digest)
+	return err
+}
+
+func validateServiceLeaseAcceptedPricingBinding(lease ServiceLease) error {
+	authority := lease.Pricing.ServiceLease
+	if authority == nil || lease.Pricing.FixedPoint == nil {
+		return errors.New("service lease lacks accepted pricing authority")
+	}
+	if authority.RuntimeProfileID != lease.RuntimeProfileID ||
+		authority.RuntimeProfileSHA256 != lease.RuntimeProfileSHA256 ||
+		authority.Region != lease.Region ||
+		authority.MinimumReplicas != lease.MinimumReplicas ||
+		authority.MaximumReplicas != lease.MaximumReplicas ||
+		authority.TermSeconds != lease.TermSeconds ||
+		authority.MaximumP95LatencyMilliseconds != lease.MaximumP95LatencyMillis {
+		return errors.New("service lease row differs from its accepted pricing authority")
+	}
+	if lease.PricingAcceptanceID != nil && *lease.PricingAcceptanceID != lease.ID {
+		return errors.New("service lease pricing acceptance reference differs from lease identity")
+	}
+	if lease.PricingAcceptanceID != nil && lease.ReservedBuyerMicros <= 0 {
+		return errors.New("accepted service lease must retain a positive prepaid reservation")
+	}
+	if lease.ReservedBuyerMicros > 0 {
+		currency, err := ParseCurrency(lease.Pricing.Currency)
+		if err != nil {
+			return err
+		}
+		reserved, err := LedgerMicrosFromNanos(MoneyNanos{
+			Currency: currency,
+			Nanos:    lease.Pricing.FixedPoint.AcceptedCeilingNanos,
+		})
+		if err != nil || reserved != lease.ReservedBuyerMicros {
+			return errors.New("service lease prepaid reservation differs from accepted pricing ceiling")
+		}
+	}
+	return nil
+}
+
 func scanServiceLease(row pgx.Row) (ServiceLease, error) {
 	var lease ServiceLease
 	var raw []byte
 	err := row.Scan(&lease.ID, &lease.BuyerID, &lease.WorkerID, &lease.SupplierID,
 		&lease.RuntimeProfileID, &lease.RuntimeProfileSHA256, &lease.Region, &lease.MinimumReplicas,
 		&lease.MaximumReplicas, &lease.MaximumP95LatencyMillis, &lease.TermSeconds, &lease.State,
-		&lease.ActiveReplicas, &lease.UpgradeGeneration, &lease.ReservedBuyerMicros, &raw, &lease.PricingDecisionSHA256,
+		&lease.ActiveReplicas, &lease.UpgradeGeneration, &lease.ReservedBuyerMicros, &lease.PricingAcceptanceID,
+		&raw, &lease.PricingDecisionSHA256,
 		&lease.StartedAt, &lease.ExpiresAt, &lease.LastMeteredAt, &lease.LastWorkerHeartbeatAt,
 		&lease.CumulativeReplicaNanos, &lease.BuyerChargeNanos, &lease.SupplierPayableNanos,
 		&lease.KnownVariableCostNanos, &lease.KnownContributionNanos, &lease.FinalizedAt)
@@ -797,14 +913,46 @@ func scanServiceLease(row pgx.Row) (ServiceLease, error) {
 		return ServiceLease{}, err
 	}
 	lease.Pricing, err = decodeServiceLeasePricing(raw, lease.PricingDecisionSHA256)
-	return lease, err
+	if err != nil {
+		return ServiceLease{}, err
+	}
+	if lease.PricingAcceptanceID == nil {
+		lease.PricingAuthoritySource = serviceLeasePricingSourceLegacy
+	} else {
+		lease.PricingAuthoritySource = serviceLeasePricingSourceAcceptance
+	}
+	if err := validateServiceLeaseAcceptedPricingBinding(lease); err != nil {
+		return ServiceLease{}, err
+	}
+	return lease, nil
 }
 
 const serviceLeaseColumns = `id,buyer_id,worker_id,supplier_id,runtime_profile_id,runtime_profile_sha256,
  region,minimum_replicas,maximum_replicas,maximum_p95_latency_milliseconds,term_seconds,state,
- active_replicas,upgrade_generation,reserved_buyer_micros,pricing_decision,pricing_decision_sha256,started_at,expires_at,
+ active_replicas,upgrade_generation,reserved_buyer_micros,pricing_acceptance_id,
+ CASE WHEN pricing_acceptance_id IS NULL THEN pricing_decision ELSE
+   (SELECT accepted.pricing_decision FROM service_lease_pricing_acceptances accepted
+     WHERE accepted.id=pricing_acceptance_id) END,
+ CASE WHEN pricing_acceptance_id IS NULL THEN pricing_decision_sha256 ELSE
+   (SELECT accepted.pricing_decision_sha256 FROM service_lease_pricing_acceptances accepted
+     WHERE accepted.id=pricing_acceptance_id) END,
+ started_at,expires_at,
  last_metered_at,last_worker_heartbeat_at,cumulative_replica_nanoseconds,buyer_charge_nanos,
  supplier_payable_nanos,known_variable_cost_nanos,known_contribution_nanos,finalized_at`
+
+func serviceLeaseKnownVariableNanos(authority ServiceLeasePricingAuthority, money ServiceLeaseMoney) (int64, error) {
+	if authority.Version == serviceLeasePricingAuthorityVersion {
+		// Residency is inside SupplierPayable for the current authority. Counting
+		// it here as well would both double-count the buyer charge and let the
+		// platform present a supplier liability as its own variable cost.
+		return money.ControlPlaneCost.Nanos, nil
+	}
+	variable := money.ResidencyCost.Nanos + money.ControlPlaneCost.Nanos + money.RiskReserve.Nanos
+	if variable < money.ResidencyCost.Nanos || variable < money.ControlPlaneCost.Nanos {
+		return 0, errors.New("historical service lease variable cost overflow")
+	}
+	return variable, nil
+}
 
 func meterServiceLeaseTx(ctx context.Context, tx pgx.Tx, lease *ServiceLease, at time.Time) error {
 	if at.Before(lease.LastMeteredAt) {
@@ -835,9 +983,8 @@ func meterServiceLeaseTx(ctx context.Context, tx pgx.Tx, lease *ServiceLease, at
 	if err != nil {
 		return err
 	}
-	variable := money.ResidencyCost.Nanos + money.ControlPlaneCost.Nanos + money.RiskReserve.Nanos
-	if variable < money.ResidencyCost.Nanos || variable < money.ControlPlaneCost.Nanos ||
-		money.BuyerCharge.Nanos > lease.Pricing.FixedPoint.AcceptedCeilingNanos {
+	variable, err := serviceLeaseKnownVariableNanos(*lease.Pricing.ServiceLease, money)
+	if err != nil || money.BuyerCharge.Nanos > lease.Pricing.FixedPoint.AcceptedCeilingNanos {
 		return errors.New("service lease meter violates reserved ceiling or exact cost bounds")
 	}
 	var sequence int64
@@ -979,9 +1126,18 @@ func (s *Store) GetServiceLeaseReceipt(ctx context.Context, buyerID, leaseID uui
 		buyerFundingState = "PREPAID_MAXIMUM_RESERVED"
 		supplierSettlementState = "ACCRUED_PREPAID_RESERVED_UNSETTLED"
 	}
+	residencyStatus := "SELECTED_SUPPLIER_ALL_IN_LIABILITY_BOUND_REGION_DECLARATION_NOT_CERTIFICATION"
+	reserveRefundStatus := "UNCHARGED_LEASE_RESERVE_AND_GOVERNED_SLO_REFUND_UNDEFINED"
+	if lease.Pricing.ServiceLease.Version == serviceLeasePricingAuthorityLegacyVersion {
+		residencyStatus = "LEGACY_RESIDENCY_LIABILITY_BENEFICIARY_UNBOUND"
+		reserveRefundStatus = "LEGACY_MODELED_RESERVE_CHARGED_WITHOUT_LIFECYCLE_OR_GOVERNED_REFUND"
+	}
 	receipt := ServiceLeaseReceipt{Lease: lease, BuyerFundingState: buyerFundingState, SupplierSettlementState: supplierSettlementState,
-		TrueNetContributionStatus: "UNKNOWN_PROCESSOR_FEE_UNALLOCATED", DataPlaneAuthorityStatus: "WORKER_ATTESTED_PROBE_NOT_BUYER_REQUEST",
-		ResidencyAuthorityStatus: "SUPPLIER_DECLARED_OPERATIONAL_REGION_ONLY",
+		TrueNetContributionStatus: "UNKNOWN_ECONOMIC_FINALITY_BLOCKERS", DataPlaneAuthorityStatus: "WORKER_ATTESTED_PROBE_NOT_BUYER_REQUEST",
+		ResidencyAuthorityStatus: residencyStatus,
+		EgressAuthorityStatus:    "APPLICATION_BYTES_DIAGNOSTIC_ONLY_PROVIDER_BILLING_UNKNOWN",
+		ReserveRefundStatus:      reserveRefundStatus,
+		ReceiptBlockers:          serviceLeaseEconomicFinalityBlockers(),
 		MeteringSemantics:        "cumulative replica-nanoseconds; each receipt is re-derived from lease start"}
 	var activationRaw []byte
 	err = s.pool.QueryRow(ctx, `SELECT detail FROM service_lease_events
@@ -1054,6 +1210,19 @@ func (s *Store) GetServiceLeaseReceipt(ctx context.Context, buyerID, leaseID uui
 		receipt.LatestSLOEvidence = &evidence
 	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return ServiceLeaseReceipt{}, err
+	}
+	var diagnostics ServiceLeaseDataPlaneDiagnostics
+	if err := s.pool.QueryRow(ctx, `SELECT count(*)::bigint,
+		COALESCE(sum(request_application_bytes),0)::bigint,
+		COALESCE(sum(response_application_bytes),0)::bigint
+		FROM service_lease_data_plane_diagnostics WHERE lease_id=$1`, lease.ID).
+		Scan(&diagnostics.SuccessfulRequests, &diagnostics.RequestApplicationBytes,
+			&diagnostics.ResponseApplicationBytes); err != nil {
+		return ServiceLeaseReceipt{}, err
+	}
+	if diagnostics.SuccessfulRequests > 0 {
+		diagnostics.AuthorityStatus = "APPLICATION_BYTES_DIAGNOSTIC_NOT_PROVIDER_BILLING"
+		receipt.DataPlaneDiagnostics = &diagnostics
 	}
 	return receipt, nil
 }
@@ -1406,9 +1575,12 @@ func (s *Store) FailoverServiceLease(ctx context.Context, leaseID uuid.UUID) (bo
 		  AND latency_window_seconds BETWEEN 1 AND 300 AND latency_measurement_kind='DATA_PLANE_COMPLETIONS_V1'
 		  AND p95_latency_milliseconds <= $8 AND worker_id<>$4 AND last_seen_at > now()-interval '45 seconds' AND available_warm_replicas >= $5
 		  AND supplier_nanos_per_replica_hour <= $6 AND residency_nanos_per_replica_hour <= $7
-		ORDER BY supplier_nanos_per_replica_hour,worker_id FOR UPDATE SKIP LOCKED LIMIT 1`,
+		  AND currency=$9
+		ORDER BY (supplier_nanos_per_replica_hour + residency_nanos_per_replica_hour),worker_id
+		FOR UPDATE SKIP LOCKED LIMIT 1`,
 		lease.RuntimeProfileID, lease.RuntimeProfileSHA256, lease.Region, lease.WorkerID, lease.MaximumReplicas,
-		authority.SupplierNanosPerReplicaHour, authority.ResidencyNanosPerReplicaHour, lease.MaximumP95LatencyMillis).Scan(&workerID, &supplierID)
+		authority.SupplierNanosPerReplicaHour, authority.ResidencyNanosPerReplicaHour,
+		lease.MaximumP95LatencyMillis, lease.Pricing.Currency).Scan(&workerID, &supplierID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}

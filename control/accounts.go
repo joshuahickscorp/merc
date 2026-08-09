@@ -286,17 +286,29 @@ func (s *Store) RevokeSession(ctx context.Context, rawToken string) error {
 // work is held by the contract term again — the same expiry fallback the other
 // two rails apply.
 func (s *Store) BuyerFreeCreditRemaining(ctx context.Context, buyerID uuid.UUID) (float64, error) {
+	settlement, err := SettlementCurrency()
+	if err != nil {
+		return 0, err
+	}
+	// The grant is explicitly free_credit_usd. It is never converted or
+	// relabelled into another settlement currency; non-USD deployments require
+	// collected prepaid cash or a payment method.
+	if settlement.Code() != "usd" {
+		return 0, nil
+	}
 	var remaining float64
-	err := s.pool.QueryRow(ctx,
+	err = s.pool.QueryRow(ctx,
 		`SELECT GREATEST(
 		          b.free_credit_usd
 		          - COALESCE((SELECT -SUM(amount_usd) FROM ledger_entries
 		                       WHERE buyer_id = b.id
+		                         AND currency = 'usd'
 		                         AND kind IN ('buyer_charge','buyer_refund')), 0)
 		          - COALESCE((SELECT SUM(estimated_usd) FROM jobs
-		                       WHERE buyer_id = b.id AND status IN ('queued','running','verifying')), 0)
+		                       WHERE buyer_id = b.id AND currency='usd'
+		                         AND status IN ('queued','running','verifying')), 0)
 		          - COALESCE((SELECT SUM(c.maximum_price_usd) FROM execution_contracts c
-		                       WHERE c.buyer_id = b.id AND c.state = 'EXECUTING'
+		                       WHERE c.buyer_id = b.id AND c.currency='usd' AND c.state = 'EXECUTING'
 		                         AND NOT EXISTS (
 		                           SELECT 1 FROM execution_envelope_spends s
 		                             JOIN execution_envelopes e ON e.id = s.envelope_id
@@ -304,7 +316,7 @@ func (s *Store) BuyerFreeCreditRemaining(ctx context.Context, buyerID uuid.UUID)
 		                         )), 0)
 		          - COALESCE((SELECT SUM(((e.cap_nanos - e.spent_nanos) + 999) / 1000)
 		                        FROM execution_envelopes e
-		                       WHERE e.buyer_id = b.id AND e.state = 'ACTIVE'), 0)::float8 / 1000000.0,
+		                       WHERE e.buyer_id = b.id AND e.currency='usd' AND e.state = 'ACTIVE'), 0)::float8 / 1000000.0,
 		          0)::float8
 		   FROM buyers b WHERE b.id = $1`, buyerID,
 	).Scan(&remaining)

@@ -40,6 +40,7 @@ const publicPathReuseClusterSize = 128
 // deltas, and per-delivery receipt identifiers.
 func TestPublicPathExactReuse128To1WritesSealedReceipt(t *testing.T) {
 	installSettlementCurrencyForTest(t, "cad")
+	installRealtimeCADFXForTest(t)
 	t.Setenv("MERC_TOKEN_KEY", "public-path-reuse-proof-key-with-at-least-32-bytes")
 	t.Setenv("STRIPE_SECRET_KEY", "")
 
@@ -570,6 +571,7 @@ func TestPublicPathExactReuse128To1WritesSealedReceipt(t *testing.T) {
 // buyer A already ran the request via a reuse header, reuse price, or receipt.
 func TestPublicPathExactReuseDoesNotCrossTenants(t *testing.T) {
 	installSettlementCurrencyForTest(t, "cad")
+	installRealtimeCADFXForTest(t)
 	t.Setenv("MERC_TOKEN_KEY", "public-path-tenant-isolation-key-with-32b!")
 	t.Setenv("STRIPE_SECRET_KEY", "")
 

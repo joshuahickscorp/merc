@@ -54,10 +54,11 @@ const (
 // the market-clearing receipt for the selected offer. A buyer can see why a
 // supplier cleared; a regression cannot hide behind an opaque rank number.
 type RealtimeClearingRankingInputs struct {
-	BaseAskNanos                int64 `json:"base_supplier_ask_nanos_per_million_tokens"`
-	SelectedSupplierInputNanos  int64 `json:"selected_supplier_input_nanos_per_million_tokens"`
-	SelectedSupplierOutputNanos int64 `json:"selected_supplier_output_nanos_per_million_tokens"`
-	VerifiedOutcomeCostNanos    int64 `json:"verified_outcome_cost_nanos_per_million_tokens"`
+	RateCurrency                string `json:"rate_currency,omitempty"`
+	BaseAskNanos                int64  `json:"base_supplier_ask_nanos_per_million_tokens"`
+	SelectedSupplierInputNanos  int64  `json:"selected_supplier_input_nanos_per_million_tokens"`
+	SelectedSupplierOutputNanos int64  `json:"selected_supplier_output_nanos_per_million_tokens"`
+	VerifiedOutcomeCostNanos    int64  `json:"verified_outcome_cost_nanos_per_million_tokens"`
 
 	TerminalAttempts    int      `json:"terminal_attempts"`
 	TerminalFails       int      `json:"terminal_fails"`

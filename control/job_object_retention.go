@@ -30,7 +30,24 @@ const (
 	defaultJobObjectRetention = 30 * 24 * time.Hour
 	jobObjectRetentionSweep   = 1 * time.Hour
 	jobObjectRetentionBatch   = 100
+
+	// jobObjectRetentionPolicyRevision is the revision emitted by current
+	// admissions. FrozenCostPolicySnapshot v1 deliberately validates against its
+	// own permanent revision constant; changing this value without also bumping
+	// the snapshot version makes new admission fail closed rather than invalidating
+	// historical v1 decisions.
+	jobObjectRetentionPolicyRevision = "job-object-retention-v1"
+	defaultJobObjectRetentionBasis   = "job-object-retention-v1 default: retain payload objects for 30 days after terminal_at and hold them longer while a dispute is unresolved"
 )
+
+// JobObjectRetentionPolicy is the process policy used by new admissions. A
+// PricingDecision freezes its duration, revision and basis; historical replay
+// never calls this loader.
+type JobObjectRetentionPolicy struct {
+	Duration time.Duration
+	Revision string
+	Basis    string
+}
 
 // jobObjectRetention is the age past terminal_at at which payload objects go.
 //
@@ -39,19 +56,36 @@ const (
 // they are disputing, and a resolver must still be able to read it. A shorter
 // setting would delete the evidence for a dispute the buyer is entitled to
 // file, so it is refused rather than clamped silently.
-func jobObjectRetentionPeriod() time.Duration {
+func currentJobObjectRetentionPolicy() JobObjectRetentionPolicy {
+	policy := JobObjectRetentionPolicy{
+		Duration: defaultJobObjectRetention,
+		Revision: jobObjectRetentionPolicyRevision,
+		Basis:    defaultJobObjectRetentionBasis,
+	}
 	raw := os.Getenv("MERC_JOB_OBJECT_RETENTION_DAYS")
 	if raw == "" {
-		return defaultJobObjectRetention
+		return policy
 	}
 	days, err := strconv.Atoi(raw)
-	if err != nil || days < 8 {
+	// time.Duration is int64 nanoseconds. Refuse an overflowing configured
+	// period rather than wrapping it into a short or negative retention.
+	maxDays := int64(^uint64(0)>>1) / int64(24*time.Hour)
+	if err != nil || days < 8 || int64(days) > maxDays {
 		log.Printf("retention: ignoring MERC_JOB_OBJECT_RETENTION_DAYS=%q "+
-			"(must be an integer >= 8 so the 7-day dispute window keeps its evidence); "+
+			"(must be a representable integer >= 8 so the 7-day dispute window keeps its evidence); "+
 			"using %s", raw, defaultJobObjectRetention)
-		return defaultJobObjectRetention
+		return policy
 	}
-	return time.Duration(days) * 24 * time.Hour
+	policy.Duration = time.Duration(days) * 24 * time.Hour
+	policy.Basis = fmt.Sprintf(
+		"job-object-retention-v1 configured by MERC_JOB_OBJECT_RETENTION_DAYS=%d: retain payload objects for %d days after terminal_at and hold them longer while a dispute is unresolved",
+		days, days,
+	)
+	return policy
+}
+
+func jobObjectRetentionPeriod() time.Duration {
+	return currentJobObjectRetentionPolicy().Duration
 }
 
 // ClaimJobsForObjectRetention leases terminal jobs whose payload objects are

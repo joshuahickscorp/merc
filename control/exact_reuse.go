@@ -284,6 +284,26 @@ type ReuseHitSettlement struct {
 func SettleRealtimeReuseHitMoney(
 	c Currency, deliveredTokens int64, inputPerMillion, outputPerMillion float64,
 ) (ReuseHitSettlement, error) {
+	fx, err := loadRealtimeFXAuthority(c)
+	if err != nil {
+		return ReuseHitSettlement{}, err
+	}
+	return SettleRealtimeReuseHitMoneyWithFX(
+		c, fx, deliveredTokens, inputPerMillion, outputPerMillion)
+}
+
+// SettleRealtimeReuseHitMoneyWithFX prices a delivery from the USD profile
+// authority, then converts the complete charge through the same immutable FX
+// snapshot that the resulting PricingDecision binds.
+func SettleRealtimeReuseHitMoneyWithFX(
+	c Currency,
+	fx RealtimeFXAuthority,
+	deliveredTokens int64,
+	inputPerMillion, outputPerMillion float64,
+) (ReuseHitSettlement, error) {
+	if err := validateRealtimeFXAuthority(fx, c); err != nil {
+		return ReuseHitSettlement{}, err
+	}
 	input, err := nanoRatePerMillionFromFloat(inputPerMillion)
 	if err != nil {
 		return ReuseHitSettlement{}, err
@@ -296,7 +316,12 @@ func SettleRealtimeReuseHitMoney(
 	if output > full {
 		full = output
 	}
-	charge, minimumApplied, err := RealtimeReuseBuyerChargeNanos(c, deliveredTokens, full)
+	referenceCharge, minimumApplied, err := RealtimeReuseBuyerChargeNanos(
+		MustParseCurrency(realtimeReferenceCurrency), deliveredTokens, full)
+	if err != nil {
+		return ReuseHitSettlement{}, err
+	}
+	charge, err := convertRealtimeReferenceNanos(referenceCharge.Nanos, c, fx, true)
 	if err != nil {
 		return ReuseHitSettlement{}, err
 	}

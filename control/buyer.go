@@ -421,6 +421,7 @@ type invoiceResp struct {
 	PlatformTakeUSD        float64                   `json:"platform_take_usd"`
 	PlatformGrossSpreadUSD float64                   `json:"platform_gross_spread_usd"`
 	Contribution           *EconomicContributionView `json:"contribution,omitempty"`
+	ContributionSettlement *ContributionSettlement   `json:"contribution_settlement,omitempty"`
 	QuotedUSD              *float64                  `json:"quoted_usd,omitempty"`
 }
 
@@ -559,13 +560,19 @@ func printInvoice(inv invoiceResp) {
 	}
 	p("  Supplier : $%.4f credit", inv.SupplierPaidUSD)
 	p("  Platform : $%.4f gross spread (before Merc costs)", inv.PlatformGrossSpreadUSD)
-	if inv.Contribution != nil {
-		net := inv.Contribution.MercNetContribution
-		if net.AmountUSD != nil {
-			p("  Merc net : $%.4f contribution", *net.AmountUSD)
+	if settlement := inv.ContributionSettlement; settlement != nil {
+		if settlement.Stage == ContributionStageFinalSettlement && settlement.TrueNetNanos != nil {
+			p("  Merc net : $%.4f contribution (FINAL_SETTLEMENT)",
+				float64(*settlement.TrueNetNanos)/float64(NanosPerMajorUnit))
 		} else {
-			p("  Merc net : unavailable (%s)", net.Status)
+			reason := settlement.Stage
+			if len(settlement.Blockers) > 0 {
+				reason += ": " + strings.Join(settlement.Blockers, "; ")
+			}
+			p("  Merc net : unavailable (%s)", reason)
 		}
+	} else if inv.Contribution != nil {
+		p("  Merc net : unavailable (no canonical contribution settlement authority)")
 	}
 }
 

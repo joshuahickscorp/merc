@@ -257,6 +257,7 @@ pub struct ServiceLeaseOfferRegistration {
     pub runtime_profile_id: String,
     pub runtime_profile_sha256: String,
     pub region: String,
+    pub currency: String,
     pub maximum_warm_replicas: u32,
     pub available_warm_replicas: u32,
     pub supplier_nanos_per_replica_hour: i64,

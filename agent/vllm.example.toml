@@ -36,9 +36,10 @@ supplier_output_usd_per_million_tokens = 0.30
 # that a health endpoint proves buyer-path latency.
 [service_lease]
 region = "ca-central-1"
+currency = "usd" # required; current reserved-service pricing has no non-USD frozen FX authority
 maximum_warm_replicas = 1
 available_warm_replicas = 1
-# Integer nanos in the control-plane settlement currency, never floating prices.
+# Integer nano-USD, never floating prices or numerics relabeled into another currency.
 supplier_nanos_per_replica_hour = 2000000000
 residency_nanos_per_replica_hour = 200000000
 supports_rolling_upgrade = true

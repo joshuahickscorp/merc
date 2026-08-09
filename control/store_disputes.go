@@ -574,6 +574,13 @@ func resolveDisputeInTx(
 		if err != nil {
 			return out, err
 		}
+		if refundResult.BuyerRefundMicros > 0 {
+			// Bind reserve consumption to the exact dispute-keyed refund rows while
+			// the job/dispute locks are still held. Neither side can commit alone.
+			if err := consumeRiskReserveForDisputeRefundTx(ctx, tx, jobID, id); err != nil {
+				return out, fmt.Errorf("consume risk reserve for upheld dispute %s: %w", id, err)
+			}
+		}
 	}
 	if _, err := tx.Exec(ctx, `
 		UPDATE dispute_payout_holds
@@ -708,7 +715,7 @@ func applyDisputeBuyerRefundFundingTx(
 	case prepaidRestoreMicros > 0:
 		funding = refundFundingPrepaidBalance
 		externalCash = "NOT_APPLICABLE"
-		if err := creditPrepaidBalanceTx(ctx, tx, buyerID, prepaidRestoreMicros); err != nil {
+		if err := creditPrepaidBalanceTx(ctx, tx, buyerID, prepaidRestoreMicros, refund.Currency); err != nil {
 			return "", err
 		}
 	case refund.BuyerRefundMicros > 0 && hasCardCollection:

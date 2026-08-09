@@ -1,7 +1,6 @@
 package main
 
 import (
-	"math"
 	"strings"
 	"testing"
 	"time"
@@ -179,11 +178,7 @@ func TestSubmitJobTxRefusesFutureDatedCurrentPerformanceWithoutWriting(t *testin
 }
 
 func TestHistoricalOldMatrixJobRemainsReadableAndAccruesRiskReserve(t *testing.T) {
-	ctx, store, pool := openIsolatedMoneyPathStore(t)
-	f := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{TaskCount: 1})
-	tasks := makeTasks(f, 1)
-	f.TaskIDs = []uuid.UUID{tasks[0].ID}
-	job := validJobRow(t, f, tasks)
+	ctx, store, pool, f, job, tasks, _ := currentUniformMoneyPathJob(t)
 	if job.PricingDecision.RiskReserve.Status != pricingCostModeled ||
 		job.PricingDecision.RiskReserve.Amount <= 0 {
 		t.Fatalf("historical completion fixture lacks modeled risk reserve: %+v",
@@ -191,15 +186,22 @@ func TestHistoricalOldMatrixJobRemainsReadableAndAccruesRiskReserve(t *testing.T
 	}
 	mustf(t, store.SubmitJobTx(ctx, job, tasks), "submit pre-revision job: %v")
 	acceptedMatrix := job.PlacementRequirement.RuntimeMatrixSHA256
+	if job.PricingDecision.CostPolicy == nil {
+		t.Fatal("historical completion fixture lacks a frozen cost policy")
+	}
+	acceptedRetention := job.PricingDecision.CostPolicy.RetentionSeconds
 
-	// Advance the binary's current matrix after acceptance. The stored placement
-	// and pricing digests retain acceptedMatrix and must remain replayable.
+	// Advance the binary's current matrix and cost configuration after
+	// acceptance. The stored placement and pricing digests retain the accepted
+	// authorities and must remain replayable without reading today's defaults.
 	savedMatrix := generatedRuntimeMatrixSHA256
 	generatedRuntimeMatrixSHA256 = strings.Repeat("f", 64)
 	if generatedRuntimeMatrixSHA256 == acceptedMatrix {
 		generatedRuntimeMatrixSHA256 = strings.Repeat("e", 64)
 	}
 	t.Cleanup(func() { generatedRuntimeMatrixSHA256 = savedMatrix })
+	t.Setenv(costScheduleRevisionEnv, "cost-schedule-future")
+	t.Setenv("MERC_JOB_OBJECT_RETENTION_DAYS", "8")
 
 	placement, err := store.JobPlacementRequirement(ctx, f.JobID)
 	mustf(t, err, "read historical placement after matrix revision: %v")
@@ -208,15 +210,40 @@ func TestHistoricalOldMatrixJobRemainsReadableAndAccruesRiskReserve(t *testing.T
 	}
 	pricing, err := store.JobPricingDecision(ctx, f.JobID)
 	mustf(t, err, "replay historical pricing after matrix revision: %v")
-	if pricing == nil || pricing.RiskReserve.Amount != job.PricingDecision.RiskReserve.Amount {
+	if pricing == nil || pricing.RiskReserve.Amount != job.PricingDecision.RiskReserve.Amount ||
+		pricing.CostPolicy == nil || pricing.CostPolicy.RetentionSeconds != acceptedRetention {
 		t.Fatalf("historical pricing changed after matrix revision: %+v", pricing)
 	}
 
+	var settledChargeNanos int64
+	currency := MustParseCurrency(job.PricingDecision.Currency)
+	for _, task := range tasks {
+		var taskChargeNanos int64
+		mustf(t, pool.QueryRow(ctx, `
+			SELECT economic_buyer_charge_nanos FROM tasks WHERE id=$1`, task.ID).
+			Scan(&taskChargeNanos), "read historical task charge authority: %v")
+		chargeMicros, err := LedgerMicrosFromNanos(MoneyNanos{
+			Currency: currency,
+			Nanos:    taskChargeNanos,
+		})
+		mustf(t, err, "project historical task charge into ledger micros: %v")
+		if chargeMicros <= 0 {
+			t.Fatalf("historical task %s has non-positive settled charge %d micros", task.ID, chargeMicros)
+		}
+		_, err = insertLedgerEntryOnTaskConflictDoNothingTx(ctx, pool, ledgerInsert{
+			Kind: KindBuyerCharge, BuyerID: &f.BuyerID, TaskID: &task.ID,
+			AmountMicros: -chargeMicros, Currency: currency.Code(), PayoutStatus: PayoutReleased,
+		})
+		mustf(t, err, "seed historical task buyer-charge settlement: %v")
+		settledChargeNanos += chargeMicros * NanosPerMicro
+	}
 	for _, status := range []string{"running", "verifying", "complete"} {
-		if _, err := pool.Exec(ctx,
-			`UPDATE tasks SET status=$2,completed_at=CASE WHEN $2='complete' THEN now() ELSE completed_at END WHERE id=$1`,
-			tasks[0].ID, status); err != nil {
-			t.Fatalf("transition historical task to %s: %v", status, err)
+		for _, task := range tasks {
+			if _, err := pool.Exec(ctx,
+				`UPDATE tasks SET status=$2,completed_at=CASE WHEN $2='complete' THEN now() ELSE completed_at END WHERE id=$1`,
+				task.ID, status); err != nil {
+				t.Fatalf("transition historical task %s to %s: %v", task.ID, status, err)
+			}
 		}
 	}
 	for _, status := range []string{"running", "verifying"} {
@@ -230,19 +257,28 @@ func TestHistoricalOldMatrixJobRemainsReadableAndAccruesRiskReserve(t *testing.T
 
 	var status string
 	var accrualRows int
-	var accrualAmount float64
+	var accrualMicros int64
 	mustf(t, pool.QueryRow(ctx, `SELECT status FROM jobs WHERE id=$1`, f.JobID).Scan(&status),
 		"read historical completion status: %v")
 	mustf(t, pool.QueryRow(ctx, `
-		SELECT count(*),COALESCE(sum(amount_usd),0)::float8
+		SELECT count(*),COALESCE(sum((amount_usd * 1000000)::bigint),0)::bigint
 		  FROM ledger_entries
 		 WHERE kind=$1 AND payout_ref=$2`,
-		KindRiskReserveAccrual, riskReserveAccrualRef(f.JobID)).Scan(&accrualRows, &accrualAmount),
+		KindRiskReserveAccrual, riskReserveAccrualRef(f.JobID)).Scan(&accrualRows, &accrualMicros),
 		"read historical risk-reserve accrual: %v")
-	if status != "complete" || accrualRows != 1 ||
-		math.Abs(accrualAmount-job.PricingDecision.RiskReserve.Amount) > 0.000001 {
-		t.Fatalf("historical completion/reserve=%q rows=%d amount=%g, want complete/1/%g",
-			status, accrualRows, accrualAmount, job.PricingDecision.RiskReserve.Amount)
+	wantRiskNanos, err := riskReserveNanos(
+		job.PricingDecision.CostPolicy.Schedule, settledChargeNanos)
+	mustf(t, err, "derive historical reserve from actual settlement: %v")
+	wantLedgerMicros, err := riskReserveLedgerMicrosForAccrual(wantRiskNanos)
+	mustf(t, err, "project historical reserve into ledger micros: %v")
+	reserve, err := store.RiskReserveSnapshot(ctx, f.JobID)
+	mustf(t, err, "read canonical historical risk reserve: %v")
+	if status != "complete" || accrualRows != 1 || accrualMicros != wantLedgerMicros ||
+		reserve == nil || reserve.SettledChargeNanos != settledChargeNanos ||
+		reserve.AccruedNanos != wantRiskNanos || reserve.HeldNanos != wantRiskNanos {
+		t.Fatalf("historical completion/reserve status=%q rows=%d ledger_micros=%d snapshot=%+v, want complete/1/%d settled=%d accrued=held=%d",
+			status, accrualRows, accrualMicros, reserve, wantLedgerMicros,
+			settledChargeNanos, wantRiskNanos)
 	}
 }
 

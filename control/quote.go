@@ -323,9 +323,13 @@ type QuoteCost struct {
 	PlatformTakeUSD          float64 `json:"platform_take_usd"`
 	PlatformGrossSpreadUSD   float64 `json:"platform_gross_spread_usd"`
 	KnownCostContributionUSD float64 `json:"known_cost_contribution_usd"`
-	// TrueNetContributionUSD is absent while any named cost category is
-	// unknown. A quote must not promote a modeled contribution into profit.
+	// TrueNetContributionUSD is a deprecated compatibility field and is always
+	// absent on new quotes. A quote has ACCEPTED_FORECAST authority, never
+	// settlement authority, even when every accepted cost was modeled.
 	TrueNetContributionUSD *float64 `json:"true_net_contribution_usd,omitempty"`
+	// ContributionSettlement carries the same accepted known-cost number under
+	// the canonical staged authority consumed by invoices, receipts and rollups.
+	ContributionSettlement *ContributionSettlement `json:"contribution_settlement,omitempty"`
 }
 
 type QuoteTime struct {
@@ -871,12 +875,13 @@ func (s *Server) buildQuoteWithSchedule(ctx context.Context, buyerID uuid.UUID, 
 	platformGrossSpread := roundEconomicUSD(
 		pricing.BuyerPrice - pricing.PrimarySupplierCost.Amount - pricing.VerificationCost.Amount,
 	)
-	knownContribution := pricing.PlatformContribution.Amount
-	var trueNetContribution *float64
-	if fixed := pricing.FixedPoint; fixed != nil && fixed.TrueNetContributionNanos != nil {
-		amount := float64(*fixed.TrueNetContributionNanos) / float64(NanosPerMajorUnit)
-		trueNetContribution = &amount
+	quoteID := "q_" + bareID.String()
+	contribution, err := acceptedForecastContributionSettlement("quote", quoteID, pricing)
+	if err != nil {
+		return Quote{}, fmt.Errorf("building accepted contribution forecast: %w", err)
 	}
+	knownContribution := float64(contribution.AcceptedKnownCostContributionNanos) /
+		float64(NanosPerMajorUnit)
 	quoteNow := time.Now().UTC()
 	quoteExpiresAt := quoteNow.Add(quoteTTL)
 	currentUseValidUntil, err := canonicalCatalogueTimestamp(
@@ -911,7 +916,7 @@ func (s *Server) buildQuoteWithSchedule(ctx context.Context, buyerID uuid.UUID, 
 	}
 
 	return Quote{
-		QuoteID:       "q_" + bareID.String(),
+		QuoteID:       quoteID,
 		bareID:        bareID,
 		etaRawP50Secs: rawP50,
 		ExpiresAt:     quoteExpiresAt,
@@ -945,7 +950,7 @@ func (s *Server) buildQuoteWithSchedule(ctx context.Context, buyerID uuid.UUID, 
 			PlatformTakeUSD:          platformGrossSpread,
 			PlatformGrossSpreadUSD:   platformGrossSpread,
 			KnownCostContributionUSD: knownContribution,
-			TrueNetContributionUSD:   trueNetContribution,
+			ContributionSettlement:   &contribution,
 		},
 		Time:       eta,
 		Confidence: conf,

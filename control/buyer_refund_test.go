@@ -139,15 +139,15 @@ func seedBuyerRefundFixture(
 			bal = f.chargeMicros
 		}
 		if _, err := pool.Exec(ctx, `
-			INSERT INTO buyer_prepaid_balances (buyer_id, balance_micros)
-			VALUES ($1, $2)`, f.buyerID, bal); err != nil {
+			INSERT INTO buyer_prepaid_balances (buyer_id, currency, balance_micros)
+			VALUES ($1, $2, $3)`, f.buyerID, opts.currency, bal); err != nil {
 			t.Fatalf("seed prepaid balance: %v", err)
 		}
 		// Debit after seed so the materialised balance reflects spent liability.
 		if _, err := pool.Exec(ctx, `
 			UPDATE buyer_prepaid_balances
 			   SET balance_micros = balance_micros - $2
-			 WHERE buyer_id = $1`, f.buyerID, f.chargeMicros); err != nil {
+			 WHERE buyer_id = $1 AND currency=$3`, f.buyerID, f.chargeMicros, opts.currency); err != nil {
 			t.Fatalf("apply prepaid spend: %v", err)
 		}
 		if _, err := pool.Exec(ctx, `
@@ -454,7 +454,7 @@ func TestBuyerRefundRestoresPrepaidBalance(t *testing.T) {
 
 	var balBefore int64
 	if err := pool.QueryRow(ctx,
-		`SELECT balance_micros FROM buyer_prepaid_balances WHERE buyer_id=$1`, f.buyerID).
+		`SELECT balance_micros FROM buyer_prepaid_balances WHERE buyer_id=$1 AND currency='usd'`, f.buyerID).
 		Scan(&balBefore); err != nil {
 		t.Fatal(err)
 	}
@@ -468,7 +468,7 @@ func TestBuyerRefundRestoresPrepaidBalance(t *testing.T) {
 
 	var balAfter int64
 	if err := pool.QueryRow(ctx,
-		`SELECT balance_micros FROM buyer_prepaid_balances WHERE buyer_id=$1`, f.buyerID).
+		`SELECT balance_micros FROM buyer_prepaid_balances WHERE buyer_id=$1 AND currency='usd'`, f.buyerID).
 		Scan(&balAfter); err != nil {
 		t.Fatal(err)
 	}
@@ -483,7 +483,7 @@ func TestBuyerRefundRestoresPrepaidBalance(t *testing.T) {
 	// No second restore on re-resolve.
 	mustf(t, store.resolveDispute(ctx, disputeID, "upheld"), "second resolve: %v")
 	if err := pool.QueryRow(ctx,
-		`SELECT balance_micros FROM buyer_prepaid_balances WHERE buyer_id=$1`, f.buyerID).
+		`SELECT balance_micros FROM buyer_prepaid_balances WHERE buyer_id=$1 AND currency='usd'`, f.buyerID).
 		Scan(&balAfter); err != nil {
 		t.Fatal(err)
 	}

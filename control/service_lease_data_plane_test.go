@@ -14,9 +14,9 @@ import (
 )
 
 func TestServiceLeaseDataPlaneUsesReservedWorkerAndFailsClosed(t *testing.T) {
-	installSettlementCurrencyForTest(t, "cad")
+	installSettlementCurrencyForTest(t, "usd")
 	t.Setenv("MERC_TOKEN_KEY", "service-lease-data-plane-test-key-with-at-least-32-bytes")
-	ctx, store, pool := openPayoutTestStore(t)
+	ctx, store, pool := openIsolatedTestStore(t)
 	profile := sortedVLLMProfiles()[0]
 	buyerID := uuid.New()
 	if _, err := pool.Exec(ctx, `INSERT INTO buyers (id,email) VALUES ($1,$2)`, buyerID, buyerID.String()+"@service-data-plane.invalid"); err != nil {
@@ -91,7 +91,7 @@ func TestServiceLeaseDataPlaneUsesReservedWorkerAndFailsClosed(t *testing.T) {
 		t.Fatalf("realtime offer status=%d", got)
 	}
 	leaseRequest := ServiceLeaseRequest{
-		RuntimeProfileID: profile.RuntimeProfileID, Region: serviceOffer.Region,
+		RuntimeProfileID: profile.RuntimeProfileID, Region: serviceOffer.Region, Currency: "usd",
 		MinimumReplicas: 1, MaximumReplicas: 1, TermSeconds: 60,
 		MaximumP95LatencyMilliseconds: 500, BuyerDeclaredCeilingNanos: 135_000_000,
 	}
@@ -126,6 +126,32 @@ func TestServiceLeaseDataPlaneUsesReservedWorkerAndFailsClosed(t *testing.T) {
 	}
 	if got := upstreamCalls.Load(); got != 1 {
 		t.Fatalf("upstream calls=%d want 1", got)
+	}
+	var requestBytes, responseBytes int64
+	var diagnosticStatus string
+	if err := pool.QueryRow(ctx, `SELECT request_application_bytes,response_application_bytes,authority_status
+		FROM service_lease_data_plane_diagnostics WHERE lease_id=$1`, lease.ID).
+		Scan(&requestBytes, &responseBytes, &diagnosticStatus); err != nil {
+		t.Fatalf("reserved data-plane diagnostic missing: %v", err)
+	}
+	if requestBytes <= 0 || responseBytes != int64(rec.Body.Len()) ||
+		diagnosticStatus != "APPLICATION_BYTES_DIAGNOSTIC_NOT_PROVIDER_BILLING" {
+		t.Fatalf("data-plane diagnostic overclaimed authority or lost bytes: request=%d response=%d status=%s",
+			requestBytes, responseBytes, diagnosticStatus)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE service_lease_data_plane_diagnostics
+		SET response_application_bytes=response_application_bytes+1 WHERE lease_id=$1`, lease.ID); err == nil ||
+		!strings.Contains(err.Error(), "append-only") {
+		t.Fatalf("data-plane diagnostic rewrite error=%v, want append-only refusal", err)
+	}
+	receipt, err := store.GetServiceLeaseReceipt(ctx, buyerID, lease.ID)
+	must(t, err)
+	if receipt.DataPlaneDiagnostics == nil || receipt.DataPlaneDiagnostics.SuccessfulRequests != 1 ||
+		receipt.DataPlaneDiagnostics.RequestApplicationBytes != requestBytes ||
+		receipt.DataPlaneDiagnostics.ResponseApplicationBytes != responseBytes ||
+		receipt.EgressAuthorityStatus != "APPLICATION_BYTES_DIAGNOSTIC_ONLY_PROVIDER_BILLING_UNKNOWN" ||
+		receipt.Lease.Pricing.EgressCost.Status != pricingCostUnknown {
+		t.Fatalf("receipt promoted application bytes to provider authority or lost diagnostics: %+v", receipt)
 	}
 
 	foreignID := uuid.New()

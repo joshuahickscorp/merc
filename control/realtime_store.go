@@ -65,6 +65,10 @@ func evaluateRealtimeBuyerFunding(ctx context.Context, tx pgx.Tx, buyerID uuid.U
 	if needUSD < 0 {
 		return fmt.Errorf("realtime funding need must be non-negative")
 	}
+	currency := SettlementCurrencyCode()
+	if _, err := ParseCurrency(currency); err != nil {
+		return err
+	}
 	// One network round-trip for lock + multi-aggregate funding snapshot.
 	// pg_advisory_xact_lock is held until this transaction ends; FOR UPDATE on
 	// the buyer row still serialises non-authorizer writers of that row. The
@@ -74,18 +78,20 @@ func evaluateRealtimeBuyerFunding(ctx context.Context, tx pgx.Tx, buyerID uuid.U
 	batch.Queue(`SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`,
 		"realtime-buyer-funding|"+buyerID.String())
 	batch.Queue(`
-		SELECT b.free_credit_usd::float8,
+		SELECT CASE WHEN $2='usd' THEN b.free_credit_usd::float8 ELSE 0::float8 END,
 		       EXISTS(SELECT 1 FROM billing_customers bc
 		               WHERE bc.buyer_id=b.id AND COALESCE(bc.default_payment_method,'')<>''),
 		       COALESCE((SELECT balance_micros FROM buyer_prepaid_balances bp
-		                  WHERE bp.buyer_id=b.id),0)::bigint,
+		                  WHERE bp.buyer_id=b.id AND bp.currency=$2),0)::bigint,
 		       COALESCE((SELECT -sum(le.amount_usd) FROM ledger_entries le
 		                 WHERE le.buyer_id=b.id
+		                   AND le.currency=$2
 		                   AND le.kind IN ('buyer_charge','buyer_refund')),0)::float8,
 		       COALESCE((SELECT -sum(le.amount_usd) FROM ledger_entries le
-		                 WHERE le.buyer_id=b.id AND le.kind='prepaid_debit'),0)::float8,
+		                 WHERE le.buyer_id=b.id AND le.currency=$2 AND le.kind='prepaid_debit'),0)::float8,
 		       COALESCE((SELECT sum(j.estimated_usd) FROM jobs j
-		                 WHERE j.buyer_id=b.id AND j.status IN ('queued','running','verifying')),0)::float8,
+		                 WHERE j.buyer_id=b.id AND j.currency=$2
+		                   AND j.status IN ('queued','running','verifying')),0)::float8,
 		       -- Envelope-funded EXECUTING contracts are already reserved on the
 		       -- envelope (cap - spent). Counting them again here would double-hold.
 		       --
@@ -101,16 +107,16 @@ func evaluateRealtimeBuyerFunding(ctx context.Context, tx pgx.Tx, buyerID uuid.U
 		       -- fall back to being held as ordinary realtime reservations, which
 		       -- is what ReleaseExpiredExecutionEnvelopes already claims happens.
 		       COALESCE((SELECT sum(c.maximum_price_usd) FROM execution_contracts c
-		                 WHERE c.buyer_id=b.id AND c.state='EXECUTING'
+		                 WHERE c.buyer_id=b.id AND c.currency=$2 AND c.state='EXECUTING'
 		                   AND NOT EXISTS (
 		                     SELECT 1 FROM execution_envelope_spends s
 		                       JOIN execution_envelopes e ON e.id = s.envelope_id
-		                      WHERE s.contract_id=c.id AND e.state='ACTIVE'
+		                      WHERE s.contract_id=c.id AND e.currency=$2 AND e.state='ACTIVE'
 		                   )),0)::float8,
 		       COALESCE((SELECT SUM(((e.cap_nanos - e.spent_nanos) + 999) / 1000)
 		                   FROM execution_envelopes e
-		                  WHERE e.buyer_id=b.id AND e.state='ACTIVE'),0)::bigint
-		  FROM buyers b WHERE b.id=$1 AND b.deleted_at IS NULL FOR UPDATE`, buyerID)
+		                  WHERE e.buyer_id=b.id AND e.currency=$2 AND e.state='ACTIVE'),0)::bigint
+		  FROM buyers b WHERE b.id=$1 AND b.deleted_at IS NULL FOR UPDATE`, buyerID, currency)
 	br := tx.SendBatch(ctx, batch)
 	defer br.Close()
 	if _, err := br.Exec(); err != nil {
@@ -173,16 +179,20 @@ type RealtimeOfferHeartbeat struct {
 }
 
 type RealtimeContract struct {
-	ID                                uuid.UUID
-	RequestID                         string
-	BuyerID                           uuid.UUID
-	ModelAlias                        string
-	RuntimeProfileID                  string
-	RuntimeProfileSHA256              string
-	InputCommitment                   string
-	RequestSHA256                     string
-	PlacementPlan                     RealtimePlacementPlan
-	PlacementPlanSHA256               string
+	ID                   uuid.UUID
+	RequestID            string
+	BuyerID              uuid.UUID
+	ModelAlias           string
+	RuntimeProfileID     string
+	RuntimeProfileSHA256 string
+	InputCommitment      string
+	RequestSHA256        string
+	PlacementPlan        RealtimePlacementPlan
+	PlacementPlanSHA256  string
+	// These two names mirror legacy database columns. Their values are
+	// settlement-major projections in Currency; the truthful USD source values
+	// live in Pricing.Realtime/RealtimeReuse and are the only X-Merc-Max-USD
+	// authority.
 	MaximumPriceUSD                   float64
 	EstimatedPriceUSD                 float64
 	BuyerInputUSDPerMillionTokens     float64
@@ -220,6 +230,10 @@ type RealtimeContract struct {
 // than silent.
 type RealtimeMarketClearingReceipt struct {
 	Version                     int                            `json:"version"`
+	ReferenceCurrency           string                         `json:"reference_currency,omitempty"`
+	SettlementCurrency          string                         `json:"settlement_currency,omitempty"`
+	SupplierRateCurrency        string                         `json:"supplier_rate_currency,omitempty"`
+	BuyerMoneyCurrency          string                         `json:"buyer_money_currency,omitempty"`
 	CandidateCount              int                            `json:"candidate_count"`
 	SelectedRank                int                            `json:"selected_rank"`
 	SelectedWorkerID            uuid.UUID                      `json:"selected_worker_id"`
@@ -236,21 +250,25 @@ type RealtimeMarketClearingReceipt struct {
 }
 
 type RealtimeContractAuthorization struct {
-	RequestID                 string
-	BuyerID                   uuid.UUID
-	Profile                   VLLMRuntimeProfile
-	InputCommitment           string
-	RequestSHA256             string
-	MaximumPriceUSD           float64
-	EstimatedPriceUSD         float64
-	DeadlineAt                time.Time
-	IdempotencyKey            string
-	MaximumPromptTokens       int64
-	MaximumCompletionTokens   int64
-	EstimatedPromptTokens     int64
-	EstimatedCompletionTokens int64
-	BuyerDeclaredCeilingUSD   float64
-	ReuseClass                string
+	RequestID                    string
+	BuyerID                      uuid.UUID
+	Profile                      VLLMRuntimeProfile
+	InputCommitment              string
+	RequestSHA256                string
+	MaximumPriceUSD              float64
+	EstimatedPriceUSD            float64
+	MaximumPriceUSDNanos         int64
+	EstimatedPriceUSDNanos       int64
+	DeadlineAt                   time.Time
+	IdempotencyKey               string
+	MaximumPromptTokens          int64
+	MaximumCompletionTokens      int64
+	EstimatedPromptTokens        int64
+	EstimatedCompletionTokens    int64
+	BuyerDeclaredCeilingUSD      float64
+	BuyerDeclaredCeilingUSDNanos int64
+	FX                           RealtimeFXAuthority
+	ReuseClass                   string
 	// CoalescedLeaderContractID is required only for an in-flight follower. It
 	// makes the physical source of a zero-physical settlement durable and lets
 	// the receipt distinguish an avoided entitlement from true net contribution.
@@ -261,6 +279,24 @@ type RealtimeContractAuthorization struct {
 	// path only atomically spends the envelope. Supplier selection and the
 	// per-request PricingDecision are unchanged.
 	EnvelopeID uuid.UUID
+}
+
+func realtimeContractMaximumReferenceUSD(contract RealtimeContract) (float64, error) {
+	if contract.Pricing == nil {
+		if contract.Currency == realtimeReferenceCurrency {
+			return contract.MaximumPriceUSD, nil
+		}
+		return 0, errors.New("non-USD realtime contract lacks frozen USD pricing authority")
+	}
+	switch contract.Pricing.ExecutionMode {
+	case pricingExecutionRealtime:
+		_, maximum, err := realtimePricingReferenceLegacyProjection(*contract.Pricing)
+		return maximum, err
+	case pricingExecutionRealtimeReuse:
+		return realtimeReuseReferenceProjection(*contract.Pricing)
+	default:
+		return 0, errors.New("realtime contract has unsupported USD pricing projection")
+	}
 }
 
 func (s *Store) UpsertRealtimeOffer(ctx context.Context, worker WorkerAuth, registration RealtimeOfferRegistration) error {
@@ -466,7 +502,7 @@ func attachRealtimeMarketClearing(contract *RealtimeContract, raw []byte) error 
 	if err := json.Unmarshal(raw, &market); err != nil {
 		return fmt.Errorf("decode realtime market-clearing receipt: %w", err)
 	}
-	if market.Version != 1 || market.CandidateCount <= 0 ||
+	if (market.Version < 1 || market.Version > 3) || market.CandidateCount <= 0 ||
 		market.SelectedRank <= 0 || market.SelectedRank > market.CandidateCount ||
 		market.SelectedWorkerID == uuid.Nil || market.SelectedSupplierID == uuid.Nil ||
 		market.SelectedSupplierInputNanos <= 0 || market.SelectedSupplierOutputNanos <= 0 ||
@@ -478,6 +514,24 @@ func attachRealtimeMarketClearing(contract *RealtimeContract, raw []byte) error 
 			market.OrderBookPolicy != "lowest_warmth_then_supplier_rate_v1") ||
 		strings.TrimSpace(market.SelectionReason) == "" {
 		return errors.New("realtime market-clearing receipt has invalid bounded authority")
+	}
+	if (market.Version == 2 || market.Version == 3) && (market.ReferenceCurrency != realtimeReferenceCurrency ||
+		market.SettlementCurrency != contract.Currency) {
+		return errors.New("realtime market-clearing receipt lacks explicit reference/settlement currencies")
+	}
+	if market.Version == 1 && (market.ReferenceCurrency != "" || market.SettlementCurrency != "") {
+		return errors.New("legacy realtime market-clearing receipt carries future currency fields")
+	}
+	if market.Version == 3 {
+		if market.SupplierRateCurrency != market.ReferenceCurrency ||
+			market.BuyerMoneyCurrency != market.SettlementCurrency ||
+			market.RankingInputs == nil ||
+			market.RankingInputs.RateCurrency != market.ReferenceCurrency {
+			return errors.New("realtime market-clearing receipt does not map each money field to its currency")
+		}
+	} else if market.SupplierRateCurrency != "" || market.BuyerMoneyCurrency != "" ||
+		(market.RankingInputs != nil && market.RankingInputs.RateCurrency != "") {
+		return errors.New("historical realtime market-clearing receipt carries future per-field currency authority")
 	}
 	// New receipts must carry ranking inputs so a buyer can see why a supplier
 	// cleared. Historical rows written under the warmth-first policy predate
@@ -503,6 +557,18 @@ func attachRealtimeMarketClearing(contract *RealtimeContract, raw []byte) error 
 		market.AcceptedCeilingNanos != contract.Pricing.FixedPoint.AcceptedCeilingNanos ||
 		market.PositiveContributionNanos != contract.Pricing.FixedPoint.KnownCostContributionNanos {
 		return errors.New("realtime market-clearing receipt disagrees with PricingDecision")
+	}
+	if contract.Pricing.Realtime != nil {
+		a := contract.Pricing.Realtime
+		wantInput, wantOutput := a.SupplierInputNanosPerMillion, a.SupplierOutputNanosPerMillion
+		if a.Version == realtimePricingAuthorityVersion {
+			wantInput = a.SupplierInputReferenceNanosPerMillion
+			wantOutput = a.SupplierOutputReferenceNanosPerMillion
+		}
+		if market.SelectedSupplierInputNanos != wantInput ||
+			market.SelectedSupplierOutputNanos != wantOutput {
+			return errors.New("realtime market-clearing receipt supplier USD rates disagree with PricingDecision")
+		}
 	}
 	contract.MarketClearing = &market
 	return nil
@@ -533,11 +599,16 @@ func newRealtimeMarketClearingReceipt(
 		return nil, errors.New("realtime market-clearing ranking inputs disagree with selected offer rates")
 	}
 	inputs.OmittedTerms = realtimeClearingOmittedTerms()
+	inputs.RateCurrency = pricing.Realtime.ReferenceCurrency
 	if inputs.WarmthRank == 0 && inputs.Warmth != "HOT" {
 		inputs.WarmthRank = warmthRank(inputs.Warmth)
 	}
 	market := &RealtimeMarketClearingReceipt{
-		Version:                     1,
+		Version:                     3,
+		ReferenceCurrency:           pricing.Realtime.ReferenceCurrency,
+		SettlementCurrency:          pricing.Currency,
+		SupplierRateCurrency:        pricing.Realtime.ReferenceCurrency,
+		BuyerMoneyCurrency:          pricing.Currency,
 		CandidateCount:              candidateCount,
 		SelectedRank:                selectedRank,
 		SelectedWorkerID:            workerID,
@@ -584,35 +655,72 @@ func attachRealtimeContractPricing(contract *RealtimeContract, raw []byte) error
 	if err != nil || digest != contract.PricingDecisionSHA256 {
 		return errors.New("realtime PricingDecision digest mismatch")
 	}
-	profile, ok := vllmProfileByID(contract.RuntimeProfileID)
-	if !ok || profile.ProfileSHA256 != contract.RuntimeProfileSHA256 {
-		return errors.New("realtime contract profile authority disappeared")
-	}
-	currency, err := ParseCurrency(contract.Currency)
-	if err != nil {
-		return err
-	}
-	declaredCeiling := float64(contract.BuyerDeclaredCeilingNanos) / float64(NanosPerMajorUnit)
 	switch pricing.ExecutionMode {
 	case pricingExecutionRealtime:
-		if err := ValidateRealtimePricingDecisionSnapshot(pricing, RealtimePricingInputs{
-			Profile: profile, Placement: contract.PlacementPlan,
-			InputCommitment: contract.InputCommitment, RequestSHA256: contract.RequestSHA256,
-			MaximumPromptTokens: contract.MaximumPromptTokens, MaximumCompletionTokens: contract.MaximumCompletionTokens,
-			EstimatedPromptTokens: contract.EstimatedPromptTokens, EstimatedCompletionTokens: contract.EstimatedCompletionTokens,
-			SupplierInputRate:    contract.SupplierInputUSDPerMillionTokens,
-			SupplierOutputRate:   contract.SupplierOutputUSDPerMillionTokens,
-			BuyerDeclaredCeiling: declaredCeiling, Currency: currency,
-		}); err != nil {
+		if err := validateFrozenRealtimePricingDecision(pricing); err != nil {
 			return err
 		}
+		a := pricing.Realtime
+		if a.RuntimeProfileID != contract.RuntimeProfileID ||
+			a.RuntimeProfileSHA256 != contract.RuntimeProfileSHA256 ||
+			a.PlacementPlanSHA256 != contract.PlacementPlanSHA256 ||
+			a.InputCommitment != contract.InputCommitment || a.RequestSHA256 != contract.RequestSHA256 ||
+			a.MaximumPromptTokens != contract.MaximumPromptTokens ||
+			a.MaximumCompletionTokens != contract.MaximumCompletionTokens ||
+			a.EstimatedPromptTokens != contract.EstimatedPromptTokens ||
+			a.EstimatedCompletionTokens != contract.EstimatedCompletionTokens ||
+			a.BuyerDeclaredCeilingNanos != contract.BuyerDeclaredCeilingNanos ||
+			pricing.Currency != contract.Currency {
+			return errors.New("frozen realtime PricingDecision disagrees with durable contract identity or bounds")
+		}
+		buyerInput, inputErr := nanoRatePerMillionFromFloat(contract.BuyerInputUSDPerMillionTokens)
+		buyerOutput, outputErr := nanoRatePerMillionFromFloat(contract.BuyerOutputUSDPerMillionTokens)
+		supplierInput, supplierInputErr := nanoRatePerMillionFromFloat(contract.SupplierInputUSDPerMillionTokens)
+		supplierOutput, supplierOutputErr := nanoRatePerMillionFromFloat(contract.SupplierOutputUSDPerMillionTokens)
+		if inputErr != nil || outputErr != nil || supplierInputErr != nil || supplierOutputErr != nil {
+			return errors.New("durable realtime contract has invalid USD rate projections")
+		}
+		if a.Version == realtimePricingAuthorityVersion {
+			if a.BuyerInputReferenceNanosPerMillion != int64(buyerInput) ||
+				a.BuyerOutputReferenceNanosPerMillion != int64(buyerOutput) ||
+				a.SupplierInputReferenceNanosPerMillion != int64(supplierInput) ||
+				a.SupplierOutputReferenceNanosPerMillion != int64(supplierOutput) {
+				return errors.New("frozen realtime USD rates disagree with durable contract projections")
+			}
+		} else if a.BuyerInputNanosPerMillion != int64(buyerInput) ||
+			a.BuyerOutputNanosPerMillion != int64(buyerOutput) ||
+			a.SupplierInputNanosPerMillion != int64(supplierInput) ||
+			a.SupplierOutputNanosPerMillion != int64(supplierOutput) {
+			return errors.New("legacy realtime rates disagree with durable contract projections")
+		}
 	case pricingExecutionRealtimeReuse:
-		if err := ValidateRealtimeReusePricingDecisionSnapshot(pricing, RealtimeReusePricingInputs{
-			Profile: profile, InputCommitment: contract.InputCommitment, RequestSHA256: contract.RequestSHA256,
-			ResultCommitment: contract.ReuseResultCommitment, ReuseClass: contract.ReuseClass,
-			DeliveredTokens: contract.ReuseDeliveredTokens, BuyerDeclaredCeiling: declaredCeiling, Currency: currency,
-		}); err != nil {
+		if err := validateFrozenRealtimeReusePricingDecision(pricing); err != nil {
 			return err
+		}
+		a := pricing.RealtimeReuse
+		if a.RuntimeProfileID != contract.RuntimeProfileID ||
+			a.RuntimeProfileSHA256 != contract.RuntimeProfileSHA256 ||
+			a.InputCommitment != contract.InputCommitment || a.RequestSHA256 != contract.RequestSHA256 ||
+			a.ResultCommitment != contract.ReuseResultCommitment || a.ReuseClass != contract.ReuseClass ||
+			a.DeliveredTokens != contract.ReuseDeliveredTokens ||
+			a.BuyerDeclaredCeilingNanos != contract.BuyerDeclaredCeilingNanos ||
+			pricing.Currency != contract.Currency {
+			return errors.New("frozen realtime reuse PricingDecision disagrees with durable contract identity")
+		}
+		buyerInput, inputErr := nanoRatePerMillionFromFloat(contract.BuyerInputUSDPerMillionTokens)
+		buyerOutput, outputErr := nanoRatePerMillionFromFloat(contract.BuyerOutputUSDPerMillionTokens)
+		if inputErr != nil || outputErr != nil {
+			return errors.New("durable realtime reuse contract has invalid USD rate projections")
+		}
+		full := buyerInput
+		if buyerOutput > full {
+			full = buyerOutput
+		}
+		if (a.Version == realtimeReusePricingAuthorityVersion &&
+			a.ReferenceFullRateNanosPerMillion != int64(full)) ||
+			(a.Version == realtimeReusePricingLegacyVersion &&
+				a.FullRateNanosPerMillion != int64(full)) {
+			return errors.New("frozen realtime reuse USD rate disagrees with durable contract projection")
 		}
 	default:
 		return errors.New("realtime contract PricingDecision has unsupported execution mode")
@@ -710,6 +818,50 @@ func (s *Store) AuthorizeRealtimeContract(ctx context.Context, auth RealtimeCont
 			return RealtimeContract{}, false, err
 		}
 	}
+	currency, err := SettlementCurrency()
+	if err != nil {
+		return RealtimeContract{}, false, err
+	}
+	fx, err := realtimeFXForNewIngress(auth.FX, currency)
+	if err != nil {
+		return RealtimeContract{}, false, err
+	}
+	auth.FX = fx
+	referenceExpected, referenceMaximum, settlementExpected, settlementMaximum, err :=
+		realtimeBuyerPriceBounds(
+			auth.Profile,
+			auth.MaximumPromptTokens, auth.MaximumCompletionTokens,
+			auth.EstimatedPromptTokens, auth.EstimatedCompletionTokens,
+			currency, fx)
+	if err != nil || referenceExpected.Nanos <= 0 || referenceMaximum.Nanos < referenceExpected.Nanos ||
+		settlementExpected.Nanos <= 0 || settlementMaximum.Nanos < settlementExpected.Nanos {
+		return RealtimeContract{}, false, errors.New("realtime request lacks positive ordered USD and settlement price bounds")
+	}
+	referenceExpectedProjection, err := projectRealtimeNanosToMajor(referenceExpected)
+	if err != nil {
+		return RealtimeContract{}, false, err
+	}
+	referenceMaximumProjection, err := projectRealtimeNanosToMajor(referenceMaximum)
+	if err != nil {
+		return RealtimeContract{}, false, err
+	}
+	if auth.EstimatedPriceUSD != referenceExpectedProjection ||
+		auth.MaximumPriceUSD != referenceMaximumProjection {
+		return RealtimeContract{}, false, errors.New("realtime request USD projection disagrees with governed profile and token bounds")
+	}
+	if auth.EstimatedPriceUSDNanos < 0 || auth.MaximumPriceUSDNanos < 0 ||
+		(auth.EstimatedPriceUSDNanos > 0 && auth.EstimatedPriceUSDNanos != referenceExpected.Nanos) ||
+		(auth.MaximumPriceUSDNanos > 0 && auth.MaximumPriceUSDNanos != referenceMaximum.Nanos) {
+		return RealtimeContract{}, false, errors.New("realtime request exact USD nanos disagree with governed profile and token bounds")
+	}
+	settlementExpectedProjection, err := projectRealtimeNanosToMajor(settlementExpected)
+	if err != nil {
+		return RealtimeContract{}, false, err
+	}
+	settlementMaximumProjection, err := projectRealtimeNanosToMajor(settlementMaximum)
+	if err != nil {
+		return RealtimeContract{}, false, err
+	}
 	// Funding + capacity + durable reservation (see lock hierarchy on
 	// evaluateRealtimeBuyerFunding). Order is non-negotiable:
 	//   buyer funding → offer capacity claim → EXECUTING insert → commit.
@@ -791,7 +943,7 @@ func (s *Store) AuthorizeRealtimeContract(ctx context.Context, auth RealtimeCont
 	} else {
 		// Legacy per-request path: buyer funding *before* offer claim.
 		// A saved payment method is a top-up rail only — never admission funding.
-		if err := evaluateRealtimeBuyerFunding(ctx, tx, auth.BuyerID, auth.MaximumPriceUSD); err != nil {
+		if err := evaluateRealtimeBuyerFunding(ctx, tx, auth.BuyerID, settlementMaximumProjection); err != nil {
 			return RealtimeContract{}, false, err
 		}
 	}
@@ -889,10 +1041,6 @@ func (s *Store) AuthorizeRealtimeContract(ctx context.Context, auth RealtimeCont
 		placementPlan.ConfiguredTensorParallel != auth.Profile.TensorParallelSize {
 		return RealtimeContract{}, false, errors.New("selected offer placement does not match authorized runtime profile")
 	}
-	currency, err := SettlementCurrency()
-	if err != nil {
-		return RealtimeContract{}, false, err
-	}
 	pricing, err := newRealtimePricingDecision(RealtimePricingInputs{
 		Profile: auth.Profile, Placement: placementPlan,
 		InputCommitment: auth.InputCommitment, RequestSHA256: auth.RequestSHA256,
@@ -901,7 +1049,9 @@ func (s *Store) AuthorizeRealtimeContract(ctx context.Context, auth RealtimeCont
 		EstimatedPromptTokens:     auth.EstimatedPromptTokens,
 		EstimatedCompletionTokens: auth.EstimatedCompletionTokens,
 		SupplierInputRate:         supplierInput, SupplierOutputRate: supplierOutput,
-		BuyerDeclaredCeiling: auth.BuyerDeclaredCeilingUSD, Currency: currency,
+		BuyerDeclaredCeiling:               auth.BuyerDeclaredCeilingUSD,
+		BuyerDeclaredCeilingReferenceNanos: auth.BuyerDeclaredCeilingUSDNanos,
+		FX:                                 auth.FX, Currency: currency,
 	})
 	if err != nil {
 		return RealtimeContract{}, false, fmt.Errorf("build realtime PricingDecision: %w", err)
@@ -938,8 +1088,14 @@ func (s *Store) AuthorizeRealtimeContract(ctx context.Context, auth RealtimeCont
 		return RealtimeContract{}, false, err
 	}
 	expectedProjection, maximumProjection, err := realtimePricingLegacyProjection(pricing)
-	if err != nil || expectedProjection != auth.EstimatedPriceUSD || maximumProjection != auth.MaximumPriceUSD {
-		return RealtimeContract{}, false, errors.New("realtime PricingDecision does not match legacy reserve projection")
+	if err != nil || expectedProjection != settlementExpectedProjection ||
+		maximumProjection != settlementMaximumProjection {
+		return RealtimeContract{}, false, errors.New("realtime PricingDecision does not match converted settlement reserve projection")
+	}
+	pricingReferenceExpected, pricingReferenceMaximum, err := realtimePricingReferenceLegacyProjection(pricing)
+	if err != nil || pricingReferenceExpected != auth.EstimatedPriceUSD ||
+		pricingReferenceMaximum != auth.MaximumPriceUSD {
+		return RealtimeContract{}, false, errors.New("realtime PricingDecision does not preserve USD request projection")
 	}
 
 	contractID := uuid.New()
@@ -965,16 +1121,16 @@ func (s *Store) AuthorizeRealtimeContract(ctx context.Context, auth RealtimeCont
 		contractID, auth.RequestID, auth.BuyerID, auth.Profile.ModelAlias,
 		auth.Profile.RuntimeProfileID, auth.Profile.ProfileSHA256,
 		auth.InputCommitment, auth.RequestSHA256, placementJSON, placementSHA256,
-		auth.MaximumPriceUSD,
-		auth.EstimatedPriceUSD, auth.Profile.BuyerInputUSDPerMillionTokens,
+		settlementMaximumProjection,
+		settlementExpectedProjection, auth.Profile.BuyerInputUSDPerMillionTokens,
 		auth.Profile.BuyerOutputUSDPerMillionTokens, supplierInput, supplierOutput,
 		auth.DeadlineAt, realtimeNullIfEmpty(auth.IdempotencyKey), workerID, supplierID, baseURL, sealed,
-		SettlementCurrencyCode(), auth.MaximumPromptTokens, auth.MaximumCompletionTokens,
+		currency.Code(), auth.MaximumPromptTokens, auth.MaximumCompletionTokens,
 		auth.EstimatedPromptTokens, auth.EstimatedCompletionTokens,
 		pricing.Realtime.BuyerDeclaredCeilingNanos, pricingJSON, pricingSHA256, marketJSON)
 	reserveBatch.Queue(`
 		INSERT INTO realtime_authorization_events (contract_id,kind,amount_usd)
-		VALUES ($1,'RESERVED',$2)`, contractID, auth.MaximumPriceUSD)
+		VALUES ($1,'RESERVED',$2)`, contractID, settlementMaximumProjection)
 	if envelopeSpend != nil {
 		reserveBatch.Queue(`
 			UPDATE execution_envelope_spends
@@ -1018,7 +1174,7 @@ func (s *Store) AuthorizeRealtimeContract(ctx context.Context, auth RealtimeCont
 		RuntimeProfileSHA256: auth.Profile.ProfileSHA256,
 		InputCommitment:      auth.InputCommitment, RequestSHA256: auth.RequestSHA256,
 		PlacementPlan: placementPlan, PlacementPlanSHA256: placementSHA256,
-		MaximumPriceUSD: auth.MaximumPriceUSD, EstimatedPriceUSD: auth.EstimatedPriceUSD,
+		MaximumPriceUSD: settlementMaximumProjection, EstimatedPriceUSD: settlementExpectedProjection,
 		BuyerInputUSDPerMillionTokens:     auth.Profile.BuyerInputUSDPerMillionTokens,
 		BuyerOutputUSDPerMillionTokens:    auth.Profile.BuyerOutputUSDPerMillionTokens,
 		SupplierInputUSDPerMillionTokens:  supplierInput,
@@ -1035,24 +1191,23 @@ func (s *Store) AuthorizeRealtimeContract(ctx context.Context, auth RealtimeCont
 	}, false, nil
 }
 
-// realtimeAuthNeedNanos is the exact ceiling held against an envelope for one
-// request. Prefer the PricingDecision-shaped maximum once rates are known; at
-// reserve time only the legacy maximum projection is available, so convert via
-// the same micro boundary the contract stores.
+// realtimeAuthNeedNanos is the exact settlement-currency ceiling held against
+// an envelope. It derives from USD profile rates and the frozen FX authority;
+// the X-Merc-Max-USD display projection is never relabeled as settlement money.
 func realtimeAuthNeedNanos(auth RealtimeContractAuthorization) (int64, error) {
-	if auth.MaximumPriceUSD < 0 {
-		return 0, errors.New("realtime envelope spend maximum cannot be negative")
+	settlement, err := ParseCurrency(auth.FX.SettlementCurrency)
+	if err != nil {
+		return 0, errors.New("realtime envelope spend lacks frozen settlement currency")
 	}
-	micros := usdToMicros(auth.MaximumPriceUSD)
-	if micros <= 0 {
-		return 0, errors.New("realtime envelope spend maximum must be positive")
+	_, _, _, maximum, err := realtimeBuyerPriceBounds(
+		auth.Profile,
+		auth.MaximumPromptTokens, auth.MaximumCompletionTokens,
+		auth.EstimatedPromptTokens, auth.EstimatedCompletionTokens,
+		settlement, auth.FX)
+	if err != nil || maximum.Nanos <= 0 {
+		return 0, errors.New("realtime envelope spend maximum cannot be derived from frozen USD/FX authority")
 	}
-	// Micros are 1e-6 major units; nanos are 1e-9. Exact 1000× expansion.
-	nanos := micros * NanosPerMicro
-	if nanos/NanosPerMicro != micros {
-		return 0, errMoneyOverflow
-	}
-	return nanos, nil
+	return maximum.Nanos, nil
 }
 
 func realtimeNullIfEmpty(value string) any {
@@ -1095,13 +1250,23 @@ type RealtimeOperationalSnapshot struct {
 	OpenSupplierPayableUSD    float64
 	ReversalRequiredUSD       float64
 	InternalRefundsUSD        float64
+	MoneyByCurrency           []RealtimeOperationalCurrencySnapshot
+}
+
+// RealtimeOperationalCurrencySnapshot keeps operational liabilities in their
+// accepted currency. The legacy *_USD fields above remain a truthful USD-only
+// compatibility projection; they never sum CAD/JPY numerics into USD.
+type RealtimeOperationalCurrencySnapshot struct {
+	Currency            string
+	OpenSupplierPayable float64
+	ReversalRequired    float64
+	InternalRefunds     float64
 }
 
 func tokenChargeExact(prompt, completion int64, inputRate, outputRate float64, supplier bool) (MoneyNanos, error) {
-	currency, err := SettlementCurrency()
-	if err != nil {
-		return MoneyNanos{}, err
-	}
+	// Runtime profiles and worker offer rates are explicitly USD reference
+	// values. Settlement conversion happens later through RealtimeFXAuthority.
+	currency := MustParseCurrency(realtimeReferenceCurrency)
 	input, err := nanoRatePerMillionFromFloat(inputRate)
 	if err != nil {
 		return MoneyNanos{}, err
@@ -1116,8 +1281,8 @@ func tokenChargeExact(prompt, completion int64, inputRate, outputRate float64, s
 	return BuyerRealtimeTokenChargeNanos(currency, prompt, completion, input, output)
 }
 
-// tokenCharge is a compatibility projection for stored decimal columns and API
-// fields. Authority is derived in nano-major-units above, then projected once.
+// tokenCharge is the compatibility USD projection used by request preparation.
+// Settlement-major projections are derived from the frozen PricingDecision.
 func tokenCharge(prompt, completion int64, inputRate, outputRate float64) (float64, error) {
 	exact, err := tokenChargeExact(prompt, completion, inputRate, outputRate, false)
 	if err != nil {
@@ -1141,6 +1306,55 @@ func releaseRealtimeCapacity(ctx context.Context, tx pgx.Tx, workerID uuid.UUID,
 		   SET available_sequences=LEAST(max_active_sequences,available_sequences+1),updated_at=now()
 		 WHERE worker_id=$1 AND runtime_profile_id=$2`, workerID, profileID)
 	return err
+}
+
+func (s *Store) existingRealtimeReuseReplay(
+	ctx context.Context,
+	auth RealtimeContractAuthorization,
+	deliveredTokens int64,
+	outputCommitment string,
+) (RealtimeContract, RealtimeSettlement, bool, error) {
+	if auth.IdempotencyKey == "" {
+		return RealtimeContract{}, RealtimeSettlement{}, false, nil
+	}
+	existing, err := scanRealtimeContract(s.pool.QueryRow(ctx, `SELECT `+realtimeContractColumns+`
+		FROM execution_contracts WHERE buyer_id=$1 AND idempotency_key=$2`,
+		auth.BuyerID, auth.IdempotencyKey))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return RealtimeContract{}, RealtimeSettlement{}, false, nil
+	}
+	if err != nil {
+		return RealtimeContract{}, RealtimeSettlement{}, false, err
+	}
+	if existing.RequestSHA256 != auth.RequestSHA256 || existing.Pricing == nil ||
+		existing.Pricing.ExecutionMode != pricingExecutionRealtimeReuse ||
+		existing.ReuseClass != auth.ReuseClass || existing.ReuseResultCommitment != outputCommitment ||
+		existing.ReuseDeliveredTokens != deliveredTokens {
+		return RealtimeContract{}, RealtimeSettlement{}, false, errRealtimeIdempotencyConflict
+	}
+	var settlement RealtimeSettlement
+	err = s.pool.QueryRow(ctx, `
+		SELECT id,buyer_charge_usd::float8,supplier_gross_usd::float8,
+		       platform_margin_usd::float8,COALESCE(currency,''),
+		       COALESCE(buyer_charge_nanos,0),COALESCE(supplier_gross_nanos,0),
+		       COALESCE(known_cost_contribution_nanos,0)
+		  FROM realtime_settlements WHERE contract_id=$1`, existing.ID).Scan(
+		&settlement.ID, &settlement.BuyerChargeUSD, &settlement.SupplierPayableUSD,
+		&settlement.PlatformMarginUSD, &settlement.Currency, &settlement.BuyerChargeNanos,
+		&settlement.SupplierPayableNanos, &settlement.KnownCostContributionNanos)
+	if err != nil {
+		return RealtimeContract{}, RealtimeSettlement{}, false, err
+	}
+	if auth.ReuseClass == ClassCoalescedDelivery {
+		var recordedLeader uuid.UUID
+		if err := s.pool.QueryRow(ctx, `
+			SELECT leader_contract_id FROM realtime_coalesced_deliveries
+			 WHERE follower_contract_id=$1`, existing.ID).Scan(&recordedLeader); err != nil ||
+			recordedLeader != auth.CoalescedLeaderContractID {
+			return RealtimeContract{}, RealtimeSettlement{}, false, errRealtimeIdempotencyConflict
+		}
+	}
+	return existing, settlement, true, nil
 }
 
 // SettleRealtimeExactReuse records a cache-hit settlement: buyer pays the reuse
@@ -1177,10 +1391,22 @@ func (s *Store) SettleRealtimeExactReuse(
 	if auth.ReuseClass != ClassCoalescedDelivery && auth.CoalescedLeaderContractID != uuid.Nil {
 		return RealtimeContract{}, RealtimeSettlement{}, errors.New("non-coalesced reuse may not name a physical leader contract")
 	}
+	if existing, settlement, found, err := s.existingRealtimeReuseReplay(
+		ctx, auth, money.DeliveredTokens, outputCommitment,
+	); err != nil || found {
+		return existing, settlement, err
+	}
+	fx, err := realtimeFXForNewIngress(auth.FX, currency)
+	if err != nil {
+		return RealtimeContract{}, RealtimeSettlement{}, err
+	}
+	auth.FX = fx
 	pricing, err := newRealtimeReusePricingDecision(RealtimeReusePricingInputs{
 		Profile: auth.Profile, InputCommitment: auth.InputCommitment, RequestSHA256: auth.RequestSHA256,
 		ResultCommitment: outputCommitment, ReuseClass: auth.ReuseClass, DeliveredTokens: money.DeliveredTokens,
-		BuyerDeclaredCeiling: auth.BuyerDeclaredCeilingUSD, Currency: currency,
+		BuyerDeclaredCeiling:               auth.BuyerDeclaredCeilingUSD,
+		BuyerDeclaredCeilingReferenceNanos: auth.BuyerDeclaredCeilingUSDNanos,
+		FX:                                 auth.FX, Currency: currency,
 	})
 	if err != nil {
 		return RealtimeContract{}, RealtimeSettlement{}, err
@@ -1333,12 +1559,14 @@ func (s *Store) SettleRealtimeExactReuse(
 		{KindPlatformTake, nil, money.PlatformMicros},
 	}
 	for _, entry := range entries {
-		contract := contractID
+		contractRef := contractID
 		if _, err := insertLedgerEntryTx(ctx, tx, ledgerInsert{
 			Kind:                entry.kind,
 			BuyerID:             entry.buyer,
-			ExecutionContractID: &contract,
+			ExecutionContractID: &contractRef,
 			AmountMicros:        entry.amount,
+			Currency:            currency.Code(),
+			CurrencyAuthority:   ledgerCurrencyAuthorityExecutionContract,
 			PayoutStatus:        PayoutReleased,
 		}); err != nil {
 			return RealtimeContract{}, RealtimeSettlement{}, err
@@ -1464,21 +1692,17 @@ func (s *Store) FinalizeRealtimeSuccess(ctx context.Context, contractID uuid.UUI
 		return RealtimeSettlement{}, err
 	}
 	authority := contract.Pricing.Realtime
-	buyerExact, err := BuyerRealtimeTokenChargeNanos(currency, evidence.PromptTokens, evidence.CompletionTokens,
-		NanoMajorPerMillionTokens(authority.BuyerInputNanosPerMillion),
-		NanoMajorPerMillionTokens(authority.BuyerOutputNanosPerMillion))
+	if authority.Currency != currency.Code() {
+		return RealtimeSettlement{}, errors.New("realtime settlement currency disagrees with frozen pricing authority")
+	}
+	buyerExact, supplierExact, err := realtimePhysicalMoneyFromAuthority(
+		*authority, evidence.PromptTokens, evidence.CompletionTokens)
 	if err != nil || buyerExact.Nanos <= 0 {
 		return RealtimeSettlement{}, fmt.Errorf("derive buyer token charge: %w", err)
 	}
 	if buyerExact.Nanos > contract.Pricing.FixedPoint.AcceptedCeilingNanos {
 		return RealtimeSettlement{}, fmt.Errorf("verified usage cost %d nanos exceeds contract maximum %d nanos",
 			buyerExact.Nanos, contract.Pricing.FixedPoint.AcceptedCeilingNanos)
-	}
-	supplierExact, err := SupplierRealtimeTokenEntitlementNanos(currency, evidence.PromptTokens, evidence.CompletionTokens,
-		NanoMajorPerMillionTokens(authority.SupplierInputNanosPerMillion),
-		NanoMajorPerMillionTokens(authority.SupplierOutputNanosPerMillion))
-	if err != nil {
-		return RealtimeSettlement{}, fmt.Errorf("derive supplier token entitlement: %w", err)
 	}
 	contributionExact, err := buyerExact.Sub(supplierExact)
 	if err != nil || contributionExact.Nanos <= 0 {
@@ -1526,13 +1750,15 @@ func (s *Store) FinalizeRealtimeSuccess(ctx context.Context, contractID uuid.UUI
 		if t, ok := entry.release.(time.Time); ok {
 			releaseAt = &t
 		}
-		contract := contractID
+		contractRef := contractID
 		if _, err := insertLedgerEntryTx(ctx, tx, ledgerInsert{
 			Kind:                entry.kind,
 			SupplierID:          entry.supplier,
 			BuyerID:             entry.buyer,
-			ExecutionContractID: &contract,
+			ExecutionContractID: &contractRef,
 			AmountMicros:        entry.amountMicros,
+			Currency:            contract.Currency,
+			CurrencyAuthority:   ledgerCurrencyAuthorityExecutionContract,
 			PayoutStatus:        entry.status,
 			ReleaseAt:           releaseAt,
 		}); err != nil {
@@ -1902,20 +2128,25 @@ func (s *Store) RecoverStaleRealtimeContracts(ctx context.Context, grace time.Du
 }
 
 type RealtimeRefund struct {
-	RefundID            string    `json:"refund_id"`
-	ContractID          string    `json:"contract_id"`
-	SettlementID        string    `json:"settlement_id"`
-	RefundMode          string    `json:"refund_mode"`
-	ReasonCode          string    `json:"reason_code"`
-	Reason              string    `json:"reason"`
-	CorrelationRef      string    `json:"correlation_ref"`
-	BuyerRefundUSD      float64   `json:"buyer_refund_usd"`
-	SupplierClawbackUSD float64   `json:"supplier_clawback_usd"`
-	PlatformRefundUSD   float64   `json:"platform_refund_usd"`
-	InternalCreditState string    `json:"internal_credit_state"`
-	ExternalCashState   string    `json:"external_cash_state"`
-	SupplierPayoutState string    `json:"supplier_payout_state"`
-	CreatedAt           time.Time `json:"created_at"`
+	Version                int       `json:"version"`
+	RefundID               string    `json:"refund_id"`
+	ContractID             string    `json:"contract_id"`
+	SettlementID           string    `json:"settlement_id"`
+	RefundMode             string    `json:"refund_mode"`
+	ReasonCode             string    `json:"reason_code"`
+	Reason                 string    `json:"reason"`
+	CorrelationRef         string    `json:"correlation_ref"`
+	Currency               string    `json:"currency,omitempty"`
+	BuyerRefundAmount      float64   `json:"buyer_refund_amount,omitempty"`
+	SupplierClawbackAmount float64   `json:"supplier_clawback_amount,omitempty"`
+	PlatformRefundAmount   float64   `json:"platform_refund_amount,omitempty"`
+	BuyerRefundUSD         float64   `json:"buyer_refund_usd,omitempty"`
+	SupplierClawbackUSD    float64   `json:"supplier_clawback_usd,omitempty"`
+	PlatformRefundUSD      float64   `json:"platform_refund_usd,omitempty"`
+	InternalCreditState    string    `json:"internal_credit_state"`
+	ExternalCashState      string    `json:"external_cash_state"`
+	SupplierPayoutState    string    `json:"supplier_payout_state"`
+	CreatedAt              time.Time `json:"created_at"`
 }
 
 func realtimeRefundTx(ctx context.Context, tx pgx.Tx, contractID uuid.UUID) (RealtimeRefund, error) {
@@ -1925,7 +2156,8 @@ func realtimeRefundTx(ctx context.Context, tx pgx.Tx, contractID uuid.UUID) (Rea
 		SELECT r.id,r.contract_id::text,s.id,r.refund_mode,r.reason_code,r.reason,
 		       r.correlation_ref,r.buyer_refund_usd::float8,
 		       r.supplier_clawback_usd::float8,r.platform_refund_usd::float8,
-		       r.internal_credit_state,r.external_cash_state,le.payout_status,r.created_at
+		       r.internal_credit_state,r.external_cash_state,le.payout_status,r.created_at,
+		       COALESCE(s.currency,'')
 		  FROM realtime_refunds r
 		  JOIN realtime_settlements s ON s.contract_id=r.contract_id
 		  JOIN ledger_entries le ON le.execution_contract_id=r.contract_id
@@ -1934,12 +2166,25 @@ func realtimeRefundTx(ctx context.Context, tx pgx.Tx, contractID uuid.UUID) (Rea
 		&refundID, &out.ContractID, &settlementID, &out.RefundMode, &out.ReasonCode,
 		&out.Reason, &out.CorrelationRef, &out.BuyerRefundUSD, &out.SupplierClawbackUSD,
 		&out.PlatformRefundUSD, &out.InternalCreditState, &out.ExternalCashState,
-		&out.SupplierPayoutState, &out.CreatedAt)
+		&out.SupplierPayoutState, &out.CreatedAt, &out.Currency)
 	if err != nil {
 		return RealtimeRefund{}, err
 	}
 	out.RefundID = "rfd_" + refundID.String()
 	out.SettlementID = "set_" + settlementID.String()
+	if out.Currency == "" {
+		out.Version = 1
+	} else {
+		out.Version = 2
+		out.BuyerRefundAmount = out.BuyerRefundUSD
+		out.SupplierClawbackAmount = out.SupplierClawbackUSD
+		out.PlatformRefundAmount = out.PlatformRefundUSD
+		if out.Currency != "usd" {
+			out.BuyerRefundUSD = 0
+			out.SupplierClawbackUSD = 0
+			out.PlatformRefundUSD = 0
+		}
+	}
 	return out, nil
 }
 
@@ -1982,7 +2227,7 @@ func (s *Store) RefundRealtimeContract(
 	}
 
 	var (
-		state, payoutStatus                        string
+		state, payoutStatus, currency              string
 		buyerID, supplierID, settlementID, entryID uuid.UUID
 		buyerCharge, supplierGross, platformMargin float64
 		fundingBound                               bool
@@ -1990,7 +2235,7 @@ func (s *Store) RefundRealtimeContract(
 	err = tx.QueryRow(ctx, `
 		SELECT c.state,c.buyer_id,c.supplier_id,s.id,s.buyer_charge_usd::float8,
 		       s.supplier_gross_usd::float8,s.platform_margin_usd::float8,
-		       le.id,le.payout_status,
+		       le.id,le.payout_status,c.currency,
 		       EXISTS(SELECT 1 FROM supplier_payout_funding f WHERE f.ledger_entry_id=le.id)
 		  FROM execution_contracts c
 		  JOIN realtime_settlements s ON s.contract_id=c.id
@@ -1998,11 +2243,14 @@ func (s *Store) RefundRealtimeContract(
 		 WHERE c.id=$1
 		 FOR UPDATE OF c,le`, contractID).Scan(
 		&state, &buyerID, &supplierID, &settlementID, &buyerCharge,
-		&supplierGross, &platformMargin, &entryID, &payoutStatus, &fundingBound)
+		&supplierGross, &platformMargin, &entryID, &payoutStatus, &currency, &fundingBound)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return RealtimeRefund{}, false, errNotFound
 	}
 	if err != nil {
+		return RealtimeRefund{}, false, err
+	}
+	if _, err := ParseCurrency(currency); err != nil {
 		return RealtimeRefund{}, false, err
 	}
 	if state != "VERIFIED" {
@@ -2040,11 +2288,14 @@ func (s *Store) RefundRealtimeContract(
 	contract := contractID
 	reversals := []ledgerInsert{
 		{Kind: "buyer_refund", BuyerID: &buyerID, ExecutionContractID: &contract,
-			AmountMicros: usdToMicros(refundBuyerUSD), PayoutStatus: "released"},
+			AmountMicros: usdToMicros(refundBuyerUSD), Currency: currency,
+			CurrencyAuthority: ledgerCurrencyAuthorityExecutionContract, PayoutStatus: "released"},
 		{Kind: "clawback", SupplierID: &supplierID, ExecutionContractID: &contract,
-			AmountMicros: -usdToMicros(refundSupplierUSD), PayoutStatus: "clawed_back"},
+			AmountMicros: -usdToMicros(refundSupplierUSD), Currency: currency,
+			CurrencyAuthority: ledgerCurrencyAuthorityExecutionContract, PayoutStatus: "clawed_back"},
 		{Kind: "platform_refund", ExecutionContractID: &contract,
-			AmountMicros: -usdToMicros(refundPlatformUSD), PayoutStatus: "released"},
+			AmountMicros: -usdToMicros(refundPlatformUSD), Currency: currency,
+			CurrencyAuthority: ledgerCurrencyAuthorityExecutionContract, PayoutStatus: "released"},
 	}
 	for _, entry := range reversals {
 		if _, err := insertLedgerEntryTx(ctx, tx, entry); err != nil {
@@ -2113,18 +2364,63 @@ func (s *Store) RealtimeOperationalSnapshot(ctx context.Context) (RealtimeOperat
 		    WHERE status='ACTIVE' AND last_seen_at > now()-interval '45 seconds'),0),
 		  COALESCE((SELECT sum(amount_usd) FROM ledger_entries
 		    WHERE execution_contract_id IS NOT NULL AND kind='supplier_credit'
+		      AND currency='usd'
 		      AND payout_status IN ('held','awaiting_funding','ready','sending','outcome_unknown')),0)::float8,
 		  COALESCE((SELECT sum(amount_usd) FROM ledger_entries
 		    WHERE execution_contract_id IS NOT NULL AND kind='supplier_credit'
+		      AND currency='usd'
 		      AND payout_status='reversal_required'),0)::float8,
-		  COALESCE((SELECT sum(buyer_refund_usd) FROM realtime_refunds),0)::float8
+		  COALESCE((SELECT sum(r.buyer_refund_usd)
+		              FROM realtime_refunds r
+		              JOIN realtime_settlements s ON s.contract_id=r.contract_id
+		             WHERE COALESCE(s.currency,'usd')='usd'),0)::float8
 	`).Scan(&snapshot.ExecutingContracts, &snapshot.OldestExecutingAgeSeconds,
 		&snapshot.ActiveOffers, &snapshot.AvailableSequences, &snapshot.OpenSupplierPayableUSD,
 		&snapshot.ReversalRequiredUSD, &snapshot.InternalRefundsUSD)
-	return snapshot, err
+	if err != nil {
+		return snapshot, err
+	}
+	rows, err := s.pool.Query(ctx, `
+		WITH currencies AS (
+			SELECT currency FROM ledger_entries
+			 WHERE execution_contract_id IS NOT NULL AND currency IS NOT NULL
+			UNION
+			SELECT COALESCE(s.currency,'usd')
+			  FROM realtime_refunds r
+			  JOIN realtime_settlements s ON s.contract_id=r.contract_id
+		)
+		SELECT c.currency,
+		       COALESCE((SELECT sum(le.amount_usd) FROM ledger_entries le
+		                  WHERE le.execution_contract_id IS NOT NULL
+		                    AND le.kind='supplier_credit' AND le.currency=c.currency
+		                    AND le.payout_status IN
+		                      ('held','awaiting_funding','ready','sending','outcome_unknown')),0)::float8,
+		       COALESCE((SELECT sum(le.amount_usd) FROM ledger_entries le
+		                  WHERE le.execution_contract_id IS NOT NULL
+		                    AND le.kind='supplier_credit' AND le.currency=c.currency
+		                    AND le.payout_status='reversal_required'),0)::float8,
+		       COALESCE((SELECT sum(r.buyer_refund_usd)
+		                   FROM realtime_refunds r
+		                   JOIN realtime_settlements s ON s.contract_id=r.contract_id
+		                  WHERE COALESCE(s.currency,'usd')=c.currency),0)::float8
+		  FROM currencies c ORDER BY c.currency`)
+	if err != nil {
+		return snapshot, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var item RealtimeOperationalCurrencySnapshot
+		if err := rows.Scan(&item.Currency, &item.OpenSupplierPayable,
+			&item.ReversalRequired, &item.InternalRefunds); err != nil {
+			return snapshot, err
+		}
+		snapshot.MoneyByCurrency = append(snapshot.MoneyByCurrency, item)
+	}
+	return snapshot, rows.Err()
 }
 
 type RealtimeReceipt struct {
+	Version                int                            `json:"version"`
 	ReceiptID              string                         `json:"receipt_id"`
 	SettlementID           string                         `json:"settlement_id,omitempty"`
 	RefundID               string                         `json:"refund_id,omitempty"`
@@ -2151,42 +2447,55 @@ type RealtimeReceipt struct {
 	DurationMS             int64                          `json:"duration_ms,omitempty"`
 	Verification           string                         `json:"verification"`
 	AuthorizationState     string                         `json:"authorization_state"`
-	AuthorizedUSD          float64                        `json:"authorized_usd"`
-	CapturedUSD            float64                        `json:"captured_usd"`
-	ReleasedUSD            float64                        `json:"released_usd"`
-	VoidedUSD              float64                        `json:"voided_usd"`
-	BuyerChargeUSD         float64                        `json:"buyer_charge_usd"`
-	SupplierPayableUSD     float64                        `json:"supplier_payable_usd"`
+	AuthorizedAmount       float64                        `json:"authorized_amount,omitempty"`
+	CapturedAmount         float64                        `json:"captured_amount,omitempty"`
+	ReleasedAmount         float64                        `json:"released_amount,omitempty"`
+	VoidedAmount           float64                        `json:"voided_amount,omitempty"`
+	BuyerChargeAmount      float64                        `json:"buyer_charge_amount,omitempty"`
+	SupplierPayableAmount  float64                        `json:"supplier_payable_amount,omitempty"`
+	AuthorizedUSD          float64                        `json:"authorized_usd,omitempty"`
+	CapturedUSD            float64                        `json:"captured_usd,omitempty"`
+	ReleasedUSD            float64                        `json:"released_usd,omitempty"`
+	VoidedUSD              float64                        `json:"voided_usd,omitempty"`
+	BuyerChargeUSD         float64                        `json:"buyer_charge_usd,omitempty"`
+	SupplierPayableUSD     float64                        `json:"supplier_payable_usd,omitempty"`
 	// PlatformGrossSpreadUSD is the gross platform_take ledger sum: buyer charge
 	// less supplier entitlement, BEFORE any Merc cost. It is not margin and it is
 	// not profit. The batch path renamed the identical row for this reason (see
 	// store_billing.go); this one kept the misleading name far longer. The honest
 	// decomposition is in the embedded pricing_decision, which carries a per-cost
 	// status and refuses a true net while any category is unknown.
-	PlatformGrossSpreadUSD float64 `json:"platform_gross_spread_usd"`
-	RefundUSD              float64 `json:"refund_usd"`
-	SupplierClawbackUSD    float64 `json:"supplier_clawback_usd"`
-	PlatformRefundUSD      float64 `json:"platform_refund_usd"`
-	NetBuyerChargeUSD      float64 `json:"net_buyer_charge_usd"`
-	NetSupplierPayableUSD  float64 `json:"net_supplier_payable_usd"`
+	PlatformGrossSpreadAmount float64 `json:"platform_gross_spread_amount,omitempty"`
+	RefundAmount              float64 `json:"refund_amount,omitempty"`
+	SupplierClawbackAmount    float64 `json:"supplier_clawback_amount,omitempty"`
+	PlatformRefundAmount      float64 `json:"platform_refund_amount,omitempty"`
+	NetBuyerChargeAmount      float64 `json:"net_buyer_charge_amount,omitempty"`
+	NetSupplierPayableAmount  float64 `json:"net_supplier_payable_amount,omitempty"`
+	PlatformGrossSpreadUSD    float64 `json:"platform_gross_spread_usd,omitempty"`
+	RefundUSD                 float64 `json:"refund_usd,omitempty"`
+	SupplierClawbackUSD       float64 `json:"supplier_clawback_usd,omitempty"`
+	PlatformRefundUSD         float64 `json:"platform_refund_usd,omitempty"`
+	NetBuyerChargeUSD         float64 `json:"net_buyer_charge_usd,omitempty"`
+	NetSupplierPayableUSD     float64 `json:"net_supplier_payable_usd,omitempty"`
 	// NetPlatformGrossSpreadUSD is the same gross row less buyer refunds. "Net"
 	// here means net of refunds only -- never net of Merc's costs.
-	NetPlatformGrossSpreadUSD  float64    `json:"net_platform_gross_spread_usd"`
-	SettlementCurrency         string     `json:"settlement_currency,omitempty"`
-	BuyerChargeNanos           int64      `json:"buyer_charge_nanos,omitempty"`
-	SupplierPayableNanos       int64      `json:"supplier_payable_nanos,omitempty"`
-	KnownCostContributionNanos int64      `json:"known_cost_contribution_nanos,omitempty"`
-	SupplierPayoutState        string     `json:"supplier_payout_state"`
-	SupplierLedgerState        string     `json:"supplier_ledger_state,omitempty"`
-	RefundMode                 string     `json:"refund_mode,omitempty"`
-	RefundReasonCode           string     `json:"refund_reason_code,omitempty"`
-	RefundReason               string     `json:"refund_reason,omitempty"`
-	RefundCorrelationRef       string     `json:"refund_correlation_ref,omitempty"`
-	InternalCreditState        string     `json:"internal_credit_state,omitempty"`
-	ExternalCashState          string     `json:"external_cash_state,omitempty"`
-	FailureCode                string     `json:"failure_code,omitempty"`
-	CreatedAt                  time.Time  `json:"created_at"`
-	FinalizedAt                *time.Time `json:"finalized_at,omitempty"`
+	NetPlatformGrossSpreadAmount float64    `json:"net_platform_gross_spread_amount,omitempty"`
+	NetPlatformGrossSpreadUSD    float64    `json:"net_platform_gross_spread_usd,omitempty"`
+	SettlementCurrency           string     `json:"settlement_currency,omitempty"`
+	BuyerChargeNanos             int64      `json:"buyer_charge_nanos,omitempty"`
+	SupplierPayableNanos         int64      `json:"supplier_payable_nanos,omitempty"`
+	KnownCostContributionNanos   int64      `json:"known_cost_contribution_nanos,omitempty"`
+	SupplierPayoutState          string     `json:"supplier_payout_state"`
+	SupplierLedgerState          string     `json:"supplier_ledger_state,omitempty"`
+	RefundMode                   string     `json:"refund_mode,omitempty"`
+	RefundReasonCode             string     `json:"refund_reason_code,omitempty"`
+	RefundReason                 string     `json:"refund_reason,omitempty"`
+	RefundCorrelationRef         string     `json:"refund_correlation_ref,omitempty"`
+	InternalCreditState          string     `json:"internal_credit_state,omitempty"`
+	ExternalCashState            string     `json:"external_cash_state,omitempty"`
+	FailureCode                  string     `json:"failure_code,omitempty"`
+	CreatedAt                    time.Time  `json:"created_at"`
+	FinalizedAt                  *time.Time `json:"finalized_at,omitempty"`
 }
 
 // RealtimeCoalescingReceipt makes the physical source of an in-flight follower
@@ -2275,7 +2584,9 @@ func (s *Store) RealtimeReceipt(ctx context.Context, buyerID, contractID uuid.UU
 		       authz.voided,COALESCE(money.supplier_ledger_state,''),
 		       COALESCE(r.refund_mode,''),COALESCE(r.reason_code,''),COALESCE(r.reason,''),
 		       COALESCE(r.correlation_ref,''),COALESCE(r.internal_credit_state,''),
-		       COALESCE(r.external_cash_state,''),COALESCE(s.currency,''),
+		       COALESCE(r.external_cash_state,''),
+		       CASE WHEN c.pricing_decision IS NULL AND s.currency IS NULL
+		            THEN '' ELSE c.currency END,
 		       COALESCE(s.buyer_charge_nanos,0),COALESCE(s.supplier_gross_nanos,0),
 		       COALESCE(s.known_cost_contribution_nanos,0)
 		  FROM execution_contracts c
@@ -2371,6 +2682,39 @@ func (s *Store) RealtimeReceipt(ctx context.Context, buyerID, contractID uuid.UU
 	receipt.NetBuyerChargeUSD = roundRealtimeUSD(receipt.BuyerChargeUSD - receipt.RefundUSD)
 	receipt.NetSupplierPayableUSD = roundRealtimeUSD(receipt.SupplierPayableUSD - receipt.SupplierClawbackUSD)
 	receipt.NetPlatformGrossSpreadUSD = roundRealtimeUSD(receipt.PlatformGrossSpreadUSD - receipt.PlatformRefundUSD)
+	if receipt.SettlementCurrency == "" {
+		receipt.Version = 1
+	} else {
+		receipt.Version = 2
+		receipt.AuthorizedAmount = receipt.AuthorizedUSD
+		receipt.CapturedAmount = receipt.CapturedUSD
+		receipt.ReleasedAmount = receipt.ReleasedUSD
+		receipt.VoidedAmount = receipt.VoidedUSD
+		receipt.BuyerChargeAmount = receipt.BuyerChargeUSD
+		receipt.SupplierPayableAmount = receipt.SupplierPayableUSD
+		receipt.PlatformGrossSpreadAmount = receipt.PlatformGrossSpreadUSD
+		receipt.RefundAmount = receipt.RefundUSD
+		receipt.SupplierClawbackAmount = receipt.SupplierClawbackUSD
+		receipt.PlatformRefundAmount = receipt.PlatformRefundUSD
+		receipt.NetBuyerChargeAmount = receipt.NetBuyerChargeUSD
+		receipt.NetSupplierPayableAmount = receipt.NetSupplierPayableUSD
+		receipt.NetPlatformGrossSpreadAmount = receipt.NetPlatformGrossSpreadUSD
+		if receipt.SettlementCurrency != "usd" {
+			receipt.AuthorizedUSD = 0
+			receipt.CapturedUSD = 0
+			receipt.ReleasedUSD = 0
+			receipt.VoidedUSD = 0
+			receipt.BuyerChargeUSD = 0
+			receipt.SupplierPayableUSD = 0
+			receipt.PlatformGrossSpreadUSD = 0
+			receipt.RefundUSD = 0
+			receipt.SupplierClawbackUSD = 0
+			receipt.PlatformRefundUSD = 0
+			receipt.NetBuyerChargeUSD = 0
+			receipt.NetSupplierPayableUSD = 0
+			receipt.NetPlatformGrossSpreadUSD = 0
+		}
+	}
 	receipt.SupplierPayoutState = realtimePayoutState(receipt.SupplierLedgerState)
 	return receipt, nil
 }

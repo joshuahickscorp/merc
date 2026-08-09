@@ -172,13 +172,14 @@ func TestContributionViewNeverCallsGrossSpreadTrueNetWhileCostsAreUnknown(t *tes
 	known.ProviderCost = notApplicableCost("supplier entitlement covers external provider")
 	known.RiskReserve = modeledCost(0.000001, "calibrated refund reserve")
 	view = buildEconomicContributionView(&known, known.Currency, 0.011562, &processor, 0)
-	if view.MercNetContribution.Status != "settled" ||
-		view.MercNetContribution.AmountUSD == nil {
-		t.Fatalf("fully attributed costs did not produce net contribution: %+v",
+	if view.MercNetContribution.Status != pricingCostUnknown ||
+		view.MercNetContribution.AmountUSD != nil ||
+		view.TrueNetContributionNanos != nil {
+		t.Fatalf("accepted pricing masqueraded as final contribution: %+v",
 			view.MercNetContribution)
 	}
-	want := roundEconomicUSD(0.011562 - processor - known.ControlPlaneCost.Amount - 0.000003)
-	if *view.MercNetContribution.AmountUSD != want {
-		t.Fatalf("net contribution=%v want=%v", *view.MercNetContribution.AmountUSD, want)
+	if !strings.Contains(view.MercNetContribution.Basis, "FINAL ContributionSettlement") {
+		t.Fatalf("contribution refusal does not name final settlement authority: %+v",
+			view.MercNetContribution)
 	}
 }

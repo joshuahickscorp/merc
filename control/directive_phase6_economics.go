@@ -30,13 +30,14 @@ import (
 // number is emitted without a source. Gross platform ledger rows are a
 // different type from true net and cannot be read as true net.
 //
-// Distinction from PricingDecision.FixedPoint.TrueNetContributionNanos:
-// that field is settlement-ledger contribution after modeled PricingDecision
-// components (processor, control, storage, egress, provider, risk). It does
-// not satisfy the Phase 6 physical-cost inventory (utilization, startup/
-// residency, measured package energy, measured refund cohort, etc.). This
-// file is the programme-level gate that refuses to quote true net or the
-// primary metric until every directive category is known.
+// Historical PricingDecision bodies may contain
+// FixedPoint.TrueNetContributionNanos, but PricingDecision is accepted-forecast
+// authority and that raw field is not settlement. Batch-job true net is emitted
+// only by a FINAL ContributionSettlement. Neither authority alone satisfies the
+// broader Phase 6 physical-cost inventory (utilization, startup/residency,
+// measured package energy, measured refund cohort, etc.). This file is the
+// programme-level gate that refuses to quote the primary metric until every
+// directive category is known.
 
 // CostCategoryKnowledge is how a directive cost category stands today.
 type CostCategoryKnowledge string
@@ -402,9 +403,9 @@ func BuildMetalLocalPhase6Economics() Phase6EconomicsReceipt {
 			},
 			NoCUDAInvented:    true,
 			GrossIsNotTrueNet: true,
-			PricingDecisionTrueNet: "PricingDecision.FixedPoint.TrueNetContributionNanos is settlement-ledger " +
-				"contribution after modeled PricingDecision components only; it is not the Phase 6 " +
-				"directive physical true net and must not be quoted as such while directive categories remain UNKNOWN",
+			PricingDecisionTrueNet: "PricingDecision.FixedPoint.TrueNetContributionNanos is historical accepted-forecast " +
+				"data, not settlement authority; only FINAL ContributionSettlement may publish batch-job true net, " +
+				"and even that is not the Phase 6 directive physical metric while directive categories remain UNKNOWN",
 		},
 	}
 }

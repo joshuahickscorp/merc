@@ -59,6 +59,7 @@ const coalescedFollowers = 128
 // control-plane money/receipt path, not a claim of physical vLLM performance.
 func TestProductionRealtimeCoalescing128DeliveriesOnePhysicalSettlement(t *testing.T) {
 	installSettlementCurrencyForTest(t, "cad")
+	installRealtimeCADFXForTest(t)
 	t.Setenv("MERC_TOKEN_KEY", "coalesced-realtime-test-key-with-at-least-32-bytes")
 	t.Setenv("STRIPE_SECRET_KEY", "")
 
@@ -534,6 +535,7 @@ func TestProductionRealtimeCoalescing128DeliveriesOnePhysicalSettlement(t *testi
 
 func TestOneExecutionWith128FollowersWritesNoSupplierCreditAndOneAuthorityEach(t *testing.T) {
 	installSettlementCurrencyForTest(t, "cad")
+	installRealtimeCADFXForTest(t)
 	t.Setenv("MERC_TOKEN_KEY", "coalesced-realtime-test-key-with-at-least-32-bytes")
 	ctx, store, pool := openPayoutTestStore(t)
 
@@ -574,14 +576,14 @@ func TestOneExecutionWith128FollowersWritesNoSupplierCreditAndOneAuthorityEach(t
 	const promptTokens, deliveredTokens int64 = 12, 64
 	leaderResultRef := "cas/sha256/" + uuid.NewString()
 	leaderResultSHA := "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
-	currency := MustParseCurrency("cad")
+	referenceCurrency := MustParseCurrency(realtimeReferenceCurrency)
 	buyerInput, err := nanoRatePerMillionFromFloat(profile.BuyerInputUSDPerMillionTokens)
 	must(t, err)
 	buyerOutput, err := nanoRatePerMillionFromFloat(profile.BuyerOutputUSDPerMillionTokens)
 	must(t, err)
-	leaderExpected, err := BuyerRealtimeTokenChargeNanos(currency, promptTokens, deliveredTokens, buyerInput, buyerOutput)
+	leaderExpected, err := BuyerRealtimeTokenChargeNanos(referenceCurrency, promptTokens, deliveredTokens, buyerInput, buyerOutput)
 	must(t, err)
-	leaderMaximum, err := BuyerRealtimeTokenChargeNanos(currency, 100, deliveredTokens, buyerInput, buyerOutput)
+	leaderMaximum, err := BuyerRealtimeTokenChargeNanos(referenceCurrency, 100, deliveredTokens, buyerInput, buyerOutput)
 	must(t, err)
 	leaderExpectedMicros, err := LedgerMicrosFromNanos(leaderExpected)
 	must(t, err)
@@ -613,7 +615,7 @@ func TestOneExecutionWith128FollowersWritesNoSupplierCreditAndOneAuthorityEach(t
 		ClassUncachedInput: 100, ClassGeneratedOutput: deliveredTokens,
 	}, fullPer1K)
 
-	currency, err = SettlementCurrency()
+	currency, err := SettlementCurrency()
 	must(t, err)
 	money, err := SettleRealtimeReuseHitMoney(currency, deliveredTokens,
 		profile.BuyerInputUSDPerMillionTokens, profile.BuyerOutputUSDPerMillionTokens)
@@ -630,7 +632,6 @@ func TestOneExecutionWith128FollowersWritesNoSupplierCreditAndOneAuthorityEach(t
 			RequestID: "req-coalesced-rejected-" + label + "-" + uuid.NewString(),
 			BuyerID:   buyer, Profile: profile,
 			InputCommitment: strings.Repeat("c", 64), RequestSHA256: strings.Repeat("d", 64),
-			MaximumPriceUSD: microsToUSD(money.BuyerDebitMicros), EstimatedPriceUSD: microsToUSD(money.BuyerDebitMicros),
 			ReuseClass: ClassCoalescedDelivery, CoalescedLeaderContractID: source,
 		}, ExactCacheHit{ResultRef: leaderResultRef, OutputTokens: deliveredTokens}, money, commitment)
 		if err == nil {
@@ -643,7 +644,6 @@ func TestOneExecutionWith128FollowersWritesNoSupplierCreditAndOneAuthorityEach(t
 	reuseBackedSource, _, err := store.SettleRealtimeExactReuse(ctx, RealtimeContractAuthorization{
 		RequestID: "req-coalesced-reuse-source-" + uuid.NewString(), BuyerID: buyerID, Profile: profile,
 		InputCommitment: strings.Repeat("c", 64), RequestSHA256: strings.Repeat("d", 64),
-		MaximumPriceUSD: microsToUSD(money.BuyerDebitMicros), EstimatedPriceUSD: microsToUSD(money.BuyerDebitMicros),
 		ReuseClass: ClassExactResultReuse,
 	}, ExactCacheHit{ResultRef: leaderResultRef, OutputTokens: deliveredTokens}, money, leaderResultSHA)
 	mustf(t, err, "create reuse-backed negative source: %v")
@@ -668,8 +668,6 @@ func TestOneExecutionWith128FollowersWritesNoSupplierCreditAndOneAuthorityEach(t
 				RequestID: requestID, BuyerID: buyerID, Profile: profile,
 				InputCommitment:           "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
 				RequestSHA256:             "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
-				MaximumPriceUSD:           microsToUSD(money.BuyerDebitMicros),
-				EstimatedPriceUSD:         microsToUSD(money.BuyerDebitMicros),
 				ReuseClass:                ClassCoalescedDelivery,
 				CoalescedLeaderContractID: leader.ID,
 			}, hit, money, leaderResultSHA)

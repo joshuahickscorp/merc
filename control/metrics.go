@@ -525,6 +525,12 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "# TYPE merc_realtime_supplier_reversal_required_usd gauge\n")
 	fmt.Fprintf(w, "# HELP merc_realtime_internal_refunds_usd Cumulative full internal credits recorded for realtime settlements.\n")
 	fmt.Fprintf(w, "# TYPE merc_realtime_internal_refunds_usd gauge\n")
+	fmt.Fprintf(w, "# HELP merc_realtime_supplier_payable_open Realtime supplier liability by accepted settlement currency.\n")
+	fmt.Fprintf(w, "# TYPE merc_realtime_supplier_payable_open gauge\n")
+	fmt.Fprintf(w, "# HELP merc_realtime_supplier_reversal_required Realtime supplier liability requiring reversal by accepted settlement currency.\n")
+	fmt.Fprintf(w, "# TYPE merc_realtime_supplier_reversal_required gauge\n")
+	fmt.Fprintf(w, "# HELP merc_realtime_internal_refunds Cumulative internal credits by accepted settlement currency.\n")
+	fmt.Fprintf(w, "# TYPE merc_realtime_internal_refunds gauge\n")
 	if snapshot, err := s.store.RealtimeOperationalSnapshot(ctx); err != nil {
 		fmt.Fprintf(w, "# realtime operational snapshot unavailable: %s\n", err.Error())
 	} else {
@@ -535,6 +541,11 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "merc_realtime_supplier_payable_open_usd %.6f\n", snapshot.OpenSupplierPayableUSD)
 		fmt.Fprintf(w, "merc_realtime_supplier_reversal_required_usd %.6f\n", snapshot.ReversalRequiredUSD)
 		fmt.Fprintf(w, "merc_realtime_internal_refunds_usd %.6f\n", snapshot.InternalRefundsUSD)
+		for _, money := range snapshot.MoneyByCurrency {
+			fmt.Fprintf(w, "merc_realtime_supplier_payable_open{currency=%q} %.6f\n", money.Currency, money.OpenSupplierPayable)
+			fmt.Fprintf(w, "merc_realtime_supplier_reversal_required{currency=%q} %.6f\n", money.Currency, money.ReversalRequired)
+			fmt.Fprintf(w, "merc_realtime_internal_refunds{currency=%q} %.6f\n", money.Currency, money.InternalRefunds)
+		}
 	}
 
 	fmt.Fprintf(w, "# HELP merc_queue_depth Claimable (queued/retrying, visible, unclaimed) tasks.\n")

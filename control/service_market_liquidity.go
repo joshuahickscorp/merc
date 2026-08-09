@@ -20,6 +20,7 @@ import (
 // supplier-declared operational region.
 type ServiceLeaseMarketLiquidityReceipt struct {
 	Version     int                                `json:"version"`
+	Currency    string                             `json:"currency"`
 	ObservedAt  time.Time                          `json:"observed_at"`
 	WindowStart time.Time                          `json:"window_start"`
 	WindowEnd   time.Time                          `json:"window_end"`
@@ -27,9 +28,10 @@ type ServiceLeaseMarketLiquidityReceipt struct {
 	Slices      []ServiceLeaseMarketLiquiditySlice `json:"slices"`
 }
 
-// ServiceLeaseMarketLiquiditySlice keeps all price observations in their
-// original fixed-point nanos-per-replica-hour unit. Ratios are numerator and
-// denominator pairs so no float is mistaken for money or a time-weighted fact.
+// ServiceLeaseMarketLiquiditySlice keeps only price observations explicitly
+// bound to the receipt currency, in fixed-point nanos-per-replica-hour. Ratios
+// are numerator and denominator pairs so no float is mistaken for money or a
+// time-weighted fact.
 type ServiceLeaseMarketLiquiditySlice struct {
 	RuntimeProfileID        string `json:"runtime_profile_id"`
 	ModelAlias              string `json:"model_alias,omitempty"`
@@ -107,27 +109,34 @@ func (s *Store) RecordServiceLeaseAdmissionEvent(
 		!serviceLeaseRegionPattern.MatchString(request.Region) {
 		return errors.New("service lease admission telemetry lacks buyer, runtime profile, or region")
 	}
+	if _, err := validateCurrentServiceLeaseCurrency(request.Currency); err != nil {
+		return fmt.Errorf("service lease admission telemetry currency: %w", err)
+	}
 	switch decision {
 	case serviceLeaseAdmissionAdmitted:
 		if leaseID == uuid.Nil {
 			return errors.New("admitted service lease telemetry lacks lease identity")
 		}
 		var boundBuyer uuid.UUID
-		var boundProfile, boundRegion, hwClass string
+		var boundProfile, boundRegion, boundCurrency, hwClass string
 		if err := s.pool.QueryRow(ctx, `SELECT l.buyer_id,l.runtime_profile_id,l.region,
+			l.pricing_decision->>'currency',
 			COALESCE(NULLIF(btrim(w.hw_class),''),'UNDECLARED')
-			FROM service_leases l JOIN workers w ON w.id=l.worker_id WHERE l.id=$1`, leaseID).Scan(&boundBuyer, &boundProfile, &boundRegion, &hwClass); err != nil {
+			FROM service_leases l JOIN workers w ON w.id=l.worker_id WHERE l.id=$1`, leaseID).Scan(
+			&boundBuyer, &boundProfile, &boundRegion, &boundCurrency, &hwClass); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				return errors.New("admitted service lease telemetry names no lease")
 			}
 			return err
 		}
-		if boundBuyer != buyerID || boundProfile != request.RuntimeProfileID || boundRegion != request.Region {
+		if boundBuyer != buyerID || boundProfile != request.RuntimeProfileID || boundRegion != request.Region ||
+			boundCurrency != request.Currency {
 			return errors.New("admitted service lease telemetry does not match frozen lease authority")
 		}
 		_, err := s.pool.Exec(ctx, `INSERT INTO service_lease_admission_events
-			(buyer_id,runtime_profile_id,region,worker_declared_hw_class,decision,lease_id)
-			VALUES ($1,$2,$3,$4,$5,$6)`, buyerID, request.RuntimeProfileID, request.Region, hwClass, decision, leaseID)
+			(buyer_id,runtime_profile_id,region,currency,worker_declared_hw_class,decision,lease_id)
+			VALUES ($1,$2,$3,$4,$5,$6,$7)`, buyerID, request.RuntimeProfileID, request.Region,
+			request.Currency, hwClass, decision, leaseID)
 		return err
 	case serviceLeaseAdmissionNoCapacity, serviceLeaseAdmissionInsufficient, serviceLeaseAdmissionRequestRejected:
 		if leaseID != uuid.Nil {
@@ -137,9 +146,10 @@ func (s *Store) RecordServiceLeaseAdmissionEvent(
 		return fmt.Errorf("unknown service lease admission decision %q", decision)
 	}
 	_, err := s.pool.Exec(ctx, `INSERT INTO service_lease_admission_events
-		(buyer_id,runtime_profile_id,region,worker_declared_hw_class,decision,lease_id)
-		VALUES ($1,$2,$3,$4,$5,NULLIF($6::uuid,'00000000-0000-0000-0000-000000000000'::uuid))`,
-		buyerID, request.RuntimeProfileID, request.Region, serviceLiquidityUnmatchedHardware, decision, leaseID)
+		(buyer_id,runtime_profile_id,region,currency,worker_declared_hw_class,decision,lease_id)
+		VALUES ($1,$2,$3,$4,$5,$6,NULLIF($7::uuid,'00000000-0000-0000-0000-000000000000'::uuid))`,
+		buyerID, request.RuntimeProfileID, request.Region, request.Currency,
+		serviceLiquidityUnmatchedHardware, decision, leaseID)
 	return err
 }
 
@@ -153,16 +163,17 @@ func (s *Store) ServiceLeaseMarketLiquidity(ctx context.Context, window time.Dur
 	now := time.Now().UTC()
 	since := now.Add(-window)
 	out := ServiceLeaseMarketLiquidityReceipt{
-		Version: 1, ObservedAt: now, WindowStart: since, WindowEnd: now,
+		Version: 1, Currency: currentServiceLeasePricingCurrency,
+		ObservedAt: now, WindowStart: since, WindowEnd: now,
 		RegionScope: "SUPPLIER_DECLARED_OPERATIONAL_REGION_ONLY",
 	}
 	rows, err := s.pool.Query(ctx, `SELECT runtime_profile_id,region,worker_declared_hw_class FROM (
 			SELECT runtime_profile_id,region,worker_declared_hw_class
-			  FROM service_lease_offer_samples WHERE observed_at >= $1
+			  FROM service_lease_offer_samples WHERE observed_at >= $1 AND currency=$2
 			UNION
 			SELECT runtime_profile_id,region,worker_declared_hw_class
-			  FROM service_lease_admission_events WHERE observed_at >= $1
-		) keys ORDER BY runtime_profile_id,region,worker_declared_hw_class`, since)
+			  FROM service_lease_admission_events WHERE observed_at >= $1 AND currency=$2
+		) keys ORDER BY runtime_profile_id,region,worker_declared_hw_class`, since, out.Currency)
 	if err != nil {
 		return out, err
 	}
@@ -193,8 +204,10 @@ func (s *Store) populateServiceLeaseLiquiditySlice(ctx context.Context, since ti
 		count(*) FILTER (WHERE decision='INSUFFICIENT_FUNDS'),
 		count(*) FILTER (WHERE decision='REQUEST_REJECTED')
 		FROM service_lease_admission_events
-		WHERE runtime_profile_id=$1 AND region=$2 AND worker_declared_hw_class=$3 AND observed_at >= $4`,
-		slice.RuntimeProfileID, slice.Region, slice.WorkerDeclaredHWClass, since).Scan(&slice.Admitted, &slice.NoCapacity,
+		WHERE runtime_profile_id=$1 AND region=$2 AND worker_declared_hw_class=$3
+		  AND observed_at >= $4 AND currency=$5`,
+		slice.RuntimeProfileID, slice.Region, slice.WorkerDeclaredHWClass, since,
+		currentServiceLeasePricingCurrency).Scan(&slice.Admitted, &slice.NoCapacity,
 		&slice.InsufficientFunds, &slice.RequestRejected); err != nil {
 		return err
 	}
@@ -207,7 +220,8 @@ func (s *Store) populateServiceLeaseLiquiditySlice(ctx context.Context, since ti
 			SELECT worker_id,bool_or(status='READY') AS observed_ready,
 			       bool_or(status IN ('DRAINING','FAILED')) AS observed_inactive
 			  FROM service_lease_offer_samples
-			 WHERE runtime_profile_id=$1 AND region=$2 AND worker_declared_hw_class=$3 AND observed_at >= $4
+			 WHERE runtime_profile_id=$1 AND region=$2 AND worker_declared_hw_class=$3
+			   AND observed_at >= $4 AND currency=$5
 			 GROUP BY worker_id
 		)
 		SELECT count(*)::int,
@@ -215,8 +229,10 @@ func (s *Store) populateServiceLeaseLiquiditySlice(ctx context.Context, since ti
 		       COALESCE(sum(maximum_warm_replicas),0)::bigint,
 		       COALESCE((SELECT count(*) FROM per_worker WHERE observed_ready AND observed_inactive),0)::int
 		FROM service_lease_offer_samples
-		WHERE runtime_profile_id=$1 AND region=$2 AND worker_declared_hw_class=$3 AND observed_at >= $4`,
-		slice.RuntimeProfileID, slice.Region, slice.WorkerDeclaredHWClass, since).Scan(
+		WHERE runtime_profile_id=$1 AND region=$2 AND worker_declared_hw_class=$3
+		  AND observed_at >= $4 AND currency=$5`,
+		slice.RuntimeProfileID, slice.Region, slice.WorkerDeclaredHWClass, since,
+		currentServiceLeasePricingCurrency).Scan(
 		&slice.OfferSamples, &slice.OccupiedReplicaSamples, &slice.MaximumReplicaSamples,
 		&slice.ActiveToInactiveWorkers); err != nil {
 		return err
@@ -225,10 +241,12 @@ func (s *Store) populateServiceLeaseLiquiditySlice(ctx context.Context, since ti
 		FROM service_lease_worker_offers o JOIN workers w ON w.id=o.worker_id
 		WHERE o.runtime_profile_id=$1 AND o.region=$2
 		  AND COALESCE(NULLIF(btrim(w.hw_class),''),'UNDECLARED')=$3
+		  AND o.currency=$4
 		  AND o.status='READY' AND o.last_seen_at > now()-interval '45 seconds'
 		  AND o.available_warm_replicas > 0
 		ORDER BY o.supplier_nanos_per_replica_hour,o.residency_nanos_per_replica_hour,o.worker_id`,
-		slice.RuntimeProfileID, slice.Region, slice.WorkerDeclaredHWClass)
+		slice.RuntimeProfileID, slice.Region, slice.WorkerDeclaredHWClass,
+		currentServiceLeasePricingCurrency)
 	if err != nil {
 		return err
 	}

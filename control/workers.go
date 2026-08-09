@@ -64,6 +64,7 @@ const (
 	realtimeRecoveryInterval     = 15 * time.Second
 	realtimeRecoveryGrace        = 30 * time.Second
 	serviceLeaseRecoveryInterval = 15 * time.Second
+	riskReserveReleaseInterval   = 1 * time.Minute
 	envelopeRecoveryInterval     = 15 * time.Second
 	envelopeOrphanGrace          = 30 * time.Second
 	hedgeAfter                   = 90 * time.Second // 2 × ~45s target per-task time
@@ -303,6 +304,7 @@ func (wk *Workers) Run(ctx context.Context) {
 		{realtimeRecoveryInterval, "realtime-contract-recovery", wk.recoverRealtimeContracts},
 		{realtimeRecoveryInterval, "realtime-settlement-intents", wk.settleRealtimeSettlementIntents},
 		{serviceLeaseRecoveryInterval, "service-lease-recovery", wk.recoverServiceLeases},
+		{riskReserveReleaseInterval, "risk-reserve-release", wk.releaseMaturedRiskReserves},
 		// Envelope expiry returns unspent remainder to the buyer's available
 		// balance; orphan-spend recovery converges reserved holds after a crash.
 		{envelopeRecoveryInterval, "execution-envelope-expiry", wk.releaseExpiredExecutionEnvelopes},
@@ -1404,6 +1406,17 @@ func (wk *Workers) recoverServiceLeases(ctx context.Context) error {
 	if lost > 0 || failedOver > 0 || terminated > 0 || completed > 0 {
 		log.Printf("workers: service-lease-recovery lost=%d failed_over=%d terminated_no_replacement=%d completed=%d",
 			lost, failedOver, terminated, completed)
+	}
+	return nil
+}
+
+func (wk *Workers) releaseMaturedRiskReserves(ctx context.Context) error {
+	released, err := wk.store.ReleaseEligibleRiskReserves(ctx, time.Now().UTC(), sweepBatch)
+	if err != nil {
+		return err
+	}
+	if released > 0 {
+		log.Printf("workers: released %d matured clean job risk reserve(s)", released)
 	}
 	return nil
 }

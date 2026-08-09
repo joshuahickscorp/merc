@@ -8,12 +8,12 @@ import (
 
 // TestServiceLeaseSupplierPayoutFundingUsesCollectedTopup proves the missing
 // terminal bridge: a service lease has no job/task, but its supplier liability
-// is still funded from the buyer's actual CAD top-up and names the exact lease
+// is still funded from the buyer's actual USD top-up and names the exact lease
 // in the immutable funding fact. It deliberately stops before an external
 // payout provider call; ClaimPayout is the authority boundary that creates the
 // provider operation and remains fail-closed when the payout rail is absent.
 func TestServiceLeaseSupplierPayoutFundingUsesCollectedTopup(t *testing.T) {
-	installSettlementCurrencyForTest(t, "cad")
+	installSettlementCurrencyForTest(t, "usd")
 	t.Setenv("MERC_CANARY_MODE", "false")
 	t.Setenv("MERC_CANARY_DISABLE_DECISION_REF", "TEST-service-lease-payout-funding")
 	// Finalization is a platform-wide sweep. Under -race the shared suite can
@@ -34,7 +34,7 @@ func TestServiceLeaseSupplierPayoutFundingUsesCollectedTopup(t *testing.T) {
 	chargeID := "ch_service_lease_topup_" + uuid.NewString()
 	if err := store.CreditPrepaidTopup(ctx, topupKey, buyerID, ChargeResult{
 		PaymentIntentID: paymentIntent, ChargeID: chargeID,
-		RequestedCents: 100, ReceivedCents: 100, Currency: "cad",
+		RequestedCents: 100, ReceivedCents: 100, Currency: "usd",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -46,13 +46,13 @@ func TestServiceLeaseSupplierPayoutFundingUsesCollectedTopup(t *testing.T) {
 	offer.Region = "ca-service-payout-" + uuid.NewString()
 	must(t, store.UpsertServiceLeaseOffer(ctx, worker, offer))
 	lease, err := store.CreateServiceLease(ctx, buyerID, ServiceLeaseRequest{
-		RuntimeProfileID: profile.RuntimeProfileID, Region: offer.Region,
+		RuntimeProfileID: profile.RuntimeProfileID, Region: offer.Region, Currency: "usd",
 		MinimumReplicas: 1, MaximumReplicas: 1, TermSeconds: 60,
 		MaximumP95LatencyMilliseconds: 500, BuyerDeclaredCeilingNanos: 135_000_000,
 	})
 	must(t, err)
 	// Make a short but billable terminal interval. The supplier rate is fixed
-	// point, so ~19 seconds is enough to cross one CAD cent after accrual while
+	// point, so ~19 seconds is enough to cross one USD cent after accrual while
 	// remaining well below the frozen buyer ceiling.
 	if _, err := pool.Exec(ctx, `UPDATE service_leases
 		SET last_metered_at=now()-interval '20 seconds',expires_at=now()-interval '1 second'
@@ -77,7 +77,7 @@ func TestServiceLeaseSupplierPayoutFundingUsesCollectedTopup(t *testing.T) {
 	}
 	claimed, sent, err := store.ClaimPayout(ctx, entryID)
 	must(t, err)
-	if !sent || claimed.RequestedCents <= 0 || claimed.Currency != "cad" {
+	if !sent || claimed.RequestedCents <= 0 || claimed.Currency != "usd" {
 		t.Fatalf("service lease payout was not funded from collected topup: sent=%v claim=%+v", sent, claimed)
 	}
 
@@ -95,7 +95,7 @@ func TestServiceLeaseSupplierPayoutFundingUsesCollectedTopup(t *testing.T) {
 		t.Fatal(err)
 	}
 	if fundingLease == nil || *fundingLease != lease.ID || fundingJob != nil || fundingPI != paymentIntent ||
-		fundingCents != claimed.RequestedCents || fundingCurrency != "cad" {
+		fundingCents != claimed.RequestedCents || fundingCurrency != "usd" {
 		t.Fatalf("funding fact lost service/topup identity: lease=%v job=%v pi=%q cents=%d currency=%q claim=%+v",
 			fundingLease, fundingJob, fundingPI, fundingCents, fundingCurrency, claimed)
 	}

@@ -254,6 +254,12 @@ func TestPricingDecisionDigestBindsEveryEconomicAuthorityFamily(t *testing.T) {
 		{"placement", func(p *PricingDecision) { p.PlacementRequirementSHA256 = strings.Repeat("3", 64) }},
 		{"economic plan", func(p *PricingDecision) { p.EconomicPlanSHA256 = strings.Repeat("4", 64) }},
 		{"economic schedule", func(p *PricingDecision) { p.EconomicScheduleSHA256 = strings.Repeat("5", 64) }},
+		{"cost policy retention", func(p *PricingDecision) {
+			frozen := *p.CostPolicy
+			frozen.RetentionSeconds += int64((24 * time.Hour) / time.Second)
+			p.CostPolicy = &frozen
+		}},
+		{"exact storage nanos", func(p *PricingDecision) { p.StorageAcceptedNanos++ }},
 		{"catalogue schedule", func(p *PricingDecision) { p.Catalogue.ScheduleSHA256 = strings.Repeat("6", 64) }},
 		{"market board", func(p *PricingDecision) { p.Catalogue.BoardSHA256 = strings.Repeat("7", 64) }},
 		{"FX", func(p *PricingDecision) { p.Catalogue.FXRevision += "-changed" }},
@@ -311,6 +317,9 @@ func TestDistributedPricingDecisionUsesExplicitUnknownCostStates(t *testing.T) {
 	if pricing.CostScheduleSHA256 == "" {
 		t.Fatal("distributed pricing decision lacks cost schedule digest")
 	}
+	if pricing.CostPolicy == nil {
+		t.Fatal("distributed pricing decision lacks frozen cost policy")
+	}
 	if pricing.ProviderCost.Status != pricingCostNotApplicable &&
 		pricing.ProviderCost.Status != pricingCostUnknown &&
 		pricing.ProviderCost.Status != pricingCostModeled {
@@ -321,6 +330,259 @@ func TestDistributedPricingDecisionUsesExplicitUnknownCostStates(t *testing.T) {
 		t.Fatalf("modeled supplier gross %.6f is below admission ceiling %.6f",
 			pricing.ExpectedSupplierGrossUSDHr,
 			pricing.SupplierAdmissionCeilingUSDHr)
+	}
+}
+
+func TestDistributedPricingReplayAndSettlementUseFrozenCostPolicy(t *testing.T) {
+	t.Setenv(costScheduleRevisionEnv, "")
+	t.Setenv("MERC_JOB_OBJECT_RETENTION_DAYS", "30")
+	workload, compute, placement, economic, accepted := distributedPricingFixture(t)
+	if accepted.CostPolicy == nil {
+		t.Fatal("accepted decision lacks frozen cost policy")
+	}
+	if accepted.CostPolicy.RetentionSeconds != int64((30*24*time.Hour)/time.Second) {
+		t.Fatalf("accepted retention=%d seconds, want 30 days", accepted.CostPolicy.RetentionSeconds)
+	}
+	acceptedDigest, err := pricingDecisionDigest(accepted)
+	must(t, err)
+	tamperedExact := accepted
+	tamperedExact.StorageAcceptedNanos++
+	if err := ValidateDistributedPricingDecisionSnapshot(
+		tamperedExact, workload, compute, placement, economic,
+	); err == nil {
+		t.Fatalf("tampered exact storage nanos replay boundary=%v", err)
+	}
+	now := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
+	before, err := settleStorageEgressFromBytes(accepted, 17_123, 9_321, now)
+	mustf(t, err, "settle accepted policy before config change: %v")
+
+	// A future binary/config may select another schedule and retention. The old
+	// accepted body must not consult either setting during replay or settlement.
+	t.Setenv(costScheduleRevisionEnv, "cost-schedule-future")
+	t.Setenv("MERC_JOB_OBJECT_RETENTION_DAYS", "8")
+	if err := ValidateDistributedPricingDecisionSnapshot(
+		accepted, workload, compute, placement, economic,
+	); err != nil {
+		t.Fatalf("historical replay consulted current cost configuration: %v", err)
+	}
+	after, err := settleStorageEgressFromBytes(accepted, 17_123, 9_321, now)
+	mustf(t, err, "settle accepted policy after config change: %v")
+	if !reflect.DeepEqual(before, after) {
+		t.Fatalf("historical cost settlement moved under current config:\n before=%+v\n  after=%+v", before, after)
+	}
+	if digest, err := pricingDecisionDigest(accepted); err != nil || digest != acceptedDigest {
+		t.Fatalf("accepted decision identity moved: digest=%q want=%q err=%v",
+			digest, acceptedDigest, err)
+	}
+
+	// New admission is not allowed to borrow the old schedule when today's
+	// explicitly selected revision is unknown to this binary.
+	if _, err := newDistributedPricingDecision(
+		workload, compute, placement, economic, accepted.Catalogue,
+		accepted.Tier, accepted.OriginQuotePricingDecisionSHA256,
+	); err == nil || !strings.Contains(err.Error(), "cost-schedule-future") {
+		t.Fatalf("new admission did not fail closed on current cost revision: %v", err)
+	}
+
+	// Once the current schedule is valid, new admission freezes today's 8-day
+	// retention while the old decision remains at 30 days.
+	t.Setenv(costScheduleRevisionEnv, accepted.CostPolicy.Schedule.Revision)
+	current, err := newDistributedPricingDecision(
+		workload, compute, placement, economic, accepted.Catalogue,
+		accepted.Tier, accepted.OriginQuotePricingDecisionSHA256,
+	)
+	mustf(t, err, "new admission under current cost policy: %v")
+	if current.CostPolicy == nil ||
+		current.CostPolicy.RetentionSeconds != int64((8*24*time.Hour)/time.Second) {
+		t.Fatalf("new admission did not freeze current retention: %+v", current.CostPolicy)
+	}
+	currentDigest, err := pricingDecisionDigest(current)
+	must(t, err)
+	if currentDigest == acceptedDigest {
+		t.Fatal("cost-policy retention change did not alter PricingDecision identity")
+	}
+}
+
+func TestFrozenCostPolicyV1RetentionRevisionSurvivesFutureAdmissionPolicy(t *testing.T) {
+	_, _, _, _, accepted := distributedPricingFixture(t)
+	if accepted.CostPolicy == nil {
+		t.Fatal("fixture lacks frozen cost policy")
+	}
+	historical := *accepted.CostPolicy
+	if historical.Version != frozenCostPolicySnapshotVersionV1 ||
+		historical.RetentionPolicyRevision != frozenCostPolicyV1RetentionPolicyRevision {
+		t.Fatalf("fixture did not freeze permanent v1 retention authority: %+v", historical)
+	}
+
+	// Simulate the live retention policy advancing in a future binary. New
+	// admission must refuse to keep emitting snapshot v1, while the already
+	// accepted v1 body remains valid without consulting that live revision.
+	future := currentJobObjectRetentionPolicy()
+	future.Revision = "job-object-retention-v2"
+	if err := validateCurrentRetentionPolicyForFrozenCostVersion(
+		frozenCostPolicySnapshotVersionV1, future,
+	); err == nil || !strings.Contains(err.Error(), "bump the frozen snapshot version") {
+		t.Fatalf("future retention revision remained compatible with snapshot v1: %v", err)
+	}
+	if err := validateFrozenCostPolicySnapshot(&historical, accepted.Currency); err != nil {
+		t.Fatalf("historical v1 replay consulted future admission revision: %v", err)
+	}
+
+	tampered := historical
+	tampered.RetentionPolicyRevision = future.Revision
+	if err := validateFrozenCostPolicySnapshot(&tampered, accepted.Currency); err == nil ||
+		!strings.Contains(err.Error(), "unsupported retention policy revision") {
+		t.Fatalf("v1 snapshot accepted future retention semantics: %v", err)
+	}
+}
+
+func TestLegacyCostScheduleDigestWithoutBodyIsExplicitlyUnreplayable(t *testing.T) {
+	workload, compute, placement, economic, pricing := distributedPricingFixture(t)
+	legacy := pricing
+	legacy.CostPolicy = nil
+	if err := ValidateDistributedPricingDecisionSnapshot(
+		legacy, workload, compute, placement, economic,
+	); err == nil || !strings.Contains(err.Error(), "legacy pricing decision binds only") {
+		t.Fatalf("legacy digest-only decision replay boundary=%v", err)
+	}
+	if _, err := settleStorageEgressFromBytes(legacy, 1, 1, time.Now()); err == nil || !strings.Contains(err.Error(), "full cost policy was not frozen") {
+		t.Fatalf("legacy digest-only decision settlement boundary=%v", err)
+	}
+}
+
+func TestDefaultCADCostScheduleRequiresExactFrozenFX(t *testing.T) {
+	installSettlementCurrencyForTest(t, "cad")
+	t.Setenv(costScheduleRevisionEnv, "")
+	unresolved := DefaultCostSchedule("cad")
+	if unresolved.ReferenceCurrency != "usd" || unresolved.SettlementCurrency != "cad" ||
+		unresolved.StorageReferenceNanosPerGiBMonth != defaultStorageNanosPerGiBMonth ||
+		unresolved.EgressReferenceNanosPerGiB != defaultEgressNanosPerGiB {
+		t.Fatalf("CAD default lost explicit USD reference authority: %+v", unresolved)
+	}
+	if unresolved.StorageNanosPerGiBMonth != 0 || unresolved.EgressNanosPerGiB != 0 {
+		t.Fatalf("CAD default numerically relabeled USD rates before FX: %+v", unresolved)
+	}
+	if reason := validateCostSchedule(unresolved); reason == "" {
+		t.Fatal("unconverted cross-currency cost schedule validated")
+	}
+
+	catalogue := CataloguePriceAuthority{
+		ReferenceCurrency: costReferenceCurrency, SettlementCurrency: "cad",
+		ReferenceToSettlementRate: 1.375, FXRevision: "test-cad-cost-fx-1.375",
+	}
+	fx, err := costFXAuthorityFromCatalogue(catalogue)
+	mustf(t, err, "freeze CAD cost FX: %v")
+	schedule, err := LoadCostScheduleFromEnv(fx)
+	mustf(t, err, "load CAD cost schedule: %v")
+	if fx.ReferenceToSettlementNanos != 1_375_000_000 {
+		t.Fatalf("exact CAD FX nanos=%d, want 1375000000", fx.ReferenceToSettlementNanos)
+	}
+	wantStorage, err := mulDiv(
+		defaultStorageNanosPerGiBMonth, fx.ReferenceToSettlementNanos,
+		costFXRateScale, true,
+	)
+	must(t, err)
+	wantEgress, err := mulDiv(
+		defaultEgressNanosPerGiB, fx.ReferenceToSettlementNanos,
+		costFXRateScale, true,
+	)
+	must(t, err)
+	if schedule.StorageNanosPerGiBMonth != wantStorage ||
+		schedule.EgressNanosPerGiB != wantEgress ||
+		schedule.StorageNanosPerGiBMonth == schedule.StorageReferenceNanosPerGiBMonth ||
+		schedule.EgressNanosPerGiB == schedule.EgressReferenceNanosPerGiB {
+		t.Fatalf("CAD cost conversion=%+v want storage=%d egress=%d",
+			schedule, wantStorage, wantEgress)
+	}
+
+	badFX := fx
+	badFX.ReferenceToSettlementNanos++
+	if _, err := LoadCostScheduleFromEnv(badFX); err == nil ||
+		!strings.Contains(err.Error(), "display rate disagrees") {
+		t.Fatalf("CAD schedule accepted incoherent exact FX: %v", err)
+	}
+	if _, err := LoadCostScheduleFromEnv(CostFXAuthority{}); err == nil {
+		t.Fatal("CAD schedule loaded without frozen FX authority")
+	}
+}
+
+func TestCADCostPolicyReplaySurvivesFXDriftAndNewAdmissionUsesNewCatalogue(t *testing.T) {
+	installSettlementCurrencyForTest(t, "cad")
+	t.Setenv(costScheduleRevisionEnv, "")
+	t.Setenv(priceFXRateEnv, "1.35")
+	t.Setenv(priceFXRevisionEnv, "test-fx-cad")
+	workload, compute, economic := pricingComputePlanFixture(t)
+	economicSchedule := economic.Schedule
+	economicSchedule.Currency = "cad"
+	economic = BuildEconomicPlan(economic.Input, economicSchedule)
+	mustf(t, ValidateComputePlanEconomicSnapshot(compute, workload, economic),
+		"CAD compute/economic fixture: %v")
+	catalogue := catalogueAuthorityFixture(
+		t, workload, "cad", economic.Input.SupplierShare,
+	)
+	placement := placementForPricingFixture(t, workload, catalogue)
+	accepted, err := newDistributedPricingDecision(
+		workload, compute, placement, economic, catalogue,
+		workload.Binding.Tier, "",
+	)
+	mustf(t, err, "build accepted CAD cost policy: %v")
+	if accepted.CostPolicy == nil || accepted.CostPolicy.FX.ReferenceToSettlementNanos != 1_350_000_000 ||
+		accepted.CostPolicy.Schedule.ReferenceCurrency != "usd" ||
+		accepted.CostPolicy.Schedule.SettlementCurrency != "cad" {
+		t.Fatalf("accepted CAD cost policy lacks exact currency authority: %+v", accepted.CostPolicy)
+	}
+	acceptedDigest, err := pricingDecisionDigest(accepted)
+	must(t, err)
+	now := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
+	before, err := settleStorageEgressFromBytes(accepted, 17_123, 9_321, now)
+	mustf(t, err, "settle accepted CAD cost policy: %v")
+
+	// Today's operator FX can move without rewriting accepted CAD work.
+	t.Setenv(priceFXRateEnv, "1.36")
+	t.Setenv(priceFXRevisionEnv, "test-fx-cad-next")
+	if err := ValidateDistributedPricingDecisionSnapshot(
+		accepted, workload, compute, placement, economic,
+	); err != nil {
+		t.Fatalf("historical CAD pricing consulted current FX: %v", err)
+	}
+	after, err := settleStorageEgressFromBytes(accepted, 17_123, 9_321, now)
+	mustf(t, err, "replay accepted CAD cost settlement: %v")
+	if !reflect.DeepEqual(before, after) {
+		t.Fatalf("historical CAD settlement moved under FX drift:\n before=%+v\n  after=%+v",
+			before, after)
+	}
+
+	// A newly published catalogue carries the new governed FX. New admission
+	// freezes it and produces a different cost-policy and PricingDecision digest.
+	currentCatalogue := catalogue
+	currentCatalogue.ReferenceToSettlementRate = 1.36
+	currentCatalogue.FXRevision = "test-fx-cad-next"
+	currentCatalogue.SettlementPricePer1K = ceilPricePer1K(
+		currentCatalogue.ReferencePricePer1K * currentCatalogue.ReferenceToSettlementRate)
+	currentCatalogue.ScheduleSHA256 = strings.Repeat("9", 64)
+	current, err := newDistributedPricingDecision(
+		workload, compute, placement, economic, currentCatalogue,
+		workload.Binding.Tier, "",
+	)
+	mustf(t, err, "build current CAD cost policy: %v")
+	if current.CostPolicy == nil || current.CostPolicy.FX.ReferenceToSettlementNanos != 1_360_000_000 {
+		t.Fatalf("new admission did not freeze current CAD FX: %+v", current.CostPolicy)
+	}
+	currentDigest, err := pricingDecisionDigest(current)
+	must(t, err)
+	if currentDigest == acceptedDigest {
+		t.Fatal("new catalogue FX did not change PricingDecision identity")
+	}
+
+	missingFX := catalogue
+	missingFX.ReferenceToSettlementRate = 0
+	missingFX.FXRevision = ""
+	missingFX.SettlementPricePer1K = 0
+	if _, err := newDistributedPricingDecision(
+		workload, compute, placement, economic, missingFX,
+		workload.Binding.Tier, "",
+	); err == nil {
+		t.Fatal("new CAD admission accepted a catalogue without frozen FX")
 	}
 }
 

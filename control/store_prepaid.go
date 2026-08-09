@@ -22,15 +22,23 @@ import (
 var errInsufficientPrepaid = errors.New("insufficient prepaid balance")
 
 // BuyerPrepaidBalanceMicros returns the materialised prepaid liability for the
-// buyer (0 if no row yet). This is not free_credit_usd — see schema comment.
-
-// BuyerPrepaidBalanceMicros returns the materialised prepaid liability for the
-// buyer (0 if no row yet). This is not free_credit_usd — see schema comment.
+// buyer in the current settlement currency (0 if no row yet). Historical
+// buckets remain available to their source-bound settlement/refund paths and
+// are never numerically relabelled. This is not free_credit_usd.
 func (s *Store) BuyerPrepaidBalanceMicros(ctx context.Context, buyerID uuid.UUID) (int64, error) {
+	return s.buyerPrepaidBalanceMicrosInCurrency(ctx, buyerID, SettlementCurrencyCode())
+}
+
+func (s *Store) buyerPrepaidBalanceMicrosInCurrency(ctx context.Context, buyerID uuid.UUID, currency string) (int64, error) {
+	cur, err := ParseCurrency(currency)
+	if err != nil {
+		return 0, err
+	}
 	var bal int64
-	err := s.pool.QueryRow(ctx, `
-		SELECT COALESCE((SELECT balance_micros FROM buyer_prepaid_balances WHERE buyer_id=$1), 0)`,
-		buyerID).Scan(&bal)
+	err = s.pool.QueryRow(ctx, `
+		SELECT COALESCE((SELECT balance_micros FROM buyer_prepaid_balances
+		                  WHERE buyer_id=$1 AND currency=$2), 0)`,
+		buyerID, cur.Code()).Scan(&bal)
 	return bal, err
 }
 
@@ -44,10 +52,14 @@ func (s *Store) BuyerPrepaidBalanceMicros(ctx context.Context, buyerID uuid.UUID
 // public boundary must not turn that legacy storage name into a false promise
 // that every currency has cents.
 func (s *Store) PrepaidPendingTopupMinorUnits(ctx context.Context, buyerID uuid.UUID) (int64, int64, error) {
+	currency := SettlementCurrencyCode()
+	if _, err := ParseCurrency(currency); err != nil {
+		return 0, 0, err
+	}
 	var count, cents int64
 	err := s.pool.QueryRow(ctx, `
 		SELECT count(*), COALESCE(SUM(amount_cents),0) FROM prepaid_topup_operations
-		 WHERE buyer_id=$1 AND status='pending'`, buyerID).Scan(&count, &cents)
+		 WHERE buyer_id=$1 AND currency=$2 AND status='pending'`, buyerID, currency).Scan(&count, &cents)
 	return count, cents, err
 }
 
@@ -76,12 +88,16 @@ func (s *Store) BeginPrepaidTopup(ctx context.Context, operationKey string, buye
 	if operationKey == "" || buyerID == uuid.Nil || amountCents <= 0 {
 		return prepaidTopupArm{}, fmt.Errorf("invalid prepaid top-up identity")
 	}
+	currency := SettlementCurrencyCode()
+	if _, err := ParseCurrency(currency); err != nil {
+		return prepaidTopupArm{}, err
+	}
 	tag, err := s.pool.Exec(ctx, `
 		INSERT INTO prepaid_topup_operations
 		  (operation_key,buyer_id,amount_cents,currency,status)
 		VALUES ($1,$2,$3,$4,'pending')
 		ON CONFLICT (operation_key) DO NOTHING`,
-		operationKey, buyerID, amountCents, SettlementCurrencyCode())
+		operationKey, buyerID, amountCents, currency)
 	if err != nil {
 		return prepaidTopupArm{}, err
 	}
@@ -89,19 +105,20 @@ func (s *Store) BeginPrepaidTopup(ctx context.Context, operationKey string, buye
 		return prepaidTopupArm{State: prepaidTopupArmed}, nil
 	}
 	var (
-		storedBuyer  uuid.UUID
-		storedCents  int64
-		status       string
-		intent, chID string
+		storedBuyer    uuid.UUID
+		storedCents    int64
+		status         string
+		storedCurrency string
+		intent, chID   string
 	)
 	if err := s.pool.QueryRow(ctx, `
-		SELECT buyer_id, amount_cents, status,
+		SELECT buyer_id, amount_cents, currency, status,
 		       COALESCE(payment_intent,''), COALESCE(charge_id,'')
 		  FROM prepaid_topup_operations WHERE operation_key=$1`, operationKey,
-	).Scan(&storedBuyer, &storedCents, &status, &intent, &chID); err != nil {
+	).Scan(&storedBuyer, &storedCents, &storedCurrency, &status, &intent, &chID); err != nil {
 		return prepaidTopupArm{}, err
 	}
-	if storedBuyer != buyerID || storedCents != amountCents {
+	if storedBuyer != buyerID || storedCents != amountCents || storedCurrency != currency {
 		return prepaidTopupArm{}, errPrepaidTopupConflict
 	}
 	if status == "succeeded" {
@@ -116,10 +133,10 @@ func (s *Store) BeginPrepaidTopup(ctx context.Context, operationKey string, buye
 func (s *Store) CreditPrepaidTopup(ctx context.Context, operationKey string, buyerID uuid.UUID, charge ChargeResult) error {
 	operationKey = strings.TrimSpace(operationKey)
 	if operationKey == "" || buyerID == uuid.Nil || charge.PaymentIntentID == "" || charge.ChargeID == "" ||
-		charge.ReceivedCents <= 0 || charge.ReceivedCents != charge.RequestedCents || RequireSettlementCurrency(charge.Currency) != nil {
+		charge.ReceivedCents <= 0 || charge.ReceivedCents != charge.RequestedCents {
 		return fmt.Errorf("invalid prepaid top-up credit")
 	}
-	settlement, err := SettlementCurrency()
+	settlement, err := ParseCurrency(charge.Currency)
 	if err != nil {
 		return err
 	}
@@ -136,20 +153,21 @@ func (s *Store) CreditPrepaidTopup(ctx context.Context, operationKey string, buy
 	var status string
 	var storedBuyer uuid.UUID
 	var amountCents int64
+	var storedCurrency string
 	err = tx.QueryRow(ctx, `
-		SELECT buyer_id, amount_cents, status FROM prepaid_topup_operations
+		SELECT buyer_id, amount_cents, currency, status FROM prepaid_topup_operations
 		 WHERE operation_key=$1 FOR UPDATE`, operationKey,
-	).Scan(&storedBuyer, &amountCents, &status)
+	).Scan(&storedBuyer, &amountCents, &storedCurrency, &status)
 	if errors.Is(err, pgx.ErrNoRows) {
 		// Webhook may race ahead of BeginPrepaidTopup on a lost response; insert pending.
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO prepaid_topup_operations
 			  (operation_key,buyer_id,amount_cents,currency,status)
 			VALUES ($1,$2,$3,$4,'pending')`,
-			operationKey, buyerID, charge.ReceivedCents, SettlementCurrencyCode()); err != nil {
+			operationKey, buyerID, charge.ReceivedCents, settlement.Code()); err != nil {
 			return err
 		}
-		storedBuyer, amountCents, status = buyerID, charge.ReceivedCents, "pending"
+		storedBuyer, amountCents, storedCurrency, status = buyerID, charge.ReceivedCents, settlement.Code(), "pending"
 	} else if err != nil {
 		return err
 	}
@@ -159,6 +177,9 @@ func (s *Store) CreditPrepaidTopup(ctx context.Context, operationKey string, buy
 	if amountCents != charge.ReceivedCents {
 		return fmt.Errorf("top-up %s amount mismatch: stored=%d charge=%d", operationKey, amountCents, charge.ReceivedCents)
 	}
+	if storedCurrency != settlement.Code() {
+		return fmt.Errorf("top-up %s currency mismatch: stored=%s charge=%s", operationKey, storedCurrency, settlement.Code())
+	}
 	if status == "succeeded" {
 		return tx.Commit(ctx)
 	}
@@ -167,16 +188,17 @@ func (s *Store) CreditPrepaidTopup(ctx context.Context, operationKey string, buy
 	}
 
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO buyer_prepaid_balances (buyer_id, balance_micros, updated_at)
-		VALUES ($1, $2, now())
-		ON CONFLICT (buyer_id) DO UPDATE
+		INSERT INTO buyer_prepaid_balances (buyer_id, currency, balance_micros, updated_at)
+		VALUES ($1, $2, $3, now())
+		ON CONFLICT (buyer_id,currency) DO UPDATE
 		  SET balance_micros = buyer_prepaid_balances.balance_micros + EXCLUDED.balance_micros,
-		      updated_at = now()`, buyerID, micros); err != nil {
+		      updated_at = now()`, buyerID, settlement.Code(), micros); err != nil {
 		return err
 	}
 	buyer := buyerID
 	if _, err := insertLedgerEntryIfAbsentByRefTx(ctx, tx, ledgerInsert{
 		Kind: KindPrepaidTopup, BuyerID: &buyer, AmountMicros: micros,
+		Currency: settlement.Code(), CurrencyAuthority: ledgerCurrencyAuthorityPrepaid,
 		PayoutStatus: PayoutReleased, PayoutRef: charge.PaymentIntentID,
 	}); err != nil {
 		return err
@@ -188,7 +210,7 @@ func (s *Store) CreditPrepaidTopup(ctx context.Context, operationKey string, buy
 		VALUES ($1,$2,$3,'topup',NULL,NULL,$4,$5,$6)
 		ON CONFLICT (payment_intent) DO NOTHING`,
 		charge.PaymentIntentID, charge.ChargeID, buyerID,
-		charge.RequestedCents, charge.ReceivedCents, SettlementCurrencyCode()); err != nil {
+		charge.RequestedCents, charge.ReceivedCents, settlement.Code()); err != nil {
 		return err
 	}
 	ct, err := tx.Exec(ctx, `
@@ -218,6 +240,7 @@ type prepaidRefundSlice struct {
 
 type prepaidRefundPlan struct {
 	OperationKey string
+	Currency     string
 	Cents        int64
 	Slices       []prepaidRefundSlice
 	Replayed     bool
@@ -261,40 +284,41 @@ func (s *Store) BeginPrepaidRefund(
 	if replay.Found {
 		// The balance was already debited by the original request. Hand back the
 		// same slices so an interrupted refund finishes instead of doubling.
-		slices, cents, err := prepaidRefundSlicesTx(ctx, tx, operationKey)
+		slices, cents, currency, err := prepaidRefundSlicesTx(ctx, tx, operationKey)
 		if err != nil {
 			return prepaidRefundPlan{}, err
 		}
 		if err := tx.Commit(ctx); err != nil {
 			return prepaidRefundPlan{}, err
 		}
-		return prepaidRefundPlan{OperationKey: operationKey, Cents: cents, Slices: slices, Replayed: true}, nil
+		return prepaidRefundPlan{OperationKey: operationKey, Currency: currency, Cents: cents, Slices: slices, Replayed: true}, nil
 	}
+	settlement, err := SettlementCurrency()
+	if err != nil {
+		return prepaidRefundPlan{}, err
+	}
+	currency := settlement.Code()
 
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO buyer_prepaid_balances (buyer_id, balance_micros)
-		VALUES ($1, 0) ON CONFLICT (buyer_id) DO NOTHING`, buyerID); err != nil {
+		INSERT INTO buyer_prepaid_balances (buyer_id, currency, balance_micros)
+		VALUES ($1, $2, 0) ON CONFLICT (buyer_id,currency) DO NOTHING`, buyerID, currency); err != nil {
 		return prepaidRefundPlan{}, err
 	}
 	var balance int64
 	if err := tx.QueryRow(ctx, `
 		SELECT balance_micros FROM buyer_prepaid_balances
-		 WHERE buyer_id=$1 FOR UPDATE`, buyerID).Scan(&balance); err != nil {
+		 WHERE buyer_id=$1 AND currency=$2 FOR UPDATE`, buyerID, currency).Scan(&balance); err != nil {
 		return prepaidRefundPlan{}, err
 	}
 	// Only the unreserved remainder is refundable. Live prepay jobs were admitted
 	// against the frozen part of this balance and settlement still has to debit it.
-	reserved, err := prepaidOpenReservationMicros(ctx, tx, buyerID)
+	reserved, err := prepaidOpenReservationMicrosInCurrency(ctx, tx, buyerID, currency)
 	if err != nil {
 		return prepaidRefundPlan{}, err
 	}
 	available := balance - reserved
 	if available <= 0 {
 		return prepaidRefundPlan{}, errInsufficientPrepaid
-	}
-	settlement, err := SettlementCurrency()
-	if err != nil {
-		return prepaidRefundPlan{}, err
 	}
 	microsPerMinor, err := settlement.MicrosPerMinorUnit()
 	if err != nil {
@@ -312,14 +336,14 @@ func (s *Store) BeginPrepaidRefund(
 	if err != nil {
 		return prepaidRefundPlan{}, err
 	}
-	slices, err := planPrepaidRefundSlicesTx(ctx, tx, operationKey, buyerID, cents)
+	slices, err := planPrepaidRefundSlicesTx(ctx, tx, operationKey, buyerID, currency, cents)
 	if err != nil {
 		return prepaidRefundPlan{}, err
 	}
 	tag, err := tx.Exec(ctx, `
 		UPDATE buyer_prepaid_balances
 		   SET balance_micros = balance_micros - $2, updated_at = now()
-		 WHERE buyer_id=$1 AND balance_micros >= $2`, buyerID, refundMicros)
+		 WHERE buyer_id=$1 AND currency=$3 AND balance_micros >= $2`, buyerID, refundMicros, currency)
 	if err != nil {
 		return prepaidRefundPlan{}, err
 	}
@@ -329,6 +353,7 @@ func (s *Store) BeginPrepaidRefund(
 	buyer := buyerID
 	if _, err := insertLedgerEntryIfAbsentByRefTx(ctx, tx, ledgerInsert{
 		Kind: KindPrepaidRefund, BuyerID: &buyer, AmountMicros: -refundMicros,
+		Currency: currency, CurrencyAuthority: ledgerCurrencyAuthorityPrepaid,
 		PayoutStatus: PayoutReleased, PayoutRef: operationKey,
 	}); err != nil {
 		return prepaidRefundPlan{}, err
@@ -339,7 +364,7 @@ func (s *Store) BeginPrepaidRefund(
 			  (operation_key,refund_key,buyer_id,amount_cents,currency,status,payment_intent)
 			VALUES ($1,$2,$3,$4,$5,'pending',$6)`,
 			slice.OperationKey, operationKey, buyerID, slice.Cents,
-			SettlementCurrencyCode(), slice.PaymentIntent); err != nil {
+			currency, slice.PaymentIntent); err != nil {
 			return prepaidRefundPlan{}, err
 		}
 	}
@@ -352,7 +377,7 @@ func (s *Store) BeginPrepaidRefund(
 	if err := tx.Commit(ctx); err != nil {
 		return prepaidRefundPlan{}, err
 	}
-	return prepaidRefundPlan{OperationKey: operationKey, Cents: cents, Slices: slices}, nil
+	return prepaidRefundPlan{OperationKey: operationKey, Currency: currency, Cents: cents, Slices: slices}, nil
 }
 
 // planPrepaidRefundSlicesTx allocates the requested cents across the payment
@@ -360,16 +385,17 @@ func (s *Store) BeginPrepaidRefund(
 // against each one. Failing to cover the amount aborts the transaction rather
 // than refunding money no collection can back.
 func planPrepaidRefundSlicesTx(
-	ctx context.Context, tx pgx.Tx, operationKey string, buyerID uuid.UUID, cents int64,
+	ctx context.Context, tx pgx.Tx, operationKey string, buyerID uuid.UUID, currency string, cents int64,
 ) ([]prepaidRefundSlice, error) {
 	rows, err := tx.Query(ctx, `
 		SELECT t.payment_intent,
 		       t.amount_cents - COALESCE((
 		         SELECT SUM(r.amount_cents) FROM prepaid_refund_operations r
-		          WHERE r.payment_intent = t.payment_intent), 0) AS refundable
+		          WHERE r.payment_intent = t.payment_intent AND r.currency=t.currency), 0) AS refundable
 		  FROM prepaid_topup_operations t
-		 WHERE t.buyer_id=$1 AND t.status='succeeded' AND t.payment_intent IS NOT NULL
-		 ORDER BY t.credited_at DESC, t.operation_key DESC`, buyerID)
+		 WHERE t.buyer_id=$1 AND t.currency=$2
+		   AND t.status='succeeded' AND t.payment_intent IS NOT NULL
+		 ORDER BY t.credited_at DESC, t.operation_key DESC`, buyerID, currency)
 	if err != nil {
 		return nil, err
 	}
@@ -411,29 +437,46 @@ func planPrepaidRefundSlicesTx(
 // operation_key: the correlation reference inside that key is operator-typed and
 // unrestricted, so a reference carrying a LIKE wildcard ('INC-100%') would match
 // slices belonging to other refunds and replay them onto Stripe.
-func prepaidRefundSlicesTx(ctx context.Context, tx pgx.Tx, operationKey string) ([]prepaidRefundSlice, int64, error) {
+func prepaidRefundSlicesTx(ctx context.Context, tx pgx.Tx, operationKey string) ([]prepaidRefundSlice, int64, string, error) {
 	rows, err := tx.Query(ctx, `
-		SELECT operation_key, COALESCE(payment_intent,''), amount_cents, COALESCE(stripe_refund_id,'')
+		SELECT operation_key, COALESCE(payment_intent,''), amount_cents,
+		       COALESCE(stripe_refund_id,''), currency
 		  FROM prepaid_refund_operations
 		 WHERE refund_key = $1
 		 ORDER BY operation_key`, operationKey)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, "", err
 	}
 	defer rows.Close()
 	var (
-		slices []prepaidRefundSlice
-		total  int64
+		slices   []prepaidRefundSlice
+		total    int64
+		currency string
 	)
 	for rows.Next() {
 		var slice prepaidRefundSlice
-		if err := rows.Scan(&slice.OperationKey, &slice.PaymentIntent, &slice.Cents, &slice.RefundID); err != nil {
-			return nil, 0, err
+		var rowCurrency string
+		if err := rows.Scan(&slice.OperationKey, &slice.PaymentIntent, &slice.Cents, &slice.RefundID, &rowCurrency); err != nil {
+			return nil, 0, "", err
+		}
+		if currency == "" {
+			currency = rowCurrency
+		} else if currency != rowCurrency {
+			return nil, 0, "", fmt.Errorf("prepaid refund %s mixes currencies", operationKey)
 		}
 		slices = append(slices, slice)
 		total += slice.Cents
 	}
-	return slices, total, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, 0, "", err
+	}
+	if len(slices) == 0 || currency == "" {
+		return nil, 0, "", fmt.Errorf("prepaid refund %s has no durable slices", operationKey)
+	}
+	if _, err := ParseCurrency(currency); err != nil {
+		return nil, 0, "", err
+	}
+	return slices, total, currency, nil
 }
 
 // CompletePrepaidRefund records the provider's refund identifiers. It is the
@@ -472,22 +515,27 @@ func (s *Store) SeedPrepaidBalance(ctx context.Context, buyerID uuid.UUID, micro
 	if ref == "" {
 		ref = "seed-" + uuid.NewString()
 	}
+	currency := SettlementCurrencyCode()
+	if _, err := ParseCurrency(currency); err != nil {
+		return err
+	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO buyer_prepaid_balances (buyer_id, balance_micros, updated_at)
-		VALUES ($1, $2, now())
-		ON CONFLICT (buyer_id) DO UPDATE
+		INSERT INTO buyer_prepaid_balances (buyer_id, currency, balance_micros, updated_at)
+		VALUES ($1, $2, $3, now())
+		ON CONFLICT (buyer_id,currency) DO UPDATE
 		  SET balance_micros = buyer_prepaid_balances.balance_micros + EXCLUDED.balance_micros,
-		      updated_at = now()`, buyerID, micros); err != nil {
+		      updated_at = now()`, buyerID, currency, micros); err != nil {
 		return err
 	}
 	buyer := buyerID
 	if _, err := insertLedgerEntryIfAbsentByRefTx(ctx, tx, ledgerInsert{
 		Kind: KindPrepaidTopup, BuyerID: &buyer, AmountMicros: micros,
+		Currency: currency, CurrencyAuthority: ledgerCurrencyAuthorityPrepaid,
 		PayoutStatus: PayoutReleased, PayoutRef: ref,
 	}); err != nil {
 		return err
@@ -500,11 +548,12 @@ func (s *Store) SeedPrepaidBalance(ctx context.Context, buyerID uuid.UUID, micro
 // active service lease's frozen maximum. Admission uses a locking reservation
 // helper instead, so this read can never be mistaken for authorization.
 func (s *Store) BuyerPrepaidAvailableMicros(ctx context.Context, buyerID uuid.UUID) (int64, error) {
-	bal, err := s.BuyerPrepaidBalanceMicros(ctx, buyerID)
+	currency := SettlementCurrencyCode()
+	bal, err := s.buyerPrepaidBalanceMicrosInCurrency(ctx, buyerID, currency)
 	if err != nil {
 		return 0, err
 	}
-	reserved, err := prepaidOpenReservationMicros(ctx, s.pool, buyerID)
+	reserved, err := prepaidOpenReservationMicrosInCurrency(ctx, s.pool, buyerID, currency)
 	if err != nil {
 		return 0, err
 	}
@@ -523,18 +572,22 @@ func reservePrepaidForJobTx(ctx context.Context, tx pgx.Tx, buyerID uuid.UUID, a
 	if buyerID == uuid.Nil || amountMicros <= 0 {
 		return fmt.Errorf("prepaid reservation requires buyer and positive ledger micros")
 	}
+	currency := SettlementCurrencyCode()
+	if _, err := ParseCurrency(currency); err != nil {
+		return err
+	}
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO buyer_prepaid_balances (buyer_id, balance_micros)
-		VALUES ($1, 0) ON CONFLICT (buyer_id) DO NOTHING`, buyerID); err != nil {
+		INSERT INTO buyer_prepaid_balances (buyer_id, currency, balance_micros)
+		VALUES ($1, $2, 0) ON CONFLICT (buyer_id,currency) DO NOTHING`, buyerID, currency); err != nil {
 		return err
 	}
 	var balance int64
 	if err := tx.QueryRow(ctx, `
 		SELECT balance_micros FROM buyer_prepaid_balances
-		 WHERE buyer_id=$1 FOR UPDATE`, buyerID).Scan(&balance); err != nil {
+		 WHERE buyer_id=$1 AND currency=$2 FOR UPDATE`, buyerID, currency).Scan(&balance); err != nil {
 		return err
 	}
-	reserved, err := prepaidOpenReservationMicros(ctx, tx, buyerID)
+	reserved, err := prepaidOpenReservationMicrosInCurrency(ctx, tx, buyerID, currency)
 	if err != nil {
 		return err
 	}
@@ -586,6 +639,13 @@ func reservePrepaidForServiceLeaseTx(ctx context.Context, tx pgx.Tx, buyerID uui
 // work, and settlement then fails to debit. The amount is ceil(reserved_nanos
 // / 1000) from execution_envelope_spends — integer micros, no float path.
 func prepaidOpenReservationMicros(ctx context.Context, db ledgerExec, buyerID uuid.UUID) (int64, error) {
+	return prepaidOpenReservationMicrosInCurrency(ctx, db, buyerID, SettlementCurrencyCode())
+}
+
+func prepaidOpenReservationMicrosInCurrency(ctx context.Context, db ledgerExec, buyerID uuid.UUID, currency string) (int64, error) {
+	if _, err := ParseCurrency(currency); err != nil {
+		return 0, err
+	}
 	var reserved int64
 	err := db.QueryRow(ctx, `
 		SELECT (
@@ -594,25 +654,26 @@ func prepaidOpenReservationMicros(ctx context.Context, db ledgerExec, buyerID uu
 		      SELECT SUM((-le.amount_usd * 1000000)::bigint)
 		        FROM ledger_entries le
 		       WHERE le.kind='prepaid_debit'
+		         AND le.currency=$2
 		         AND (le.task_id IN (SELECT id FROM tasks WHERE job_id=j.id)
 		              OR le.payout_ref='prepaid-sla-' || j.id::text)
 		    ), 0)
 		  )), 0)::bigint
 		    FROM jobs j
 		    JOIN job_economic_plans p ON p.job_id=j.id
-		   WHERE j.buyer_id=$1 AND j.prepaid_required
+		   WHERE j.buyer_id=$1 AND j.currency=$2 AND j.prepaid_required
 		     AND j.status IN ('queued','running','verifying')
 		) + (
 		  SELECT COALESCE(SUM(l.reserved_buyer_micros),0)::bigint
 		    FROM service_leases l
-		   WHERE l.buyer_id=$1
+		   WHERE l.buyer_id=$1 AND l.pricing_decision->>'currency'=$2
 		     AND l.state IN ('ACTIVE','UPGRADING','FAILOVER_REQUIRED')
 		) + (
 		  -- Active execution envelopes hold (cap - spent) against prepaid, so a
 		  -- concurrent job or service lease cannot oversubscribe the same cash.
 		  SELECT COALESCE(SUM(((e.cap_nanos - e.spent_nanos) + 999) / 1000),0)::bigint
 		    FROM execution_envelopes e
-		   WHERE e.buyer_id=$1 AND e.state='ACTIVE'
+		   WHERE e.buyer_id=$1 AND e.currency=$2 AND e.state='ACTIVE'
 		) + (
 		  -- Sibling of evaluateRealtimeBuyerFunding's realtimeReserved fallback:
 		  -- EXECUTING contracts whose envelope is not ACTIVE are no longer
@@ -622,13 +683,13 @@ func prepaidOpenReservationMicros(ctx context.Context, db ledgerExec, buyerID uu
 		  SELECT COALESCE(SUM(((s.reserved_nanos + 999) / 1000)),0)::bigint
 		    FROM execution_contracts c
 		    JOIN execution_envelope_spends s ON s.contract_id = c.id
-		   WHERE c.buyer_id=$1 AND c.state='EXECUTING' AND s.state='RESERVED'
+		   WHERE c.buyer_id=$1 AND c.currency=$2 AND c.state='EXECUTING' AND s.state='RESERVED'
 		     AND NOT EXISTS (
 		       SELECT 1 FROM execution_envelope_spends s2
 		         JOIN execution_envelopes e ON e.id = s2.envelope_id
-		        WHERE s2.contract_id=c.id AND e.state='ACTIVE'
+		        WHERE s2.contract_id=c.id AND e.currency=$2 AND e.state='ACTIVE'
 		     )
-		)`, buyerID).Scan(&reserved)
+		)`, buyerID, currency).Scan(&reserved)
 	return reserved, err
 }
 
@@ -662,14 +723,21 @@ func maybeDebitPrepaidForRealtimeTx(ctx context.Context, tx pgx.Tx, buyerID, con
 	if buyerID == uuid.Nil || contractID == uuid.Nil || chargeMicros <= 0 {
 		return fmt.Errorf("realtime prepaid debit requires buyer, contract, and positive micros")
 	}
+	var currency string
 	var freeCredit, spent float64
 	if err := tx.QueryRow(ctx, `
-		SELECT b.free_credit_usd::float8,
+		SELECT c.currency,
+		       CASE WHEN c.currency='usd' THEN b.free_credit_usd::float8 ELSE 0::float8 END,
 		       COALESCE((SELECT -sum(le.amount_usd) FROM ledger_entries le
 		                 WHERE le.buyer_id=b.id
+		                   AND le.currency=c.currency
 		                   AND le.kind IN ('buyer_charge','buyer_refund')),0)::float8
-		  FROM buyers b WHERE b.id=$1 FOR UPDATE`, buyerID).
-		Scan(&freeCredit, &spent); err != nil {
+		  FROM buyers b JOIN execution_contracts c ON c.id=$2 AND c.buyer_id=b.id
+		 WHERE b.id=$1 FOR UPDATE OF b`, buyerID, contractID).
+		Scan(&currency, &freeCredit, &spent); err != nil {
+		return err
+	}
+	if _, err := ParseCurrency(currency); err != nil {
 		return err
 	}
 	chargeUSD := microsToUSD(chargeMicros)
@@ -687,17 +755,22 @@ func maybeDebitPrepaidForRealtimeTx(ctx context.Context, tx pgx.Tx, buyerID, con
 // ExecutionContractID: ledger_entries allows only one row per
 // (execution_contract_id, kind), and buyer_charge already owns that slot.
 // Idempotency is the payout_ref.
-func debitPrepaidByRefTx(ctx context.Context, tx pgx.Tx, buyerID uuid.UUID, amountMicros int64, ref, requireMsg, conflictMsg string) error {
+func debitPrepaidByRefTx(ctx context.Context, tx pgx.Tx, buyerID uuid.UUID, amountMicros int64, currency, ref, requireMsg, conflictMsg string) error {
 	if buyerID == uuid.Nil || amountMicros <= 0 || ref == "" {
 		return fmt.Errorf("%s", requireMsg)
 	}
+	cur, err := ParseCurrency(currency)
+	if err != nil {
+		return fmt.Errorf("%s: %w", requireMsg, err)
+	}
 	var existingAmount int64
 	var existingBuyer *uuid.UUID
-	err := tx.QueryRow(ctx, `SELECT (amount_usd*1000000)::bigint,buyer_id
+	var existingCurrency string
+	err = tx.QueryRow(ctx, `SELECT (amount_usd*1000000)::bigint,buyer_id,currency
 		FROM ledger_entries WHERE kind=$1 AND payout_ref=$2`, KindPrepaidDebit, ref).
-		Scan(&existingAmount, &existingBuyer)
+		Scan(&existingAmount, &existingBuyer, &existingCurrency)
 	if err == nil {
-		if existingAmount != -amountMicros || !sameOptionalUUID(existingBuyer, &buyerID) {
+		if existingAmount != -amountMicros || existingCurrency != cur.Code() || !sameOptionalUUID(existingBuyer, &buyerID) {
 			return fmt.Errorf("%s", conflictMsg)
 		}
 		return nil
@@ -706,13 +779,13 @@ func debitPrepaidByRefTx(ctx context.Context, tx pgx.Tx, buyerID uuid.UUID, amou
 		return err
 	}
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO buyer_prepaid_balances (buyer_id, balance_micros)
-		VALUES ($1, 0) ON CONFLICT (buyer_id) DO NOTHING`, buyerID); err != nil {
+		INSERT INTO buyer_prepaid_balances (buyer_id, currency, balance_micros)
+		VALUES ($1, $2, 0) ON CONFLICT (buyer_id,currency) DO NOTHING`, buyerID, cur.Code()); err != nil {
 		return err
 	}
 	var balance int64
 	if err := tx.QueryRow(ctx, `SELECT balance_micros FROM buyer_prepaid_balances
-		WHERE buyer_id=$1 FOR UPDATE`, buyerID).Scan(&balance); err != nil {
+		WHERE buyer_id=$1 AND currency=$2 FOR UPDATE`, buyerID, cur.Code()).Scan(&balance); err != nil {
 		return err
 	}
 	if balance < amountMicros {
@@ -720,7 +793,7 @@ func debitPrepaidByRefTx(ctx context.Context, tx pgx.Tx, buyerID uuid.UUID, amou
 	}
 	ct, err := tx.Exec(ctx, `UPDATE buyer_prepaid_balances
 		SET balance_micros=balance_micros-$2,updated_at=now()
-		WHERE buyer_id=$1 AND balance_micros >= $2`, buyerID, amountMicros)
+		WHERE buyer_id=$1 AND currency=$3 AND balance_micros >= $2`, buyerID, amountMicros, cur.Code())
 	if err != nil {
 		return err
 	}
@@ -730,14 +803,16 @@ func debitPrepaidByRefTx(ctx context.Context, tx pgx.Tx, buyerID uuid.UUID, amou
 	buyer := buyerID
 	ct, err = insertLedgerEntryIfAbsentByRefTx(ctx, tx, ledgerInsert{
 		Kind: KindPrepaidDebit, BuyerID: &buyer,
-		AmountMicros: -amountMicros, PayoutStatus: PayoutReleased, PayoutRef: ref,
+		AmountMicros: -amountMicros, Currency: cur.Code(), CurrencyAuthority: ledgerCurrencyAuthorityPrepaid,
+		PayoutStatus: PayoutReleased, PayoutRef: ref,
 	})
 	if err != nil {
 		return err
 	}
 	if ct.RowsAffected() == 0 {
 		_, err = tx.Exec(ctx, `UPDATE buyer_prepaid_balances
-			SET balance_micros=balance_micros+$2,updated_at=now() WHERE buyer_id=$1`, buyerID, amountMicros)
+			SET balance_micros=balance_micros+$2,updated_at=now()
+			WHERE buyer_id=$1 AND currency=$3`, buyerID, amountMicros, cur.Code())
 	}
 	return err
 }
@@ -749,7 +824,11 @@ func debitPrepaidForExecutionContractTx(ctx context.Context, tx pgx.Tx, buyerID,
 	if contractID == uuid.Nil {
 		return fmt.Errorf("prepaid execution debit requires buyer, contract, and positive ledger micros")
 	}
-	return debitPrepaidByRefTx(ctx, tx, buyerID, amountMicros,
+	var currency string
+	if err := tx.QueryRow(ctx, `SELECT currency FROM execution_contracts WHERE id=$1 AND buyer_id=$2`, contractID, buyerID).Scan(&currency); err != nil {
+		return err
+	}
+	return debitPrepaidByRefTx(ctx, tx, buyerID, amountMicros, currency,
 		prepaidExecutionContractDebitRef(contractID),
 		"prepaid execution debit requires buyer, contract, and positive ledger micros",
 		fmt.Sprintf("conflicting prepaid execution debit for contract %s", contractID),
@@ -766,7 +845,11 @@ func debitPrepaidForServiceLeaseTx(ctx context.Context, tx pgx.Tx, buyerID, leas
 	if leaseID == uuid.Nil {
 		return fmt.Errorf("prepaid service debit requires buyer, lease, and positive ledger micros")
 	}
-	return debitPrepaidByRefTx(ctx, tx, buyerID, amountMicros,
+	var currency string
+	if err := tx.QueryRow(ctx, `SELECT pricing_decision->>'currency' FROM service_leases WHERE id=$1 AND buyer_id=$2`, leaseID, buyerID).Scan(&currency); err != nil {
+		return err
+	}
+	return debitPrepaidByRefTx(ctx, tx, buyerID, amountMicros, currency,
 		prepaidServiceLeaseDebitRef(leaseID),
 		"prepaid service debit requires buyer, lease, and positive ledger micros",
 		fmt.Sprintf("conflicting prepaid service debit for lease %s", leaseID),
@@ -777,19 +860,23 @@ func debitPrepaidForServiceLeaseTx(ctx context.Context, tx pgx.Tx, buyerID, leas
 // internal) refund. It does not write a prepaid_topup cash row — the cash
 // already sat on the platform as prepaid liability that was spent and is now
 // un-spent. Callers must enforce idempotency (e.g. job_dispute_refunds).
-func creditPrepaidBalanceTx(ctx context.Context, tx pgx.Tx, buyerID uuid.UUID, amountMicros int64) error {
+func creditPrepaidBalanceTx(ctx context.Context, tx pgx.Tx, buyerID uuid.UUID, amountMicros int64, currency string) error {
 	if amountMicros <= 0 {
 		return fmt.Errorf("prepaid credit requires positive micro-units, got %d", amountMicros)
 	}
 	if buyerID == uuid.Nil {
 		return fmt.Errorf("prepaid credit requires buyer_id")
 	}
+	cur, err := ParseCurrency(currency)
+	if err != nil {
+		return err
+	}
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO buyer_prepaid_balances (buyer_id, balance_micros, updated_at)
-		VALUES ($1, $2, now())
-		ON CONFLICT (buyer_id) DO UPDATE
+		INSERT INTO buyer_prepaid_balances (buyer_id, currency, balance_micros, updated_at)
+		VALUES ($1, $2, $3, now())
+		ON CONFLICT (buyer_id,currency) DO UPDATE
 		  SET balance_micros = buyer_prepaid_balances.balance_micros + EXCLUDED.balance_micros,
-		      updated_at = now()`, buyerID, amountMicros); err != nil {
+		      updated_at = now()`, buyerID, cur.Code(), amountMicros); err != nil {
 		return err
 	}
 	return nil
@@ -803,16 +890,26 @@ func debitPrepaidForTaskTx(ctx context.Context, tx pgx.Tx, buyerID, taskID uuid.
 	if amountMicros <= 0 {
 		return fmt.Errorf("prepaid debit requires positive micro-USD, got %d", amountMicros)
 	}
+	var currency string
+	if err := tx.QueryRow(ctx, `
+		SELECT j.currency FROM tasks t JOIN jobs j ON j.id=t.job_id
+		 WHERE t.id=$1 AND j.buyer_id=$2`, taskID, buyerID).Scan(&currency); err != nil {
+		return err
+	}
+	cur, err := ParseCurrency(currency)
+	if err != nil {
+		return err
+	}
 	// Ensure row exists so FOR UPDATE can serialise concurrent first-time spenders.
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO buyer_prepaid_balances (buyer_id, balance_micros)
-		VALUES ($1, 0) ON CONFLICT (buyer_id) DO NOTHING`, buyerID); err != nil {
+		INSERT INTO buyer_prepaid_balances (buyer_id, currency, balance_micros)
+		VALUES ($1, $2, 0) ON CONFLICT (buyer_id,currency) DO NOTHING`, buyerID, cur.Code()); err != nil {
 		return err
 	}
 	var bal int64
 	if err := tx.QueryRow(ctx, `
 		SELECT balance_micros FROM buyer_prepaid_balances
-		 WHERE buyer_id=$1 FOR UPDATE`, buyerID).Scan(&bal); err != nil {
+		 WHERE buyer_id=$1 AND currency=$2 FOR UPDATE`, buyerID, cur.Code()).Scan(&bal); err != nil {
 		return err
 	}
 	if bal < amountMicros {
@@ -821,7 +918,7 @@ func debitPrepaidForTaskTx(ctx context.Context, tx pgx.Tx, buyerID, taskID uuid.
 	ct, err := tx.Exec(ctx, `
 		UPDATE buyer_prepaid_balances
 		   SET balance_micros = balance_micros - $2, updated_at = now()
-		 WHERE buyer_id=$1 AND balance_micros >= $2`, buyerID, amountMicros)
+		 WHERE buyer_id=$1 AND currency=$3 AND balance_micros >= $2`, buyerID, amountMicros, cur.Code())
 	if err != nil {
 		return err
 	}
@@ -834,7 +931,8 @@ func debitPrepaidForTaskTx(ctx context.Context, tx pgx.Tx, buyerID, taskID uuid.
 	// makes settlement retries idempotent.
 	ct, err = insertLedgerEntryOnTaskConflictDoNothingTx(ctx, tx, ledgerInsert{
 		Kind: KindPrepaidDebit, BuyerID: &buyer, TaskID: &task,
-		AmountMicros: -amountMicros, PayoutStatus: PayoutReleased,
+		AmountMicros: -amountMicros, Currency: cur.Code(), CurrencyAuthority: ledgerCurrencyAuthorityPrepaid,
+		PayoutStatus: PayoutReleased,
 	})
 	if err != nil {
 		return err
@@ -844,7 +942,7 @@ func debitPrepaidForTaskTx(ctx context.Context, tx pgx.Tx, buyerID, taskID uuid.
 		if _, err := tx.Exec(ctx, `
 			UPDATE buyer_prepaid_balances
 			   SET balance_micros = balance_micros + $2, updated_at = now()
-			 WHERE buyer_id=$1`, buyerID, amountMicros); err != nil {
+			 WHERE buyer_id=$1 AND currency=$3`, buyerID, amountMicros, cur.Code()); err != nil {
 			return err
 		}
 	}
@@ -869,14 +967,23 @@ func debitPrepaidForSLAPremiumTx(ctx context.Context, tx pgx.Tx, buyerID, jobID 
 	if amountMicros <= 0 {
 		return fmt.Errorf("prepaid SLA debit requires positive micro-USD, got %d", amountMicros)
 	}
+	var currency string
+	if err := tx.QueryRow(ctx, `SELECT currency FROM jobs WHERE id=$1 AND buyer_id=$2`, jobID, buyerID).Scan(&currency); err != nil {
+		return err
+	}
+	cur, err := ParseCurrency(currency)
+	if err != nil {
+		return err
+	}
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO buyer_prepaid_balances (buyer_id, balance_micros)
-		VALUES ($1, 0) ON CONFLICT (buyer_id) DO NOTHING`, buyerID); err != nil {
+		INSERT INTO buyer_prepaid_balances (buyer_id, currency, balance_micros)
+		VALUES ($1, $2, 0) ON CONFLICT (buyer_id,currency) DO NOTHING`, buyerID, cur.Code()); err != nil {
 		return err
 	}
 	var balance int64
 	if err := tx.QueryRow(ctx, `
-		SELECT balance_micros FROM buyer_prepaid_balances WHERE buyer_id=$1 FOR UPDATE`, buyerID).Scan(&balance); err != nil {
+		SELECT balance_micros FROM buyer_prepaid_balances
+		 WHERE buyer_id=$1 AND currency=$2 FOR UPDATE`, buyerID, cur.Code()).Scan(&balance); err != nil {
 		return err
 	}
 	if balance < amountMicros {
@@ -884,7 +991,7 @@ func debitPrepaidForSLAPremiumTx(ctx context.Context, tx pgx.Tx, buyerID, jobID 
 	}
 	ct, err := tx.Exec(ctx, `
 		UPDATE buyer_prepaid_balances SET balance_micros=balance_micros-$2, updated_at=now()
-		 WHERE buyer_id=$1 AND balance_micros >= $2`, buyerID, amountMicros)
+		 WHERE buyer_id=$1 AND currency=$3 AND balance_micros >= $2`, buyerID, amountMicros, cur.Code())
 	if err != nil {
 		return err
 	}
@@ -894,6 +1001,7 @@ func debitPrepaidForSLAPremiumTx(ctx context.Context, tx pgx.Tx, buyerID, jobID 
 	buyer := buyerID
 	ct, err = insertLedgerEntryIfAbsentByRefTx(ctx, tx, ledgerInsert{
 		Kind: KindPrepaidDebit, BuyerID: &buyer, AmountMicros: -amountMicros,
+		Currency: cur.Code(), CurrencyAuthority: ledgerCurrencyAuthorityPrepaid,
 		PayoutStatus: PayoutReleased, PayoutRef: prepaidSLAPremiumDebitRef(jobID),
 	})
 	if err != nil {
@@ -902,7 +1010,7 @@ func debitPrepaidForSLAPremiumTx(ctx context.Context, tx pgx.Tx, buyerID, jobID 
 	if ct.RowsAffected() == 0 {
 		_, err = tx.Exec(ctx, `
 			UPDATE buyer_prepaid_balances SET balance_micros=balance_micros+$2, updated_at=now()
-			 WHERE buyer_id=$1`, buyerID, amountMicros)
+			 WHERE buyer_id=$1 AND currency=$3`, buyerID, amountMicros, cur.Code())
 	}
 	return err
 }

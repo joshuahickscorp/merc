@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -26,6 +27,8 @@ var errServiceLeaseDataPlaneUnavailable = errors.New("reserved service data plan
 // serialized into a buyer response.
 type serviceLeaseDataPlaneTarget struct {
 	LeaseID                 uuid.UUID
+	WorkerID                uuid.UUID
+	SupplierID              uuid.UUID
 	RuntimeProfileID        string
 	RuntimeProfileSHA256    string
 	ModelAlias              string
@@ -49,14 +52,13 @@ func (s *Store) ServiceLeaseDataPlaneTarget(ctx context.Context, buyerID, leaseI
 		return serviceLeaseDataPlaneTarget{}, errNotFound
 	}
 	var target serviceLeaseDataPlaneTarget
-	var workerID, supplierID uuid.UUID
 	err := s.pool.QueryRow(ctx, `
 		SELECT id,worker_id,supplier_id,runtime_profile_id,runtime_profile_sha256,
 		       state,active_replicas,minimum_replicas,maximum_p95_latency_milliseconds,
 		       expires_at,last_worker_heartbeat_at
 		  FROM service_leases
 		 WHERE id=$1 AND buyer_id=$2`, leaseID, buyerID).Scan(
-		&target.LeaseID, &workerID, &supplierID, &target.RuntimeProfileID,
+		&target.LeaseID, &target.WorkerID, &target.SupplierID, &target.RuntimeProfileID,
 		&target.RuntimeProfileSHA256, &target.State, &target.ActiveReplicas,
 		&target.MinimumReplicas, &target.MaximumP95LatencyMillis, &target.ExpiresAt,
 		&target.LastWorkerHeartbeatAt)
@@ -83,7 +85,7 @@ func (s *Store) ServiceLeaseDataPlaneTarget(ctx context.Context, buyerID, leaseI
 		  FROM realtime_worker_offers
 		 WHERE worker_id=$1 AND supplier_id=$2 AND runtime_profile_id=$3
 		   AND status='ACTIVE' AND last_seen_at > now()-interval '45 seconds'`,
-		workerID, supplierID, target.RuntimeProfileID).Scan(
+		target.WorkerID, target.SupplierID, target.RuntimeProfileID).Scan(
 		&target.UpstreamBaseURL, &sealed, &status, &profileSHA, &target.LastOfferSeenAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return serviceLeaseDataPlaneTarget{}, errServiceLeaseDataPlaneUnavailable
@@ -100,6 +102,37 @@ func (s *Store) ServiceLeaseDataPlaneTarget(ctx context.Context, buyerID, leaseI
 		return serviceLeaseDataPlaneTarget{}, errServiceLeaseDataPlaneUnavailable
 	}
 	return target, nil
+}
+
+// recordServiceLeaseDataPlaneDiagnostic persists only application payload
+// lengths. It intentionally accepts the resolved worker/supplier pair even if a
+// failover commits after target resolution: that old pair is the truthful
+// interval that served this request. The observation never feeds pricing or
+// settlement and carries an explicit non-authority status in storage.
+func (s *Store) recordServiceLeaseDataPlaneDiagnostic(
+	ctx context.Context,
+	target serviceLeaseDataPlaneTarget,
+	buyerID uuid.UUID,
+	requestApplicationBytes, responseApplicationBytes int64,
+) error {
+	if target.LeaseID == uuid.Nil || target.WorkerID == uuid.Nil || target.SupplierID == uuid.Nil ||
+		buyerID == uuid.Nil || requestApplicationBytes < 0 || responseApplicationBytes < 0 {
+		return errors.New("invalid service lease data-plane diagnostic")
+	}
+	ct, err := s.pool.Exec(ctx, `INSERT INTO service_lease_data_plane_diagnostics
+		(lease_id,buyer_id,worker_id,supplier_id,request_application_bytes,
+		 response_application_bytes,authority_status)
+		SELECT id,buyer_id,$3,$4,$5,$6,'APPLICATION_BYTES_DIAGNOSTIC_NOT_PROVIDER_BILLING'
+		  FROM service_leases WHERE id=$1 AND buyer_id=$2`,
+		target.LeaseID, buyerID, target.WorkerID, target.SupplierID,
+		requestApplicationBytes, responseApplicationBytes)
+	if err != nil {
+		return err
+	}
+	if ct.RowsAffected() != 1 {
+		return errNotFound
+	}
+	return nil
 }
 
 func validStoredRealtimeUpstreamURL(raw string) bool {
@@ -200,6 +233,13 @@ func (s *Server) handleServiceLeaseChatCompletions(w http.ResponseWriter, r *htt
 	if err != nil || len(body) > maxRealtimeResponseBytes || !json.Valid(body) {
 		writeOpenAIError(w, http.StatusBadGateway, "reserved service worker returned an invalid JSON response", "server_error", "upstream_response_invalid")
 		return
+	}
+	// Diagnostics are not economic authority and must not turn a successfully
+	// served reserved request into a buyer-visible failure. Persist when the
+	// database is available; the receipt remains EGRESS UNKNOWN either way.
+	if err := s.store.recordServiceLeaseDataPlaneDiagnostic(r.Context(), target, auth.BuyerID,
+		int64(len(prepared.Body)), int64(len(body))); err != nil {
+		log.Printf("service lease %s application-byte diagnostic was not persisted: %v", leaseID, err)
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")

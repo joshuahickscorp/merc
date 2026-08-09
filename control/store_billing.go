@@ -3,10 +3,10 @@ package main
 import (
 	"context"
 	_ "embed"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 	"time"
 
@@ -151,9 +151,12 @@ type InvoiceView struct {
 	// PlatformGrossSpreadUSD is the honest name for the legacy platform_take
 	// ledger row: buyer charge less supplier entitlement, before Merc's costs.
 	// It is not profit. Contribution separates every cost status and only emits a
-	// true net amount when none is unknown.
+	// true net amount from a canonical final settlement.
 	PlatformGrossSpreadUSD float64                   `json:"platform_gross_spread_usd"`
 	Contribution           *EconomicContributionView `json:"contribution,omitempty"`
+	// ContributionSettlement is the canonical staged exact-nano authority. The
+	// legacy Contribution view above is projected only from this object.
+	ContributionSettlement *ContributionSettlement `json:"contribution_settlement,omitempty"`
 	// BuyerRefundUSD is the positive sum of buyer_refund ledger rows for this
 	// job (task-scoped plus dispute-keyed SLA premium refunds). Zero when none.
 	BuyerRefundUSD float64 `json:"buyer_refund_usd,omitempty"`
@@ -192,9 +195,11 @@ type InvoiceView struct {
 }
 
 type ContributionComponentView struct {
-	Status    string   `json:"status"`
-	AmountUSD *float64 `json:"amount_usd,omitempty"`
-	Basis     string   `json:"basis"`
+	Status      string   `json:"status"`
+	AmountUSD   *float64 `json:"amount_usd,omitempty"`
+	AmountNanos *int64   `json:"amount_nanos,omitempty"`
+	Source      string   `json:"source,omitempty"`
+	Basis       string   `json:"basis"`
 }
 
 type EconomicContributionView struct {
@@ -212,18 +217,22 @@ type EconomicContributionView struct {
 	AllocatedControlPlaneCost   ContributionComponentView `json:"allocated_control_plane_cost"`
 	MercGrossSpread             ContributionComponentView `json:"merc_gross_spread"`
 	MercNetContribution         ContributionComponentView `json:"merc_net_contribution"`
-	// TrueNetContributionNanos is set only when every named cost is modeled or
-	// not_applicable (no unknowns). It is the integer authority; the USD view
-	// above is the display projection.
+	// TrueNetContributionNanos is copied only from a FINAL ContributionSettlement.
+	// Its absence refuses to promote accepted pricing or gross ledger spread into
+	// settled profit; the USD view above is only a display projection.
 	TrueNetContributionNanos *int64 `json:"true_net_contribution_nanos,omitempty"`
 	// CostComponentStatuses lists every component's status for per-request,
 	// per-account, per-workload and per-invoice queries.
 	CostComponentStatuses map[string]string `json:"cost_component_statuses,omitempty"`
 	// CostScheduleRevision / CostScheduleSHA256 identify the policy rates that
 	// produced modeled storage/egress/risk. Empty on historical decisions.
-	CostScheduleRevision string                    `json:"cost_schedule_revision,omitempty"`
-	CostScheduleSHA256   string                    `json:"cost_schedule_sha256,omitempty"`
-	Subsidy              ContributionComponentView `json:"subsidy"`
+	CostScheduleRevision  string                    `json:"cost_schedule_revision,omitempty"`
+	CostScheduleSHA256    string                    `json:"cost_schedule_sha256,omitempty"`
+	Subsidy               ContributionComponentView `json:"subsidy"`
+	SettlementStage       string                    `json:"settlement_stage,omitempty"`
+	SettlementSHA256      string                    `json:"settlement_sha256,omitempty"`
+	PricingDecisionSHA256 string                    `json:"pricing_decision_sha256,omitempty"`
+	Blockers              []string                  `json:"blockers,omitempty"`
 }
 
 func contributionAmount(status string, amount float64, basis string) ContributionComponentView {
@@ -240,6 +249,107 @@ func pricingContributionComponent(c PricingCostComponent) ContributionComponentV
 		return contributionUnknown(c.Basis)
 	}
 	return contributionAmount(c.Status, c.Amount, c.Basis)
+}
+
+func contributionViewStatus(status string) string {
+	switch status {
+	case contributionComponentAcceptedModel:
+		return pricingCostModeled
+	case contributionComponentSettled:
+		return "settled"
+	case contributionComponentNotApplicable:
+		return pricingCostNotApplicable
+	default:
+		return pricingCostUnknown
+	}
+}
+
+func contributionComponentViewFromSettlement(c ContributionSettlementComponent) ContributionComponentView {
+	out := ContributionComponentView{
+		Status: contributionViewStatus(c.Status), Source: c.Source, Basis: c.Basis,
+	}
+	if c.AmountNanos != nil {
+		nanos := *c.AmountNanos
+		amount := float64(nanos) / float64(NanosPerMajorUnit)
+		out.AmountNanos = &nanos
+		out.AmountUSD = &amount
+	}
+	return out
+}
+
+// economicContributionViewFromSettlement is the only production projection to
+// the legacy contribution shape. It cannot invent settlement from a raw
+// PricingDecision: true net is copied only from a FINAL ContributionSettlement.
+func economicContributionViewFromSettlement(
+	pricing *PricingDecision,
+	settlement *ContributionSettlement,
+) *EconomicContributionView {
+	if pricing == nil || settlement == nil {
+		return nil
+	}
+	out := &EconomicContributionView{
+		Currency:                     settlement.Key.Currency,
+		SupplierExecutionEntitlement: contributionComponentViewFromSettlement(settlement.SupplierEntitlements),
+		VerificationEntitlement:      pricingContributionComponent(pricing.VerificationCost),
+		CloudProviderCost:            contributionComponentViewFromSettlement(settlement.ProviderCost),
+		StorageCost:                  contributionComponentViewFromSettlement(settlement.StorageCost),
+		EgressCost:                   contributionComponentViewFromSettlement(settlement.EgressCost),
+		PaymentProcessingAllocation:  contributionComponentViewFromSettlement(settlement.ProcessorFee),
+		FraudRefundReserve:           contributionComponentViewFromSettlement(settlement.RiskReserve),
+		AllocatedControlPlaneCost:    contributionComponentViewFromSettlement(settlement.ControlPlaneCost),
+		Subsidy:                      contributionComponentViewFromSettlement(settlement.PlatformSubsidy),
+		CostScheduleRevision:         pricing.CostScheduleRevision,
+		CostScheduleSHA256:           pricing.CostScheduleSHA256,
+		SettlementStage:              settlement.Stage,
+		SettlementSHA256:             settlement.SettlementSHA256,
+		PricingDecisionSHA256:        settlement.Key.PricingDecisionSHA256,
+		Blockers:                     append([]string(nil), settlement.Blockers...),
+		CostComponentStatuses: map[string]string{
+			"primary_supplier": contributionViewStatus(settlement.SupplierEntitlements.Status),
+			"verification":     pricing.VerificationCost.Status,
+			"payment":          contributionViewStatus(settlement.ProcessorFee.Status),
+			"control_plane":    contributionViewStatus(settlement.ControlPlaneCost.Status),
+			"storage":          contributionViewStatus(settlement.StorageCost.Status),
+			"egress":           contributionViewStatus(settlement.EgressCost.Status),
+			"provider":         contributionViewStatus(settlement.ProviderCost.Status),
+			"risk_reserve":     contributionViewStatus(settlement.RiskReserve.Status),
+		},
+	}
+	if settlement.BuyerNetAmount.AmountNanos != nil && settlement.SupplierEntitlements.AmountNanos != nil {
+		gross := *settlement.BuyerNetAmount.AmountNanos - *settlement.SupplierEntitlements.AmountNanos
+		out.MercGrossSpread = contributionComponentViewFromSettlement(
+			settlementComponent(contributionComponentSettled, gross,
+				"contribution_settlement.buyer_net_amount-supplier_entitlements",
+				"net buyer settlement less net supplier entitlement; gross spread, not profit"))
+	} else {
+		out.MercGrossSpread = contributionUnknown("settled buyer or supplier amount unavailable")
+	}
+	if settlement.StorageCost.AmountNanos != nil && settlement.EgressCost.AmountNanos != nil {
+		total := *settlement.StorageCost.AmountNanos + *settlement.EgressCost.AmountNanos
+		status := contributionComponentSettled
+		if settlement.StorageCost.Status == contributionComponentNotApplicable &&
+			settlement.EgressCost.Status == contributionComponentNotApplicable {
+			status = contributionComponentNotApplicable
+		}
+		out.StorageEgressCost = contributionComponentViewFromSettlement(
+			settlementComponent(status, total,
+				"contribution_settlement.storage_cost+egress_cost",
+				"canonical settled storage plus egress allocation"))
+	} else {
+		out.StorageEgressCost = contributionUnknown("storage or egress settlement is unavailable")
+	}
+	if settlement.Stage == ContributionStageFinalSettlement && settlement.TrueNetNanos != nil {
+		trueNet := *settlement.TrueNetNanos
+		out.TrueNetContributionNanos = &trueNet
+		out.MercNetContribution = contributionComponentViewFromSettlement(
+			settlementComponent(contributionComponentSettled, trueNet,
+				"contribution_settlement.true_net_nanos",
+				"final exact-nano contribution after every resolved cost and adjustment"))
+	} else {
+		out.MercNetContribution = contributionUnknown(
+			"true net is unavailable until ContributionSettlement reaches FINAL_SETTLEMENT")
+	}
+	return out
 }
 
 func buildEconomicContributionView(
@@ -301,173 +411,196 @@ func buildEconomicContributionView(
 			"immutable processor fee allocated from the collected charge")
 	} else if pricing.PaymentCost.Status == pricingCostModeled {
 		// Acceptance modeled the processor fee from the economic schedule; cash
-		// reconciliation may still be pending. Prefer the modeled amount so a
-		// complete cost schedule can report true net before Stripe settles.
+		// reconciliation may still be pending. This compatibility view can display
+		// that forecast, but it still refuses true net without final settlement.
 		out.PaymentProcessingAllocation = pricingContributionComponent(pricing.PaymentCost)
 	} else {
 		out.PaymentProcessingAllocation = contributionUnknown(
 			"processor cash fee has not yet been reconciled and allocated")
 	}
 
-	// Prefer the frozen fixed-point true net when the decision carries it. That
-	// is the integer authority; do not re-derive a historical decision under a
-	// later schedule.
-	if pricing.FixedPoint != nil && pricing.FixedPoint.TrueNetContributionNanos != nil {
-		// The fixed-point unknown set predates the frozen runtime cell and names
-		// only four categories: storage, egress, provider, risk reserve. The cell
-		// block also tracks energy allocation and reliability retry overhead, and
-		// refuses a true net when either is unknown.
-		//
-		// When they disagree, the receipt contradicts itself: runtime_cell says
-		// REFUSED_UNKNOWN_COST_CATEGORIES while this branch publishes a settled
-		// amount described as "after every named cost" -- and because
-		// known_variable_costs_nanos is 0 on that path, the amount it publishes is
-		// the gross spread, unreduced. That is the gross-ledger-row-as-profit
-		// defect the contribution view exists to prevent, emitted by the
-		// contribution view itself.
-		//
-		// The stricter authority wins. Refuse rather than publish a number the
-		// same document declines to compute.
-		if cell := pricing.RuntimeCell; cell != nil && !cell.MercTrueNetAvailable() {
-			out.MercNetContribution = contributionUnknown(
-				"frozen runtime cell refuses a true net: " + cell.MercTrueNetStatus)
-			return out
-		}
-		trueNet := *pricing.FixedPoint.TrueNetContributionNanos
-		out.TrueNetContributionNanos = &trueNet
-		out.MercNetContribution = contributionAmount("settled",
-			microsToUSD(trueNet/NanosPerMicro)-subsidyUSD,
-			"true net contribution from frozen fixed-point authority after every named cost")
-		return out
-	}
-
-	known := processorFee != nil || pricing.PaymentCost.Status == pricingCostModeled
-	knownCost := subsidyUSD
-	if processorFee != nil {
-		knownCost += *processorFee
-	} else if pricing.PaymentCost.Status == pricingCostModeled {
-		knownCost += pricing.PaymentCost.Amount
-	}
-	for _, component := range []PricingCostComponent{
-		pricing.ControlPlaneCost, pricing.StorageCost, pricing.EgressCost,
-		pricing.ProviderCost, pricing.RiskReserve,
-	} {
-		if component.Status == pricingCostUnknown {
-			known = false
-			continue
-		}
-		if component.Status == pricingCostModeled {
-			knownCost += component.Amount
-		}
-	}
-	if known {
-		out.MercNetContribution = contributionAmount("settled",
-			grossSpread-knownCost,
-			"gross spread less processor, control, storage, egress, provider, risk and subsidy costs")
-	} else {
-		out.MercNetContribution = contributionUnknown(
-			"true net contribution is unavailable until every cost category is attributed")
-	}
+	// This compatibility projection intentionally has no settlement input. Raw
+	// PricingDecision is accepted-forecast authority even when an old body carries
+	// a numeric fixed-point true net or every forecast category was modeled.
+	// Production callers use economicContributionViewFromSettlement instead.
+	out.MercNetContribution = contributionUnknown(
+		"true net is unavailable without a FINAL ContributionSettlement")
 	return out
 }
 
-// AccountTrueNetContribution sums true-net nanos across an account's jobs that
-// carry a populated TrueNetContributionNanos. Jobs with unknown categories are
-// counted in UnknownJobs rather than silently zeroed.
+// AccountTrueNetContribution sums canonical FINAL settlements across an
+// account. Non-final jobs are counted rather than silently zeroed.
 type AccountTrueNetContribution struct {
-	AccountID                uuid.UUID `json:"account_id"`
-	Currency                 string    `json:"currency"`
-	TrueNetContributionNanos int64     `json:"true_net_contribution_nanos"`
-	JobsWithTrueNet          int       `json:"jobs_with_true_net"`
-	JobsWithUnknownCosts     int       `json:"jobs_with_unknown_costs"`
-	JobsWithoutDecision      int       `json:"jobs_without_pricing_decision"`
+	AccountID uuid.UUID `json:"account_id"`
+	// Currency/TrueNetContributionNanos are populated only for a single-currency
+	// result. Mixed currencies remain separated in CurrencyBuckets and are never
+	// summed into a meaningless scalar.
+	Currency                 string                       `json:"currency,omitempty"`
+	TrueNetContributionNanos int64                        `json:"true_net_contribution_nanos"`
+	JobsWithTrueNet          int                          `json:"jobs_with_true_net"`
+	JobsWithUnknownCosts     int                          `json:"jobs_with_unknown_costs"`
+	JobsWithoutDecision      int                          `json:"jobs_without_pricing_decision"`
+	CurrencyBuckets          []ContributionCurrencyRollup `json:"currency_buckets,omitempty"`
 }
 
 // WorkloadClassTrueNetContribution is the same rollup keyed by workload class.
 type WorkloadClassTrueNetContribution struct {
-	WorkloadClass            string `json:"workload_class"`
+	WorkloadClass            string                       `json:"workload_class"`
+	Currency                 string                       `json:"currency,omitempty"`
+	TrueNetContributionNanos int64                        `json:"true_net_contribution_nanos"`
+	JobsWithTrueNet          int                          `json:"jobs_with_true_net"`
+	JobsWithUnknownCosts     int                          `json:"jobs_with_unknown_costs"`
+	CurrencyBuckets          []ContributionCurrencyRollup `json:"currency_buckets,omitempty"`
+}
+
+type ContributionCurrencyRollup struct {
 	Currency                 string `json:"currency"`
 	TrueNetContributionNanos int64  `json:"true_net_contribution_nanos"`
 	JobsWithTrueNet          int    `json:"jobs_with_true_net"`
 	JobsWithUnknownCosts     int    `json:"jobs_with_unknown_costs"`
 }
 
-// TrueNetContributionForAccount rolls frozen true-net figures for a buyer.
-// Historical decisions without true net are counted, not re-derived.
+func reduceContributionRollup(
+	settlements []*ContributionSettlement,
+) ([]ContributionCurrencyRollup, error) {
+	buckets := make(map[string]*ContributionCurrencyRollup)
+	for _, settlement := range settlements {
+		if settlement == nil {
+			continue
+		}
+		if err := validateContributionSettlement(*settlement); err != nil {
+			return nil, err
+		}
+		currency := settlement.Key.Currency
+		bucket := buckets[currency]
+		if bucket == nil {
+			bucket = &ContributionCurrencyRollup{Currency: currency}
+			buckets[currency] = bucket
+		}
+		if settlement.Stage == ContributionStageFinalSettlement &&
+			settlement.TrueNetNanos != nil {
+			if err := checkedContributionAdd(
+				&bucket.TrueNetContributionNanos, *settlement.TrueNetNanos,
+			); err != nil {
+				return nil, err
+			}
+			bucket.JobsWithTrueNet++
+		} else {
+			bucket.JobsWithUnknownCosts++
+		}
+	}
+	out := make([]ContributionCurrencyRollup, 0, len(buckets))
+	for _, bucket := range buckets {
+		out = append(out, *bucket)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Currency < out[j].Currency })
+	return out, nil
+}
+
+// TrueNetContributionForAccount rolls canonical settlements for a buyer.
+// Historical and provisional decisions are counted, not promoted or re-derived.
 func (s *Store) TrueNetContributionForAccount(
 	ctx context.Context, accountID uuid.UUID,
 ) (AccountTrueNetContribution, error) {
-	out := AccountTrueNetContribution{AccountID: accountID, Currency: SettlementCurrencyCode()}
+	out := AccountTrueNetContribution{AccountID: accountID}
 	rows, err := s.pool.Query(ctx, `
-		SELECT pricing_decision
-		  FROM jobs
-		 WHERE buyer_id = $1 AND pricing_decision IS NOT NULL`, accountID)
+		SELECT id,pricing_decision IS NOT NULL
+		  FROM jobs WHERE buyer_id = $1 ORDER BY id`, accountID)
 	if err != nil {
 		return out, err
 	}
 	defer rows.Close()
+	type rollupJob struct {
+		id          uuid.UUID
+		hasDecision bool
+	}
+	var jobs []rollupJob
 	for rows.Next() {
-		var blob []byte
-		if err := rows.Scan(&blob); err != nil {
+		var job rollupJob
+		if err := rows.Scan(&job.id, &job.hasDecision); err != nil {
 			return out, err
 		}
-		var p PricingDecision
-		if err := json.Unmarshal(blob, &p); err != nil {
-			return out, err
-		}
-		if p.FixedPoint == nil {
+		jobs = append(jobs, job)
+	}
+	if err := rows.Err(); err != nil {
+		return out, err
+	}
+	rows.Close()
+	settlements := make([]*ContributionSettlement, 0, len(jobs))
+	for _, job := range jobs {
+		if !job.hasDecision {
 			out.JobsWithoutDecision++
 			continue
 		}
-		if p.FixedPoint.TrueNetContributionNanos != nil {
-			out.TrueNetContributionNanos += *p.FixedPoint.TrueNetContributionNanos
-			out.JobsWithTrueNet++
-			if p.Currency != "" {
-				out.Currency = p.Currency
-			}
-		} else {
-			out.JobsWithUnknownCosts++
+		settlement, err := s.ContributionSettlementForJob(ctx, job.id)
+		if err != nil {
+			return out, err
 		}
+		settlements = append(settlements, settlement)
 	}
-	return out, rows.Err()
+	out.CurrencyBuckets, err = reduceContributionRollup(settlements)
+	if err != nil {
+		return out, err
+	}
+	for _, bucket := range out.CurrencyBuckets {
+		out.JobsWithTrueNet += bucket.JobsWithTrueNet
+		out.JobsWithUnknownCosts += bucket.JobsWithUnknownCosts
+	}
+	if len(out.CurrencyBuckets) == 1 {
+		out.Currency = out.CurrencyBuckets[0].Currency
+		out.TrueNetContributionNanos = out.CurrencyBuckets[0].TrueNetContributionNanos
+	}
+	return out, nil
 }
 
-// TrueNetContributionForWorkloadClass rolls frozen true-net by workload class.
+// TrueNetContributionForWorkloadClass rolls canonical settlements by workload class.
 func (s *Store) TrueNetContributionForWorkloadClass(
 	ctx context.Context, workloadClass string,
 ) (WorkloadClassTrueNetContribution, error) {
-	out := WorkloadClassTrueNetContribution{
-		WorkloadClass: workloadClass, Currency: SettlementCurrencyCode(),
-	}
+	out := WorkloadClassTrueNetContribution{WorkloadClass: workloadClass}
 	rows, err := s.pool.Query(ctx, `
-		SELECT pricing_decision
+		SELECT id
 		  FROM jobs
 		 WHERE COALESCE(workload_decision->>'workload_class','') = $1
-		   AND pricing_decision IS NOT NULL`, workloadClass)
+		   AND pricing_decision IS NOT NULL
+		 ORDER BY id`, workloadClass)
 	if err != nil {
 		return out, err
 	}
 	defer rows.Close()
+	var jobIDs []uuid.UUID
 	for rows.Next() {
-		var blob []byte
-		if err := rows.Scan(&blob); err != nil {
+		var jobID uuid.UUID
+		if err := rows.Scan(&jobID); err != nil {
 			return out, err
 		}
-		var p PricingDecision
-		if err := json.Unmarshal(blob, &p); err != nil {
-			return out, err
-		}
-		if p.FixedPoint != nil && p.FixedPoint.TrueNetContributionNanos != nil {
-			out.TrueNetContributionNanos += *p.FixedPoint.TrueNetContributionNanos
-			out.JobsWithTrueNet++
-			if p.Currency != "" {
-				out.Currency = p.Currency
-			}
-		} else {
-			out.JobsWithUnknownCosts++
-		}
+		jobIDs = append(jobIDs, jobID)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return out, err
+	}
+	rows.Close()
+	settlements := make([]*ContributionSettlement, 0, len(jobIDs))
+	for _, jobID := range jobIDs {
+		settlement, err := s.ContributionSettlementForJob(ctx, jobID)
+		if err != nil {
+			return out, err
+		}
+		settlements = append(settlements, settlement)
+	}
+	out.CurrencyBuckets, err = reduceContributionRollup(settlements)
+	if err != nil {
+		return out, err
+	}
+	for _, bucket := range out.CurrencyBuckets {
+		out.JobsWithTrueNet += bucket.JobsWithTrueNet
+		out.JobsWithUnknownCosts += bucket.JobsWithUnknownCosts
+	}
+	if len(out.CurrencyBuckets) == 1 {
+		out.Currency = out.CurrencyBuckets[0].Currency
+		out.TrueNetContributionNanos = out.CurrencyBuckets[0].TrueNetContributionNanos
+	}
+	return out, nil
 }
 
 func (s *Store) JobInvoice(ctx context.Context, jobID, buyerID uuid.UUID) (*InvoiceView, error) {
@@ -499,14 +632,6 @@ func (s *Store) JobInvoice(ctx context.Context, jobID, buyerID uuid.UUID) (*Invo
 	iv.BilledUSD = billed
 	iv.SLAGuaranteeSecs = slaGuarantee
 	iv.SLAPremiumUSD = slaPremium
-	processorFee, allocationMethod, err := s.jobProcessorFeeAllocatedUSD(
-		ctx, jobID, chargeBatchID, stripePI,
-	)
-	if err != nil {
-		return nil, err
-	}
-	iv.ProcessorFeeAllocatedUSD = processorFee
-	iv.ProcessorFeeAllocationMethod = allocationMethod
 	if slaGuarantee > 0 {
 		var refund float64
 		if rerr := s.pool.QueryRow(ctx,
@@ -621,38 +746,86 @@ func (s *Store) JobInvoice(ctx context.Context, jobID, buyerID uuid.UUID) (*Invo
 			iv.RefundCause = "buyer_refund"
 		}
 	}
-	if iv.ProcessorFeeAllocatedUSD != nil {
-		netMicros := usdToMicros(iv.PlatformTakeUSD) -
-			usdToMicros(*iv.ProcessorFeeAllocatedUSD)
-		netUSD := microsToUSD(netMicros)
-		iv.PlatformNetAfterProcessorUSD = &netUSD
-	}
 	iv.PlatformGrossSpreadUSD = iv.PlatformTakeUSD
 	pricing, err := s.JobPricingDecision(ctx, jobID)
 	if err != nil {
 		return nil, err
 	}
-	var subsidyMinorUnits int64
-	if err := s.pool.QueryRow(ctx, `
-		SELECT COALESCE(SUM(f.amount_cents),0)::bigint
-		  FROM supplier_payout_funding f
-		 WHERE f.liability_job_id=$1 AND f.source_kind='platform_subsidy'`, jobID).
-		Scan(&subsidyMinorUnits); err != nil {
-		return nil, err
+	var settlement *ContributionSettlement
+	if pricing != nil {
+		settlement, err = s.ContributionSettlementForJob(ctx, jobID)
+		if err != nil {
+			return nil, fmt.Errorf("reduce contribution settlement for invoice %s: %w", jobID, err)
+		}
+	} else {
+		// Pre-pricing jobs have no digest with which to key a canonical
+		// ContributionSettlement. Preserve their narrow processor-fee projection
+		// without manufacturing settlement authority for the rest of the invoice.
+		processorFee, allocationMethod, feeErr := s.jobProcessorFeeAllocatedUSD(
+			ctx, jobID, chargeBatchID, stripePI,
+		)
+		if feeErr != nil {
+			return nil, feeErr
+		}
+		iv.ProcessorFeeAllocatedUSD = processorFee
+		iv.ProcessorFeeAllocationMethod = allocationMethod
+		if processorFee != nil {
+			net := iv.PlatformTakeUSD - *processorFee
+			iv.PlatformNetAfterProcessorUSD = &net
+		}
 	}
-	invoiceCurrency, err := ParseCurrency(iv.Currency)
-	if err != nil {
-		return nil, fmt.Errorf("invoice %s has invalid settlement currency %q: %w", jobID, iv.Currency, err)
+	iv.ContributionSettlement = settlement
+	iv.Contribution = economicContributionViewFromSettlement(pricing, settlement)
+	// All contribution-sensitive compatibility fields project from the same
+	// repeatable-read reducer snapshot. They cannot straddle a concurrent refund,
+	// clawback, processor allocation, or subsidy authorization.
+	if settlement != nil {
+		componentUSD := func(c ContributionSettlementComponent) *float64 {
+			if c.AmountNanos == nil {
+				return nil
+			}
+			value := float64(*c.AmountNanos) / float64(NanosPerMajorUnit)
+			return &value
+		}
+		if value := componentUSD(settlement.BuyerGrossCharge); value != nil {
+			iv.ChargedUSD = -*value // preserve the legacy signed-debit convention
+		}
+		if value := componentUSD(settlement.BuyerRefunds); value != nil {
+			iv.BuyerRefundUSD = *value
+		}
+		if value := componentUSD(settlement.BuyerNetAmount); value != nil {
+			iv.NetChargedUSD = value
+		}
+		if value := componentUSD(settlement.SupplierEntitlements); value != nil {
+			iv.SupplierPaidUSD = *value
+		}
+		if settlement.BuyerNetAmount.AmountNanos != nil &&
+			settlement.SupplierEntitlements.AmountNanos != nil {
+			grossNanos := *settlement.BuyerNetAmount.AmountNanos -
+				*settlement.SupplierEntitlements.AmountNanos
+			gross := float64(grossNanos) / float64(NanosPerMajorUnit)
+			iv.PlatformTakeUSD = gross
+			iv.PlatformGrossSpreadUSD = gross
+		}
+		if value := componentUSD(settlement.ProcessorFee); value != nil &&
+			settlement.ProcessorFee.Status == contributionComponentSettled {
+			iv.ProcessorFeeAllocatedUSD = value
+			method := processorFeeAllocationDirectV1
+			if strings.HasPrefix(settlement.ProcessorFee.Source, "charge_batch_fee_allocations:") {
+				method = strings.TrimPrefix(
+					settlement.ProcessorFee.Source, "charge_batch_fee_allocations:")
+			}
+			iv.ProcessorFeeAllocationMethod = &method
+			if settlement.BuyerNetAmount.AmountNanos != nil &&
+				settlement.SupplierEntitlements.AmountNanos != nil {
+				netNanos := *settlement.BuyerNetAmount.AmountNanos -
+					*settlement.SupplierEntitlements.AmountNanos -
+					*settlement.ProcessorFee.AmountNanos
+				net := float64(netNanos) / float64(NanosPerMajorUnit)
+				iv.PlatformNetAfterProcessorUSD = &net
+			}
+		}
 	}
-	subsidyMicros, err := invoiceCurrency.MinorToMicros(subsidyMinorUnits)
-	if err != nil {
-		return nil, err
-	}
-	subsidyUSD := microsToUSD(subsidyMicros)
-	iv.Contribution = buildEconomicContributionView(
-		pricing, iv.Currency, iv.PlatformGrossSpreadUSD,
-		iv.ProcessorFeeAllocatedUSD, subsidyUSD,
-	)
 	if quoted, ok, qerr := s.QuotedUSDForJob(ctx, jobID); qerr != nil {
 		return nil, qerr
 	} else if ok {
@@ -660,6 +833,12 @@ func (s *Store) JobInvoice(ctx context.Context, jobID, buyerID uuid.UUID) (*Invo
 	}
 	if err := s.attachObservedOutputInvoiceEvidence(ctx, &iv); err != nil {
 		return nil, err
+	}
+	if settlement != nil && settlement.ObservedOutputRebate.AmountNanos != nil &&
+		*settlement.ObservedOutputRebate.AmountNanos > 0 {
+		rebate := float64(*settlement.ObservedOutputRebate.AmountNanos) /
+			float64(NanosPerMajorUnit)
+		iv.OutputTokenRebateUSD = &rebate
 	}
 	return &iv, nil
 }

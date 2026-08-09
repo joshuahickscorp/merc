@@ -307,7 +307,7 @@ func (s *Server) refundPrepaidRemainder(
 	if err := s.store.CompletePrepaidRefund(ctx, plan.Slices); err != nil {
 		return nil, err
 	}
-	settlement, err := SettlementCurrency()
+	settlement, err := ParseCurrency(plan.Currency)
 	if err != nil {
 		return nil, err
 	}
@@ -315,12 +315,13 @@ func (s *Server) refundPrepaidRemainder(
 	if err != nil {
 		return nil, err
 	}
-	newBal, _ := s.store.BuyerPrepaidBalanceMicros(ctx, buyerID)
+	newBal, _ := s.store.buyerPrepaidBalanceMicrosInCurrency(ctx, buyerID, plan.Currency)
 	return map[string]any{
 		"operation_key":        plan.OperationKey,
 		"buyer_id":             buyerID,
 		"refunded_minor_units": plan.Cents,
 		"refunded_micros":      refundedMicros,
+		"currency":             settlement.Code(),
 		"stripe_refunds":       refundIDs,
 		"balance_micros":       newBal,
 		"replayed":             plan.Replayed,

@@ -119,7 +119,7 @@ func TestEvictedModelStopsBeingWarmWithinOneHeartbeat(t *testing.T) {
 }
 
 func TestServiceLeaseOfferCannotAdvertiseMoreWarmThanMeasured(t *testing.T) {
-	installSettlementCurrencyForTest(t, "cad")
+	installSettlementCurrencyForTest(t, "usd")
 	ctx, store, pool := openPayoutTestStore(t)
 	profile := sortedVLLMProfiles()[0]
 	worker, _ := newFabricMeasurementWorker(t, ctx, store)
