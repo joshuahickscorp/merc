@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Resolve the explicit fast mutation-test contract for one production file.
 
-The complete test suite remains available through MERC_MUTATION_TEST_STRATEGY=full.
+The complete test suite remains available through MERC_MUTATION_TEST_STRATEGY=oracle
+(aliases: full, whole-suite).
 The checkpoint path uses this resolver for each unit-suite survivor, so it must
 then fail a named database invariant. A missing mapping, missing test file, or
 mapping that resolves to no Test function is a hard failure--never a skip.

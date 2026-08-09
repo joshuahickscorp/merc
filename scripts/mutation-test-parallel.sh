@@ -19,7 +19,7 @@
 #   MERC_MUTATION_WORKERS=16              # 1..32; default min(16, CPUs-4)
 #   MERC_MUTATION_WALLCLOCK_SECONDS=900   # default 15-minute certification ceiling
 #   MERC_MUTATION_POSTGRES_PORT_BASE=0     # 0 finds an unused local range
-#   MERC_MUTATION_TEST_STRATEGY=adaptive   # adaptive (default), contracts, or full
+#   MERC_MUTATION_TEST_STRATEGY=adaptive   # adaptive (default), contracts, or oracle (aliases: full, whole-suite)
 #   MERC_MUTATION_GOMAXPROCS=1             # per-worker runtime CPU ceiling
 #   MERC_MUTATION_PARALLEL_CASE_IDS=1,25   # optional calibrated subset
 #   MERC_MUTATION_KEEP_WORKDIR=1          # retain failed shard logs/worktrees
@@ -80,9 +80,12 @@ if ! [[ "$postgres_port_base" =~ ^[0-9]+$ ]]; then
   exit 2
 fi
 case "$test_strategy" in
-  adaptive|contracts|full) ;;
+  full|whole-suite)
+    test_strategy=oracle
+    ;;
+  adaptive|contracts|oracle) ;;
   *)
-    echo "MERC_MUTATION_TEST_STRATEGY must be adaptive, contracts, or full" >&2
+    echo "MERC_MUTATION_TEST_STRATEGY must be adaptive, contracts, or oracle (aliases: full, whole-suite)" >&2
     exit 2
     ;;
 esac

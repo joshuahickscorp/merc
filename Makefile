@@ -130,10 +130,12 @@ ci:
 	bash scripts/test-mutation-test-parallel.sh
 	python3 scripts/test-mutation-test-contracts.py
 	python3 scripts/test-mutation-contract-observer.py
+	python3 scripts/test-mutation-suite-observer.py
 	python3 scripts/test-mutation-preflight-cache.py
 	python3 scripts/test-mutation-manifest.py
 	bash scripts/test-with-isolated-test-db.sh
 	bash scripts/test-mutation-gate.sh
+	bash scripts/test-mutation-oracle-strategy.sh
 	bash scripts/test-readiness-gaming.sh
 	bash scripts/test-agent-review-gaming.sh
 	bash scripts/test-technical-exercises-fail-closed.sh
@@ -285,7 +287,8 @@ approvals-check:
 
 # Mutation testing: injects deliberate defects into the money and reuse paths
 # and asserts the suite FAILS for each. A surviving mutation is a hole in the
-# tests. Kept out of `ci` because it runs the full suite once per mutation.
+# tests. Kept out of `ci` because the oracle whole-suite strategy re-runs the
+# package suite once per mutation; the bare default is the adaptive contract path.
 # The capability inventory exercises every lane without minting candidate
 # authority. Exit 2 means exact-candidate canary proof remains incomplete.
 # Blind-drop the RunPod and Stripe TEST credentials the inventory needs. Prompts
@@ -308,9 +311,10 @@ mutation-test:
 # Every candidate mutation in isolated worktrees/databases. The default is an
 # audited adaptive strategy: an observed source contract first, then an exact
 # fresh database clone for any unit survivor. It leaves the candidate source
-# tree untouched; the normal `mutation-full` gate enforces the calibrated
-# sub-five-minute candidate budget, while this standalone target retains its
-# explicit environment-configurable ceiling.
+# tree untouched; the normal `mutation-full` gate tier (also adaptive) enforces
+# the calibrated sub-five-minute candidate budget, while this standalone target
+# retains its explicit environment-configurable ceiling. The `mutation-deep`
+# tier is the only gate path that selects the oracle whole-suite strategy.
 mutation-test-parallel:
 	bash scripts/mutation-test-parallel.sh
 

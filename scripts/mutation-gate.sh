@@ -114,7 +114,9 @@ case "$mode" in
       exit 2
     }
     budget="${MERC_MUTATION_WALLCLOCK_SECONDS:-14400}"
-    strategy=full
+    # Oracle whole-suite strategy (not the "full" tier, which uses adaptive).
+    # This is the independent serial reference against the contract path.
+    strategy=oracle
     default_workers=6
     ;;
 esac

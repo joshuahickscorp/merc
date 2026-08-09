@@ -11,11 +11,13 @@
 # Every mutation is reverted whether it is caught or not; the tree is restored
 # on any exit path. Filtered contract mutations that do not exercise persistence
 # can opt into the fast suite with MERC_MUTATION_UNIT_ONLY=1; the default remains
-# the database-backed suite. The parallel checkpoint runner uses the separately
-# audited `adaptive` strategy: the fast, database-free package suite runs first,
-# then any survivor must fail an explicit finite database contract in
-# scripts/mutation-test-contracts.json. A mutation still has to make a real test
-# fail; this only avoids re-running unrelated database integration tests.
+# the database-backed suite. The bare default strategy is `adaptive`: a contract-
+# observed path with a clean baseline. The whole-package serial campaign is the
+# `oracle` strategy (Bible §4.4); historical callers may still pass `full` or
+# `whole-suite`, which normalize to `oracle`. The oracle is the independent check
+# on the contract path — it must be sound, not absent. A mutant is never "caught"
+# because setup, timeout, resource exhaustion, unrelated red, or missing LFS
+# content caused failure (Bible §4.3–4.4).
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 
@@ -26,7 +28,9 @@ MERC_MUTATION_LIST="${MERC_MUTATION_LIST:-0}"
 MERC_MUTATION_LIST_DETAIL="${MERC_MUTATION_LIST_DETAIL:-0}"
 MERC_MUTATION_CASE_IDS="${MERC_MUTATION_CASE_IDS:-}"
 MERC_MUTATION_DB_PREFIX="${MERC_MUTATION_DB_PREFIX:-merc_mutation}"
-MERC_MUTATION_TEST_STRATEGY="${MERC_MUTATION_TEST_STRATEGY:-full}"
+# Safe bare default: contract-observed adaptive. The oracle whole-suite strategy
+# remains available via MERC_MUTATION_TEST_STRATEGY=oracle (or deep gate tier).
+MERC_MUTATION_TEST_STRATEGY="${MERC_MUTATION_TEST_STRATEGY:-adaptive}"
 MERC_MUTATION_DB_TEMPLATE="${MERC_MUTATION_DB_TEMPLATE:-}"
 MERC_MUTATION_TIMINGS_FILE="${MERC_MUTATION_TIMINGS_FILE:-}"
 MERC_MUTATION_GLOBAL_UNIT_PREFLIGHT="${MERC_MUTATION_GLOBAL_UNIT_PREFLIGHT:-0}"
@@ -37,16 +41,22 @@ BACKUP=""
 MUTATION_OBSERVATION=""
 MUTATION_PATHWAY=""
 
+# Canonical name is oracle. "full" and "whole-suite" are accepted aliases so
+# external callers keep working; the tier name "full" is unrelated (gate uses
+# adaptive for that tier).
 case "$MERC_MUTATION_TEST_STRATEGY" in
-  full|contracts|adaptive) ;;
+  full|whole-suite)
+    MERC_MUTATION_TEST_STRATEGY=oracle
+    ;;
+  oracle|contracts|adaptive) ;;
   *)
-    echo "MERC_MUTATION_TEST_STRATEGY must be full, contracts, or adaptive" >&2
+    echo "MERC_MUTATION_TEST_STRATEGY must be adaptive, contracts, or oracle (aliases: full, whole-suite)" >&2
     exit 2
     ;;
 esac
 
 if [ "$MERC_MUTATION_LIST" != "1" ]; then
-  if [ "$MERC_MUTATION_TEST_STRATEGY" != "full" ] && [ "$MERC_MUTATION_UNIT_ONLY" = "1" ]; then
+  if [ "$MERC_MUTATION_TEST_STRATEGY" != "oracle" ] && [ "$MERC_MUTATION_UNIT_ONLY" = "1" ]; then
     echo "MERC_MUTATION_UNIT_ONLY cannot be combined with a contract mutation strategy" >&2
     exit 2
   fi
@@ -160,6 +170,69 @@ observe_contract_log() {
   return 0
 }
 
+observe_suite_log() {
+  local log="$1" status="$2" mode="${3:-mutant}"
+  local -a arguments
+  arguments=(--log "$log" --exit-code "$status")
+  if [ "$mode" = "baseline" ]; then
+    arguments+=(--require-pass)
+  fi
+  if ! MUTATION_OBSERVATION="$(python3 scripts/mutation-suite-observer.py "${arguments[@]}")"; then
+    if [ "$mode" = "baseline" ]; then
+      echo "mutation-test: clean whole-suite oracle baseline is not green: $MUTATION_OBSERVATION" >&2
+    else
+      echo "mutation-test: whole-suite execution is infrastructure, not a mutation catch: $MUTATION_OBSERVATION" >&2
+    fi
+    cat "$log" >&2 || true
+    return 2
+  fi
+  case "$MUTATION_OBSERVATION" in
+    pass:*) return 0 ;;
+    caught:*)
+      if [ "$mode" = "baseline" ]; then
+        echo "mutation-test: clean whole-suite oracle baseline has failing tests: $MUTATION_OBSERVATION" >&2
+        cat "$log" >&2 || true
+        return 2
+      fi
+      return 10
+      ;;
+    *)
+      echo "mutation-test: unexpected whole-suite observation: $MUTATION_OBSERVATION" >&2
+      cat "$log" >&2 || true
+      return 2
+      ;;
+  esac
+}
+
+run_oracle_suite_tests() {
+  local label="$1" log status mode="mutant"
+  if [ "$label" = "baseline" ]; then
+    mode="baseline"
+  fi
+  if [ "$MERC_MUTATION_UNIT_ONLY" = "1" ]; then
+    log="${BACKUP:-${TMPDIR:-/tmp}}/mutation-oracle-${label}-unit.json"
+    (
+      cd "$CONTROL" &&
+        env -u MERC_TEST_DATABASE_URL MERC_ALLOW_SKIPPING_DB_TESTS=1 \
+          go test -json -count=1 -timeout=2m ./...
+    ) >"$log" 2>&1
+    status=$?
+    observe_suite_log "$log" "$status" "$mode"
+    return $?
+  fi
+  log="${BACKUP:-${TMPDIR:-/tmp}}/mutation-oracle-${label}-db.json"
+  # Oracle scores the whole package suite, not a contract selector. The clean
+  # baseline and every mutant run this exact command so a red tree cannot be
+  # mistaken for a catch, and timeouts/setup faults stay infrastructure.
+  MERC_ISOLATED_TEST_DB_PREFIX="$MERC_MUTATION_DB_PREFIX" \
+    MERC_ISOLATED_TEST_DB_TEMPLATE="$MERC_MUTATION_DB_TEMPLATE" \
+    bash scripts/with-isolated-test-db.sh \
+    bash -c 'cd "$1" && go test -json -count=1 ./...' _ "$CONTROL" \
+    >"$log" 2>&1
+  status=$?
+  observe_suite_log "$log" "$status" "$mode"
+}
+
 run_unit_contract_tests() {
   local source="$1" label="$2" selector log status completion_requirement=""
   if [ "$label" = "baseline" ]; then
@@ -213,7 +286,7 @@ run_contract_tests() {
 }
 
 run_mutation_tests() {
-  local source="$1"
+  local source="$1" suite_status
   case "$MERC_MUTATION_TEST_STRATEGY" in
     contracts)
       run_contract_tests "$source"
@@ -244,30 +317,21 @@ run_mutation_tests() {
           ;;
       esac
       ;;
+    oracle)
+      # Whole-package oracle. Exit code alone is never enough: only a real test
+      # failure is caught; timeout/setup/LFS/harness faults are infrastructure.
+      run_oracle_suite_tests "mutant"
+      suite_status=$?
+      if [ "$MERC_MUTATION_UNIT_ONLY" = "1" ]; then
+        MUTATION_PATHWAY="UNIT_ORACLE"
+      else
+        MUTATION_PATHWAY="ORACLE"
+      fi
+      return "$suite_status"
+      ;;
   esac
-  if [ "$MERC_MUTATION_UNIT_ONLY" = "1" ]; then
-    if run_unit_tests; then
-      MUTATION_PATHWAY="UNIT_FULL"
-      return 0
-    fi
-    MUTATION_PATHWAY="UNIT_FULL"
-    return 10
-  else
-    # Every injected defect gets a clean database. Several money-path tests
-    # correctly query platform-wide state; reusing one database across mutants
-    # lets fixture residue hide a new row behind a LIMIT and makes a mutation
-    # result describe the previous mutant's database rather than this source.
-    MERC_ISOLATED_TEST_DB_PREFIX="$MERC_MUTATION_DB_PREFIX" \
-      MERC_ISOLATED_TEST_DB_TEMPLATE="$MERC_MUTATION_DB_TEMPLATE" \
-      bash scripts/with-isolated-test-db.sh \
-      bash -c 'cd "$1" && go test -count=1 ./... >/dev/null 2>&1' _ "$CONTROL"
-    if [ "$?" -eq 0 ]; then
-      MUTATION_PATHWAY="FULL"
-      return 0
-    fi
-    MUTATION_PATHWAY="FULL"
-    return 10
-  fi
+  echo "mutation-test: unhandled strategy $MERC_MUTATION_TEST_STRATEGY" >&2
+  return 2
 }
 
 selected_mutation_sources() {
@@ -294,7 +358,14 @@ selected_mutation_sources() {
 preflight_mutation_strategy() {
   local source sources_file
   case "$MERC_MUTATION_TEST_STRATEGY" in
-    full)
+    oracle)
+      # A campaign that cannot establish a green whole-suite baseline has no
+      # verdict. Refuse before any mutant is scored; do not treat baseline red
+      # as expected and do not let it inflate the caught count.
+      if ! run_oracle_suite_tests "baseline"; then
+        echo "mutation-test: refusing to score mutants without a green oracle baseline" >&2
+        return 1
+      fi
       return 0
       ;;
     adaptive)
@@ -603,9 +674,9 @@ for case_index in "${MUTATION_CASE_ORDER[@]}"; do
           result="caught"
           ;;
         *)
-          printf '%-58s %s\n' "$desc" "INFRASTRUCTURE (contract did not prove a legitimate catch)"
+          printf '%-58s %s\n' "$desc" "INFRASTRUCTURE (run did not prove a legitimate catch)"
           infrastructure=$((infrastructure+1))
-          INFRASTRUCTURE+=("$desc — contract execution failed closed")
+          INFRASTRUCTURE+=("$desc — suite/contract execution failed closed")
           result="infrastructure"
           ;;
       esac
