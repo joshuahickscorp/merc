@@ -230,20 +230,17 @@ func installTestOnlyCombinedTokenAuthority(t *testing.T) {
 	runtimeAuthority = edited
 	benchmarkAuthorityManifest[installedPath] = synthetic
 	// Activation caches resolved profiles and advertised/directed projections.
-	// Repointing the authority document alone is order-dependent: if any earlier
-	// fixture initialized currentActivation, admission keeps the stale production
-	// projection and never sees this TEST_ONLY cell. Rebuild the same lifecycle
-	// epoch against the synthetic document and restore the exact prior pointer.
+	// Repointing the authority document alone is order-dependent: Store startup
+	// honestly quarantines the checked-in zero-lane document, and preserving that
+	// overlay would keep this explicitly synthetic success fixture quarantined as
+	// well. Give the TEST_ONLY document an empty lifecycle overlay at the same
+	// revision, then restore the exact prior pointer at cleanup. Production-path
+	// quarantine tests never call this helper.
 	if savedActivation == nil {
 		activeRuntimeActivation.Store(documentActivation())
 	} else {
-		overlay := make(map[string]string, len(savedActivation.lifecycle))
-		for key, value := range savedActivation.lifecycle {
-			overlay[key] = value
-		}
 		activeRuntimeActivation.Store(newRuntimeActivation(
-			savedActivation.PolicyRevision, overlay,
-			append([]string(nil), savedActivation.Stale...)))
+			savedActivation.PolicyRevision, map[string]string{}, nil))
 	}
 	t.Cleanup(func() {
 		runtimeAuthority = savedAuthority
@@ -276,7 +273,16 @@ func testOnlyCombinedTokenSubmit(t *testing.T) jobSubmit {
 
 func TestTestOnlyCombinedTokenAuthorityRefreshesInitializedActivation(t *testing.T) {
 	// Reproduce the suite/DB order that exposed the stale projection: production
-	// activation is initialized before the test seam installs its receipt.
+	// activation is initialized and honestly quarantines the unbindable checked-in
+	// cell before the test seam installs its synthetic replacement.
+	previous := activeRuntimeActivation.Load()
+	initialized := currentActivation()
+	activeRuntimeActivation.Store(newRuntimeActivation(
+		initialized.PolicyRevision,
+		map[string]string{
+			activationKey("candle_metal", "candle-metal-llama1-infer"): runtimeLifecycleQuarantined,
+		}, nil))
+	t.Cleanup(func() { activeRuntimeActivation.Store(previous) })
 	before := currentActivation()
 	installTestOnlyCombinedTokenAuthority(t)
 	after := currentActivation()
