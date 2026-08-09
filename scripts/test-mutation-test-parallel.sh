@@ -84,6 +84,8 @@ rg --fixed-strings 'pg_restore --host=127.0.0.1' scripts/mutation-test-parallel.
 rg --fixed-strings 'prepare_seed_template' scripts/mutation-test-parallel.sh >/dev/null
 rg --fixed-strings 'restore_template_snapshot' scripts/mutation-test-parallel.sh >/dev/null
 rg --fixed-strings 'candidate_baseline_pid' scripts/mutation-test-parallel.sh >/dev/null
+rg --fixed-strings 'cd "${worktrees[0]}/control"' scripts/mutation-test-parallel.sh >/dev/null
+rg --fixed-strings 'git -C "$worktree" lfs checkout' scripts/mutation-test-parallel.sh >/dev/null
 rg --fixed-strings 'mutation-preflight-cache.py' scripts/mutation-test-parallel.sh >/dev/null
 rg --fixed-strings 'MERC_MUTATION_PREFLIGHT_CACHE' scripts/mutation-test-parallel.sh >/dev/null
 rg --fixed-strings 'preflight-db.json' scripts/mutation-test-parallel.sh >/dev/null

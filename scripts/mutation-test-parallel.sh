@@ -389,16 +389,11 @@ trap on_signal INT TERM
 
 print_plan
 
-# The independent LFS proof and candidate-level unit baseline have no mutable
-# shared state with disposable worktree/cluster creation. Start both now so
-# their required work overlaps setup rather than extending the critical path.
-# We still wait for both before a worker can exercise one mutation.
-(
-  cd "$ROOT/control" &&
-    env -u MERC_TEST_DATABASE_URL MERC_ALLOW_SKIPPING_DB_TESTS=1 \
-      go test -count=1 -timeout=2m ./...
-) >"$run_root/candidate-unit-baseline.log" 2>&1 &
-candidate_baseline_pid="$!"
+# The independent LFS proof has no mutable shared state with disposable
+# worktree/cluster creation, so start it immediately. The candidate-level unit
+# baseline starts from the first hydrated disposable worktree below. A clean
+# frozen candidate may intentionally contain canonical LFS pointers, and a
+# unit baseline must never mistake those pointers for the receipt payloads.
 python3 scripts/verify-lfs-corpus.py --root "$ROOT" >"$run_root/candidate-lfs-verify.log" 2>&1 &
 lfs_verify_pid="$!"
 
@@ -431,6 +426,16 @@ for ((worker = 1; worker <= workers; worker++)); do
     fi
   done < <(git -C "$worktree" lfs ls-files -n)
 done
+
+# Run the clean unit baseline against exact candidate source plus hydrated LFS
+# payloads, without changing the frozen candidate worktree. This still overlaps
+# isolated-cluster setup and therefore stays off the mutation critical path.
+(
+  cd "${worktrees[0]}/control" &&
+    env -u MERC_TEST_DATABASE_URL MERC_ALLOW_SKIPPING_DB_TESTS=1 \
+      go test -count=1 -timeout=2m ./...
+) >"$run_root/candidate-unit-baseline.log" 2>&1 &
+candidate_baseline_pid="$!"
 
 for ((worker = 1; worker <= workers; worker++)); do
   cluster="$run_root/postgres-$worker"
