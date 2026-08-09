@@ -29,8 +29,8 @@
     }
   },
   "expected": {
-    "tracked_pointer_files": 88,
-    "unique_payload_oids": 73,
+    "tracked_pointer_files": 89,
+    "unique_payload_oids": 74,
     "missing_objects": 0,
     "corrupt_objects": 0,
     "resolved_payload_mismatches": 0
