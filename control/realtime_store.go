@@ -18,6 +18,10 @@ var (
 	errRealtimeIdempotencyConflict = errors.New("idempotency key was already used for a different realtime request")
 	errRealtimeAlreadyFinalized    = errors.New("realtime contract is already finalized")
 	errRealtimeInsufficientFunds   = errors.New("insufficient authorized balance for the maximum request price")
+	// errRealtimeFreeCreditCurrencyMismatch separates "you are empty" from "you
+	// hold credit this deployment cannot spend". Both refuse; only one is fixed
+	// by topping up. No conversion is implied — free credit stays micro-USD.
+	errRealtimeFreeCreditCurrencyMismatch = errors.New("free credit currency does not match the settlement currency")
 	// errRealtimeTopupRequired is returned when a saved card is present but the
 	// buyer lacks free credit + prepaid balance to cover the contract ceiling.
 	// A card is a top-up rail, not authorization funding; the buyer must top up
@@ -79,6 +83,7 @@ func evaluateRealtimeBuyerFunding(ctx context.Context, tx pgx.Tx, buyerID uuid.U
 		"realtime-buyer-funding|"+buyerID.String())
 	batch.Queue(`
 		SELECT CASE WHEN $2='usd' THEN b.free_credit_usd::float8 ELSE 0::float8 END,
+		       b.free_credit_usd::float8,
 		       EXISTS(SELECT 1 FROM billing_customers bc
 		               WHERE bc.buyer_id=b.id AND COALESCE(bc.default_payment_method,'')<>''),
 		       COALESCE((SELECT balance_micros FROM buyer_prepaid_balances bp
@@ -123,11 +128,11 @@ func evaluateRealtimeBuyerFunding(ctx context.Context, tx pgx.Tx, buyerID uuid.U
 		return err
 	}
 	var (
-		freeCredit, spent, prepaidDebited, batchReserved, realtimeReserved float64
-		prepaidMicros, envelopeRemainingMicros                             int64
-		hasPaymentMethod                                                   bool
+		freeCredit, freeCreditUSDRaw, spent, prepaidDebited, batchReserved, realtimeReserved float64
+		prepaidMicros, envelopeRemainingMicros                                               int64
+		hasPaymentMethod                                                                     bool
 	)
-	err := br.QueryRow().Scan(&freeCredit, &hasPaymentMethod, &prepaidMicros, &spent, &prepaidDebited,
+	err := br.QueryRow().Scan(&freeCredit, &freeCreditUSDRaw, &hasPaymentMethod, &prepaidMicros, &spent, &prepaidDebited,
 		&batchReserved, &realtimeReserved, &envelopeRemainingMicros)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return errNotFound
@@ -147,6 +152,16 @@ func evaluateRealtimeBuyerFunding(ctx context.Context, tx pgx.Tx, buyerID uuid.U
 		envelopeRemainingMicros
 	if availableMicros >= needMicros {
 		return nil
+	}
+	// Free credit is frozen as micro-USD and is deliberately not converted, so on
+	// a non-USD deployment it contributes nothing. Saying only "insufficient
+	// authorized balance" to a buyer who is in fact holding credit sends them to
+	// top up money they already have. Name the mismatch instead; still refuse,
+	// and still convert nothing.
+	if currency != "usd" && freeCreditUSDRaw > 0 &&
+		availableMicros+usdToMicros(freeCreditUSDRaw) >= needMicros {
+		return fmt.Errorf("%w: free credit is denominated in usd and cannot fund %s settlement",
+			errRealtimeFreeCreditCurrencyMismatch, currency)
 	}
 	if hasPaymentMethod {
 		return errRealtimeTopupRequired

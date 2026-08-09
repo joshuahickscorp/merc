@@ -215,11 +215,25 @@ func LoadCostScheduleFromEnv(fx CostFXAuthority) (CostSchedule, error) {
 }
 
 func validateCostFXAuthority(fx CostFXAuthority, settlement Currency) error {
-	if !settlement.Valid() || fx.Version != costFXAuthorityVersion ||
-		fx.ReferenceCurrency != costReferenceCurrency ||
-		fx.SettlementCurrency != settlement.Code() ||
-		fx.RoundingPolicy != costFXRoundingPolicy {
-		return errors.New("cost FX authority has unsupported version, currency pair, or rounding policy")
+	if !settlement.Valid() {
+		return errors.New("cost FX authority requires a valid process settlement currency")
+	}
+	// A currency disagreement is the one failure here an operator can actually
+	// cause by configuration, so it says which two currencies disagree instead
+	// of being folded into the version/policy message. Reading "unsupported
+	// version" while the real fault was a USD decision under a CAD deployment
+	// sends the reader to the wrong place entirely.
+	if fx.SettlementCurrency != settlement.Code() {
+		return fmt.Errorf(
+			"cost FX authority settles in %q but this process settles in %q",
+			fx.SettlementCurrency, settlement.Code())
+	}
+	if fx.ReferenceCurrency != costReferenceCurrency {
+		return fmt.Errorf("cost FX authority references %q, not the governed reference currency %q",
+			fx.ReferenceCurrency, costReferenceCurrency)
+	}
+	if fx.Version != costFXAuthorityVersion || fx.RoundingPolicy != costFXRoundingPolicy {
+		return errors.New("cost FX authority has unsupported version or rounding policy")
 	}
 	if !finiteNonNegative(fx.ReferenceToSettlementRate) ||
 		fx.ReferenceToSettlementRate <= 0 || fx.ReferenceToSettlementNanos <= 0 {

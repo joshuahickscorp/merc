@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -115,8 +116,18 @@ func TestFreeCreditUSDDoesNotFundCADRealtime(t *testing.T) {
 	must(t, err)
 	err = evaluateRealtimeBuyerFunding(ctx, tx, buyerID, 1)
 	_ = tx.Rollback(ctx)
-	if !errors.Is(err, errRealtimeInsufficientFunds) {
-		t.Fatalf("CAD realtime funding from free_credit_usd err=%v, want insufficient funds", err)
+	// Still a refusal, but a buyer holding 100 USD of credit under CAD settlement
+	// is not empty, and telling them to top up would send them to buy money they
+	// already hold. The refusal names the mismatch and stays distinct from the
+	// generic empty-balance case.
+	if !errors.Is(err, errRealtimeFreeCreditCurrencyMismatch) {
+		t.Fatalf("CAD realtime funding from free_credit_usd err=%v, want free-credit currency mismatch", err)
+	}
+	if errors.Is(err, errRealtimeInsufficientFunds) || errors.Is(err, errRealtimeTopupRequired) {
+		t.Fatalf("currency mismatch collapsed into an empty-balance or top-up refusal: %v", err)
+	}
+	if !strings.Contains(err.Error(), "cad") || !strings.Contains(err.Error(), "usd") {
+		t.Fatalf("refusal does not name both currencies: %v", err)
 	}
 
 	must(t, store.SeedPrepaidBalance(ctx, buyerID, 2_000_000, "cad-cash-"+uuid.NewString()))
