@@ -3,9 +3,13 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"sort"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 )
 
 // Shadow runtime selection: what a selector WOULD have chosen, recorded beside
@@ -526,10 +530,20 @@ func chooseShadowCell(considered []shadowCandidate, routed string) string {
 	return best
 }
 
+// recordShadowSelectionFailHook forces RecordShadowSelection to fail before
+// writing. Production leaves it nil. Tests inject a failure to prove a missed
+// post-commit shadow write cannot tear the accepted chain.
+var recordShadowSelectionFailHook func() error
+
 // RecordShadowSelection persists one decision. Called AFTER the job has been
 // committed, and its error is for the caller to log and drop: a selector that
 // could refuse a submit would be a router.
 func (s *Store) RecordShadowSelection(ctx context.Context, jobID string, sel ShadowSelection) error {
+	if recordShadowSelectionFailHook != nil {
+		if err := recordShadowSelectionFailHook(); err != nil {
+			return err
+		}
+	}
 	considered, err := json.Marshal(sel.Considered)
 	if err != nil {
 		return err
@@ -559,6 +573,137 @@ func (s *Store) RecordShadowSelection(ctx context.Context, jobID string, sel Sha
 		sel.SupplierLiabilityHardwareIdentity, sel.EconomicsRefusal,
 		sel.ExecutionMode, sel.ExecutionModeReason, string(topology))
 	return err
+}
+
+// Post-commit shadow observation. Shadow is deliberately outside the accept
+// transaction (api.go createJob). These statuses make presence explicit so a
+// missing observational write is never read as "shadow ran" by silence.
+const (
+	shadowObservationPresent = "PRESENT"
+	shadowObservationAbsent  = "ABSENT"
+)
+
+// AcceptedBatchChainObservation is the post-accept read of chain coherence and
+// shadow presence. It never promotes shadow to accept authority and never
+// invents digests. ChainCoherent means the sealed EvidenceEnvelope validates
+// and its BOUND links match the jobs.*_sha256 columns written in SubmitJobTx.
+type AcceptedBatchChainObservation struct {
+	JobID                  string `json:"job_id"`
+	EvidenceEnvelopeSHA256 string `json:"evidence_envelope_sha256"`
+	EnvelopeValid          bool   `json:"envelope_valid"`
+	BoundDigestsMatch      bool   `json:"bound_digests_match"`
+	// ChainCoherent is true only when the accept-time envelope is valid and
+	// every BOUND link matches the corresponding jobs column.
+	ChainCoherent bool `json:"chain_coherent"`
+	// ShadowStatus is PRESENT when a runtime_shadow_selections row exists,
+	// ABSENT otherwise. ABSENT is never silent: ShadowAbsentReason names why.
+	ShadowStatus         string `json:"shadow_status"`
+	ShadowAbsentReason   string `json:"shadow_absent_reason,omitempty"`
+	ShadowCellID         string `json:"shadow_cell_id,omitempty"`
+	ShadowSelectionBasis string `json:"shadow_selection_basis,omitempty"`
+}
+
+// ObserveAcceptedBatchChain reports whether the accepted decision chain is still
+// coherent after the post-commit shadow attempt, and whether that shadow row is
+// present. A failed or skipped shadow write must leave ChainCoherent true and
+// ShadowStatus ABSENT — never a half-implied present selection.
+func (s *Store) ObserveAcceptedBatchChain(ctx context.Context, jobID uuid.UUID) (AcceptedBatchChainObservation, error) {
+	out := AcceptedBatchChainObservation{
+		JobID:        jobID.String(),
+		ShadowStatus: shadowObservationAbsent,
+		ShadowAbsentReason: "no runtime_shadow_selections row; post-commit " +
+			"observational shadow write did not land or was never attempted",
+	}
+	var (
+		envelopeSHA, requestSHA, workloadSHA, placementSHA, pricingSHA, topologySHA string
+	)
+	err := s.pool.QueryRow(ctx, `
+		SELECT COALESCE(evidence_envelope_sha256,''),
+		       COALESCE(submit_request_sha256,''),
+		       COALESCE(workload_decision_sha256,''),
+		       COALESCE(placement_requirement_sha256,''),
+		       COALESCE(pricing_decision_sha256,''),
+		       COALESCE(topology_decision_sha256,'')
+		  FROM jobs WHERE id=$1`, jobID).
+		Scan(&envelopeSHA, &requestSHA, &workloadSHA, &placementSHA, &pricingSHA, &topologySHA)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return AcceptedBatchChainObservation{}, errNotFound
+	}
+	if err != nil {
+		return AcceptedBatchChainObservation{}, err
+	}
+	out.EvidenceEnvelopeSHA256 = envelopeSHA
+
+	env, err := s.loadEvidenceEnvelope(ctx, EnvelopeLaneBatch, jobID)
+	if err != nil {
+		// Accept wrote jobs.evidence_envelope_sha256 only inside the same TX as
+		// the envelope row. A missing/invalid envelope with a job present is a
+		// real tear — report incoherent rather than inventing links.
+		out.EnvelopeValid = false
+		out.BoundDigestsMatch = false
+		out.ChainCoherent = false
+	} else {
+		out.EnvelopeValid = ValidateEvidenceEnvelope(*env) == nil &&
+			env.EnvelopeSHA256 == envelopeSHA
+		out.BoundDigestsMatch = envelopeBoundDigestsMatchJobColumns(*env, requestSHA,
+			workloadSHA, placementSHA, pricingSHA, topologySHA)
+		out.ChainCoherent = out.EnvelopeValid && out.BoundDigestsMatch
+	}
+
+	var shadowCell, basis string
+	err = s.pool.QueryRow(ctx, `
+		SELECT shadow_cell_id, COALESCE(NULLIF(selection_basis_v3,''), selection_basis)
+		  FROM runtime_shadow_selections WHERE job_id=$1`, jobID).
+		Scan(&shadowCell, &basis)
+	switch {
+	case err == nil:
+		out.ShadowStatus = shadowObservationPresent
+		out.ShadowAbsentReason = ""
+		out.ShadowCellID = shadowCell
+		out.ShadowSelectionBasis = basis
+	case errors.Is(err, pgx.ErrNoRows):
+		// ABSENT already set with reason above.
+	default:
+		return AcceptedBatchChainObservation{}, err
+	}
+	return out, nil
+}
+
+// envelopeBoundDigestsMatchJobColumns requires every BOUND accept-time link to
+// equal the jobs column it cites. ABSENT/PENDING links are not compared.
+func envelopeBoundDigestsMatchJobColumns(
+	env EvidenceEnvelope,
+	requestSHA, workloadSHA, placementSHA, pricingSHA, topologySHA string,
+) bool {
+	want := map[string]string{
+		EnvelopeLinkRequest:   requestSHA,
+		EnvelopeLinkWorkload:  workloadSHA,
+		EnvelopeLinkPlacement: placementSHA,
+		EnvelopeLinkPricing:   pricingSHA,
+		EnvelopeLinkTopology:  topologySHA,
+	}
+	for _, link := range env.Links {
+		col, ok := want[link.Kind]
+		if !ok {
+			continue
+		}
+		if link.Status != EnvelopeLinkBound {
+			// Request may be PENDING when submit_request_sha256 was empty at
+			// accept; that is coherent as long as the jobs column is also empty.
+			if link.Status == EnvelopeLinkPending && col == "" {
+				continue
+			}
+			// Topology/workload/placement/pricing are required BOUND at accept.
+			if link.Kind != EnvelopeLinkRequest {
+				return false
+			}
+			continue
+		}
+		if link.Digest != col {
+			return false
+		}
+	}
+	return true
 }
 
 // ShadowSelectionDivergence is the read side: how often the shadow disagreed.

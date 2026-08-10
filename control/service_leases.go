@@ -134,20 +134,28 @@ type ServiceLease struct {
 }
 
 type ServiceLeaseReceipt struct {
-	Lease                     ServiceLease                      `json:"lease"`
-	BuyerFundingState         string                            `json:"buyer_funding_state"`
-	SupplierSettlementState   string                            `json:"supplier_settlement_state"`
-	TrueNetContributionStatus string                            `json:"true_net_contribution_status"`
-	DataPlaneAuthorityStatus  string                            `json:"data_plane_authority_status"`
-	ResidencyAuthorityStatus  string                            `json:"residency_authority_status"`
-	EgressAuthorityStatus     string                            `json:"egress_authority_status"`
-	ReserveRefundStatus       string                            `json:"reserve_refund_status"`
-	ReceiptBlockers           []string                          `json:"receipt_blockers"`
-	MeteringSemantics         string                            `json:"metering_semantics"`
-	MarketClearing            *serviceLeaseMarketClearingDetail `json:"market_clearing,omitempty"`
-	Settlement                *ServiceLeaseSettlement           `json:"settlement,omitempty"`
-	LatestSLOEvidence         *ServiceLeaseSLOEvidence          `json:"latest_slo_evidence,omitempty"`
-	DataPlaneDiagnostics      *ServiceLeaseDataPlaneDiagnostics `json:"data_plane_diagnostics,omitempty"`
+	Lease                     ServiceLease `json:"lease"`
+	BuyerFundingState         string       `json:"buyer_funding_state"`
+	SupplierSettlementState   string       `json:"supplier_settlement_state"`
+	TrueNetContributionStatus string       `json:"true_net_contribution_status"`
+	// MoneyFinalityStatus / EconomicFinalityStatus / EconomicFinal / FinalityBlockers
+	// make lease terminal-money vs true-net finality explicit at the receipt root
+	// (not only nested under Settlement). Unresolved blockers always keep
+	// EconomicFinal false.
+	MoneyFinalityStatus      string                            `json:"money_finality_status,omitempty"`
+	EconomicFinalityStatus   string                            `json:"economic_finality_status,omitempty"`
+	EconomicFinal            bool                              `json:"economic_final"`
+	FinalityBlockers         []string                          `json:"finality_blockers,omitempty"`
+	DataPlaneAuthorityStatus string                            `json:"data_plane_authority_status"`
+	ResidencyAuthorityStatus string                            `json:"residency_authority_status"`
+	EgressAuthorityStatus    string                            `json:"egress_authority_status"`
+	ReserveRefundStatus      string                            `json:"reserve_refund_status"`
+	ReceiptBlockers          []string                          `json:"receipt_blockers"`
+	MeteringSemantics        string                            `json:"metering_semantics"`
+	MarketClearing           *serviceLeaseMarketClearingDetail `json:"market_clearing,omitempty"`
+	Settlement               *ServiceLeaseSettlement           `json:"settlement,omitempty"`
+	LatestSLOEvidence        *ServiceLeaseSLOEvidence          `json:"latest_slo_evidence,omitempty"`
+	DataPlaneDiagnostics     *ServiceLeaseDataPlaneDiagnostics `json:"data_plane_diagnostics,omitempty"`
 }
 
 // ServiceLeaseDataPlaneDiagnostics is a prompt-free aggregate of application
@@ -1185,13 +1193,20 @@ func (s *Store) GetServiceLeaseReceipt(ctx context.Context, buyerID, leaseID uui
 		reserveRefundStatus = "LEGACY_MODELED_RESERVE_CHARGED_WITHOUT_LIFECYCLE_OR_GOVERNED_REFUND"
 	}
 	blockers := serviceLeaseEconomicFinalityBlockers()
+	// Receipt-root finality is always explicit: unresolved blockers keep
+	// EconomicFinal false. MoneyFinalityStatus is filled only when a terminal
+	// settlement exists (below); open leases are not labelled money-terminal.
 	receipt := ServiceLeaseReceipt{Lease: lease, BuyerFundingState: buyerFundingState, SupplierSettlementState: supplierSettlementState,
-		TrueNetContributionStatus: "UNKNOWN_ECONOMIC_FINALITY_BLOCKERS", DataPlaneAuthorityStatus: "WORKER_ATTESTED_PROBE_NOT_BUYER_REQUEST",
-		ResidencyAuthorityStatus: residencyStatus,
-		EgressAuthorityStatus:    "APPLICATION_BYTES_DIAGNOSTIC_ONLY_PROVIDER_BILLING_UNKNOWN",
-		ReserveRefundStatus:      reserveRefundStatus,
-		ReceiptBlockers:          blockers,
-		MeteringSemantics:        "cumulative replica-nanoseconds; each receipt is re-derived from lease start"}
+		TrueNetContributionStatus: "UNKNOWN_ECONOMIC_FINALITY_BLOCKERS",
+		EconomicFinalityStatus:    "UNKNOWN_ECONOMIC_FINALITY_BLOCKERS",
+		EconomicFinal:             false,
+		FinalityBlockers:          append([]string(nil), blockers...),
+		DataPlaneAuthorityStatus:  "WORKER_ATTESTED_PROBE_NOT_BUYER_REQUEST",
+		ResidencyAuthorityStatus:  residencyStatus,
+		EgressAuthorityStatus:     "APPLICATION_BYTES_DIAGNOSTIC_ONLY_PROVIDER_BILLING_UNKNOWN",
+		ReserveRefundStatus:       reserveRefundStatus,
+		ReceiptBlockers:           blockers,
+		MeteringSemantics:         "cumulative replica-nanoseconds; each receipt is re-derived from lease start"}
 	var activationRaw []byte
 	err = s.pool.QueryRow(ctx, `SELECT detail FROM service_lease_events
 		WHERE lease_id=$1 AND kind='ACTIVATED' ORDER BY created_at,id LIMIT 1`, lease.ID).Scan(&activationRaw)
@@ -1223,6 +1238,14 @@ func (s *Store) GetServiceLeaseReceipt(ctx context.Context, buyerID, leaseID uui
 			}
 		} else {
 			receipt.Settlement = settlement
+			// Promote nested settlement finality to the receipt root so a reader
+			// does not have to dig under Settlement to learn whether the lane is final.
+			receipt.MoneyFinalityStatus = settlement.MoneyFinalityStatus
+			receipt.EconomicFinalityStatus = settlement.EconomicFinalityStatus
+			receipt.EconomicFinal = settlement.EconomicFinal
+			if len(settlement.FinalityBlockers) > 0 {
+				receipt.FinalityBlockers = append([]string(nil), settlement.FinalityBlockers...)
+			}
 			receipt.BuyerFundingState = "PREPAID_FINAL_DEBIT_RECORDED"
 			if settlement.FundingAuthorityState == "PREPAID_CASH_ALLOCATED_TO_SUPPLIER_LIABILITIES" {
 				switch settlement.SupplierPayoutStatus {

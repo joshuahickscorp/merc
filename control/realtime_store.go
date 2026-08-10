@@ -2660,23 +2660,30 @@ type RealtimeReceipt struct {
 	NetSupplierPayableUSD     float64 `json:"net_supplier_payable_usd,omitempty"`
 	// NetPlatformGrossSpreadUSD is the same gross row less buyer refunds. "Net"
 	// here means net of refunds only -- never net of Merc's costs.
-	NetPlatformGrossSpreadAmount float64    `json:"net_platform_gross_spread_amount,omitempty"`
-	NetPlatformGrossSpreadUSD    float64    `json:"net_platform_gross_spread_usd,omitempty"`
-	SettlementCurrency           string     `json:"settlement_currency,omitempty"`
-	BuyerChargeNanos             int64      `json:"buyer_charge_nanos,omitempty"`
-	SupplierPayableNanos         int64      `json:"supplier_payable_nanos,omitempty"`
-	KnownCostContributionNanos   int64      `json:"known_cost_contribution_nanos,omitempty"`
-	SupplierPayoutState          string     `json:"supplier_payout_state"`
-	SupplierLedgerState          string     `json:"supplier_ledger_state,omitempty"`
-	RefundMode                   string     `json:"refund_mode,omitempty"`
-	RefundReasonCode             string     `json:"refund_reason_code,omitempty"`
-	RefundReason                 string     `json:"refund_reason,omitempty"`
-	RefundCorrelationRef         string     `json:"refund_correlation_ref,omitempty"`
-	InternalCreditState          string     `json:"internal_credit_state,omitempty"`
-	ExternalCashState            string     `json:"external_cash_state,omitempty"`
-	FailureCode                  string     `json:"failure_code,omitempty"`
-	CreatedAt                    time.Time  `json:"created_at"`
-	FinalizedAt                  *time.Time `json:"finalized_at,omitempty"`
+	NetPlatformGrossSpreadAmount float64 `json:"net_platform_gross_spread_amount,omitempty"`
+	NetPlatformGrossSpreadUSD    float64 `json:"net_platform_gross_spread_usd,omitempty"`
+	SettlementCurrency           string  `json:"settlement_currency,omitempty"`
+	BuyerChargeNanos             int64   `json:"buyer_charge_nanos,omitempty"`
+	SupplierPayableNanos         int64   `json:"supplier_payable_nanos,omitempty"`
+	KnownCostContributionNanos   int64   `json:"known_cost_contribution_nanos,omitempty"`
+	// FinalityStatus / FinalityBlockers / EconomicFinal make realtime terminal
+	// money explicit. Known-cost settle is not batch ECONOMIC_FINAL / true-net.
+	// Absence of these fields is not "final by silence" — loaders fill the
+	// honest known-cost label when a settlement exists without stored columns.
+	FinalityStatus       string     `json:"finality_status,omitempty"`
+	FinalityBlockers     []string   `json:"finality_blockers,omitempty"`
+	EconomicFinal        bool       `json:"economic_final"`
+	SupplierPayoutState  string     `json:"supplier_payout_state"`
+	SupplierLedgerState  string     `json:"supplier_ledger_state,omitempty"`
+	RefundMode           string     `json:"refund_mode,omitempty"`
+	RefundReasonCode     string     `json:"refund_reason_code,omitempty"`
+	RefundReason         string     `json:"refund_reason,omitempty"`
+	RefundCorrelationRef string     `json:"refund_correlation_ref,omitempty"`
+	InternalCreditState  string     `json:"internal_credit_state,omitempty"`
+	ExternalCashState    string     `json:"external_cash_state,omitempty"`
+	FailureCode          string     `json:"failure_code,omitempty"`
+	CreatedAt            time.Time  `json:"created_at"`
+	FinalizedAt          *time.Time `json:"finalized_at,omitempty"`
 }
 
 // RealtimeCoalescingReceipt makes the physical source of an in-flight follower
@@ -2749,6 +2756,8 @@ func (s *Store) RealtimeReceipt(ctx context.Context, buyerID, contractID uuid.UU
 	if contractErr != nil {
 		return RealtimeReceipt{}, contractErr
 	}
+	var finalityStatus string
+	var finalityBlockersJSON []byte
 	err := s.pool.QueryRow(ctx, `
 		SELECT c.id::text,c.request_id,c.state,c.model_alias,c.runtime_profile_id,
 		       c.runtime_profile_sha256,c.placement_plan,c.placement_plan_sha256,
@@ -2769,7 +2778,8 @@ func (s *Store) RealtimeReceipt(ctx context.Context, buyerID, contractID uuid.UU
 		       CASE WHEN c.pricing_decision IS NULL AND s.currency IS NULL
 		            THEN '' ELSE c.currency END,
 		       COALESCE(s.buyer_charge_nanos,0),COALESCE(s.supplier_gross_nanos,0),
-		       COALESCE(s.known_cost_contribution_nanos,0)
+		       COALESCE(s.known_cost_contribution_nanos,0),
+		       COALESCE(s.finality_status,''),s.finality_blockers
 		  FROM execution_contracts c
 		  LEFT JOIN realtime_executions e ON e.contract_id=c.id
 		  LEFT JOIN realtime_settlements s ON s.contract_id=c.id
@@ -2807,7 +2817,8 @@ func (s *Store) RealtimeReceipt(ctx context.Context, buyerID, contractID uuid.UU
 		&receipt.SupplierLedgerState, &receipt.RefundMode, &receipt.RefundReasonCode,
 		&receipt.RefundReason, &receipt.RefundCorrelationRef, &receipt.InternalCreditState,
 		&receipt.ExternalCashState, &receipt.SettlementCurrency, &receipt.BuyerChargeNanos,
-		&receipt.SupplierPayableNanos, &receipt.KnownCostContributionNanos)
+		&receipt.SupplierPayableNanos, &receipt.KnownCostContributionNanos,
+		&finalityStatus, &finalityBlockersJSON)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return RealtimeReceipt{}, errNotFound
 	}
@@ -2844,6 +2855,20 @@ func (s *Store) RealtimeReceipt(ctx context.Context, buyerID, contractID uuid.UU
 	}
 	if settlementID != nil {
 		receipt.SettlementID = "set_" + settlementID.String()
+		// Surface finality explicitly on the buyer receipt. A settlement without
+		// stored finality columns (historical) still gets the honest known-cost
+		// label so finality is never inferred from field absence.
+		receipt.FinalityStatus = finalityStatus
+		if len(finalityBlockersJSON) > 0 {
+			_ = json.Unmarshal(finalityBlockersJSON, &receipt.FinalityBlockers)
+		}
+		if receipt.FinalityStatus == "" {
+			status, blockers := realtimeKnownCostFinality()
+			receipt.FinalityStatus = status
+			receipt.FinalityBlockers = blockers
+		}
+		receipt.EconomicFinal = economicFinalityReportsFinal(
+			receipt.FinalityStatus, receipt.FinalityBlockers)
 	}
 	if refundID != nil {
 		receipt.RefundID = "rfd_" + refundID.String()
