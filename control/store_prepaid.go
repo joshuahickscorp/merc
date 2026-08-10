@@ -1072,8 +1072,14 @@ func restorePrepaidForDisputeJobTasksTx(
 
 // maybeDebitPrepaidForRealtimeTx consumes prepaid for a settled realtime buyer
 // charge when free credit alone does not cover it. Free-credit sandbox charges
-// (grant fully covers the charge) stay ledger-only; prepaid top-ups are reduced
-// exactly like the task/service prepaid debit path, keyed by execution contract.
+// (grant fully covers the charge) stay ledger-only; when free covers only a
+// prefix of the charge, prepaid is debited for the residual only — matching
+// evaluateRealtimeBuyerFunding's pooled free+prepaid admit arithmetic.
+//
+// Arithmetic is int64 micros after the free-grant column read: chargeMicros is
+// the authority and must survive exactly. Free credit still arrives via the
+// existing float free_credit_usd column (the precision exposure already present
+// at admit); no new float step is introduced on residual or conservation.
 //
 // Lock order: takes buyers FOR UPDATE (and possibly buyer_prepaid_balances)
 // before any offer capacity release. Callers must not hold an offer row lock
@@ -1100,14 +1106,22 @@ func maybeDebitPrepaidForRealtimeTx(ctx context.Context, tx pgx.Tx, buyerID, con
 	if _, err := ParseCurrency(currency); err != nil {
 		return err
 	}
-	chargeUSD := microsToUSD(chargeMicros)
 	// spent already includes this contract's buyer_charge (written earlier in the
-	// same transaction). freeRemainingBefore is the grant available before it.
-	freeRemainingBefore := freeCredit - (spent - chargeUSD)
-	if freeRemainingBefore+1e-12 >= chargeUSD {
+	// same transaction). freeRemainingMicros is the grant available before it,
+	// computed entirely in micros so residual = charge − covered is exact.
+	freeRemainingMicros := usdToMicros(freeCredit) - (usdToMicros(spent) - chargeMicros)
+	covered := freeRemainingMicros
+	if covered < 0 {
+		covered = 0
+	}
+	if covered > chargeMicros {
+		covered = chargeMicros
+	}
+	residualMicros := chargeMicros - covered
+	if residualMicros == 0 {
 		return nil
 	}
-	return debitPrepaidForExecutionContractTx(ctx, tx, buyerID, contractID, chargeMicros)
+	return debitPrepaidForExecutionContractTx(ctx, tx, buyerID, contractID, residualMicros)
 }
 
 // debitPrepaidByRefTx is the shared path for prepaid debits keyed by an
