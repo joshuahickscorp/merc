@@ -72,15 +72,18 @@ func validateCurrentServiceLeaseCurrency(raw string) (Currency, error) {
 // meter prices aggregate replica-time from lease start, then records only the
 // delta from the prior aggregate, so heartbeat cadence cannot change economics.
 type ServiceLeasePricingAuthority struct {
-	Version                         int    `json:"version"`
-	Currency                        string `json:"currency"`
-	RuntimeProfileID                string `json:"runtime_profile_id"`
-	RuntimeProfileSHA256            string `json:"runtime_profile_sha256"`
-	Region                          string `json:"region"`
-	MinimumReplicas                 int    `json:"minimum_replicas"`
-	MaximumReplicas                 int    `json:"maximum_replicas"`
-	TermSeconds                     int64  `json:"term_seconds"`
-	MaximumP95LatencyMilliseconds   int64  `json:"maximum_p95_latency_milliseconds"`
+	Version                       int    `json:"version"`
+	Currency                      string `json:"currency"`
+	RuntimeProfileID              string `json:"runtime_profile_id"`
+	RuntimeProfileSHA256          string `json:"runtime_profile_sha256"`
+	Region                        string `json:"region"`
+	MinimumReplicas               int    `json:"minimum_replicas"`
+	MaximumReplicas               int    `json:"maximum_replicas"`
+	TermSeconds                   int64  `json:"term_seconds"`
+	MaximumP95LatencyMilliseconds int64  `json:"maximum_p95_latency_milliseconds"`
+	// Optional p99 bound frozen at acceptance. omitempty keeps historical
+	// digests byte-identical when the bound is absent (zero).
+	MaximumP99LatencyMilliseconds   int64  `json:"maximum_p99_latency_milliseconds,omitempty"`
 	SupplierNanosPerReplicaHour     int64  `json:"supplier_nanos_per_replica_hour"`
 	ResidencyNanosPerReplicaHour    int64  `json:"residency_nanos_per_replica_hour"`
 	ControlPlaneNanosPerReplicaHour int64  `json:"control_plane_nanos_per_replica_hour"`
@@ -99,6 +102,7 @@ type ServiceLeasePricingInputs struct {
 	MinimumReplicas, MaximumReplicas int
 	TermSeconds                      int64
 	MaximumP95LatencyMilliseconds    int64
+	MaximumP99LatencyMilliseconds    int64
 	SupplierNanosPerReplicaHour      int64
 	ResidencyNanosPerReplicaHour     int64
 	ControlPlaneNanosPerReplicaHour  int64
@@ -128,7 +132,7 @@ func validateServiceLeasePricingAuthority(a ServiceLeasePricingAuthority, curren
 	if a.RuntimeProfileID == "" || !validSHA256(a.RuntimeProfileSHA256) || a.Region == "" ||
 		a.MinimumReplicas < 1 || a.MaximumReplicas < a.MinimumReplicas ||
 		a.TermSeconds < 60 || a.TermSeconds > serviceLeaseMaximumTermSeconds ||
-		a.MaximumP95LatencyMilliseconds < 1 {
+		a.MaximumP95LatencyMilliseconds < 1 || a.MaximumP99LatencyMilliseconds < 0 {
 		return errors.New("service lease pricing authority has invalid workload or capacity bounds")
 	}
 	for name, rate := range map[string]int64{
@@ -236,6 +240,7 @@ func newServiceLeasePricingDecision(in ServiceLeasePricingInputs) (PricingDecisi
 		RuntimeProfileID: in.Profile.RuntimeProfileID, RuntimeProfileSHA256: in.Profile.ProfileSHA256,
 		Region: in.Region, MinimumReplicas: in.MinimumReplicas, MaximumReplicas: in.MaximumReplicas,
 		TermSeconds: in.TermSeconds, MaximumP95LatencyMilliseconds: in.MaximumP95LatencyMilliseconds,
+		MaximumP99LatencyMilliseconds:   in.MaximumP99LatencyMilliseconds,
 		SupplierNanosPerReplicaHour:     in.SupplierNanosPerReplicaHour,
 		ResidencyNanosPerReplicaHour:    in.ResidencyNanosPerReplicaHour,
 		ControlPlaneNanosPerReplicaHour: in.ControlPlaneNanosPerReplicaHour,

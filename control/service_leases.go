@@ -38,10 +38,14 @@ type ServiceLeaseOfferRegistration struct {
 	ResidencyNanosPerReplicaHour int64  `json:"residency_nanos_per_replica_hour"`
 	SupportsRollingUpgrade       bool   `json:"supports_rolling_upgrade"`
 	P95LatencyMillis             int64  `json:"p95_latency_milliseconds"`
-	LatencyMeasurementCount      int    `json:"latency_measurement_count"`
-	LatencyWindowSeconds         int64  `json:"latency_window_seconds"`
-	LatencyMeasurementKind       string `json:"latency_measurement_kind"`
-	Status                       string `json:"status"`
+	// P99 is an optional measured percentile from the same data-plane sample
+	// window as p95. Zero means the offer does not advertise a p99 (legacy
+	// workers, or samples that never measured one). It is never derived from p95.
+	P99LatencyMillis        int64  `json:"p99_latency_milliseconds,omitempty"`
+	LatencyMeasurementCount int    `json:"latency_measurement_count"`
+	LatencyWindowSeconds    int64  `json:"latency_window_seconds"`
+	LatencyMeasurementKind  string `json:"latency_measurement_kind"`
+	Status                  string `json:"status"`
 }
 
 type ServiceLeaseRequest struct {
@@ -52,12 +56,19 @@ type ServiceLeaseRequest struct {
 	MaximumReplicas               int    `json:"maximum_replicas"`
 	TermSeconds                   int64  `json:"term_seconds"`
 	MaximumP95LatencyMilliseconds int64  `json:"maximum_p95_latency_milliseconds"`
-	BuyerDeclaredCeilingNanos     int64  `json:"buyer_declared_ceiling_nanos"`
+	// MaximumP99LatencyMilliseconds is optional. Zero means the lease carries
+	// no p99 bound and READY enforcement ignores p99. When positive it is
+	// enforced exactly like the p95 bound against worker-attested measurements.
+	MaximumP99LatencyMilliseconds int64 `json:"maximum_p99_latency_milliseconds,omitempty"`
+	BuyerDeclaredCeilingNanos     int64 `json:"buyer_declared_ceiling_nanos"`
 }
 
 type ServiceLeaseHeartbeat struct {
-	WarmReplicas            int    `json:"warm_replicas"`
-	P95LatencyMillis        int64  `json:"p95_latency_milliseconds"`
+	WarmReplicas     int   `json:"warm_replicas"`
+	P95LatencyMillis int64 `json:"p95_latency_milliseconds"`
+	// P99 is measured from the same sample window as p95 when the worker
+	// reports it. Zero is allowed only when the lease declares no p99 bound.
+	P99LatencyMillis        int64  `json:"p99_latency_milliseconds,omitempty"`
 	LatencyMeasurementCount int    `json:"latency_measurement_count"`
 	LatencyWindowSeconds    int64  `json:"latency_window_seconds"`
 	LatencyMeasurementKind  string `json:"latency_measurement_kind"`
@@ -79,6 +90,8 @@ type ServiceLeaseAssignment struct {
 	MinimumReplicas         int       `json:"minimum_replicas"`
 	MaximumReplicas         int       `json:"maximum_replicas"`
 	MaximumP95LatencyMillis int64     `json:"maximum_p95_latency_milliseconds"`
+	// Zero means the assignment has no p99 bound; the worker may omit p99.
+	MaximumP99LatencyMillis int64     `json:"maximum_p99_latency_milliseconds,omitempty"`
 	State                   string    `json:"state"`
 	UpgradeGeneration       string    `json:"upgrade_generation,omitempty"`
 	ExpiresAt               time.Time `json:"expires_at"`
@@ -87,8 +100,11 @@ type ServiceLeaseAssignment struct {
 // ServiceLeaseSLOEvidence is worker-reported operational evidence from actual
 // bounded data-plane completions. It is not an independent availability or
 // customer-path measurement and therefore remains explicit on the receipt.
+// P99 is optional on historical rows (pre-p99 heartbeats); when present it is
+// the worker's measured percentile, never a derivation from p95.
 type ServiceLeaseSLOEvidence struct {
 	P95LatencyMillis            int64     `json:"p95_latency_milliseconds"`
+	P99LatencyMillis            int64     `json:"p99_latency_milliseconds,omitempty"`
 	LatencyMeasurementCount     int       `json:"latency_measurement_count"`
 	LatencyWindowSeconds        int64     `json:"latency_window_seconds"`
 	LatencyMeasurementKind      string    `json:"latency_measurement_kind"`
@@ -107,10 +123,12 @@ type ServiceLease struct {
 	MinimumReplicas         int       `json:"minimum_replicas"`
 	MaximumReplicas         int       `json:"maximum_replicas"`
 	MaximumP95LatencyMillis int64     `json:"maximum_p95_latency_milliseconds"`
-	TermSeconds             int64     `json:"term_seconds"`
-	State                   string    `json:"state"`
-	ActiveReplicas          int       `json:"active_replicas"`
-	UpgradeGeneration       string    `json:"upgrade_generation,omitempty"`
+	// Zero means no p99 bound was declared at admission.
+	MaximumP99LatencyMillis int64  `json:"maximum_p99_latency_milliseconds,omitempty"`
+	TermSeconds             int64  `json:"term_seconds"`
+	State                   string `json:"state"`
+	ActiveReplicas          int    `json:"active_replicas"`
+	UpgradeGeneration       string `json:"upgrade_generation,omitempty"`
 	// ReservedBuyerMicros is the exact prepaid maximum held for this lease.
 	// It is a ledger-scale amount, never a USD display projection.
 	ReservedBuyerMicros int64 `json:"reserved_buyer_micros"`
@@ -508,8 +526,9 @@ func validateServiceLeaseOffer(reg ServiceLeaseOfferRegistration) (VLLMRuntimePr
 	if !serviceLeaseRegionPattern.MatchString(reg.Region) || reg.MaximumWarmReplicas < 1 ||
 		reg.AvailableWarmReplicas < 0 || reg.AvailableWarmReplicas > reg.MaximumWarmReplicas ||
 		reg.SupplierNanosPerReplicaHour <= 0 || reg.ResidencyNanosPerReplicaHour <= 0 ||
-		reg.P95LatencyMillis <= 0 || reg.LatencyMeasurementCount < 5 || reg.LatencyWindowSeconds < 1 ||
-		reg.LatencyWindowSeconds > 300 || reg.LatencyMeasurementKind != "DATA_PLANE_COMPLETIONS_V1" {
+		reg.P95LatencyMillis <= 0 || reg.P99LatencyMillis < 0 || reg.LatencyMeasurementCount < 5 ||
+		reg.LatencyWindowSeconds < 1 || reg.LatencyWindowSeconds > 300 ||
+		reg.LatencyMeasurementKind != "DATA_PLANE_COMPLETIONS_V1" {
 		return VLLMRuntimeProfile{}, errors.New("service lease offer has invalid capacity, region, or exact floor")
 	}
 	switch reg.Status {
@@ -543,12 +562,13 @@ func (s *Store) UpsertServiceLeaseOffer(ctx context.Context, auth WorkerAuth, re
 			 (worker_id,supplier_id,runtime_profile_id,runtime_profile_sha256,region,currency,
 			  maximum_warm_replicas,available_warm_replicas,supplier_nanos_per_replica_hour,
 			  residency_nanos_per_replica_hour,supports_rolling_upgrade,p95_latency_milliseconds,
-			  latency_measurement_count,latency_window_seconds,latency_measurement_kind,status,last_seen_at,updated_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,now(),now())
+			  p99_latency_milliseconds,latency_measurement_count,latency_window_seconds,
+			  latency_measurement_kind,status,last_seen_at,updated_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,now(),now())
 		ON CONFLICT (worker_id,runtime_profile_id,region) DO NOTHING`,
 		auth.WorkerID, auth.SupplierID, reg.RuntimeProfileID, reg.RuntimeProfileSHA256, reg.Region, reg.Currency,
 		reg.MaximumWarmReplicas, reg.AvailableWarmReplicas, reg.SupplierNanosPerReplicaHour,
-		reg.ResidencyNanosPerReplicaHour, reg.SupportsRollingUpgrade, reg.P95LatencyMillis,
+		reg.ResidencyNanosPerReplicaHour, reg.SupportsRollingUpgrade, reg.P95LatencyMillis, reg.P99LatencyMillis,
 		reg.LatencyMeasurementCount, reg.LatencyWindowSeconds, reg.LatencyMeasurementKind, reg.Status); err != nil {
 		return err
 	}
@@ -586,13 +606,13 @@ func (s *Store) UpsertServiceLeaseOffer(ctx context.Context, auth WorkerAuth, re
 	if _, err := tx.Exec(ctx, `UPDATE service_lease_worker_offers SET
 		supplier_id=$4,currency=$5,maximum_warm_replicas=$6,available_warm_replicas=$7,
 		supplier_nanos_per_replica_hour=$8,residency_nanos_per_replica_hour=$9,
-		supports_rolling_upgrade=$10,p95_latency_milliseconds=$11,
-		latency_measurement_count=$12,latency_window_seconds=$13,
-		latency_measurement_kind=$14,status=$15,last_seen_at=now(),updated_at=now()
+		supports_rolling_upgrade=$10,p95_latency_milliseconds=$11,p99_latency_milliseconds=$12,
+		latency_measurement_count=$13,latency_window_seconds=$14,
+		latency_measurement_kind=$15,status=$16,last_seen_at=now(),updated_at=now()
 		WHERE worker_id=$1 AND runtime_profile_id=$2 AND region=$3`,
 		auth.WorkerID, reg.RuntimeProfileID, reg.Region, auth.SupplierID, reg.Currency,
 		reg.MaximumWarmReplicas, available, reg.SupplierNanosPerReplicaHour,
-		reg.ResidencyNanosPerReplicaHour, reg.SupportsRollingUpgrade, reg.P95LatencyMillis,
+		reg.ResidencyNanosPerReplicaHour, reg.SupportsRollingUpgrade, reg.P95LatencyMillis, reg.P99LatencyMillis,
 		reg.LatencyMeasurementCount, reg.LatencyWindowSeconds, reg.LatencyMeasurementKind, reg.Status); err != nil {
 		return err
 	}
@@ -693,7 +713,9 @@ func serviceLeasePricingInputs(profile VLLMRuntimeProfile, currency Currency, re
 		Profile: profile, Currency: currency, Region: request.Region,
 		MinimumReplicas: request.MinimumReplicas, MaximumReplicas: request.MaximumReplicas,
 		TermSeconds: request.TermSeconds, MaximumP95LatencyMilliseconds: request.MaximumP95LatencyMilliseconds,
-		SupplierNanosPerReplicaHour: supplierRate, ResidencyNanosPerReplicaHour: residencyRate,
+		MaximumP99LatencyMilliseconds:   request.MaximumP99LatencyMilliseconds,
+		SupplierNanosPerReplicaHour:     supplierRate,
+		ResidencyNanosPerReplicaHour:    residencyRate,
 		ControlPlaneNanosPerReplicaHour: serviceLeaseControlUSDNanosHour,
 		RiskReserveNanosPerReplicaHour:  0,
 		ContributionNanosPerReplicaHour: serviceLeaseContributionUSDHour,
@@ -704,6 +726,24 @@ func serviceLeasePricingInputs(profile VLLMRuntimeProfile, currency Currency, re
 func (s *Store) CreateServiceLease(ctx context.Context, buyerID uuid.UUID, request ServiceLeaseRequest) (ServiceLease, error) {
 	if buyerID == uuid.Nil || !serviceLeaseRegionPattern.MatchString(request.Region) || request.BuyerDeclaredCeilingNanos <= 0 {
 		return ServiceLease{}, errors.New("service lease request has invalid buyer, region, or ceiling")
+	}
+	// Admission refusal for an undeliverable replica range. This check runs
+	// before any transaction, supply hold, or prepaid reservation: holding warm
+	// capacity for a maximum that no control path can reach is a market-integrity
+	// defect (it denies other buyers real capacity to back an undeliverable
+	// elasticity promise). Autoscaling is a full subsystem — scale up/down,
+	// races, worker loss during scale, upgrade interaction, billing, and
+	// reservation without double charge or capacity promised without supply —
+	// and is not built here. The only deliverable contract until that exists is
+	// minimum_replicas == maximum_replicas. The refusal is reversible in one
+	// commit when governed autoscaling lands; shipping the false promise first
+	// is not. Durable rows created before this refusal keep working — only new
+	// admissions are refused.
+	if request.MinimumReplicas < 1 || request.MaximumReplicas != request.MinimumReplicas {
+		return ServiceLease{}, errors.New("service lease refuses minimum_replicas != maximum_replicas: reserved services cannot deliver elasticity without governed autoscaling, and holding maximum warm capacity for an undeliverable range denies other buyers real supply")
+	}
+	if request.MaximumP95LatencyMilliseconds < 1 || request.MaximumP99LatencyMilliseconds < 0 {
+		return ServiceLease{}, errors.New("service lease request has invalid latency SLO bounds")
 	}
 	currency, err := validateCurrentServiceLeaseCurrency(request.Currency)
 	if err != nil {
@@ -730,6 +770,10 @@ func (s *Store) CreateServiceLease(ctx context.Context, buyerID uuid.UUID, reque
 	// is honoured in the order book, not only as admission. A cheap supplier
 	// with expensive residency must not clear above a slightly higher supplier
 	// ask whose residency is lower when the sum says so.
+	//
+	// A positive p99 bound ($7) additionally requires a measured offer p99 that
+	// clears it. Zero means the lease carries no p99 bound and any offer p99 is
+	// ignored for selection.
 	rows, err := tx.Query(ctx, `
 		SELECT worker_id,supplier_id,supplier_nanos_per_replica_hour,
 		       residency_nanos_per_replica_hour,available_warm_replicas
@@ -737,10 +781,13 @@ func (s *Store) CreateServiceLease(ctx context.Context, buyerID uuid.UUID, reque
 		 WHERE runtime_profile_id=$1 AND runtime_profile_sha256=$2 AND region=$3 AND currency=$6 AND status='READY'
 		   AND p95_latency_milliseconds>0 AND latency_measurement_count>=5
 		   AND latency_window_seconds BETWEEN 1 AND 300 AND latency_measurement_kind='DATA_PLANE_COMPLETIONS_V1'
-		   AND p95_latency_milliseconds <= $5 AND last_seen_at > now()-interval '45 seconds' AND available_warm_replicas >= $4
+		   AND p95_latency_milliseconds <= $5
+		   AND ($7 = 0 OR (p99_latency_milliseconds > 0 AND p99_latency_milliseconds <= $7))
+		   AND last_seen_at > now()-interval '45 seconds' AND available_warm_replicas >= $4
 		 ORDER BY (supplier_nanos_per_replica_hour + residency_nanos_per_replica_hour) ASC,
 		          supplier_nanos_per_replica_hour ASC,worker_id ASC
-		 FOR UPDATE`, profile.RuntimeProfileID, profile.ProfileSHA256, request.Region, request.MaximumReplicas, request.MaximumP95LatencyMilliseconds, currency.Code())
+		 FOR UPDATE`, profile.RuntimeProfileID, profile.ProfileSHA256, request.Region, request.MaximumReplicas,
+		request.MaximumP95LatencyMilliseconds, currency.Code(), request.MaximumP99LatencyMilliseconds)
 	if err != nil {
 		return ServiceLease{}, err
 	}
@@ -829,7 +876,8 @@ func (s *Store) CreateServiceLease(ctx context.Context, buyerID uuid.UUID, reque
 	lease := ServiceLease{ID: leaseID, BuyerID: buyerID, WorkerID: workerID, SupplierID: supplierID,
 		RuntimeProfileID: profile.RuntimeProfileID, RuntimeProfileSHA256: profile.ProfileSHA256,
 		Region: request.Region, MinimumReplicas: request.MinimumReplicas, MaximumReplicas: request.MaximumReplicas,
-		MaximumP95LatencyMillis: request.MaximumP95LatencyMilliseconds, TermSeconds: request.TermSeconds,
+		MaximumP95LatencyMillis: request.MaximumP95LatencyMilliseconds,
+		MaximumP99LatencyMillis: request.MaximumP99LatencyMilliseconds, TermSeconds: request.TermSeconds,
 		State: "ACTIVE", ActiveReplicas: request.MinimumReplicas,
 		PricingAcceptanceID: &leaseID, PricingAuthoritySource: serviceLeasePricingSourceAcceptance,
 		Pricing: pricing, PricingDecisionSHA256: pricingSHA,
@@ -842,14 +890,14 @@ func (s *Store) CreateServiceLease(ctx context.Context, buyerID uuid.UUID, reque
 	_, err = tx.Exec(ctx, `
 		INSERT INTO service_leases
 		 (id,buyer_id,worker_id,supplier_id,runtime_profile_id,runtime_profile_sha256,region,
-		  minimum_replicas,maximum_replicas,maximum_p95_latency_milliseconds,term_seconds,state,
-		  active_replicas,reserved_buyer_micros,pricing_acceptance_id,pricing_decision,pricing_decision_sha256,
-		  topology_decision,topology_decision_sha256,
+		  minimum_replicas,maximum_replicas,maximum_p95_latency_milliseconds,maximum_p99_latency_milliseconds,
+		  term_seconds,state,active_replicas,reserved_buyer_micros,pricing_acceptance_id,pricing_decision,
+		  pricing_decision_sha256,topology_decision,topology_decision_sha256,
 		  started_at,expires_at,last_metered_at,last_worker_heartbeat_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'ACTIVE',$8,$12,$1,$13,$14,$15,$16,$17,$18,$17,$17)`,
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'ACTIVE',$8,$13,$1,$14,$15,$16,$17,$18,$19,$18,$18)`,
 		lease.ID, lease.BuyerID, lease.WorkerID, lease.SupplierID, lease.RuntimeProfileID,
 		lease.RuntimeProfileSHA256, lease.Region, lease.MinimumReplicas, lease.MaximumReplicas,
-		lease.MaximumP95LatencyMillis, lease.TermSeconds, lease.ReservedBuyerMicros,
+		lease.MaximumP95LatencyMillis, lease.MaximumP99LatencyMillis, lease.TermSeconds, lease.ReservedBuyerMicros,
 		pricingJSON, pricingSHA, topologyJSON, topologySHA, now, lease.ExpiresAt)
 	if err != nil {
 		return ServiceLease{}, err
@@ -948,7 +996,8 @@ func validateServiceLeaseAcceptedPricingBinding(lease ServiceLease) error {
 		authority.MinimumReplicas != lease.MinimumReplicas ||
 		authority.MaximumReplicas != lease.MaximumReplicas ||
 		authority.TermSeconds != lease.TermSeconds ||
-		authority.MaximumP95LatencyMilliseconds != lease.MaximumP95LatencyMillis {
+		authority.MaximumP95LatencyMilliseconds != lease.MaximumP95LatencyMillis ||
+		authority.MaximumP99LatencyMilliseconds != lease.MaximumP99LatencyMillis {
 		return errors.New("service lease row differs from its accepted pricing authority")
 	}
 	if lease.PricingAcceptanceID != nil && *lease.PricingAcceptanceID != lease.ID {
@@ -978,9 +1027,9 @@ func scanServiceLease(row pgx.Row) (ServiceLease, error) {
 	var raw []byte
 	err := row.Scan(&lease.ID, &lease.BuyerID, &lease.WorkerID, &lease.SupplierID,
 		&lease.RuntimeProfileID, &lease.RuntimeProfileSHA256, &lease.Region, &lease.MinimumReplicas,
-		&lease.MaximumReplicas, &lease.MaximumP95LatencyMillis, &lease.TermSeconds, &lease.State,
-		&lease.ActiveReplicas, &lease.UpgradeGeneration, &lease.ReservedBuyerMicros, &lease.PricingAcceptanceID,
-		&raw, &lease.PricingDecisionSHA256,
+		&lease.MaximumReplicas, &lease.MaximumP95LatencyMillis, &lease.MaximumP99LatencyMillis,
+		&lease.TermSeconds, &lease.State, &lease.ActiveReplicas, &lease.UpgradeGeneration,
+		&lease.ReservedBuyerMicros, &lease.PricingAcceptanceID, &raw, &lease.PricingDecisionSHA256,
 		&lease.StartedAt, &lease.ExpiresAt, &lease.LastMeteredAt, &lease.LastWorkerHeartbeatAt,
 		&lease.CumulativeReplicaNanos, &lease.BuyerChargeNanos, &lease.SupplierPayableNanos,
 		&lease.KnownVariableCostNanos, &lease.KnownContributionNanos, &lease.FinalizedAt)
@@ -1003,7 +1052,8 @@ func scanServiceLease(row pgx.Row) (ServiceLease, error) {
 }
 
 const serviceLeaseColumns = `id,buyer_id,worker_id,supplier_id,runtime_profile_id,runtime_profile_sha256,
- region,minimum_replicas,maximum_replicas,maximum_p95_latency_milliseconds,term_seconds,state,
+ region,minimum_replicas,maximum_replicas,maximum_p95_latency_milliseconds,
+ maximum_p99_latency_milliseconds,term_seconds,state,
  active_replicas,upgrade_generation,reserved_buyer_micros,pricing_acceptance_id,
  CASE WHEN pricing_acceptance_id IS NULL THEN pricing_decision ELSE
    (SELECT accepted.pricing_decision FROM service_lease_pricing_acceptances accepted
@@ -1093,7 +1143,7 @@ func meterServiceLeaseTx(ctx context.Context, tx pgx.Tx, lease *ServiceLease, at
 
 func (s *Store) HeartbeatServiceLease(ctx context.Context, auth WorkerAuth, leaseID uuid.UUID, heartbeat ServiceLeaseHeartbeat) error {
 	if leaseID == uuid.Nil || heartbeat.WarmReplicas < 0 || heartbeat.P95LatencyMillis < 0 ||
-		heartbeat.LatencyMeasurementCount < 0 || heartbeat.LatencyWindowSeconds < 0 {
+		heartbeat.P99LatencyMillis < 0 || heartbeat.LatencyMeasurementCount < 0 || heartbeat.LatencyWindowSeconds < 0 {
 		return errors.New("invalid service lease heartbeat")
 	}
 	switch heartbeat.Status {
@@ -1123,6 +1173,12 @@ func (s *Store) HeartbeatServiceLease(ctx context.Context, auth WorkerAuth, leas
 	if heartbeat.Status == "READY" && (heartbeat.WarmReplicas < lease.MinimumReplicas || heartbeat.WarmReplicas > lease.MaximumReplicas || heartbeat.P95LatencyMillis > lease.MaximumP95LatencyMillis) {
 		return errors.New("service lease heartbeat violates reserved replica or latency SLO")
 	}
+	// p99 is enforced only when the buyer declared a bound at admission. The
+	// failure names the p99 term so a p95 pass cannot credit a p99 breach.
+	if heartbeat.Status == "READY" && lease.MaximumP99LatencyMillis > 0 &&
+		(heartbeat.P99LatencyMillis <= 0 || heartbeat.P99LatencyMillis > lease.MaximumP99LatencyMillis) {
+		return errors.New("service lease heartbeat violates reserved p99 latency SLO")
+	}
 	if heartbeat.Status == "READY" && (heartbeat.LatencyMeasurementKind != "DATA_PLANE_COMPLETIONS_V1" ||
 		heartbeat.LatencyMeasurementCount < 5 || heartbeat.LatencyWindowSeconds < 1 || heartbeat.LatencyWindowSeconds > 300) {
 		return errors.New("ready service lease heartbeat requires a recent five-sample data-plane latency measurement")
@@ -1136,14 +1192,18 @@ func (s *Store) HeartbeatServiceLease(ctx context.Context, auth WorkerAuth, leas
 	nextState, nextReplicas := lease.State, heartbeat.WarmReplicas
 	switch heartbeat.Status {
 	case "READY":
+		// p99 is stored when measured. Historical events without the key remain
+		// valid under the same DATA_PLANE_COMPLETIONS_V1 kind; readers COALESCE
+		// missing p99 to zero rather than rewriting old rows.
 		if _, err := tx.Exec(ctx, `INSERT INTO service_lease_events (lease_id,kind,detail)
 			VALUES ($1,'SLO_MEASURED',jsonb_build_object(
 			 'p95_latency_milliseconds',$2::bigint,
-			 'latency_measurement_count',$3::int,
-			 'latency_window_seconds',$4::bigint,
-			 'latency_measurement_kind',$5::text,
-			 'data_plane_probe_receipt_sha256',$6::text))`,
-			lease.ID, heartbeat.P95LatencyMillis, heartbeat.LatencyMeasurementCount,
+			 'p99_latency_milliseconds',$3::bigint,
+			 'latency_measurement_count',$4::int,
+			 'latency_window_seconds',$5::bigint,
+			 'latency_measurement_kind',$6::text,
+			 'data_plane_probe_receipt_sha256',$7::text))`,
+			lease.ID, heartbeat.P95LatencyMillis, heartbeat.P99LatencyMillis, heartbeat.LatencyMeasurementCount,
 			heartbeat.LatencyWindowSeconds, heartbeat.LatencyMeasurementKind,
 			heartbeat.DataPlaneProbeReceiptSHA256); err != nil {
 			return err
@@ -1288,6 +1348,7 @@ func (s *Store) GetServiceLeaseReceipt(ctx context.Context, buyerID, leaseID uui
 	var evidence ServiceLeaseSLOEvidence
 	err = s.pool.QueryRow(ctx, `SELECT
 		(detail->>'p95_latency_milliseconds')::bigint,
+		COALESCE((detail->>'p99_latency_milliseconds')::bigint,0),
 		(detail->>'latency_measurement_count')::int,
 		(detail->>'latency_window_seconds')::bigint,
 		detail->>'latency_measurement_kind',
@@ -1295,8 +1356,9 @@ func (s *Store) GetServiceLeaseReceipt(ctx context.Context, buyerID, leaseID uui
 		FROM service_lease_events
 		WHERE lease_id=$1 AND kind='SLO_MEASURED'
 		ORDER BY created_at DESC,id DESC LIMIT 1`, lease.ID).
-		Scan(&evidence.P95LatencyMillis, &evidence.LatencyMeasurementCount, &evidence.LatencyWindowSeconds,
-			&evidence.LatencyMeasurementKind, &evidence.DataPlaneProbeReceiptSHA256, &evidence.MeasuredAt)
+		Scan(&evidence.P95LatencyMillis, &evidence.P99LatencyMillis, &evidence.LatencyMeasurementCount,
+			&evidence.LatencyWindowSeconds, &evidence.LatencyMeasurementKind,
+			&evidence.DataPlaneProbeReceiptSHA256, &evidence.MeasuredAt)
 	if err == nil {
 		receipt.LatestSLOEvidence = &evidence
 	} else if !errors.Is(err, pgx.ErrNoRows) {
@@ -1456,7 +1518,7 @@ func (s *Store) ListWorkerServiceLeaseAssignments(ctx context.Context, auth Work
 		return nil, errors.New("service lease assignments require worker and supplier identity")
 	}
 	rows, err := s.pool.Query(ctx, `SELECT id,runtime_profile_id,region,minimum_replicas,maximum_replicas,
-		maximum_p95_latency_milliseconds,state,upgrade_generation,expires_at
+		maximum_p95_latency_milliseconds,maximum_p99_latency_milliseconds,state,upgrade_generation,expires_at
 		FROM service_leases
 		WHERE worker_id=$1 AND supplier_id=$2 AND state IN ('ACTIVE','UPGRADING') AND expires_at>now()
 		ORDER BY expires_at,id`, auth.WorkerID, auth.SupplierID)
@@ -1469,7 +1531,8 @@ func (s *Store) ListWorkerServiceLeaseAssignments(ctx context.Context, auth Work
 		var assignment ServiceLeaseAssignment
 		if err := rows.Scan(&assignment.ID, &assignment.RuntimeProfileID, &assignment.Region,
 			&assignment.MinimumReplicas, &assignment.MaximumReplicas, &assignment.MaximumP95LatencyMillis,
-			&assignment.State, &assignment.UpgradeGeneration, &assignment.ExpiresAt); err != nil {
+			&assignment.MaximumP99LatencyMillis, &assignment.State, &assignment.UpgradeGeneration,
+			&assignment.ExpiresAt); err != nil {
 			return nil, err
 		}
 		assignments = append(assignments, assignment)
@@ -1681,14 +1744,16 @@ func (s *Store) FailoverServiceLease(ctx context.Context, leaseID uuid.UUID) (bo
 		WHERE runtime_profile_id=$1 AND runtime_profile_sha256=$2 AND region=$3 AND status='READY'
 		  AND p95_latency_milliseconds>0 AND latency_measurement_count>=5
 		  AND latency_window_seconds BETWEEN 1 AND 300 AND latency_measurement_kind='DATA_PLANE_COMPLETIONS_V1'
-		  AND p95_latency_milliseconds <= $8 AND worker_id<>$4 AND last_seen_at > now()-interval '45 seconds' AND available_warm_replicas >= $5
+		  AND p95_latency_milliseconds <= $8
+		  AND ($10 = 0 OR (p99_latency_milliseconds > 0 AND p99_latency_milliseconds <= $10))
+		  AND worker_id<>$4 AND last_seen_at > now()-interval '45 seconds' AND available_warm_replicas >= $5
 		  AND supplier_nanos_per_replica_hour <= $6 AND residency_nanos_per_replica_hour <= $7
 		  AND currency=$9
 		ORDER BY (supplier_nanos_per_replica_hour + residency_nanos_per_replica_hour),worker_id
 		FOR UPDATE SKIP LOCKED LIMIT 1`,
 		lease.RuntimeProfileID, lease.RuntimeProfileSHA256, lease.Region, lease.WorkerID, lease.MaximumReplicas,
 		authority.SupplierNanosPerReplicaHour, authority.ResidencyNanosPerReplicaHour,
-		lease.MaximumP95LatencyMillis, lease.Pricing.Currency).Scan(&workerID, &supplierID)
+		lease.MaximumP95LatencyMillis, lease.Pricing.Currency, lease.MaximumP99LatencyMillis).Scan(&workerID, &supplierID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}
