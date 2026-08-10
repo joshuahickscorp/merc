@@ -195,6 +195,33 @@ var productionReachability = []reachabilityClaim{
 			"that a live order book—not a hard-coded worker—cleared it.",
 	},
 	{
+		From:   "Store.AuthorizeRealtimeContract",
+		Target: "newRealtimeWorkerPlacement",
+		Consequence: "a realtime authorize would still select a worker via MarketDecision but no " +
+			"WorkerPlacement would bind that choice with MarketDecision citation, offer-warmth " +
+			"locality belief, and REALTIME_IMMUTABLE_WORKER fallback (Step 9 fourth meaning).",
+	},
+	{
+		From:   "Store.ClaimTasksTx",
+		Target: "bindBatchClaimWorkerPlacement",
+		Consequence: "a batch claim would still set execution_worker_id via SKIP LOCKED SQL but " +
+			"leave no claim-time eligibility snapshot, locality freshness, or lane-discriminated " +
+			"fallback on the worker-choice plane (Step 9).",
+	},
+	{
+		From:   "Store.SubmitJobTx",
+		Target: "newBatchAcceptPendingWorkerPlacement",
+		Consequence: "batch accept would freeze topology and placement requirement but leave the " +
+			"fourth placement meaning silent: no PENDING_CLAIM record that the worker is bound " +
+			"only at claim under pull + SKIP LOCKED (Step 9).",
+	},
+	{
+		From:   "Store.CreateServiceLease",
+		Target: "newServiceLeaseWorkerPlacement",
+		Consequence: "a service lease would still reserve a worker but its activation receipt would " +
+			"lose the WorkerPlacement binding and LEASE_KEEP_LEASE_NEW_WORKER fallback shape (Step 9).",
+	},
+	{
 		From:   "Server.handleAdminServiceLeaseMarketLiquidity",
 		Target: "Store.ServiceLeaseMarketLiquidity",
 		Consequence: "the warm-service offer and admission evidence would be retained but no operator " +

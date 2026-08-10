@@ -377,6 +377,12 @@ func (s *Store) SubmitJobTx(ctx context.Context, j *jobRow, tasks []taskRow) err
 		return fmt.Errorf("refusing job with inconsistent topology decision: %w", err)
 	}
 	j.TopologyDecision = topologyDecision
+	// Step 9: batch accept cannot bind a worker (pull + SKIP LOCKED). Record
+	// PENDING_CLAIM so the fourth meaning of placement is explicit rather than
+	// silently absent. The claim path binds BOUND with claim-time eligibility.
+	if _, err := newBatchAcceptPendingWorkerPlacement(); err != nil {
+		return fmt.Errorf("refusing job without valid pending worker placement: %w", err)
+	}
 	// EvidenceEnvelope cites the digests frozen below; it does not re-hash
 	// decision bodies. Built before the TX so a seal failure never opens a
 	// transaction, then written in the same TX as the jobs INSERT.

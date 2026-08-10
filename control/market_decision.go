@@ -106,14 +106,23 @@ type MarketBookCandidate struct {
 }
 
 // MarketPullEligibilitySnapshot is the batch claim shape. It is defined so the
-// discriminator cannot be faked by stuffing pull fields onto a push decision,
-// and so a later step can fill the body without renaming the concept. This
-// step does not build or persist a pull body on the realtime lane.
+// discriminator cannot be faked by stuffing pull fields onto a push decision.
+// Step 9 binds the worker-choice plane as WorkerPlacement; this body is the
+// market-plane projection of the same claim-time eligibility facts. Realtime
+// still refuses any pull body (refuseRealtimePullMarketDecision).
+//
+// CandidateEpoch is struck for batch: pull + SKIP LOCKED has no frozen epoch
+// object. Empty or "NONE_PULL_MARKET" only.
 type MarketPullEligibilitySnapshot struct {
-	// ClaimingWorkerID and hard-filter/deferral fields land when batch claim
-	// freezes a pull snapshot. Empty structs are refused by ValidateMarketDecision.
-	ClaimingWorkerID uuid.UUID `json:"claiming_worker_id"`
-	Note             string    `json:"note,omitempty"`
+	ClaimingWorkerID   uuid.UUID `json:"claiming_worker_id"`
+	ClaimingSupplierID uuid.UUID `json:"claiming_supplier_id,omitempty"`
+	ClaimedTaskID      uuid.UUID `json:"claimed_task_id,omitempty"`
+	ClaimedJobID       uuid.UUID `json:"claimed_job_id,omitempty"`
+	// AvailabilityMode is SKIP_LOCKED for batch claim SQL.
+	AvailabilityMode string `json:"availability_mode,omitempty"`
+	// CandidateEpoch must not invent a frozen book. Empty or NONE_PULL_MARKET.
+	CandidateEpoch string `json:"candidate_epoch,omitempty"`
+	Note           string `json:"note,omitempty"`
 }
 
 // marketBookCandidateJSON is the claim-time book row returned by the authorize
@@ -151,6 +160,18 @@ func ValidateMarketDecision(md MarketDecision) error {
 		// placeholder is not an accepted decision.
 		if md.PullEligibilitySnapshot.ClaimingWorkerID == uuid.Nil {
 			return errors.New("PULL_ELIGIBILITY_SNAPSHOT market decision is incomplete")
+		}
+		switch md.PullEligibilitySnapshot.CandidateEpoch {
+		case "", "NONE_PULL_MARKET":
+			// legal — batch has no frozen candidate epoch
+		default:
+			return fmt.Errorf("PULL_ELIGIBILITY_SNAPSHOT must not invent candidate epoch %q",
+				md.PullEligibilitySnapshot.CandidateEpoch)
+		}
+		if md.PullEligibilitySnapshot.AvailabilityMode != "" &&
+			md.PullEligibilitySnapshot.AvailabilityMode != marketAvailabilitySkipLocked {
+			return fmt.Errorf("PULL_ELIGIBILITY_SNAPSHOT availability_mode must be %s or empty, got %q",
+				marketAvailabilitySkipLocked, md.PullEligibilitySnapshot.AvailabilityMode)
 		}
 		return nil
 	default:

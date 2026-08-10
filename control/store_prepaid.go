@@ -255,6 +255,12 @@ func prepaidRefundOperationKey(buyerID uuid.UUID, correlationRef string) string 
 // BeginPrepaidRefund debits the buyer's unreserved balance, writes the audited
 // operation rows and returns the per-intent slices the caller must hand to
 // Stripe. Everything durable happens here, before any provider call.
+//
+// Lock order (buyer money rails): pg_advisory_xact_lock("realtime-buyer-funding|"+buyerID)
+// first, then buyer_prepaid_balances FOR UPDATE. Do not reorder the advisory
+// after the balance row; do not take buyers or offer locks on this path.
+// Admin revalidation / mutation-replay locks are orthogonal (different keys /
+// tables) and are taken earlier in this function.
 func (s *Store) BeginPrepaidRefund(
 	ctx context.Context,
 	actor AdminActor,
@@ -299,6 +305,15 @@ func (s *Store) BeginPrepaidRefund(
 	}
 	currency := settlement.Code()
 
+	// Same buyer-funding advisory as realtime / free-credit / prepaid admit.
+	// Taken before the balance row so concurrent authorize cannot observe a
+	// non-locking balance subquery between our check and debit, and so we do
+	// not invert the hierarchy against rails that take advisory then buyers.
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`,
+		"realtime-buyer-funding|"+buyerID.String()); err != nil {
+		return prepaidRefundPlan{}, err
+	}
+
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO buyer_prepaid_balances (buyer_id, currency, balance_micros)
 		VALUES ($1, $2, 0) ON CONFLICT (buyer_id,currency) DO NOTHING`, buyerID, currency); err != nil {
@@ -316,7 +331,30 @@ func (s *Store) BeginPrepaidRefund(
 	if err != nil {
 		return prepaidRefundPlan{}, err
 	}
-	available := balance - reserved
+	// Pure non-envelope EXECUTING ceilings are held at admission via
+	// sqlOpenNonEnvelopeExecutingCeilingMicros but are outside
+	// sqlBuyerOpenExposureMicros / prepaidOpenReservationMicros (that omission
+	// keeps free-credit batch exposure out of prepaid open-reservation).
+	//
+	// Can prepaid-funded vs free-credit-funded EXECUTING be distinguished?
+	// No. execution_contracts has no funding-source column; evaluateRealtimeBuyerFunding
+	// pools free_credit + prepaid against committed money; maybeDebitPrepaidForRealtimeTx
+	// chooses free-first only at settle. From persisted state alone every pure
+	// non-envelope EXECUTING ceiling is ambiguous.
+	//
+	// Subtract the full hold anyway: refusing a refund is recoverable (buyer
+	// retries after settle); paying out cash that settlement still needs is not.
+	// This can over-hold prepaid when free credit alone covered admission —
+	// deliberate and conservative. Same fragment admission uses; does not change
+	// sqlBuyerOpenExposureMicros or any settled amount.
+	var executingHold int64
+	if err := tx.QueryRow(ctx,
+		`SELECT (`+sqlOpenNonEnvelopeExecutingCeilingMicros("$1", "$2")+`)`,
+		buyerID, currency,
+	).Scan(&executingHold); err != nil {
+		return prepaidRefundPlan{}, err
+	}
+	available := balance - reserved - executingHold
 	if available <= 0 {
 		return prepaidRefundPlan{}, errInsufficientPrepaid
 	}
@@ -369,8 +407,14 @@ func (s *Store) BeginPrepaidRefund(
 		}
 	}
 	if err := insertAdminMutationAction(ctx, tx, actor, intent, nil, nil, nil,
-		map[string]any{"prepaid_balance_micros": balance, "reserved_micros": reserved, "refundable_micros": available},
-		map[string]any{"prepaid_balance_micros": balance - refundMicros, "reserved_micros": reserved, "refunded_micros": refundMicros},
+		map[string]any{
+			"prepaid_balance_micros": balance, "reserved_micros": reserved,
+			"executing_hold_micros": executingHold, "refundable_micros": available,
+		},
+		map[string]any{
+			"prepaid_balance_micros": balance - refundMicros, "reserved_micros": reserved,
+			"executing_hold_micros": executingHold, "refunded_micros": refundMicros,
+		},
 	); err != nil {
 		return prepaidRefundPlan{}, err
 	}
@@ -544,9 +588,14 @@ func (s *Store) SeedPrepaidBalance(ctx context.Context, buyerID uuid.UUID, micro
 }
 
 // BuyerPrepaidAvailableMicros is an informational view of materialised balance
-// less every open prepay-required job's remaining frozen reservation and every
-// active service lease's frozen maximum. Admission uses a locking reservation
-// helper instead, so this read can never be mistaken for authorization.
+// less open prepaid reservations (sqlBuyerOpenExposureMicros) and pure
+// non-envelope EXECUTING ceilings. Matches BeginPrepaidRefund's refundable
+// quantity (without locking). Admission uses a locking reservation helper
+// instead, so this read can never be mistaken for authorization.
+//
+// The EXECUTING sibling is held even when free credit may have covered
+// admission: funding source is not persisted per contract (see
+// BeginPrepaidRefund). sqlBuyerOpenExposureMicros is unchanged.
 func (s *Store) BuyerPrepaidAvailableMicros(ctx context.Context, buyerID uuid.UUID) (int64, error) {
 	currency := SettlementCurrencyCode()
 	bal, err := s.buyerPrepaidBalanceMicrosInCurrency(ctx, buyerID, currency)
@@ -557,10 +606,18 @@ func (s *Store) BuyerPrepaidAvailableMicros(ctx context.Context, buyerID uuid.UU
 	if err != nil {
 		return 0, err
 	}
-	if bal <= reserved {
+	var executingHold int64
+	if err := s.pool.QueryRow(ctx,
+		`SELECT (`+sqlOpenNonEnvelopeExecutingCeilingMicros("$1", "$2")+`)`,
+		buyerID, currency,
+	).Scan(&executingHold); err != nil {
+		return 0, err
+	}
+	held := reserved + executingHold
+	if bal <= held {
 		return 0, nil
 	}
-	return bal - reserved, nil
+	return bal - held, nil
 }
 
 // reservePrepaidForJobTx is the admission-side serialization point. It takes
@@ -605,12 +662,14 @@ func reservePrepaidForJobTx(ctx context.Context, tx pgx.Tx, buyerID uuid.UUID, a
 	}
 	// Pure non-envelope EXECUTING ceilings are held by realtime/free-credit via
 	// sqlBuyerCommittedMoneyMicros but are intentionally outside the prepaid
-	// open-exposure expression (refunds must not treat free-credit-only work as
-	// prepaid cash). After the shared advisory serialises check/commit/check,
-	// admission still has to observe a committed realtime ceiling funded from
-	// this balance — otherwise reverse-order (realtime first, prepaid second)
-	// re-admits and oversubscribes. Same fragment realtime uses; not a second
-	// lock key and not a change to sqlBuyerOpenExposureMicros.
+	// open-exposure expression (sqlBuyerOpenExposureMicros must not treat
+	// free-credit-only batch work as prepaid cash). Admission and refund both
+	// add this sibling explicitly. After the shared advisory serialises
+	// check/commit/check, admission still has to observe a committed realtime
+	// ceiling funded from this balance — otherwise reverse-order (realtime
+	// first, prepaid second) re-admits and oversubscribes. Same fragment
+	// realtime uses; not a second lock key and not a change to
+	// sqlBuyerOpenExposureMicros.
 	var executingHold int64
 	if err := tx.QueryRow(ctx,
 		`SELECT (`+sqlOpenNonEnvelopeExecutingCeilingMicros("$1", "$2")+`)`,

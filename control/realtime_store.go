@@ -227,7 +227,11 @@ type RealtimeContract struct {
 	// projected losslessly from MarketDecision; for historical rows it is the
 	// stored receipt itself.
 	MarketClearing *RealtimeMarketClearingReceipt
-	Currency       string
+	// WorkerPlacement is the Step 9 worker-choice binding for this authorize:
+	// selected worker + MarketDecision citation + lane-discriminated fallback.
+	// Derived at claim from the push book; not a second market authority.
+	WorkerPlacement *WorkerPlacement
+	Currency        string
 }
 
 // RealtimeMarketClearingReceipt is the immutable result of crossing one
@@ -1178,6 +1182,26 @@ func (s *Store) AuthorizeRealtimeContract(ctx context.Context, auth RealtimeCont
 	if err != nil {
 		return RealtimeContract{}, false, err
 	}
+	marketDigest, err := marketDecisionDigest(marketDecision)
+	if err != nil {
+		return RealtimeContract{}, false, err
+	}
+	// Soft warmth belief: record offer last_seen_at when present so a warmth
+	// tiebreak is auditable. LocalityDroveSelection stays false unless a
+	// later step proves affinity moved the pick inside a cost class — the
+	// authorize SQL does not return peer cost equality.
+	var offerLastSeen time.Time
+	_ = tx.QueryRow(ctx, `
+		SELECT last_seen_at FROM realtime_worker_offers
+		 WHERE worker_id=$1 AND runtime_profile_id=$2 AND runtime_profile_sha256=$3
+		   AND status='ACTIVE'`,
+		workerID, auth.Profile.RuntimeProfileID, auth.Profile.ProfileSHA256,
+	).Scan(&offerLastSeen)
+	workerPlacement, err := newRealtimeWorkerPlacement(
+		marketDecision, marketDigest, selectedWarmth, offerLastSeen, false)
+	if err != nil {
+		return RealtimeContract{}, false, fmt.Errorf("bind realtime WorkerPlacement: %w", err)
+	}
 	// Persist the canonical MarketDecision; attach projects the legacy receipt.
 	marketJSON, err := json.Marshal(marketDecision)
 	if err != nil {
@@ -1284,7 +1308,8 @@ func (s *Store) AuthorizeRealtimeContract(ctx context.Context, auth RealtimeCont
 		BuyerDeclaredCeilingNanos: pricing.Realtime.BuyerDeclaredCeilingNanos,
 		Pricing:                   &pricing, PricingDecisionSHA256: pricingSHA256,
 		MarketDecision: &marketDecision, MarketClearing: market,
-		Currency: currency.Code(),
+		WorkerPlacement: &workerPlacement,
+		Currency:        currency.Code(),
 	}, false, nil
 }
 

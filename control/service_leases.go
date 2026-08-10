@@ -199,13 +199,20 @@ type serviceLeaseActivationDetail struct {
 	UnknownCostCategories            []string                          `json:"unknown_cost_categories,omitempty"`
 	ResidencyLiabilityPolicy         string                            `json:"residency_liability_policy"`
 	MarketClearing                   *serviceLeaseMarketClearingDetail `json:"market_clearing,omitempty"`
+	// WorkerPlacement is the Step 9 worker-choice binding for this activation.
+	WorkerPlacement *WorkerPlacement `json:"worker_placement,omitempty"`
 }
 
-func serviceLeaseActivationEventDetail(pricing PricingDecision, digest string, reservedBuyerMicros int64, market *serviceLeaseMarketClearingDetail) ([]byte, error) {
+func serviceLeaseActivationEventDetail(pricing PricingDecision, digest string, reservedBuyerMicros int64, market *serviceLeaseMarketClearingDetail, placement *WorkerPlacement) ([]byte, error) {
 	authority := pricing.ServiceLease
 	fixed := pricing.FixedPoint
 	if authority == nil || fixed == nil || digest == "" || fixed.Currency != pricing.Currency {
 		return nil, errors.New("service lease activation event lacks complete pricing authority")
+	}
+	if placement != nil {
+		if err := ValidateWorkerPlacement(*placement); err != nil {
+			return nil, fmt.Errorf("service lease activation worker placement: %w", err)
+		}
 	}
 	detail := serviceLeaseActivationDetail{
 		ReservedCeilingNanos:             fixed.AcceptedCeilingNanos,
@@ -229,6 +236,7 @@ func serviceLeaseActivationEventDetail(pricing PricingDecision, digest string, r
 		UnknownCostCategories:            append([]string(nil), fixed.UnknownCostCategories...),
 		ResidencyLiabilityPolicy:         "SELECTED_SUPPLIER_ALL_IN_WARM_CAPACITY_ENTITLEMENT_V2",
 		MarketClearing:                   market,
+		WorkerPlacement:                  placement,
 	}
 	if authority.Version == serviceLeasePricingAuthorityLegacyVersion {
 		detail.ResidencyLiabilityPolicy = "LEGACY_PLATFORM_VARIABLE_COST_BENEFICIARY_UNBOUND"
@@ -870,7 +878,14 @@ func (s *Store) CreateServiceLease(ctx context.Context, buyerID uuid.UUID, reque
 		OrderBookPolicy:            "lowest_total_supplier_plus_residency_ask_v1",
 		SelectionReason:            "lowest total measured cost (supplier + residency nanos per replica hour) cleared the buyer ceiling with positive fixed-point contribution",
 	}
-	activationDetail, err := serviceLeaseActivationEventDetail(pricing, pricingSHA, lease.ReservedBuyerMicros, market)
+	// Step 9: bind the actual worker chosen. Fallback keeps the lease and takes
+	// a new worker on failover — not realtime-immutable and not batch requeue.
+	workerPlacement, err := newServiceLeaseWorkerPlacement(
+		workerID, supplierID, len(candidates), selectedRank, "")
+	if err != nil {
+		return ServiceLease{}, fmt.Errorf("bind service lease WorkerPlacement: %w", err)
+	}
+	activationDetail, err := serviceLeaseActivationEventDetail(pricing, pricingSHA, lease.ReservedBuyerMicros, market, &workerPlacement)
 	if err != nil {
 		return ServiceLease{}, err
 	}

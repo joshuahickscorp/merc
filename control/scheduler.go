@@ -473,6 +473,11 @@ type ClaimedTask struct {
 	// ShapePreference is "low_latency", "throughput", or empty when shape
 	// ordering did not apply.
 	ShapePreference string
+	// WorkerPlacement is the Step 9 claim-time worker-choice binding: the
+	// claiming worker, claim-time eligibility snapshot (not a frozen epoch),
+	// locality belief with freshness when a warmth signal applied, and
+	// lane-discriminated batch fallback.
+	WorkerPlacement *WorkerPlacement
 }
 
 // ClaimTaskSQL builds the production claim query. Shape preference is derived
@@ -1297,6 +1302,16 @@ func (s *Store) ClaimTasksTx(ctx context.Context, w WorkerAuth) (*ClaimedTask, e
 			}
 		}
 	}
+	if claimed {
+		// Step 9: bind the claiming worker with a claim-time eligibility
+		// snapshot and locality freshness when warmth signals applied.
+		// Built inside the claim TX so a broken placement refuses the claim.
+		placement, err := bindBatchClaimWorkerPlacement(ctx, tx, w, c, hwClass)
+		if err != nil {
+			return nil, fmt.Errorf("bind batch WorkerPlacement: %w", err)
+		}
+		c.WorkerPlacement = &placement
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
@@ -1309,6 +1324,109 @@ func (s *Store) ClaimTasksTx(ctx context.Context, w WorkerAuth) (*ClaimedTask, e
 	c.ShapePreference = shapePreferenceName(pref)
 	c.ShapeOrderingApplied = pref != shapeNoPreference
 	return &c, nil
+}
+
+// bindBatchClaimWorkerPlacement freezes the Step 9 worker-choice binding for a
+// successful ClaimTasksTx. Locality signals mirror the claim SQL preference
+// terms (warm_prefix_depth / warm_for_task) and record last_seen_warm freshness
+// when present — never inventing a frozen candidate epoch.
+func bindBatchClaimWorkerPlacement(ctx context.Context, tx pgx.Tx, w WorkerAuth, c ClaimedTask, hwClass string) (WorkerPlacement, error) {
+	var warmPrefixDepth int
+	var prefixLastSeen *time.Time
+	var warmModel bool
+	var modelLastSeen *time.Time
+	// Same TTL windows and join shape as claimTaskSQL warm_* terms.
+	if err := tx.QueryRow(ctx, `
+		SELECT
+		  GREATEST(
+		    COALESCE((
+		      SELECT MAX(ch.depth)
+		        FROM job_prefix_chain ch
+		        JOIN worker_prefix_state wps
+		          ON wps.prefix_id = ch.prefix_id AND wps.worker_id = $1
+		       WHERE ch.job_id = $2
+		         AND wps.last_seen_warm > now() - interval '90 seconds'
+		    ), 0),
+		    CASE WHEN EXISTS (
+		      SELECT 1 FROM jobs j
+		       JOIN worker_prefix_state wps
+		         ON wps.worker_id = $1 AND wps.prefix_id = j.prefix_id
+		      WHERE j.id = $2 AND j.prefix_id IS NOT NULL
+		        AND wps.last_seen_warm > now() - interval '90 seconds'
+		    ) THEN 1 ELSE 0 END
+		  )::int,
+		  (
+		    SELECT MAX(seen)
+		      FROM (
+		        SELECT wps.last_seen_warm AS seen
+		          FROM job_prefix_chain ch
+		          JOIN worker_prefix_state wps
+		            ON wps.prefix_id = ch.prefix_id AND wps.worker_id = $1
+		         WHERE ch.job_id = $2
+		           AND wps.last_seen_warm > now() - interval '90 seconds'
+		        UNION ALL
+		        SELECT wps.last_seen_warm
+		          FROM jobs j
+		          JOIN worker_prefix_state wps
+		            ON wps.worker_id = $1 AND wps.prefix_id = j.prefix_id
+		         WHERE j.id = $2 AND j.prefix_id IS NOT NULL
+		           AND wps.last_seen_warm > now() - interval '90 seconds'
+		      ) warm_rows
+		  ),
+		  EXISTS (
+		    SELECT 1 FROM jobs j
+		      JOIN worker_model_state wms
+		        ON wms.worker_id = $1 AND wms.model_id = j.model_ref
+		     WHERE j.id = $2 AND COALESCE(j.model_ref,'') <> ''
+		       AND wms.last_seen_warm > now() - interval '60 seconds'
+		  ),
+		  (
+		    SELECT MAX(wms.last_seen_warm)
+		      FROM jobs j
+		      JOIN worker_model_state wms
+		        ON wms.worker_id = $1 AND wms.model_id = j.model_ref
+		     WHERE j.id = $2 AND COALESCE(j.model_ref,'') <> ''
+		       AND wms.last_seen_warm > now() - interval '60 seconds'
+		  )`,
+		w.WorkerID, c.JobID,
+	).Scan(&warmPrefixDepth, &prefixLastSeen, &warmModel, &modelLastSeen); err != nil {
+		return WorkerPlacement{}, err
+	}
+
+	var prefixTS, modelTS time.Time
+	if prefixLastSeen != nil {
+		prefixTS = prefixLastSeen.UTC()
+	}
+	if modelLastSeen != nil {
+		modelTS = modelLastSeen.UTC()
+	}
+	// Preference applied with a non-zero warmth signal is locality-driven for
+	// this worker. Batch pull cannot prove multi-worker affinity moved the
+	// global pick; it records the belief this claim trusted.
+	drove := warmPrefixDepth > 0 || warmModel
+
+	var isHedge bool
+	if err := tx.QueryRow(ctx, `
+		SELECT hedged_from IS NOT NULL FROM tasks WHERE id=$1`, c.TaskID,
+	).Scan(&isHedge); err != nil {
+		return WorkerPlacement{}, err
+	}
+
+	return newBatchClaimWorkerPlacement(BatchClaimPlacementInputs{
+		WorkerID:               w.WorkerID,
+		SupplierID:             w.SupplierID,
+		TaskID:                 c.TaskID,
+		JobID:                  c.JobID,
+		ClaimedAt:              time.Now().UTC(),
+		RuntimeCellID:          c.RuntimeCellID,
+		HWClass:                hwClass,
+		WarmPrefixDepth:        warmPrefixDepth,
+		PrefixLastSeen:         prefixTS,
+		WarmModel:              warmModel,
+		ModelLastSeen:          modelTS,
+		LocalityDroveSelection: drove,
+		Hedge:                  isHedge,
+	})
 }
 
 type SchedulerExplanation struct {
