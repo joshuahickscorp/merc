@@ -110,6 +110,11 @@ type LedgerEntry struct {
 	Currency     string
 	PayoutStatus string
 	ReleaseAt    *time.Time
+	// PricingDecisionSHA256 / LifecycleRevision / LaneSettlementID cite the
+	// existing authority for work-liability rows. Empty on historical fixtures.
+	PricingDecisionSHA256 string
+	LifecycleRevision     string
+	LaneSettlementID      string
 }
 
 func splitFrozenCharge(

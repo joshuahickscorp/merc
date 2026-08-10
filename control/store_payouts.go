@@ -1243,12 +1243,16 @@ func (s *Store) FinalizePayout(ctx context.Context, entryID uuid.UUID, result Pa
 	defer tx.Rollback(ctx)
 
 	var ledgerStatus, opStatus, currency, fundingCurrency, settlementPolicy string
+	var settlementPricingSHA, settlementLifecycle, settlementLane string
 	var requested, fundingAmount, liabilityMicros, settlementCash, remainderMicros, carryInMicros int64
 	err = tx.QueryRow(ctx, `
 		SELECT le.payout_status,op.status,op.requested_cents,op.currency,
 		       funding.amount_cents,funding.currency,
 		       (le.amount_usd*1000000)::bigint,settlement.policy,
-		       settlement.cash_cents,settlement.remainder_microusd,settlement.carry_in_microusd
+		       settlement.cash_cents,settlement.remainder_microusd,settlement.carry_in_microusd,
+		       COALESCE(settlement.pricing_decision_sha256,''),
+		       COALESCE(settlement.lifecycle_revision,''),
+		       COALESCE(settlement.lane_settlement_id,'')
 		  FROM ledger_entries le
 		  JOIN supplier_payout_operations op ON op.ledger_entry_id=le.id
 		  JOIN supplier_payout_funding funding
@@ -1258,7 +1262,8 @@ func (s *Store) FinalizePayout(ctx context.Context, entryID uuid.UUID, result Pa
 		 WHERE le.id=$1
 		 FOR UPDATE OF le,op,funding`, entryID).
 		Scan(&ledgerStatus, &opStatus, &requested, &currency, &fundingAmount, &fundingCurrency,
-			&liabilityMicros, &settlementPolicy, &settlementCash, &remainderMicros, &carryInMicros)
+			&liabilityMicros, &settlementPolicy, &settlementCash, &remainderMicros, &carryInMicros,
+			&settlementPricingSHA, &settlementLifecycle, &settlementLane)
 	if err != nil {
 		return "", err
 	}
@@ -1285,6 +1290,24 @@ func (s *Store) FinalizePayout(ctx context.Context, entryID uuid.UUID, result Pa
 		return "", fmt.Errorf(
 			"payout %s minor-unit reconciliation mismatch: policy=%s liability=%d requested=%d settlement=%d remainder=%d",
 			entryID, settlementPolicy, liabilityMicros, requested, settlementCash, remainderMicros)
+	}
+	// New claims record origin authority + lifecycle revision. Historical
+	// minor-unit rows (null citations or lifecycle-only legacy claims) remain
+	// finalizable — do not fail closed on pre-Step-13 history.
+	if settlementLifecycle != "" && settlementLifecycle != liabilityLifecycleRevision {
+		return "", fmt.Errorf(
+			"payout %s lifecycle revision %q does not match %s",
+			entryID, settlementLifecycle, liabilityLifecycleRevision)
+	}
+	if settlementPricingSHA != "" || settlementLane != "" {
+		auth := liabilityAuthority{
+			PricingDecisionSHA256: settlementPricingSHA,
+			LaneSettlementID:      settlementLane,
+			LifecycleRevision:     settlementLifecycle,
+		}
+		if err := auth.validate(); err != nil {
+			return "", fmt.Errorf("payout %s settlement authority: %w", entryID, err)
+		}
 	}
 	if result.CashMoved {
 		if result.SentCents != requested || result.Currency != currency {

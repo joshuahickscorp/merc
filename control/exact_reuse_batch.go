@@ -192,17 +192,30 @@ func (s *Store) SubmitExactReuseBatchJob(
 		return err
 	}
 
-	// Money: buyer debit + platform take. No supplier_credit.
-	if _, err := insertLedgerEntryTx(ctx, tx, ledgerInsert{
+	// Money: buyer debit + platform take. No supplier_credit. Cite the
+	// PricingDecision digest already sealed for this exact-reuse job.
+	reuseAuth := liabilityAuthority{PricingDecisionSHA256: pricingSHA256}
+	if err := reuseAuth.validate(); err != nil {
+		return fmt.Errorf("exact reuse batch liability authority: %w", err)
+	}
+	buyerChargeEntry := ledgerInsert{
 		Kind: KindBuyerCharge, BuyerID: &buyerID, TaskID: &taskID,
 		AmountMicros: -money.BuyerDebitMicros, Currency: jobCurrency, PayoutStatus: PayoutReleased,
-	}); err != nil {
+	}
+	if err := applyLiabilityAuthority(&buyerChargeEntry, reuseAuth); err != nil {
 		return err
 	}
-	if _, err := insertLedgerEntryTx(ctx, tx, ledgerInsert{
+	if _, err := insertLedgerEntryTx(ctx, tx, buyerChargeEntry); err != nil {
+		return err
+	}
+	platformTakeEntry := ledgerInsert{
 		Kind: KindPlatformTake, TaskID: &taskID,
 		AmountMicros: money.PlatformMicros, Currency: jobCurrency, PayoutStatus: PayoutReleased,
-	}); err != nil {
+	}
+	if err := applyLiabilityAuthority(&platformTakeEntry, reuseAuth); err != nil {
+		return err
+	}
+	if _, err := insertLedgerEntryTx(ctx, tx, platformTakeEntry); err != nil {
 		return err
 	}
 	_ = platform

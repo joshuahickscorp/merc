@@ -978,6 +978,18 @@ func clawbackTaskCreditTx(ctx context.Context, tx pgx.Tx, effectID, sourceTaskID
 	if err == nil && credited > 0 {
 		cb := clawbackEntry(supplierID, taskID, credited)
 		cb.Currency = creditCurrency
+		// Cite the job PricingDecision when present, plus dispute/refund
+		// lifecycle revision. Amount is an exact reverse of the credit row.
+		var jobID uuid.UUID
+		if err := tx.QueryRow(ctx, `SELECT job_id FROM tasks WHERE id=$1`, taskID).Scan(&jobID); err != nil {
+			return err
+		}
+		pricingSHA, aerr := loadJobPricingDecisionSHA(ctx, tx, jobID)
+		if aerr != nil {
+			return aerr
+		}
+		cb.PricingDecisionSHA256 = pricingSHA
+		cb.LifecycleRevision = liabilityLifecycleRevision
 		if err := insertLedgerEntryIfAbsentExactTx(ctx, tx, cb); err != nil {
 			return err
 		}

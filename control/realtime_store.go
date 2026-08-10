@@ -1250,6 +1250,15 @@ type RealtimeSettlement struct {
 	BuyerChargeNanos           int64     `json:"buyer_charge_nanos,omitempty"`
 	SupplierPayableNanos       int64     `json:"supplier_payable_nanos,omitempty"`
 	KnownCostContributionNanos int64     `json:"known_cost_contribution_nanos,omitempty"`
+	// PricingDecisionSHA256 is the contract digest that authorized this settle.
+	PricingDecisionSHA256 string `json:"pricing_decision_sha256,omitempty"`
+	// FinalityStatus is KNOWN_COST_SETTLED for verified token economics — not
+	// batch ECONOMIC_FINAL / true-net.
+	FinalityStatus   string   `json:"finality_status,omitempty"`
+	FinalityBlockers []string `json:"finality_blockers,omitempty"`
+	// EconomicFinal is true only for ECONOMIC_FINAL with empty blockers. Realtime
+	// never sets this while true-net remains refused on the lane.
+	EconomicFinal bool `json:"economic_final"`
 }
 
 type RealtimeOperationalSnapshot struct {
@@ -1569,9 +1578,18 @@ func (s *Store) SettleRealtimeExactReuse(
 		{KindBuyerCharge, &auth.BuyerID, -money.BuyerDebitMicros},
 		{KindPlatformTake, nil, money.PlatformMicros},
 	}
+	settlementID := uuid.New()
+	finalityStatus, finalityBlockers := realtimeKnownCostFinality()
+	liabilityAuth := liabilityAuthority{
+		PricingDecisionSHA256: pricingSHA256,
+		LaneSettlementID:      settlementID.String(),
+	}
+	if err := liabilityAuth.validate(); err != nil {
+		return RealtimeContract{}, RealtimeSettlement{}, fmt.Errorf("exact reuse liability authority: %w", err)
+	}
 	for _, entry := range entries {
 		contractRef := contractID
-		if _, err := insertLedgerEntryTx(ctx, tx, ledgerInsert{
+		li := ledgerInsert{
 			Kind:                entry.kind,
 			BuyerID:             entry.buyer,
 			ExecutionContractID: &contractRef,
@@ -1579,7 +1597,11 @@ func (s *Store) SettleRealtimeExactReuse(
 			Currency:            currency.Code(),
 			CurrencyAuthority:   ledgerCurrencyAuthorityExecutionContract,
 			PayoutStatus:        PayoutReleased,
-		}); err != nil {
+		}
+		if err := applyLiabilityAuthority(&li, liabilityAuth); err != nil {
+			return RealtimeContract{}, RealtimeSettlement{}, err
+		}
+		if _, err := insertLedgerEntryTx(ctx, tx, li); err != nil {
 			return RealtimeContract{}, RealtimeSettlement{}, err
 		}
 	}
@@ -1587,15 +1609,20 @@ func (s *Store) SettleRealtimeExactReuse(
 		return RealtimeContract{}, RealtimeSettlement{}, err
 	}
 
-	settlementID := uuid.New()
+	blockersJSON, err := json.Marshal(finalityBlockers)
+	if err != nil {
+		return RealtimeContract{}, RealtimeSettlement{}, err
+	}
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO realtime_settlements
 		 (id,contract_id,authoritative_execution_id,receipt_id,buyer_charge_usd,
 		  supplier_gross_usd,platform_margin_usd,verification_cost_usd,
-		  currency,buyer_charge_nanos,supplier_gross_nanos,known_cost_contribution_nanos)
-		VALUES ($1,$2,$3,$4,$5,0,$6,0,$7,$8,0,$8)`,
+		  currency,buyer_charge_nanos,supplier_gross_nanos,known_cost_contribution_nanos,
+		  pricing_decision_sha256,finality_status,finality_blockers)
+		VALUES ($1,$2,$3,$4,$5,0,$6,0,$7,$8,0,$8,$9,$10,$11::jsonb)`,
 		settlementID, contractID, executionID, "rcp_"+executionID.String(),
-		buyerCharge, platformMargin, currency.Code(), money.BuyerDebitNanos); err != nil {
+		buyerCharge, platformMargin, currency.Code(), money.BuyerDebitNanos,
+		pricingSHA256, finalityStatus, blockersJSON); err != nil {
 		return RealtimeContract{}, RealtimeSettlement{}, err
 	}
 	if auth.ReuseClass == ClassCoalescedDelivery {
@@ -1636,6 +1663,10 @@ func (s *Store) SettleRealtimeExactReuse(
 		SupplierPayableUSD: 0, PlatformMarginUSD: platformMargin, Currency: currency.Code(),
 		BuyerChargeNanos: money.BuyerDebitNanos, SupplierPayableNanos: 0,
 		KnownCostContributionNanos: money.BuyerDebitNanos,
+		PricingDecisionSHA256:      pricingSHA256,
+		FinalityStatus:             finalityStatus,
+		FinalityBlockers:           finalityBlockers,
+		EconomicFinal:              economicFinalityReportsFinal(finalityStatus, finalityBlockers),
 	}, nil
 }
 
@@ -1656,20 +1687,34 @@ func (s *Store) FinalizeRealtimeSuccess(ctx context.Context, contractID uuid.UUI
 	// Idempotent settle: a retried settlement intent must not double-charge.
 	if contract.State == "VERIFIED" {
 		var settlement RealtimeSettlement
+		var blockersJSON []byte
 		err := tx.QueryRow(ctx, `
 			SELECT id,buyer_charge_usd::float8,supplier_gross_usd::float8,platform_margin_usd::float8,
-			       currency,buyer_charge_nanos,supplier_gross_nanos,known_cost_contribution_nanos
+			       currency,buyer_charge_nanos,supplier_gross_nanos,known_cost_contribution_nanos,
+			       COALESCE(pricing_decision_sha256,''),COALESCE(finality_status,''),finality_blockers
 			  FROM realtime_settlements
 			 WHERE contract_id=$1 AND authoritative_execution_id=$2`, contractID, evidence.ID).
 			Scan(&settlement.ID, &settlement.BuyerChargeUSD, &settlement.SupplierPayableUSD,
 				&settlement.PlatformMarginUSD, &settlement.Currency, &settlement.BuyerChargeNanos,
-				&settlement.SupplierPayableNanos, &settlement.KnownCostContributionNanos)
+				&settlement.SupplierPayableNanos, &settlement.KnownCostContributionNanos,
+				&settlement.PricingDecisionSHA256, &settlement.FinalityStatus, &blockersJSON)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return RealtimeSettlement{}, errRealtimeAlreadyFinalized
 		}
 		if err != nil {
 			return RealtimeSettlement{}, err
 		}
+		if len(blockersJSON) > 0 {
+			_ = json.Unmarshal(blockersJSON, &settlement.FinalityBlockers)
+		}
+		// Historical rows predate finality columns: surface the honest known-cost label.
+		if settlement.FinalityStatus == "" {
+			status, blockers := realtimeKnownCostFinality()
+			settlement.FinalityStatus = status
+			settlement.FinalityBlockers = blockers
+		}
+		settlement.EconomicFinal = economicFinalityReportsFinal(
+			settlement.FinalityStatus, settlement.FinalityBlockers)
 		if _, err := tx.Exec(ctx, `
 			UPDATE realtime_settlement_intents
 			   SET state='settled', updated_at=now(), last_error=NULL
@@ -1756,13 +1801,22 @@ func (s *Store) FinalizeRealtimeSuccess(ctx context.Context, contractID uuid.UUI
 		{KindSupplierCredit, PayoutHeld, nil, &contract.SupplierID, supplierMicros, releaseAt},
 		{KindPlatformTake, PayoutReleased, nil, nil, platformMicros, nil},
 	}
+	settlementID := uuid.New()
+	finalityStatus, finalityBlockers := realtimeKnownCostFinality()
+	liabilityAuth := liabilityAuthority{
+		PricingDecisionSHA256: contract.PricingDecisionSHA256,
+		LaneSettlementID:      settlementID.String(),
+	}
+	if err := liabilityAuth.validate(); err != nil {
+		return RealtimeSettlement{}, fmt.Errorf("realtime settle liability authority: %w", err)
+	}
 	for _, entry := range entries {
 		var releaseAt *time.Time
 		if t, ok := entry.release.(time.Time); ok {
 			releaseAt = &t
 		}
 		contractRef := contractID
-		if _, err := insertLedgerEntryTx(ctx, tx, ledgerInsert{
+		li := ledgerInsert{
 			Kind:                entry.kind,
 			SupplierID:          entry.supplier,
 			BuyerID:             entry.buyer,
@@ -1772,7 +1826,11 @@ func (s *Store) FinalizeRealtimeSuccess(ctx context.Context, contractID uuid.UUI
 			CurrencyAuthority:   ledgerCurrencyAuthorityExecutionContract,
 			PayoutStatus:        entry.status,
 			ReleaseAt:           releaseAt,
-		}); err != nil {
+		}
+		if err := applyLiabilityAuthority(&li, liabilityAuth); err != nil {
+			return RealtimeSettlement{}, err
+		}
+		if _, err := insertLedgerEntryTx(ctx, tx, li); err != nil {
 			return RealtimeSettlement{}, err
 		}
 	}
@@ -1787,15 +1845,20 @@ func (s *Store) FinalizeRealtimeSuccess(ctx context.Context, contractID uuid.UUI
 		evidence.PromptTokens+evidence.CompletionTokens); err != nil {
 		return RealtimeSettlement{}, err
 	}
-	settlementID := uuid.New()
+	blockersJSON, err := json.Marshal(finalityBlockers)
+	if err != nil {
+		return RealtimeSettlement{}, err
+	}
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO realtime_settlements
 		 (id,contract_id,authoritative_execution_id,receipt_id,buyer_charge_usd,
 		  supplier_gross_usd,platform_margin_usd,verification_cost_usd,
-		  currency,buyer_charge_nanos,supplier_gross_nanos,known_cost_contribution_nanos)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,0,$8,$9,$10,$11)`, settlementID, contractID, evidence.ID,
+		  currency,buyer_charge_nanos,supplier_gross_nanos,known_cost_contribution_nanos,
+		  pricing_decision_sha256,finality_status,finality_blockers)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,0,$8,$9,$10,$11,$12,$13,$14::jsonb)`, settlementID, contractID, evidence.ID,
 		"rcp_"+evidence.ID.String(), buyerCharge, supplierPayable, platformMargin,
-		contract.Currency, buyerExact.Nanos, supplierExact.Nanos, contributionExact.Nanos); err != nil {
+		contract.Currency, buyerExact.Nanos, supplierExact.Nanos, contributionExact.Nanos,
+		contract.PricingDecisionSHA256, finalityStatus, blockersJSON); err != nil {
 		return RealtimeSettlement{}, err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE execution_contracts SET state='VERIFIED',finalized_at=now() WHERE id=$1`, contractID); err != nil {
@@ -1824,7 +1887,12 @@ func (s *Store) FinalizeRealtimeSuccess(ctx context.Context, contractID uuid.UUI
 	return RealtimeSettlement{ID: settlementID, BuyerChargeUSD: buyerCharge, SupplierPayableUSD: supplierPayable,
 		PlatformMarginUSD: platformMargin, Currency: contract.Currency,
 		BuyerChargeNanos: buyerExact.Nanos, SupplierPayableNanos: supplierExact.Nanos,
-		KnownCostContributionNanos: contributionExact.Nanos}, nil
+		KnownCostContributionNanos: contributionExact.Nanos,
+		PricingDecisionSHA256:      contract.PricingDecisionSHA256,
+		FinalityStatus:             finalityStatus,
+		FinalityBlockers:           finalityBlockers,
+		EconomicFinal:              economicFinalityReportsFinal(finalityStatus, finalityBlockers),
+	}, nil
 }
 
 func (s *Store) FinalizeRealtimeFailure(ctx context.Context, contractID uuid.UUID, executionID uuid.UUID, httpStatus int, durationMS int64, code, detail string, cancelled bool) (bool, error) {
@@ -2243,18 +2311,21 @@ func (s *Store) RefundRealtimeContract(
 		buyerCharge, supplierGross, platformMargin float64
 		fundingBound                               bool
 	)
+	var pricingSHA string
 	err = tx.QueryRow(ctx, `
 		SELECT c.state,c.buyer_id,c.supplier_id,s.id,s.buyer_charge_usd::float8,
 		       s.supplier_gross_usd::float8,s.platform_margin_usd::float8,
 		       le.id,le.payout_status,c.currency,
-		       EXISTS(SELECT 1 FROM supplier_payout_funding f WHERE f.ledger_entry_id=le.id)
+		       EXISTS(SELECT 1 FROM supplier_payout_funding f WHERE f.ledger_entry_id=le.id),
+		       COALESCE(c.pricing_decision_sha256,'')
 		  FROM execution_contracts c
 		  JOIN realtime_settlements s ON s.contract_id=c.id
 		  JOIN ledger_entries le ON le.execution_contract_id=c.id AND le.kind='supplier_credit'
 		 WHERE c.id=$1
 		 FOR UPDATE OF c,le`, contractID).Scan(
 		&state, &buyerID, &supplierID, &settlementID, &buyerCharge,
-		&supplierGross, &platformMargin, &entryID, &payoutStatus, &currency, &fundingBound)
+		&supplierGross, &platformMargin, &entryID, &payoutStatus, &currency, &fundingBound,
+		&pricingSHA)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return RealtimeRefund{}, false, errNotFound
 	}
@@ -2297,6 +2368,15 @@ func (s *Store) RefundRealtimeContract(
 		return RealtimeRefund{}, false, err
 	}
 	contract := contractID
+	// Amounts stay exact copies of the settlement row; citation only.
+	refundAuth := liabilityAuthority{
+		PricingDecisionSHA256: pricingSHA,
+		LaneSettlementID:      settlementID.String(),
+		LifecycleRevision:     liabilityLifecycleRevision,
+	}
+	if err := refundAuth.validate(); err != nil {
+		return RealtimeRefund{}, false, fmt.Errorf("realtime refund liability authority: %w", err)
+	}
 	reversals := []ledgerInsert{
 		{Kind: "buyer_refund", BuyerID: &buyerID, ExecutionContractID: &contract,
 			AmountMicros: usdToMicros(refundBuyerUSD), Currency: currency,
@@ -2308,8 +2388,11 @@ func (s *Store) RefundRealtimeContract(
 			AmountMicros: -usdToMicros(refundPlatformUSD), Currency: currency,
 			CurrencyAuthority: ledgerCurrencyAuthorityExecutionContract, PayoutStatus: "released"},
 	}
-	for _, entry := range reversals {
-		if _, err := insertLedgerEntryTx(ctx, tx, entry); err != nil {
+	for i := range reversals {
+		if err := applyLiabilityAuthority(&reversals[i], refundAuth); err != nil {
+			return RealtimeRefund{}, false, err
+		}
+		if _, err := insertLedgerEntryTx(ctx, tx, reversals[i]); err != nil {
 			return RealtimeRefund{}, false, err
 		}
 	}

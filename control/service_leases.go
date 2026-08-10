@@ -233,15 +233,23 @@ func serviceLeaseActivationEventDetail(pricing PricingDecision, digest string, r
 // allocation plus modeled contribution: residency is paid in the selected
 // supplier's all-in credit, and no lease risk reserve is charged. Historical v1
 // receipts retain their accepted arithmetic and label the unresolved liability.
+//
+// MoneyFinalityStatus / EconomicFinalityStatus make terminal cash vs true-net
+// finality explicit. EconomicFinal is never true while receipt blockers remain.
 type ServiceLeaseSettlement struct {
-	Currency              string                       `json:"currency"`
-	BuyerChargeMicros     int64                        `json:"buyer_charge_micros"`
-	PrepaidDebitMicros    int64                        `json:"prepaid_debit_micros"`
-	SupplierCreditMicros  int64                        `json:"supplier_credit_micros"`
-	PlatformGrossMicros   int64                        `json:"platform_gross_micros"`
-	SupplierPayoutStatus  string                       `json:"supplier_payout_status"`
-	FundingAuthorityState string                       `json:"funding_authority_state"`
-	SupplierCredits       []ServiceLeaseSupplierCredit `json:"supplier_credits"`
+	Currency               string                       `json:"currency"`
+	BuyerChargeMicros      int64                        `json:"buyer_charge_micros"`
+	PrepaidDebitMicros     int64                        `json:"prepaid_debit_micros"`
+	SupplierCreditMicros   int64                        `json:"supplier_credit_micros"`
+	PlatformGrossMicros    int64                        `json:"platform_gross_micros"`
+	SupplierPayoutStatus   string                       `json:"supplier_payout_status"`
+	FundingAuthorityState  string                       `json:"funding_authority_state"`
+	SupplierCredits        []ServiceLeaseSupplierCredit `json:"supplier_credits"`
+	PricingDecisionSHA256  string                       `json:"pricing_decision_sha256,omitempty"`
+	MoneyFinalityStatus    string                       `json:"money_finality_status,omitempty"`
+	EconomicFinalityStatus string                       `json:"economic_finality_status,omitempty"`
+	EconomicFinal          bool                         `json:"economic_final"`
+	FinalityBlockers       []string                     `json:"finality_blockers,omitempty"`
 }
 
 // ServiceLeaseSupplierCredit preserves the per-supplier terminal projection.
@@ -345,6 +353,22 @@ func settleFinalServiceLeaseTx(ctx context.Context, tx pgx.Tx, lease *ServiceLea
 	if err := validateServiceLeaseAcceptedPricingBinding(*lease); err != nil {
 		return err
 	}
+	// Re-seal the pricing digest at terminal settle so the ledger citation
+	// matches the accept-time authority (accept already sealed it on the row).
+	gotSHA, err := pricingDecisionDigest(lease.Pricing)
+	if err != nil {
+		return fmt.Errorf("service lease terminal pricing digest: %w", err)
+	}
+	if lease.PricingDecisionSHA256 == "" || gotSHA != lease.PricingDecisionSHA256 {
+		return fmt.Errorf("service lease terminal pricing digest mismatch for lease %s", lease.ID)
+	}
+	liabilityAuth := liabilityAuthority{
+		PricingDecisionSHA256: lease.PricingDecisionSHA256,
+		LaneSettlementID:      lease.ID.String(),
+	}
+	if err := liabilityAuth.validate(); err != nil {
+		return err
+	}
 	currency, err := ParseCurrency(lease.Pricing.Currency)
 	if err != nil {
 		return fmt.Errorf("service settlement currency: %w", err)
@@ -375,12 +399,16 @@ func settleFinalServiceLeaseTx(ctx context.Context, tx pgx.Tx, lease *ServiceLea
 		}
 		supplierMicros += creditMicros
 		supplier := payable.SupplierID
+		credit := ledgerInsert{
+			Kind: KindSupplierCredit, SupplierID: &supplier, AmountMicros: creditMicros,
+			Currency: currency.Code(), PayoutStatus: PayoutHeld,
+			ReleaseAt: ptrTime(payoutReleaseAt(time.Now().UTC(), 0)),
+		}
+		if err := applyLiabilityAuthority(&credit, liabilityAuth); err != nil {
+			return err
+		}
 		if err := insertServiceLeaseLedgerEntryTx(ctx, tx, lease.ID,
-			serviceLeaseSupplierCreditLedgerRef(lease.ID, supplier), ledgerInsert{
-				Kind: KindSupplierCredit, SupplierID: &supplier, AmountMicros: creditMicros,
-				Currency: currency.Code(), PayoutStatus: PayoutHeld,
-				ReleaseAt: ptrTime(payoutReleaseAt(time.Now().UTC(), 0)),
-			}); err != nil {
+			serviceLeaseSupplierCreditLedgerRef(lease.ID, supplier), credit); err != nil {
 			return err
 		}
 	}
@@ -394,19 +422,27 @@ func settleFinalServiceLeaseTx(ctx context.Context, tx pgx.Tx, lease *ServiceLea
 		return errors.New("service terminal ledger projection has negative platform gross")
 	}
 	buyer := lease.BuyerID
-	if err := insertServiceLeaseLedgerEntryTx(ctx, tx, lease.ID, serviceLeaseLedgerRef(lease.ID, KindBuyerCharge), ledgerInsert{
+	buyerCharge := ledgerInsert{
 		Kind: KindBuyerCharge, BuyerID: &buyer, AmountMicros: -buyerMicros,
 		Currency: currency.Code(), PayoutStatus: PayoutReleased,
-	}); err != nil {
+	}
+	if err := applyLiabilityAuthority(&buyerCharge, liabilityAuth); err != nil {
+		return err
+	}
+	if err := insertServiceLeaseLedgerEntryTx(ctx, tx, lease.ID, serviceLeaseLedgerRef(lease.ID, KindBuyerCharge), buyerCharge); err != nil {
 		return err
 	}
 	if err := debitPrepaidForServiceLeaseTx(ctx, tx, buyer, lease.ID, buyerMicros); err != nil {
 		return err
 	}
-	return insertServiceLeaseLedgerEntryTx(ctx, tx, lease.ID, serviceLeaseLedgerRef(lease.ID, KindPlatformTake), ledgerInsert{
+	platformTake := ledgerInsert{
 		Kind: KindPlatformTake, AmountMicros: platformMicros,
 		Currency: currency.Code(), PayoutStatus: PayoutReleased,
-	})
+	}
+	if err := applyLiabilityAuthority(&platformTake, liabilityAuth); err != nil {
+		return err
+	}
+	return insertServiceLeaseLedgerEntryTx(ctx, tx, lease.ID, serviceLeaseLedgerRef(lease.ID, KindPlatformTake), platformTake)
 }
 
 func ptrTime(value time.Time) *time.Time { return &value }
@@ -1132,12 +1168,13 @@ func (s *Store) GetServiceLeaseReceipt(ctx context.Context, buyerID, leaseID uui
 		residencyStatus = "LEGACY_RESIDENCY_LIABILITY_BENEFICIARY_UNBOUND"
 		reserveRefundStatus = "LEGACY_MODELED_RESERVE_CHARGED_WITHOUT_LIFECYCLE_OR_GOVERNED_REFUND"
 	}
+	blockers := serviceLeaseEconomicFinalityBlockers()
 	receipt := ServiceLeaseReceipt{Lease: lease, BuyerFundingState: buyerFundingState, SupplierSettlementState: supplierSettlementState,
 		TrueNetContributionStatus: "UNKNOWN_ECONOMIC_FINALITY_BLOCKERS", DataPlaneAuthorityStatus: "WORKER_ATTESTED_PROBE_NOT_BUYER_REQUEST",
 		ResidencyAuthorityStatus: residencyStatus,
 		EgressAuthorityStatus:    "APPLICATION_BYTES_DIAGNOSTIC_ONLY_PROVIDER_BILLING_UNKNOWN",
 		ReserveRefundStatus:      reserveRefundStatus,
-		ReceiptBlockers:          serviceLeaseEconomicFinalityBlockers(),
+		ReceiptBlockers:          blockers,
 		MeteringSemantics:        "cumulative replica-nanoseconds; each receipt is re-derived from lease start"}
 	var activationRaw []byte
 	err = s.pool.QueryRow(ctx, `SELECT detail FROM service_lease_events
@@ -1334,12 +1371,29 @@ func (s *Store) serviceLeaseTerminalSettlement(ctx context.Context, lease Servic
 	if fundedCredits == len(credits) {
 		fundingState = "PREPAID_CASH_ALLOCATED_TO_SUPPLIER_LIABILITIES"
 	}
+	blockers := serviceLeaseEconomicFinalityBlockers()
+	moneyFinality, economicFinal := serviceLeaseMoneyTerminalFinality(blockers)
+	// True-net remains refused on this lane while blockers are non-empty.
+	if economicFinal {
+		economicFinal = false
+		moneyFinality = laneFinalityMoneyTerminalNotEconomicFinal
+	}
 	return &ServiceLeaseSettlement{
 		Currency: currency, BuyerChargeMicros: -buyer.amount, PrepaidDebitMicros: -debit.amount,
 		SupplierCreditMicros: supplierMicros, PlatformGrossMicros: platform.amount,
 		SupplierPayoutStatus:  uniformStatus,
 		FundingAuthorityState: fundingState,
 		SupplierCredits:       credits,
+		PricingDecisionSHA256: lease.PricingDecisionSHA256,
+		MoneyFinalityStatus:   moneyFinality,
+		EconomicFinalityStatus: func() string {
+			if economicFinal {
+				return laneFinalityEconomicFinal
+			}
+			return "UNKNOWN_ECONOMIC_FINALITY_BLOCKERS"
+		}(),
+		EconomicFinal:    economicFinal,
+		FinalityBlockers: blockers,
 	}, nil
 }
 

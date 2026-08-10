@@ -78,6 +78,17 @@ type ledgerInsert struct {
 	PayoutStatus     string
 	ReleaseAt        *time.Time
 	PayoutRef        string
+	// PricingDecisionSHA256 is the existing PricingDecision digest that
+	// authorized this liability transition. Optional for historical rows and
+	// non-liability kinds; required on new work-liability production writers.
+	PricingDecisionSHA256 string
+	// LifecycleRevision records which refund/dispute/payout rules applied when
+	// this write uses those machines. Empty for pure settle/accrual paths that
+	// do not apply those rules.
+	LifecycleRevision string
+	// LaneSettlementID is the realtime settlement id or service-lease id when
+	// that lane row is the cited authority (or a co-citation with pricing SHA).
+	LaneSettlementID string
 }
 
 type ledgerCurrencyAuthority string
@@ -120,14 +131,17 @@ func ledgerInsertFromEntry(e LedgerEntry) ledgerInsert {
 		cur = SettlementCurrencyCode()
 	}
 	return ledgerInsert{
-		Kind:         e.Kind,
-		SupplierID:   e.SupplierID,
-		BuyerID:      e.BuyerID,
-		TaskID:       e.TaskID,
-		AmountMicros: usdToMicros(e.AmountUSD),
-		Currency:     cur,
-		PayoutStatus: e.PayoutStatus,
-		ReleaseAt:    e.ReleaseAt,
+		Kind:                  e.Kind,
+		SupplierID:            e.SupplierID,
+		BuyerID:               e.BuyerID,
+		TaskID:                e.TaskID,
+		AmountMicros:          usdToMicros(e.AmountUSD),
+		Currency:              cur,
+		PayoutStatus:          e.PayoutStatus,
+		ReleaseAt:             e.ReleaseAt,
+		PricingDecisionSHA256: e.PricingDecisionSHA256,
+		LifecycleRevision:     e.LifecycleRevision,
+		LaneSettlementID:      e.LaneSettlementID,
 	}
 }
 
@@ -144,14 +158,17 @@ func insertLedgerEntryTx(ctx context.Context, db ledgerExec, e ledgerInsert) (pg
 	return db.Exec(ctx, `
 		INSERT INTO ledger_entries
 		  (kind, supplier_id, buyer_id, task_id, execution_contract_id,
-		   amount_usd, currency, payout_status, release_at, payout_ref)
+		   amount_usd, currency, payout_status, release_at, payout_ref,
+		   pricing_decision_sha256, lifecycle_revision, lane_settlement_id)
 		VALUES (
 		  $1, $2, $3, $4, $5,
 		  ($6::numeric / 1000000),
-		  $7, $8, $9, NULLIF($10, '')
+		  $7, $8, $9, NULLIF($10, ''),
+		  NULLIF($11, ''), NULLIF($12, ''), NULLIF($13, '')
 		)`,
 		e.Kind, e.SupplierID, e.BuyerID, e.TaskID, e.ExecutionContractID,
 		e.AmountMicros, e.Currency, e.PayoutStatus, e.ReleaseAt, e.PayoutRef,
+		e.PricingDecisionSHA256, e.LifecycleRevision, e.LaneSettlementID,
 	)
 }
 
@@ -164,15 +181,18 @@ func insertLedgerEntryOnTaskConflictDoNothingTx(ctx context.Context, db ledgerEx
 	}
 	return db.Exec(ctx, `
 		INSERT INTO ledger_entries
-		  (kind, supplier_id, buyer_id, task_id, amount_usd, currency, payout_status, release_at, payout_ref)
+		  (kind, supplier_id, buyer_id, task_id, amount_usd, currency, payout_status, release_at, payout_ref,
+		   pricing_decision_sha256, lifecycle_revision, lane_settlement_id)
 		VALUES (
 		  $1, $2, $3, $4,
 		  ($5::numeric / 1000000),
-		  $6, $7, $8, NULLIF($9, '')
+		  $6, $7, $8, NULLIF($9, ''),
+		  NULLIF($10, ''), NULLIF($11, ''), NULLIF($12, '')
 		)
 		ON CONFLICT (task_id, kind) DO NOTHING`,
 		e.Kind, e.SupplierID, e.BuyerID, e.TaskID,
 		e.AmountMicros, e.Currency, e.PayoutStatus, e.ReleaseAt, e.PayoutRef,
+		e.PricingDecisionSHA256, e.LifecycleRevision, e.LaneSettlementID,
 	)
 }
 
@@ -189,30 +209,42 @@ func insertLedgerEntryIfAbsentByRefTx(ctx context.Context, db ledgerExec, e ledg
 	return db.Exec(ctx, `
 		INSERT INTO ledger_entries
 		  (kind, supplier_id, buyer_id, task_id, execution_contract_id,
-		   amount_usd, currency, payout_status, release_at, payout_ref)
-		SELECT $1, $2, $3, $4, $5, ($6::numeric / 1000000), $7, $8, $9, $10
+		   amount_usd, currency, payout_status, release_at, payout_ref,
+		   pricing_decision_sha256, lifecycle_revision, lane_settlement_id)
+		SELECT $1, $2, $3, $4, $5, ($6::numeric / 1000000), $7, $8, $9, $10,
+		       NULLIF($11, ''), NULLIF($12, ''), NULLIF($13, '')
 		 WHERE NOT EXISTS (
 		   SELECT 1 FROM ledger_entries WHERE kind = $1 AND payout_ref = $10
 		 )`,
 		e.Kind, e.SupplierID, e.BuyerID, e.TaskID, e.ExecutionContractID,
 		e.AmountMicros, e.Currency, e.PayoutStatus, e.ReleaseAt, e.PayoutRef,
+		e.PricingDecisionSHA256, e.LifecycleRevision, e.LaneSettlementID,
 	)
 }
 
 // insertJobDisputeClawbacksTx appends balancing clawback rows for every
 // supplier credit on a job. Amounts are copied from existing NUMERIC values
 // (no float path). SQL still lives here so the CI raw-insert guard stays clean.
+// Each clawback cites the job's PricingDecision digest when present, and always
+// cites the refund/dispute lifecycle revision; amounts are unchanged copies.
 func insertJobDisputeClawbacksTx(ctx context.Context, db ledgerExec, jobID uuid.UUID) (pgconn.CommandTag, error) {
+	pricingSHA, err := loadJobPricingDecisionSHA(ctx, db, jobID)
+	if err != nil {
+		return pgconn.CommandTag{}, err
+	}
 	// Currency is copied from the credit being clawed back — historical USD
 	// credits stay USD even when the deployment now settles CAD.
 	return db.Exec(ctx, `
 		INSERT INTO ledger_entries
-		  (kind, supplier_id, task_id, amount_usd, currency, payout_status)
-		SELECT 'clawback', le.supplier_id, le.task_id, -le.amount_usd, le.currency, 'clawed_back'
+		  (kind, supplier_id, task_id, amount_usd, currency, payout_status,
+		   pricing_decision_sha256, lifecycle_revision)
+		SELECT 'clawback', le.supplier_id, le.task_id, -le.amount_usd, le.currency, 'clawed_back',
+		       NULLIF($2, ''), $3
 		  FROM ledger_entries le JOIN tasks t ON t.id = le.task_id
 		 WHERE t.job_id = $1 AND le.kind = 'supplier_credit'
 		   AND le.amount_usd > 0 AND le.task_id IS NOT NULL
-		ON CONFLICT (task_id, kind) DO NOTHING`, jobID)
+		ON CONFLICT (task_id, kind) DO NOTHING`,
+		jobID, pricingSHA, liabilityLifecycleRevision)
 }
 
 // disputeBuyerRefundResult is the NUMERIC-domain outcome of recording dispute
@@ -268,13 +300,19 @@ func insertJobDisputeBuyerRefundsTx(
 			return out, fmt.Errorf("job %s refund refused: unsupported currency %q", jobID, out.Currency)
 		}
 	}
+	pricingSHA, err := loadJobPricingDecisionSHA(ctx, db, jobID)
+	if err != nil {
+		return out, err
+	}
 
 	// Task-scoped buyer refunds: exact reverse of each buyer_charge.
 	ct, err := db.Exec(ctx, `
 		INSERT INTO ledger_entries
-		  (kind, buyer_id, task_id, amount_usd, currency, payout_status, payout_ref)
+		  (kind, buyer_id, task_id, amount_usd, currency, payout_status, payout_ref,
+		   pricing_decision_sha256, lifecycle_revision)
 		SELECT 'buyer_refund', le.buyer_id, le.task_id, -le.amount_usd, le.currency, 'released',
-		       'dispute-refund-' || $2::text || '-' || le.task_id::text
+		       'dispute-refund-' || $2::text || '-' || le.task_id::text,
+		       NULLIF($3, ''), $4
 		  FROM ledger_entries le
 		  JOIN tasks t ON t.id = le.task_id
 		 WHERE t.job_id = $1
@@ -283,7 +321,8 @@ func insertJobDisputeBuyerRefundsTx(
 		   AND le.task_id IS NOT NULL
 		   AND le.buyer_id IS NOT NULL
 		   AND le.currency = (SELECT currency FROM jobs WHERE id = $1)
-		ON CONFLICT (task_id, kind) DO NOTHING`, jobID, disputeID)
+		ON CONFLICT (task_id, kind) DO NOTHING`,
+		jobID, disputeID, pricingSHA, liabilityLifecycleRevision)
 	if err != nil {
 		return out, err
 	}
@@ -292,9 +331,11 @@ func insertJobDisputeBuyerRefundsTx(
 	// Reverse platform take so conservation holds after clawback + refund.
 	if _, err := db.Exec(ctx, `
 		INSERT INTO ledger_entries
-		  (kind, task_id, amount_usd, currency, payout_status, payout_ref)
+		  (kind, task_id, amount_usd, currency, payout_status, payout_ref,
+		   pricing_decision_sha256, lifecycle_revision)
 		SELECT 'platform_refund', le.task_id, -le.amount_usd, le.currency, 'released',
-		       'dispute-platform-refund-' || $2::text || '-' || le.task_id::text
+		       'dispute-platform-refund-' || $2::text || '-' || le.task_id::text,
+		       NULLIF($3, ''), $4
 		  FROM ledger_entries le
 		  JOIN tasks t ON t.id = le.task_id
 		 WHERE t.job_id = $1
@@ -302,7 +343,8 @@ func insertJobDisputeBuyerRefundsTx(
 		   AND le.amount_usd > 0
 		   AND le.task_id IS NOT NULL
 		   AND le.currency = (SELECT currency FROM jobs WHERE id = $1)
-		ON CONFLICT (task_id, kind) DO NOTHING`, jobID, disputeID); err != nil {
+		ON CONFLICT (task_id, kind) DO NOTHING`,
+		jobID, disputeID, pricingSHA, liabilityLifecycleRevision); err != nil {
 		return out, err
 	}
 
@@ -310,8 +352,10 @@ func insertJobDisputeBuyerRefundsTx(
 	slaRef := "dispute-sla-refund-" + disputeID.String()
 	if _, err := db.Exec(ctx, `
 		INSERT INTO ledger_entries
-		  (kind, buyer_id, amount_usd, currency, payout_status, payout_ref)
-		SELECT 'buyer_refund', le.buyer_id, -le.amount_usd, le.currency, 'released', $2
+		  (kind, buyer_id, amount_usd, currency, payout_status, payout_ref,
+		   pricing_decision_sha256, lifecycle_revision)
+		SELECT 'buyer_refund', le.buyer_id, -le.amount_usd, le.currency, 'released', $2,
+		       NULLIF($4, ''), $5
 		  FROM ledger_entries le
 		 WHERE le.kind = 'buyer_charge'
 		   AND le.task_id IS NULL
@@ -322,7 +366,8 @@ func insertJobDisputeBuyerRefundsTx(
 		   AND NOT EXISTS (
 		         SELECT 1 FROM ledger_entries r
 		          WHERE r.kind = 'buyer_refund' AND r.payout_ref = $2
-		       )`, jobID, slaRef, slaPremiumChargeRef(jobID)); err != nil {
+		       )`, jobID, slaRef, slaPremiumChargeRef(jobID),
+		pricingSHA, liabilityLifecycleRevision); err != nil {
 		return out, err
 	}
 
@@ -388,7 +433,8 @@ func insertJobDisputeBuyerRefundsTx(
 }
 
 // insertJobSLAPremiumChargeTx records the once-only SLA premium buyer_charge
-// from the frozen economic plan (NUMERIC → NUMERIC, no float path).
+// from the frozen economic plan (NUMERIC → NUMERIC, no float path). Cites the
+// job's PricingDecision digest; amount still comes only from sla_premium_usd.
 func insertJobSLAPremiumChargeTx(ctx context.Context, db ledgerExec, jobID uuid.UUID, payoutRef string) (pgconn.CommandTag, error) {
 	var jobCurrency, planCurrency string
 	if err := db.QueryRow(ctx, `
@@ -406,12 +452,17 @@ func insertJobSLAPremiumChargeTx(ctx context.Context, db ledgerExec, jobID uuid.
 	if err := RequireSettlementCurrency(jobCurrency); err != nil {
 		return pgconn.CommandTag{}, fmt.Errorf("job %s cannot settle SLA premium: %w", jobID, err)
 	}
+	pricingSHA, err := loadJobPricingDecisionSHA(ctx, db, jobID)
+	if err != nil {
+		return pgconn.CommandTag{}, err
+	}
 	return db.Exec(ctx, `
-		INSERT INTO ledger_entries (kind, buyer_id, amount_usd, currency, payout_status, payout_ref)
-		SELECT 'buyer_charge', j.buyer_id, -p.sla_premium_usd, $3, 'released', $2
+		INSERT INTO ledger_entries
+		  (kind, buyer_id, amount_usd, currency, payout_status, payout_ref, pricing_decision_sha256)
+		SELECT 'buyer_charge', j.buyer_id, -p.sla_premium_usd, $3, 'released', $2, NULLIF($4, '')
 		  FROM jobs j JOIN job_economic_plans p ON p.job_id = j.id
 		 WHERE j.id = $1 AND j.status = 'complete' AND p.sla_premium_usd > 0
-		ON CONFLICT DO NOTHING`, jobID, payoutRef, jobCurrency)
+		ON CONFLICT DO NOTHING`, jobID, payoutRef, jobCurrency, pricingSHA)
 }
 
 // resolveLedgerInsert validates and fills currency on a ledger write. Empty
@@ -488,6 +539,22 @@ func resolveLedgerInsert(e ledgerInsert) (ledgerInsert, error) {
 			errCurrencyMismatch, got, settle)
 	}
 	e.Currency = got.Code()
+	// Citation format only — empty remains legal for historical rows and for
+	// non-liability kinds. Production liability writers must populate these
+	// before insert; resolve does not invent digests or change amounts.
+	if sha := strings.TrimSpace(e.PricingDecisionSHA256); sha != "" {
+		if !validSHA256(sha) {
+			return ledgerInsert{}, fmt.Errorf("ledger insert pricing_decision_sha256 %q is not a sha256 hex digest", sha)
+		}
+		e.PricingDecisionSHA256 = sha
+	}
+	if rev := strings.TrimSpace(e.LifecycleRevision); rev != "" {
+		if rev != liabilityLifecycleRevision {
+			return ledgerInsert{}, fmt.Errorf("ledger insert unknown lifecycle revision %q", rev)
+		}
+		e.LifecycleRevision = rev
+	}
+	e.LaneSettlementID = strings.TrimSpace(e.LaneSettlementID)
 	return e, nil
 }
 

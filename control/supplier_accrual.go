@@ -63,6 +63,9 @@ func lockSupplierAccrual(ctx context.Context, tx pgx.Tx, supplierID uuid.UUID) (
 // always. The database
 // enforces that same equation on supplier_accrual_events, so a lost or invented
 // micro-USD cannot be written even if this function is wrong.
+//
+// The settlement row cites the origin liability's PricingDecision / lane id and
+// the payout lifecycle revision. Liability micros are unchanged by citation.
 func accrueSupplierLiability(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -103,6 +106,21 @@ func accrueSupplierLiability(
 		return 0, 0, err
 	}
 
+	auth, legacyMissing, err := loadLedgerEntryLiabilityAuthority(ctx, tx, entryID)
+	if err != nil {
+		return 0, 0, fmt.Errorf("payout claim liability authority for %s: %w", entryID, err)
+	}
+	if !legacyMissing {
+		auth.LifecycleRevision = liabilityLifecycleRevision
+		if err := auth.validate(); err != nil {
+			return 0, 0, err
+		}
+	} else {
+		// Historical liability without an origin digest: still record which
+		// payout lifecycle rules applied, without inventing a pricing SHA.
+		auth.LifecycleRevision = liabilityLifecycleRevision
+	}
+
 	factor, err := settlement.MicrosPerMinorUnit()
 	if err != nil {
 		return 0, 0, err
@@ -113,10 +131,12 @@ func accrueSupplierLiability(
 
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO supplier_minor_unit_settlements
-		  (ledger_entry_id,policy,carry_in_microusd,liability_microusd,cash_cents,remainder_microusd,currency)
-		VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+		  (ledger_entry_id,policy,carry_in_microusd,liability_microusd,cash_cents,remainder_microusd,currency,
+		   pricing_decision_sha256,lifecycle_revision,lane_settlement_id)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,NULLIF($8,''),NULLIF($9,''),NULLIF($10,''))`,
 		entryID, supplierSettlementPolicyAccountAccrualV3,
 		accrual.AccruedMicros, liabilityMicros, cashCents, carryOut, SettlementCurrencyCode(),
+		auth.PricingDecisionSHA256, auth.LifecycleRevision, auth.LaneSettlementID,
 	); err != nil {
 		return 0, 0, fmt.Errorf("recording accrual settlement for %s: %w", entryID, err)
 	}

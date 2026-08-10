@@ -563,17 +563,29 @@ func (s *Store) BuyerPrepaidAvailableMicros(ctx context.Context, buyerID uuid.UU
 	return bal - reserved, nil
 }
 
-// reservePrepaidForJobTx is the admission-side serialization point. It locks
-// the buyer's balance row and includes every other open job's *remaining*
-// frozen reservation and every active service lease's maximum, so neither
-// concurrent submits nor a concurrent settlement can oversubscribe cash
-// already collected from the buyer.
+// reservePrepaidForJobTx is the admission-side serialization point. It takes
+// the same buyer-funding advisory realtime and free-credit use (first — before
+// any row lock), then locks the buyer's balance row and includes every other
+// open job's *remaining* frozen reservation and every active service lease's
+// maximum, so neither concurrent submits nor a concurrent settlement can
+// oversubscribe cash already collected from the buyer.
+//
+// Lock order: pg_advisory_xact_lock("realtime-buyer-funding|"+buyerID) →
+// buyer_prepaid_balances FOR UPDATE. Do not take offer/capacity locks before
+// this; do not reorder the advisory after the balance row.
 func reservePrepaidForJobTx(ctx context.Context, tx pgx.Tx, buyerID uuid.UUID, amountMicros int64) error {
 	if buyerID == uuid.Nil || amountMicros <= 0 {
 		return fmt.Errorf("prepaid reservation requires buyer and positive ledger micros")
 	}
 	currency := SettlementCurrencyCode()
 	if _, err := ParseCurrency(currency); err != nil {
+		return err
+	}
+	// Same lock key as evaluateRealtimeBuyerFunding / reserveFreeCreditForJobTx
+	// — one buyer-serialised critical section across prepaid batch, free-credit
+	// batch, and realtime funding.
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`,
+		"realtime-buyer-funding|"+buyerID.String()); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, `
@@ -591,7 +603,22 @@ func reservePrepaidForJobTx(ctx context.Context, tx pgx.Tx, buyerID uuid.UUID, a
 	if err != nil {
 		return err
 	}
-	if balance-reserved < amountMicros {
+	// Pure non-envelope EXECUTING ceilings are held by realtime/free-credit via
+	// sqlBuyerCommittedMoneyMicros but are intentionally outside the prepaid
+	// open-exposure expression (refunds must not treat free-credit-only work as
+	// prepaid cash). After the shared advisory serialises check/commit/check,
+	// admission still has to observe a committed realtime ceiling funded from
+	// this balance — otherwise reverse-order (realtime first, prepaid second)
+	// re-admits and oversubscribes. Same fragment realtime uses; not a second
+	// lock key and not a change to sqlBuyerOpenExposureMicros.
+	var executingHold int64
+	if err := tx.QueryRow(ctx,
+		`SELECT (`+sqlOpenNonEnvelopeExecutingCeilingMicros("$1", "$2")+`)`,
+		buyerID, currency,
+	).Scan(&executingHold); err != nil {
+		return err
+	}
+	if balance-reserved-executingHold < amountMicros {
 		return errInsufficientPrepaid
 	}
 	return nil
@@ -602,9 +629,21 @@ func reservePrepaidForJobTx(ctx context.Context, tx pgx.Tx, buyerID uuid.UUID, a
 // so it must also prove that its buyer is still active before reserving cash.
 // The underlying reservation query includes active services, which gives this
 // path the same serializable cash guarantee as batch admission.
+//
+// Lock order: funding advisory first (via reservePrepaidForJobTx), then the
+// existing buyers FOR UPDATE active check is taken *before* the nested call
+// would re-acquire the advisory. Taking buyers before the advisory deadlocks
+// against realtime/free-credit (advisory → buyers). So: advisory, then buyers,
+// then balance — matching free-credit's hierarchy. The nested
+// reservePrepaidForJobTx re-takes the advisory (xact locks are reentrant).
 func reservePrepaidForServiceLeaseTx(ctx context.Context, tx pgx.Tx, buyerID uuid.UUID, amountMicros int64) error {
 	if buyerID == uuid.Nil {
 		return errNotFound
+	}
+	// Advisory before buyers — same key, same order as free-credit / realtime.
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`,
+		"realtime-buyer-funding|"+buyerID.String()); err != nil {
+		return err
 	}
 	var active bool
 	err := tx.QueryRow(ctx, `SELECT deleted_at IS NULL FROM buyers WHERE id=$1 FOR UPDATE`, buyerID).Scan(&active)

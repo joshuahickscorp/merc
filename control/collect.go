@@ -717,17 +717,24 @@ func (s *Store) SettleJobSLA(ctx context.Context, jobID uuid.UUID) (SLASettleRes
 		buyer := buyerID
 		// Job row is already locked above; re-bind through the shared helper so
 		// the ledger authority is exact against jobs.currency.
-		// Job row is already locked above; re-bind through the shared helper so
-		// the ledger authority is exact against jobs.currency.
 		jobAuth, boundCurrency, err := lockJobCurrencyAuthority(ctx, tx, jobID, jobCurrency)
 		if err != nil {
 			return res, err
 		}
-		if _, err := insertLedgerEntryIfAbsentByRefTx(ctx, tx, ledgerInsert{
+		// Cite the accept-time PricingDecision when present, and always the
+		// refund lifecycle revision. Amount is unchanged.
+		pricingSHA, err := loadJobPricingDecisionSHA(ctx, tx, jobID)
+		if err != nil {
+			return res, err
+		}
+		entry := ledgerInsert{
 			Kind: KindSLARefund, BuyerID: &buyer, AmountMicros: usdToMicros(refund),
 			Currency: boundCurrency, CurrencyAuthority: jobAuth, BoundJobCurrency: boundCurrency,
 			PayoutStatus: PayoutReleased, PayoutRef: slaRefundRef(jobID),
-		}); err != nil {
+			PricingDecisionSHA256: pricingSHA,
+			LifecycleRevision:     liabilityLifecycleRevision,
+		}
+		if _, err := insertLedgerEntryIfAbsentByRefTx(ctx, tx, entry); err != nil {
 			return res, err
 		}
 		// The refund and its risk-reserve consumption are one money fact. A

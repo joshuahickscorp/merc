@@ -573,23 +573,39 @@ func (p *VerificationProcessor) taskPayoutEntriesAt(ctx context.Context, info *C
 	if err := RequireSettlementCurrency(j.Currency); err != nil {
 		return nil, fmt.Errorf("job %s cannot settle under this deployment: %w", info.JobID, err)
 	}
+	// Liability citation: same PricingDecision digest frozen at job accept
+	// when present. Amounts still come only from observed-output settlement.
+	pricingSHA, err := loadJobPricingDecisionSHA(ctx, p.store.pool, info.JobID)
+	if err != nil {
+		return nil, err
+	}
 	settled, err := p.store.observedOutputSettlementForTask(ctx, info)
 	if err != nil {
 		return nil, err
 	}
 	var policy VerificationPolicy
 	_ = json.Unmarshal(j.VerificationPolicy, &policy)
+	var entries []LedgerEntry
 	if settled.HasNanos {
-		entries, serr := splitFrozenChargeNanos(j.BuyerID, info.SupplierID, info.TaskID,
+		entries, err = splitFrozenChargeNanos(j.BuyerID, info.SupplierID, info.TaskID,
 			j.Currency, settled.BilledChargeNanos, settled.SupplierPayoutNanos,
 			policy.PayoutHoldSecs, at)
-		if serr != nil {
-			return nil, serr
+		if err != nil {
+			return nil, err
 		}
-		return entries, nil
+	} else {
+		entries = splitFrozenCharge(j.BuyerID, info.SupplierID, info.TaskID,
+			j.Currency, settled.BilledCharge, settled.SupplierPayout, policy.PayoutHoldSecs, at)
 	}
-	return splitFrozenCharge(j.BuyerID, info.SupplierID, info.TaskID,
-		j.Currency, settled.BilledCharge, settled.SupplierPayout, policy.PayoutHoldSecs, at), nil
+	if pricingSHA != "" {
+		auth := liabilityAuthority{PricingDecisionSHA256: pricingSHA}
+		for i := range entries {
+			if err := applyLiabilityAuthorityToEntry(&entries[i], auth); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return entries, nil
 }
 
 // observedOutputSettlementForTask settles through the shared loader so the

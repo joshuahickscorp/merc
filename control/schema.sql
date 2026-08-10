@@ -7729,3 +7729,51 @@ FOR EACH ROW EXECUTE FUNCTION cx_reject_capability_snapshot_mutation();
 -- routability from the activation authority without this column.
 COMMENT ON COLUMN worker_authorized_capabilities.routable IS
   'COMPATIBILITY PROJECTION of activation policy (advertisedRuntimeCell). Not a NodeCapability fact. Dual-written at UpsertWorker. Deletion milestone: Network V2 post-Step-6 when claim/quote paths read activation without this column.';
+
+-- =============================================================================
+-- Network V2 Step 13 — liability authority citations + lane finality
+-- =============================================================================
+-- Existing rows remain readable with NULL citations. New writers record the
+-- PricingDecision digest (or lane settlement id) that authorized the money
+-- move, plus the refund/dispute/payout lifecycle revision when those rules
+-- apply. Amounts are unchanged by these columns.
+
+ALTER TABLE ledger_entries ADD COLUMN IF NOT EXISTS pricing_decision_sha256 TEXT;
+ALTER TABLE ledger_entries ADD COLUMN IF NOT EXISTS lifecycle_revision TEXT;
+ALTER TABLE ledger_entries ADD COLUMN IF NOT EXISTS lane_settlement_id TEXT;
+ALTER TABLE ledger_entries DROP CONSTRAINT IF EXISTS ledger_entries_pricing_decision_sha256_valid;
+ALTER TABLE ledger_entries ADD CONSTRAINT ledger_entries_pricing_decision_sha256_valid
+    CHECK (pricing_decision_sha256 IS NULL
+           OR pricing_decision_sha256 ~ '^[0-9a-f]{64}$') NOT VALID;
+ALTER TABLE ledger_entries DROP CONSTRAINT IF EXISTS ledger_entries_lifecycle_revision_known;
+ALTER TABLE ledger_entries ADD CONSTRAINT ledger_entries_lifecycle_revision_known
+    CHECK (lifecycle_revision IS NULL
+           OR lifecycle_revision = 'refund-dispute-payout-lifecycle-v1') NOT VALID;
+
+ALTER TABLE realtime_settlements ADD COLUMN IF NOT EXISTS pricing_decision_sha256 TEXT;
+ALTER TABLE realtime_settlements ADD COLUMN IF NOT EXISTS finality_status TEXT;
+ALTER TABLE realtime_settlements ADD COLUMN IF NOT EXISTS finality_blockers JSONB;
+ALTER TABLE realtime_settlements DROP CONSTRAINT IF EXISTS realtime_settlements_pricing_decision_sha256_valid;
+ALTER TABLE realtime_settlements ADD CONSTRAINT realtime_settlements_pricing_decision_sha256_valid
+    CHECK (pricing_decision_sha256 IS NULL
+           OR pricing_decision_sha256 ~ '^[0-9a-f]{64}$') NOT VALID;
+ALTER TABLE realtime_settlements DROP CONSTRAINT IF EXISTS realtime_settlements_finality_status_known;
+ALTER TABLE realtime_settlements ADD CONSTRAINT realtime_settlements_finality_status_known
+    CHECK (finality_status IS NULL
+           OR finality_status IN (
+               'KNOWN_COST_SETTLED',
+               'MONEY_TERMINAL_NOT_ECONOMIC_FINAL',
+               'ECONOMIC_FINAL'
+           )) NOT VALID;
+
+ALTER TABLE supplier_minor_unit_settlements ADD COLUMN IF NOT EXISTS pricing_decision_sha256 TEXT;
+ALTER TABLE supplier_minor_unit_settlements ADD COLUMN IF NOT EXISTS lifecycle_revision TEXT;
+ALTER TABLE supplier_minor_unit_settlements ADD COLUMN IF NOT EXISTS lane_settlement_id TEXT;
+ALTER TABLE supplier_minor_unit_settlements DROP CONSTRAINT IF EXISTS supplier_minor_unit_settlements_pricing_sha_valid;
+ALTER TABLE supplier_minor_unit_settlements ADD CONSTRAINT supplier_minor_unit_settlements_pricing_sha_valid
+    CHECK (pricing_decision_sha256 IS NULL
+           OR pricing_decision_sha256 ~ '^[0-9a-f]{64}$') NOT VALID;
+ALTER TABLE supplier_minor_unit_settlements DROP CONSTRAINT IF EXISTS supplier_minor_unit_settlements_lifecycle_revision_known;
+ALTER TABLE supplier_minor_unit_settlements ADD CONSTRAINT supplier_minor_unit_settlements_lifecycle_revision_known
+    CHECK (lifecycle_revision IS NULL
+           OR lifecycle_revision = 'refund-dispute-payout-lifecycle-v1') NOT VALID;
