@@ -7,6 +7,7 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -627,5 +628,58 @@ func TestClaimUsesFrozenRuntimeCandidate(t *testing.T) {
 	mustf(t, err, "frozen-cell claim: %v")
 	if right == nil || right.JobID != job.ID {
 		t.Fatalf("worker on frozen runtime candidate did not receive job: %+v", right)
+	}
+}
+
+// A workload class is promoted by adding an arm to the classifier, and Step 26
+// forbids exactly that being done ahead of the proof: "each promoted class
+// reaches its declared proof rung end to end; prerequisites absent means
+// BLOCKED_BY_PREREQUISITE, not scaffolding."
+//
+// The classifier already fails closed — an unknown runner/job pair is refused
+// rather than defaulted — so the enforcement exists. What did not exist is
+// anything noticing that the admitted SET grew. A new `case` arm is three lines
+// and turns a refusal into a promotion silently: the class starts flowing
+// through pricing, settlement and evidence with no canary, no quality contract
+// and no declared rung behind it.
+//
+// So the set is pinned. Adding a fifth class means editing this list, and that
+// edit is the moment to ask whether the class reaches its rung end to end.
+// Merc's other non-inference work is deliberately NOT here — render assembly,
+// LoRA evaluation and project decomposition all carry explicit
+// *_NOT_EXECUTABLE refusals, which is the BLOCKED_BY_PREREQUISITE shape the
+// step asks for, and image generation refuses with "no image runtime in
+// service".
+func TestOnlyProvenWorkloadClassesAreAdmittedByTheClassifier(t *testing.T) {
+	raw, err := os.ReadFile("workload_classification.go")
+	if err != nil {
+		t.Fatalf("read classifier: %v", err)
+	}
+	body := string(raw)
+
+	promoted := []string{
+		`workloadClass = "embeddings"`,
+		`workloadClass = "batch_generation"`,
+		`workloadClass = "media_transcode"`,
+		`workloadClass = "media_rendering"`,
+	}
+	for _, arm := range promoted {
+		if !strings.Contains(body, arm) {
+			t.Fatalf("classifier no longer promotes %q. A class leaving the admitted set is "+
+				"a withdrawal and must be deliberate — Step 26's rollback clause, not a rename", arm)
+		}
+	}
+	if got := strings.Count(body, "workloadClass = \""); got != len(promoted) {
+		t.Fatalf("classifier admits %d workload classes, expected %d. A new arm promotes a class "+
+			"into pricing, settlement and evidence; Step 26 requires it to reach its declared "+
+			"proof rung end to end first, and forbids scaffolding it ahead of the proof. "+
+			"If the class is genuinely proven, add it here with its rung named", got, len(promoted))
+	}
+
+	// The fail-closed default is the enforcement; without it an unrecognised
+	// runner/job pair would fall through to an empty class rather than refuse.
+	if !strings.Contains(body, "has no admitted workload classifier for runner=") {
+		t.Fatal("the classifier no longer refuses an unrecognised runner/job pair by name; " +
+			"an unadmitted workload must be BLOCKED_BY_PREREQUISITE, never a silent default")
 	}
 }
