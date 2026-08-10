@@ -1570,7 +1570,9 @@ func serviceLeaseBookWalkSQL() string {
 		 WHERE runtime_profile_id=$1 AND runtime_profile_sha256=$2 AND region=$3 AND currency=$6 AND status='READY'
 		   AND p95_latency_milliseconds>0 AND latency_measurement_count>=5
 		   AND latency_window_seconds BETWEEN 1 AND 300 AND latency_measurement_kind='DATA_PLANE_COMPLETIONS_V1'
-		   AND p95_latency_milliseconds <= $5 AND last_seen_at > now()-interval '45 seconds' AND available_warm_replicas >= $4
+		   AND p95_latency_milliseconds <= $5
+		   AND ($7 = 0 OR (p99_latency_milliseconds > 0 AND p99_latency_milliseconds <= $7))
+		   AND last_seen_at > now()-interval '45 seconds' AND available_warm_replicas >= $4
 		 ORDER BY (supplier_nanos_per_replica_hour + residency_nanos_per_replica_hour) ASC,
 		          supplier_nanos_per_replica_hour ASC,worker_id ASC
 		 FOR UPDATE`

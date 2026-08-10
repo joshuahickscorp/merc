@@ -955,12 +955,25 @@ impl ServiceLatencySamples {
     }
 
     fn p95_millis(&self) -> Result<i64> {
+        self.percentile_millis(95)
+    }
+
+    fn p99_millis(&self) -> Result<i64> {
+        // Real order-statistic p99 from the same sample window as p95. Never
+        // derived from the p95 value.
+        self.percentile_millis(99)
+    }
+
+    fn percentile_millis(&self, percentile: usize) -> Result<i64> {
         if self.samples_millis.len() < SERVICE_LEASE_MINIMUM_SAMPLES {
             bail!("service lease requires five actual data-plane measurements before advertisement")
         }
+        if percentile == 0 || percentile > 100 {
+            bail!("service lease percentile must be in 1..=100")
+        }
         let mut sorted = self.samples_millis.clone();
         sorted.sort_unstable();
-        let rank = (sorted.len() * 95).div_ceil(100).saturating_sub(1);
+        let rank = (sorted.len() * percentile).div_ceil(100).saturating_sub(1);
         Ok(sorted[rank])
     }
 
@@ -981,6 +994,7 @@ fn service_offer(
     status: &str,
 ) -> Result<ServiceLeaseOfferRegistration> {
     let p95_latency_milliseconds = samples.p95_millis()?;
+    let p99_latency_milliseconds = samples.p99_millis()?;
     Ok(ServiceLeaseOfferRegistration {
         runtime_profile_id: profile.runtime_profile_id.clone(),
         runtime_profile_sha256: profile_sha256.to_string(),
@@ -992,6 +1006,7 @@ fn service_offer(
         residency_nanos_per_replica_hour: service.residency_nanos_per_replica_hour,
         supports_rolling_upgrade: service.supports_rolling_upgrade,
         p95_latency_milliseconds,
+        p99_latency_milliseconds,
         latency_measurement_count: samples.measurement_count(),
         latency_window_seconds: samples.window_seconds(),
         latency_measurement_kind: SERVICE_LEASE_MEASUREMENT_KIND.to_string(),
@@ -1021,6 +1036,7 @@ async fn report_service_lease_failure(
                 let heartbeat = ServiceLeaseHeartbeat {
                     warm_replicas: 0,
                     p95_latency_milliseconds: 0,
+                    p99_latency_milliseconds: 0,
                     latency_measurement_count: 0,
                     latency_window_seconds: 0,
                     latency_measurement_kind: String::new(),
@@ -1087,8 +1103,12 @@ async fn heartbeat_service_leases(
         return Ok(());
     }
     let p95 = samples.p95_millis()?;
+    let p99 = samples.p99_millis()?;
     for lease in assignments {
-        let status = if p95 <= lease.maximum_p95_latency_milliseconds {
+        let p95_ok = p95 <= lease.maximum_p95_latency_milliseconds;
+        let p99_ok = lease.maximum_p99_latency_milliseconds <= 0
+            || p99 <= lease.maximum_p99_latency_milliseconds;
+        let status = if p95_ok && p99_ok {
             "READY"
         } else {
             "FAILED"
@@ -1100,6 +1120,7 @@ async fn heartbeat_service_leases(
                 0
             },
             p95_latency_milliseconds: p95,
+            p99_latency_milliseconds: p99,
             latency_measurement_count: samples.measurement_count(),
             latency_window_seconds: samples.window_seconds(),
             latency_measurement_kind: SERVICE_LEASE_MEASUREMENT_KIND.to_string(),
@@ -1664,6 +1685,7 @@ mod tests {
         assert!(samples.p95_millis().is_err());
         samples.record(6).unwrap();
         assert_eq!(samples.p95_millis().unwrap(), 9);
+        assert_eq!(samples.p99_millis().unwrap(), 9);
         for sample in 10..=30 {
             samples.record(sample).unwrap();
         }
@@ -1672,6 +1694,9 @@ mod tests {
             SERVICE_LEASE_MAXIMUM_SAMPLES as u32
         );
         assert_eq!(samples.p95_millis().unwrap(), 29);
+        // With 20 samples the 99th percentile order statistic is the last value
+        // (ceil(20*0.99)-1 = 19), measured independently of p95.
+        assert_eq!(samples.p99_millis().unwrap(), 30);
     }
 
     #[test]

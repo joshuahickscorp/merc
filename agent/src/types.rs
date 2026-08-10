@@ -264,6 +264,8 @@ pub struct ServiceLeaseOfferRegistration {
     pub residency_nanos_per_replica_hour: i64,
     pub supports_rolling_upgrade: bool,
     pub p95_latency_milliseconds: i64,
+    // Measured from the same sample window as p95; never derived from p95.
+    pub p99_latency_milliseconds: i64,
     pub latency_measurement_count: u32,
     pub latency_window_seconds: i64,
     pub latency_measurement_kind: String,
@@ -280,6 +282,9 @@ pub struct ServiceLeaseAssignment {
     pub minimum_replicas: u32,
     pub maximum_replicas: u32,
     pub maximum_p95_latency_milliseconds: i64,
+    // Zero (or omitted) means the lease carries no p99 bound.
+    #[serde(default)]
+    pub maximum_p99_latency_milliseconds: i64,
     pub state: String,
     #[serde(default)]
     pub upgrade_generation: String,
@@ -289,6 +294,7 @@ pub struct ServiceLeaseAssignment {
 pub struct ServiceLeaseHeartbeat {
     pub warm_replicas: u32,
     pub p95_latency_milliseconds: i64,
+    pub p99_latency_milliseconds: i64,
     pub latency_measurement_count: u32,
     pub latency_window_seconds: i64,
     pub latency_measurement_kind: String,

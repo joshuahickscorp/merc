@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -21,8 +22,9 @@ func serviceLeaseOffer(profile VLLMRuntimeProfile) ServiceLeaseOfferRegistration
 		RuntimeProfileID: profile.RuntimeProfileID, RuntimeProfileSHA256: profile.ProfileSHA256,
 		Region: "ca-central-1", Currency: "usd", MaximumWarmReplicas: 3, AvailableWarmReplicas: 3,
 		SupplierNanosPerReplicaHour: 2_000_000_000, ResidencyNanosPerReplicaHour: 200_000_000,
-		SupportsRollingUpgrade: true, P95LatencyMillis: 200, LatencyMeasurementCount: 5,
-		LatencyWindowSeconds: 15, LatencyMeasurementKind: "DATA_PLANE_COMPLETIONS_V1", Status: "READY",
+		SupportsRollingUpgrade: true, P95LatencyMillis: 200, P99LatencyMillis: 250,
+		LatencyMeasurementCount: 5, LatencyWindowSeconds: 15,
+		LatencyMeasurementKind: "DATA_PLANE_COMPLETIONS_V1", Status: "READY",
 	}
 }
 
@@ -226,8 +228,10 @@ func TestServiceLeaseRequiresCollectedPrepaidCashAndFreezesItsMaximum(t *testing
 	offer := serviceLeaseOffer(profile)
 	offer.Region = "ca-prepaid-" + uuid.NewString()
 	must(t, store.UpsertServiceLeaseOffer(ctx, worker, offer))
+	// min==max is required at admission; money still freezes on the accepted
+	// ceiling (replica count only shapes the priced maximum via maximum_replicas).
 	request := ServiceLeaseRequest{RuntimeProfileID: profile.RuntimeProfileID, Region: offer.Region, Currency: "usd",
-		MinimumReplicas: 1, MaximumReplicas: 3, TermSeconds: 60, MaximumP95LatencyMilliseconds: 500,
+		MinimumReplicas: 3, MaximumReplicas: 3, TermSeconds: 60, MaximumP95LatencyMilliseconds: 500,
 		BuyerDeclaredCeilingNanos: 135_000_000}
 	pricing, err := newServiceLeasePricingDecision(serviceLeasePricingInputs(profile, MustParseCurrency("usd"), request,
 		offer.SupplierNanosPerReplicaHour, offer.ResidencyNanosPerReplicaHour))
@@ -291,8 +295,10 @@ func TestServiceLeaseUSDBuyerAndWorkerPathUsesFrozenPricingAndCumulativeMetering
 	if got := post("/v1/worker/service-leases/offers", workerToken, offer).Code; got != http.StatusOK {
 		t.Fatalf("offer registration status=%d", got)
 	}
+	// Admission requires min==max; hold all three advertised warm replicas so
+	// overbooking and under-max offer refresh stay covered.
 	request := ServiceLeaseRequest{RuntimeProfileID: profile.RuntimeProfileID, Region: offer.Region, Currency: "usd",
-		MinimumReplicas: 1, MaximumReplicas: 3, TermSeconds: 60, MaximumP95LatencyMilliseconds: 500,
+		MinimumReplicas: 3, MaximumReplicas: 3, TermSeconds: 60, MaximumP95LatencyMilliseconds: 500,
 		BuyerDeclaredCeilingNanos: 135_000_000}
 	tooStrict := request
 	tooStrict.MaximumP95LatencyMilliseconds = 199
@@ -306,7 +312,7 @@ func TestServiceLeaseUSDBuyerAndWorkerPathUsesFrozenPricingAndCumulativeMetering
 	var lease ServiceLease
 	must(t, json.Unmarshal(created.Body.Bytes(), &lease))
 	if lease.Pricing.ExecutionMode != pricingExecutionServiceLease || lease.Pricing.FixedPoint == nil ||
-		lease.Pricing.FixedPoint.AcceptedCeilingNanos != request.BuyerDeclaredCeilingNanos || lease.ActiveReplicas != 1 ||
+		lease.Pricing.FixedPoint.AcceptedCeilingNanos != request.BuyerDeclaredCeilingNanos || lease.ActiveReplicas != 3 ||
 		lease.ReservedBuyerMicros != 135_000 || lease.PricingAcceptanceID == nil ||
 		*lease.PricingAcceptanceID != lease.ID || lease.PricingAuthoritySource != serviceLeasePricingSourceAcceptance {
 		t.Fatalf("lease lost frozen pricing/capacity authority: %+v", lease)
@@ -360,21 +366,21 @@ func TestServiceLeaseUSDBuyerAndWorkerPathUsesFrozenPricingAndCumulativeMetering
 		t.Fatal(err)
 	}
 	if got := post("/v1/worker/service-leases/"+lease.ID.String()+"/heartbeat", workerToken,
-		ServiceLeaseHeartbeat{WarmReplicas: 1, P95LatencyMillis: 200, Status: "DRAINING", UpgradeGeneration: "image-v2"}).Code; got != http.StatusNoContent {
+		ServiceLeaseHeartbeat{WarmReplicas: 3, P95LatencyMillis: 200, Status: "DRAINING", UpgradeGeneration: "image-v2"}).Code; got != http.StatusNoContent {
 		t.Fatalf("upgrade begin heartbeat status=%d", got)
 	}
 	if got := post("/v1/worker/service-leases/"+lease.ID.String()+"/heartbeat", workerToken,
-		ServiceLeaseHeartbeat{WarmReplicas: 1, P95LatencyMillis: 200, Status: "READY", UpgradeGeneration: "image-v3"}).Code; got != http.StatusConflict {
+		ServiceLeaseHeartbeat{WarmReplicas: 3, P95LatencyMillis: 200, Status: "READY", UpgradeGeneration: "image-v3"}).Code; got != http.StatusConflict {
 		t.Fatalf("unmeasured ready heartbeat status=%d", got)
 	}
 	if got := post("/v1/worker/service-leases/"+lease.ID.String()+"/heartbeat", workerToken,
-		ServiceLeaseHeartbeat{WarmReplicas: 1, P95LatencyMillis: 200, LatencyMeasurementCount: 5,
+		ServiceLeaseHeartbeat{WarmReplicas: 3, P95LatencyMillis: 200, LatencyMeasurementCount: 5,
 			LatencyWindowSeconds: 15, LatencyMeasurementKind: "DATA_PLANE_COMPLETIONS_V1", Status: "READY",
 			UpgradeGeneration: "image-v3"}).Code; got != http.StatusConflict {
 		t.Fatalf("ready heartbeat without probe receipt status=%d", got)
 	}
 	if got := post("/v1/worker/service-leases/"+lease.ID.String()+"/heartbeat", workerToken,
-		ServiceLeaseHeartbeat{WarmReplicas: 1, P95LatencyMillis: 200, LatencyMeasurementCount: 5,
+		ServiceLeaseHeartbeat{WarmReplicas: 3, P95LatencyMillis: 200, LatencyMeasurementCount: 5,
 			LatencyWindowSeconds: 15, LatencyMeasurementKind: "DATA_PLANE_COMPLETIONS_V1",
 			DataPlaneProbeReceiptSHA256: strings.Repeat("a", 64), Status: "READY", UpgradeGeneration: "image-v3"}).Code; got != http.StatusNoContent {
 		t.Fatalf("upgrade complete heartbeat status=%d", got)
@@ -680,4 +686,256 @@ func TestBuyerCancelsServiceLeaseAtLastAuthenticatedMeterAndReleasesUnusedReserv
 	if workerHeartbeatRec.Code != http.StatusConflict {
 		t.Fatalf("cancelled lease accepted a later worker heartbeat: status=%d", workerHeartbeatRec.Code)
 	}
+}
+
+func TestServiceLeaseAdmissionRefusesReplicaRangeWithoutHoldingSupplyOrMoney(t *testing.T) {
+	installSettlementCurrencyForTest(t, "usd")
+	ctx, store, pool := openIsolatedTestStore(t)
+	buyerID := uuid.New()
+	if _, err := pool.Exec(ctx, `INSERT INTO buyers (id,email) VALUES ($1,$2)`, buyerID, buyerID.String()+"@lease-range.invalid"); err != nil {
+		t.Fatal(err)
+	}
+	must(t, store.SeedPrepaidBalance(ctx, buyerID, 1_000_000, "service-range-"+buyerID.String()))
+	profile := sortedVLLMProfiles()[0]
+	worker, _ := newFabricMeasurementWorker(t, ctx, store)
+	seedMeasuredWarmResidency(t, ctx, pool, worker.WorkerID, profile.ModelAlias)
+	offer := serviceLeaseOffer(profile)
+	offer.Region = "ca-range-" + uuid.NewString()
+	must(t, store.UpsertServiceLeaseOffer(ctx, worker, offer))
+
+	var availableBefore int
+	must(t, pool.QueryRow(ctx, `SELECT available_warm_replicas FROM service_lease_worker_offers
+		WHERE worker_id=$1 AND runtime_profile_id=$2 AND region=$3`,
+		worker.WorkerID, profile.RuntimeProfileID, offer.Region).Scan(&availableBefore))
+	prepaidBefore, err := store.BuyerPrepaidAvailableMicros(ctx, buyerID)
+	must(t, err)
+
+	// min < max is the undeliverable elasticity shape.
+	_, err = store.CreateServiceLease(ctx, buyerID, ServiceLeaseRequest{
+		RuntimeProfileID: profile.RuntimeProfileID, Region: offer.Region, Currency: "usd",
+		MinimumReplicas: 1, MaximumReplicas: 10, TermSeconds: 60, MaximumP95LatencyMilliseconds: 500,
+		BuyerDeclaredCeilingNanos: 135_000_000,
+	})
+	if err == nil || !strings.Contains(err.Error(), "minimum_replicas != maximum_replicas") {
+		t.Fatalf("min<max admission error=%v, want named replica-range refusal", err)
+	}
+
+	var availableAfter int
+	must(t, pool.QueryRow(ctx, `SELECT available_warm_replicas FROM service_lease_worker_offers
+		WHERE worker_id=$1 AND runtime_profile_id=$2 AND region=$3`,
+		worker.WorkerID, profile.RuntimeProfileID, offer.Region).Scan(&availableAfter))
+	prepaidAfter, err := store.BuyerPrepaidAvailableMicros(ctx, buyerID)
+	must(t, err)
+	var leaseRows int
+	must(t, pool.QueryRow(ctx, `SELECT count(*) FROM service_leases WHERE buyer_id=$1`, buyerID).Scan(&leaseRows))
+	if availableAfter != availableBefore || prepaidAfter != prepaidBefore || leaseRows != 0 {
+		t.Fatalf("refusal held durable state: available %d→%d prepaid %d→%d leases=%d",
+			availableBefore, availableAfter, prepaidBefore, prepaidAfter, leaseRows)
+	}
+
+	// Equal bounds still admit at 1 and at N (separate capacity so holds do not collide).
+	for _, n := range []int{1, 3} {
+		equalOffer := serviceLeaseOffer(profile)
+		equalOffer.Region = fmt.Sprintf("ca-range-eq-%d-%s", n, uuid.NewString())
+		equalOffer.MaximumWarmReplicas, equalOffer.AvailableWarmReplicas = n, n
+		must(t, store.UpsertServiceLeaseOffer(ctx, worker, equalOffer))
+		lease, createErr := store.CreateServiceLease(ctx, buyerID, ServiceLeaseRequest{
+			RuntimeProfileID: profile.RuntimeProfileID, Region: equalOffer.Region, Currency: "usd",
+			MinimumReplicas: n, MaximumReplicas: n, TermSeconds: 60, MaximumP95LatencyMilliseconds: 500,
+			BuyerDeclaredCeilingNanos: 135_000_000,
+		})
+		if createErr != nil || lease.MinimumReplicas != n || lease.MaximumReplicas != n || lease.ActiveReplicas != n {
+			t.Fatalf("min==max=%d admission lease=%+v err=%v", n, lease, createErr)
+		}
+	}
+}
+
+func TestServiceLeaseAdmissionReplicaRangeRefusalIsClientVisible(t *testing.T) {
+	installSettlementCurrencyForTest(t, "usd")
+	ctx, store, pool := openIsolatedTestStore(t)
+	buyerID := uuid.New()
+	if _, err := pool.Exec(ctx, `INSERT INTO buyers (id,email) VALUES ($1,$2)`, buyerID, buyerID.String()+"@lease-range-api.invalid"); err != nil {
+		t.Fatal(err)
+	}
+	must(t, store.SeedPrepaidBalance(ctx, buyerID, 1_000_000, "service-range-api-"+buyerID.String()))
+	_, buyerKey, _, err := store.CreateAPIKey(ctx, buyerID, "lease-range-api", true)
+	must(t, err)
+	profile := sortedVLLMProfiles()[0]
+	worker, _ := newFabricMeasurementWorker(t, ctx, store)
+	seedMeasuredWarmResidency(t, ctx, pool, worker.WorkerID, profile.ModelAlias)
+	offer := serviceLeaseOffer(profile)
+	offer.Region = "ca-range-api-" + uuid.NewString()
+	must(t, store.UpsertServiceLeaseOffer(ctx, worker, offer))
+
+	handler := NewServer(store, nil, nil, nil).Routes()
+	raw, _ := json.Marshal(ServiceLeaseRequest{
+		RuntimeProfileID: profile.RuntimeProfileID, Region: offer.Region, Currency: "usd",
+		MinimumReplicas: 1, MaximumReplicas: 5, TermSeconds: 60, MaximumP95LatencyMilliseconds: 500,
+		BuyerDeclaredCeilingNanos: 135_000_000,
+	})
+	req := httptest.NewRequest(http.MethodPost, "/v1/service-leases", bytes.NewReader(raw))
+	req.Header.Set("Authorization", "Bearer "+buyerKey)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "minimum_replicas != maximum_replicas") {
+		t.Fatalf("API refusal status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestServiceLeaseHistoricalReplicaRangeStillHeartbeatsUpgradesAndCancels(t *testing.T) {
+	installSettlementCurrencyForTest(t, "usd")
+	ctx, store, pool := openIsolatedTestStore(t)
+	buyerID := uuid.New()
+	if _, err := pool.Exec(ctx, `INSERT INTO buyers (id,email) VALUES ($1,$2)`, buyerID, buyerID.String()+"@lease-legacy-range.invalid"); err != nil {
+		t.Fatal(err)
+	}
+	must(t, store.SeedPrepaidBalance(ctx, buyerID, 100_000_000, "service-legacy-range-"+buyerID.String()))
+	profile := sortedVLLMProfiles()[0]
+	worker, _ := newFabricMeasurementWorker(t, ctx, store)
+	seedMeasuredWarmResidency(t, ctx, pool, worker.WorkerID, profile.ModelAlias)
+	offer := serviceLeaseOffer(profile)
+	offer.Region = "ca-legacy-range-" + uuid.NewString()
+	offer.MaximumWarmReplicas, offer.AvailableWarmReplicas = 4, 4
+	must(t, store.UpsertServiceLeaseOffer(ctx, worker, offer))
+
+	// Directly seed a pre-refusal durable row (min < max). CreateServiceLease
+	// refuses this shape; the acceptance+lease pair is what a pre-change
+	// admission would have frozen.
+	request := ServiceLeaseRequest{
+		RuntimeProfileID: profile.RuntimeProfileID, Region: offer.Region, Currency: "usd",
+		MinimumReplicas: 1, MaximumReplicas: 4, TermSeconds: 120, MaximumP95LatencyMilliseconds: 500,
+		BuyerDeclaredCeilingNanos: 10_000_000_000,
+	}
+	pricing, err := newServiceLeasePricingDecision(serviceLeasePricingInputs(profile, MustParseCurrency("usd"), request,
+		offer.SupplierNanosPerReplicaHour, offer.ResidencyNanosPerReplicaHour))
+	must(t, err)
+	pricingJSON, err := json.Marshal(pricing)
+	must(t, err)
+	pricingSHA, err := pricingDecisionDigest(pricing)
+	must(t, err)
+	reservedMicros, err := LedgerMicrosFromNanos(MoneyNanos{Currency: MustParseCurrency("usd"), Nanos: pricing.FixedPoint.AcceptedCeilingNanos})
+	must(t, err)
+	leaseID := uuid.New()
+	now := time.Now().UTC()
+	expires := now.Add(120 * time.Second)
+	tx, err := pool.Begin(ctx)
+	must(t, err)
+	defer tx.Rollback(ctx)
+	must(t, insertServiceLeasePricingAcceptanceTx(ctx, tx, leaseID, pricingJSON, pricingSHA))
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO service_leases
+		 (id,buyer_id,worker_id,supplier_id,runtime_profile_id,runtime_profile_sha256,region,
+		  minimum_replicas,maximum_replicas,maximum_p95_latency_milliseconds,term_seconds,state,
+		  active_replicas,reserved_buyer_micros,pricing_acceptance_id,pricing_decision,pricing_decision_sha256,
+		  started_at,expires_at,last_metered_at,last_worker_heartbeat_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,1,4,500,120,'ACTIVE',1,$8,$1,$9::jsonb,$10,$11,$12,$11,$11)`,
+		leaseID, buyerID, worker.WorkerID, worker.SupplierID, profile.RuntimeProfileID, profile.ProfileSHA256,
+		offer.Region, reservedMicros, pricingJSON, pricingSHA, now, expires); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE service_lease_worker_offers
+		SET available_warm_replicas=available_warm_replicas-4,updated_at=now()
+		WHERE worker_id=$1 AND runtime_profile_id=$2 AND region=$3`,
+		worker.WorkerID, profile.RuntimeProfileID, offer.Region); err != nil {
+		t.Fatal(err)
+	}
+	must(t, reservePrepaidForServiceLeaseTx(ctx, tx, buyerID, reservedMicros))
+	must(t, tx.Commit(ctx))
+
+	must(t, store.HeartbeatServiceLease(ctx, worker, leaseID, ServiceLeaseHeartbeat{
+		WarmReplicas: 1, P95LatencyMillis: 200, Status: "DRAINING", UpgradeGeneration: "legacy-v2",
+	}))
+	must(t, store.HeartbeatServiceLease(ctx, worker, leaseID, ServiceLeaseHeartbeat{
+		WarmReplicas: 1, P95LatencyMillis: 200, LatencyMeasurementCount: 5, LatencyWindowSeconds: 15,
+		LatencyMeasurementKind:      "DATA_PLANE_COMPLETIONS_V1",
+		DataPlaneProbeReceiptSHA256: strings.Repeat("b", 64), Status: "READY", UpgradeGeneration: "legacy-v3",
+	}))
+	if _, _, cancelErr := store.CancelServiceLease(ctx, buyerID, leaseID); cancelErr != nil {
+		t.Fatalf("historical min<max cancel: %v", cancelErr)
+	}
+}
+
+func TestServiceLeaseP99BoundEnforcedOnReadyHeartbeat(t *testing.T) {
+	installSettlementCurrencyForTest(t, "usd")
+	ctx, store, pool := openIsolatedTestStore(t)
+	buyerID := uuid.New()
+	if _, err := pool.Exec(ctx, `INSERT INTO buyers (id,email) VALUES ($1,$2)`, buyerID, buyerID.String()+"@lease-p99.invalid"); err != nil {
+		t.Fatal(err)
+	}
+	must(t, store.SeedPrepaidBalance(ctx, buyerID, 1_000_000, "service-p99-"+buyerID.String()))
+	profile := sortedVLLMProfiles()[0]
+	worker, _ := newFabricMeasurementWorker(t, ctx, store)
+	seedMeasuredWarmResidency(t, ctx, pool, worker.WorkerID, profile.ModelAlias)
+	offer := serviceLeaseOffer(profile)
+	offer.Region = "ca-p99-" + uuid.NewString()
+	offer.P99LatencyMillis = 300
+	must(t, store.UpsertServiceLeaseOffer(ctx, worker, offer))
+
+	lease, err := store.CreateServiceLease(ctx, buyerID, ServiceLeaseRequest{
+		RuntimeProfileID: profile.RuntimeProfileID, Region: offer.Region, Currency: "usd",
+		MinimumReplicas: 1, MaximumReplicas: 1, TermSeconds: 60, MaximumP95LatencyMilliseconds: 500,
+		MaximumP99LatencyMilliseconds: 400, BuyerDeclaredCeilingNanos: 135_000_000,
+	})
+	must(t, err)
+	if lease.MaximumP99LatencyMillis != 400 {
+		t.Fatalf("lease lost p99 bound: %+v", lease)
+	}
+
+	// p95 within bound but p99 over bound must fail naming p99.
+	err = store.HeartbeatServiceLease(ctx, worker, lease.ID, ServiceLeaseHeartbeat{
+		WarmReplicas: 1, P95LatencyMillis: 200, P99LatencyMillis: 401,
+		LatencyMeasurementCount: 5, LatencyWindowSeconds: 15,
+		LatencyMeasurementKind:      "DATA_PLANE_COMPLETIONS_V1",
+		DataPlaneProbeReceiptSHA256: strings.Repeat("c", 64), Status: "READY",
+	})
+	if err == nil || !strings.Contains(err.Error(), "p99") {
+		t.Fatalf("p99 breach error=%v, want p99 named refusal", err)
+	}
+
+	// Measured p99 within bound reaches READY and is durable on the receipt.
+	must(t, store.HeartbeatServiceLease(ctx, worker, lease.ID, ServiceLeaseHeartbeat{
+		WarmReplicas: 1, P95LatencyMillis: 200, P99LatencyMillis: 350,
+		LatencyMeasurementCount: 5, LatencyWindowSeconds: 15,
+		LatencyMeasurementKind:      "DATA_PLANE_COMPLETIONS_V1",
+		DataPlaneProbeReceiptSHA256: strings.Repeat("d", 64), Status: "READY",
+	}))
+	receipt, err := store.GetServiceLeaseReceipt(ctx, buyerID, lease.ID)
+	must(t, err)
+	if receipt.LatestSLOEvidence == nil || receipt.LatestSLOEvidence.P99LatencyMillis != 350 ||
+		receipt.LatestSLOEvidence.P95LatencyMillis != 200 {
+		t.Fatalf("receipt lost measured p99 evidence: %+v", receipt.LatestSLOEvidence)
+	}
+}
+
+func TestServiceLeaseWithoutP99BoundIgnoresReportedP99(t *testing.T) {
+	installSettlementCurrencyForTest(t, "usd")
+	ctx, store, pool := openIsolatedTestStore(t)
+	buyerID := uuid.New()
+	if _, err := pool.Exec(ctx, `INSERT INTO buyers (id,email) VALUES ($1,$2)`, buyerID, buyerID.String()+"@lease-no-p99.invalid"); err != nil {
+		t.Fatal(err)
+	}
+	must(t, store.SeedPrepaidBalance(ctx, buyerID, 1_000_000, "service-no-p99-"+buyerID.String()))
+	profile := sortedVLLMProfiles()[0]
+	worker, _ := newFabricMeasurementWorker(t, ctx, store)
+	seedMeasuredWarmResidency(t, ctx, pool, worker.WorkerID, profile.ModelAlias)
+	offer := serviceLeaseOffer(profile)
+	offer.Region = "ca-no-p99-" + uuid.NewString()
+	must(t, store.UpsertServiceLeaseOffer(ctx, worker, offer))
+
+	lease, err := store.CreateServiceLease(ctx, buyerID, ServiceLeaseRequest{
+		RuntimeProfileID: profile.RuntimeProfileID, Region: offer.Region, Currency: "usd",
+		MinimumReplicas: 1, MaximumReplicas: 1, TermSeconds: 60, MaximumP95LatencyMilliseconds: 500,
+		BuyerDeclaredCeilingNanos: 135_000_000,
+	})
+	must(t, err)
+	if lease.MaximumP99LatencyMillis != 0 {
+		t.Fatalf("unexpected p99 bound on unbound lease: %+v", lease)
+	}
+	// High p99 with no declared bound must not fail READY (p95 still within bound).
+	must(t, store.HeartbeatServiceLease(ctx, worker, lease.ID, ServiceLeaseHeartbeat{
+		WarmReplicas: 1, P95LatencyMillis: 200, P99LatencyMillis: 9_999,
+		LatencyMeasurementCount: 5, LatencyWindowSeconds: 15,
+		LatencyMeasurementKind:      "DATA_PLANE_COMPLETIONS_V1",
+		DataPlaneProbeReceiptSHA256: strings.Repeat("e", 64), Status: "READY",
+	}))
 }

@@ -31,7 +31,8 @@ supplier_output_usd_per_million_tokens = 0.30
 # Optional reserved-service lane. Leaving this section absent means the agent
 # registers realtime capacity only; it cannot sell a service lease. When enabled
 # the agent first collects five actual one-token completions through exactly the
-# advertised public_base_url, then refreshes a measured P95 at this cadence.
+# advertised public_base_url, then refreshes measured P95 and P99 at this cadence
+# from the same sample window (p99 is never derived from p95).
 # A missed probe withdraws the offer and fails active leases rather than claiming
 # that a health endpoint proves buyer-path latency.
 [service_lease]

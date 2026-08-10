@@ -258,7 +258,7 @@ func TestServiceLeaseMarketLiquidityUsesRealOfferAndBuyerAdmissionPaths(t *testi
 		t.Fatalf("service offer status=%d", got)
 	}
 	request := ServiceLeaseRequest{RuntimeProfileID: profile.RuntimeProfileID, Region: offer.Region, Currency: "usd",
-		MinimumReplicas: 1, MaximumReplicas: 3, TermSeconds: 60, MaximumP95LatencyMilliseconds: 500,
+		MinimumReplicas: 3, MaximumReplicas: 3, TermSeconds: 60, MaximumP95LatencyMilliseconds: 500,
 		BuyerDeclaredCeilingNanos: 135_000_000}
 	if created := post("/v1/service-leases", buyerKey, request); created.Code != http.StatusCreated {
 		t.Fatalf("service admission status=%d body=%s", created.Code, created.Body.String())

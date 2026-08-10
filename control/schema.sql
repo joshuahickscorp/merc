@@ -3940,6 +3940,9 @@ CREATE TABLE IF NOT EXISTS service_lease_worker_offers (
     currency                          TEXT CHECK (currency IS NULL OR currency='usd'),
     supports_rolling_upgrade          BOOLEAN NOT NULL,
     p95_latency_milliseconds          BIGINT NOT NULL CHECK (p95_latency_milliseconds > 0),
+    -- Optional measured p99 from the same sample window as p95. Zero means the
+    -- offer does not advertise p99 (legacy workers). Never derived from p95.
+    p99_latency_milliseconds          BIGINT NOT NULL DEFAULT 0 CHECK (p99_latency_milliseconds >= 0),
     latency_measurement_count         INT NOT NULL CHECK (latency_measurement_count >= 5),
     latency_window_seconds            BIGINT NOT NULL CHECK (latency_window_seconds BETWEEN 1 AND 300),
     latency_measurement_kind          TEXT NOT NULL CHECK (latency_measurement_kind = 'DATA_PLANE_COMPLETIONS_V1'),
@@ -3952,6 +3955,7 @@ CREATE TABLE IF NOT EXISTS service_lease_worker_offers (
 -- The deployment path accepts no legacy READY offer as measured. Existing
 -- rows remain unselectable until the current agent re-registers a real probe.
 ALTER TABLE service_lease_worker_offers ADD COLUMN IF NOT EXISTS p95_latency_milliseconds BIGINT;
+ALTER TABLE service_lease_worker_offers ADD COLUMN IF NOT EXISTS p99_latency_milliseconds BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE service_lease_worker_offers ADD COLUMN IF NOT EXISTS latency_measurement_count INT;
 ALTER TABLE service_lease_worker_offers ADD COLUMN IF NOT EXISTS latency_window_seconds BIGINT;
 ALTER TABLE service_lease_worker_offers ADD COLUMN IF NOT EXISTS latency_measurement_kind TEXT;
@@ -4033,8 +4037,13 @@ CREATE TABLE IF NOT EXISTS service_leases (
     runtime_profile_sha256           TEXT NOT NULL CHECK (runtime_profile_sha256 ~ '^[0-9a-f]{64}$'),
     region                           TEXT NOT NULL CHECK (region ~ '^[a-z0-9-]{2,64}$'),
     minimum_replicas                 INT NOT NULL CHECK (minimum_replicas > 0),
+    -- maximum >= minimum remains the structural bound. New admissions refuse
+    -- minimum != maximum in CreateServiceLease (no governed autoscaling yet);
+    -- historical rows with a range must continue to meter, upgrade, and cancel.
     maximum_replicas                 INT NOT NULL CHECK (maximum_replicas >= minimum_replicas),
     maximum_p95_latency_milliseconds BIGINT NOT NULL CHECK (maximum_p95_latency_milliseconds > 0),
+    -- Optional buyer-declared p99 bound. Zero means no p99 term on the lease.
+    maximum_p99_latency_milliseconds BIGINT NOT NULL DEFAULT 0 CHECK (maximum_p99_latency_milliseconds >= 0),
     term_seconds                     BIGINT NOT NULL CHECK (term_seconds BETWEEN 60 AND 604800),
     state                            TEXT NOT NULL CHECK (state IN ('ACTIVE','UPGRADING','FAILOVER_REQUIRED','COMPLETED','CANCELLED')),
     active_replicas                  INT NOT NULL CHECK (active_replicas BETWEEN 0 AND maximum_replicas),
@@ -4065,6 +4074,13 @@ CREATE TABLE IF NOT EXISTS service_leases (
     CHECK (active_replicas >= minimum_replicas OR state IN ('FAILOVER_REQUIRED','COMPLETED','CANCELLED')),
     CHECK ((state IN ('COMPLETED','CANCELLED')) = (finalized_at IS NOT NULL))
 );
+ALTER TABLE service_leases ADD COLUMN IF NOT EXISTS maximum_p99_latency_milliseconds BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE service_lease_worker_offers DROP CONSTRAINT IF EXISTS service_lease_offer_p99_nonneg;
+ALTER TABLE service_lease_worker_offers ADD CONSTRAINT service_lease_offer_p99_nonneg
+    CHECK (p99_latency_milliseconds IS NULL OR p99_latency_milliseconds >= 0);
+ALTER TABLE service_leases DROP CONSTRAINT IF EXISTS service_lease_p99_nonneg;
+ALTER TABLE service_leases ADD CONSTRAINT service_lease_p99_nonneg
+    CHECK (maximum_p99_latency_milliseconds >= 0);
 -- Existing rows predate prepaid service reservation and deliberately remain
 -- marked as unreserved historical leases; a migration must not manufacture a
 -- cash claim that was never admitted against a buyer's prepaid balance.
