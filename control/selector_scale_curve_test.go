@@ -831,6 +831,23 @@ func measureSelectorScalePoint(
 				point.Notes += "; DEFECT recorded for " + key + " (see point.defects)"
 			}
 		}
+		// A p50 only describes a cell if the cell has one mode.
+		//
+		// batch@1k measured p50=2,613ms in one run and p50=32.7ms in another on
+		// the same commit and a quieter host — because its distribution is
+		// bimodal, with p99 over 4,000ms against a p50 of 32.7ms. Whichever mode
+		// happens to win the median decides the published number, so quoting
+		// either as "the cost at 1k" is quoting a coin flip. That is invisible in
+		// a percentile table and it is exactly the kind of thing this harness
+		// exists to refuse.
+		//
+		// The contention detector above only looks at concurrent cells, because
+		// it was built for lock convoys. This fires at any concurrency, including
+		// serial, where the point is not contention but an unstable population.
+		if defect := detectSelectorScaleUnstablePopulation(lane, scale, key, point.WallMS[key]); defect != nil {
+			point.Defects = append(point.Defects, *defect)
+			point.Notes += "; DEFECT recorded for " + key + " (unstable population)"
+		}
 		t.Logf("lane=%s scale=%d c=%d warm_n=%d warm_max=%.3fms timed p50=%.3fms p95=%.3fms p99=%.3fms n=%d fail_w=%d fail_t=%d",
 			lane, scale, conc, len(result.Warmup),
 			warmEv.ColdestDiscardedMSByCell[key],
@@ -854,6 +871,38 @@ func maxDuration(ds []time.Duration) time.Duration {
 
 // detectSelectorScaleContentionDefect flags multi-poller cells that are not
 // single-selection cost measurements (lock convoy / connection starvation).
+// detectSelectorScaleUnstablePopulation flags a cell whose p99 dwarfs its p50.
+//
+// A wide tail alone is normal and interesting. What this catches is a tail so
+// far from the median that the two cannot be describing one behaviour — the
+// samples are drawn from two populations, and the median is reporting whichever
+// one happened to be more common. Re-running such a cell moves the p50 by orders
+// of magnitude, which is precisely what happened to batch@1k between two runs of
+// the same commit.
+//
+// Reported rather than repaired: the harness cannot know which mode is the real
+// selection cost, and guessing would be inventing the answer.
+func detectSelectorScaleUnstablePopulation(lane string, scale int, cell string, lat selectorScaleLatency) *selectorScaleDefect {
+	// Need a real sample set and a positive median to speak about a ratio.
+	if lat.N < 10 || lat.P50 <= 0 || lat.P99 <= 0 {
+		return nil
+	}
+	const unstableTailRatio = 25.0
+	ratio := lat.P99 / lat.P50
+	if ratio < unstableTailRatio {
+		return nil
+	}
+	return &selectorScaleDefect{
+		Lane: lane, Scale: scale, Cell: cell, Kind: "unstable_sample_population",
+		Summary: fmt.Sprintf("%s %s scale=%d: p99 is %.0fx p50 (%.1fms vs %.1fms) — the samples are "+
+			"not one population and the p50 is not a stable statistic", lane, cell, scale, ratio, lat.P99, lat.P50),
+		Evidence: fmt.Sprintf("n=%d min=%.1fms p50=%.1fms p95=%.1fms p99=%.1fms max=%.1fms; "+
+			"re-running this cell can move the p50 by orders of magnitude, so it must not be "+
+			"quoted as the selection cost at this scale without explaining the two modes",
+			lat.N, lat.Min, lat.P50, lat.P95, lat.P99, lat.Max),
+	}
+}
+
 func detectSelectorScaleContentionDefect(lane string, scale int, cell string, lat selectorScaleLatency, result selectorScaleSampleResult) *selectorScaleDefect {
 	if lat.N < 1 || lat.Min <= 0 {
 		return nil
