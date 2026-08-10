@@ -546,6 +546,26 @@ MUTATIONS=(
 "buyer_open_exposure.go|open exposure floors nanos to micros instead of ceiling|s#((e.cap_nanos - e.spent_nanos) + 999) / 1000#(e.cap_nanos - e.spent_nanos) / 1000#; s#((s.reserved_nanos + 999) / 1000)#(s.reserved_nanos / 1000)#; s|((c.pricing_decision #>> '{fixed_point,accepted_ceiling_nanos}')::bigint + 999) / 1000|((c.pricing_decision #>> '{fixed_point,accepted_ceiling_nanos}')::bigint) / 1000|"
 "buyer_open_exposure.go|open exposure prepaid residual drops the currency predicate|s#j.buyer_id=%\[1\]s AND j.currency=%\[2\]s AND j.prepaid_required#j.buyer_id=%[1]s AND j.prepaid_required#"
 "buyer_open_exposure.go|open exposure drops the ACTIVE envelope residual arm|s#e.buyer_id=%\[1\]s AND e.currency=%\[2\]s AND e.state='ACTIVE'#e.buyer_id=%[1]s AND e.currency=%[2]s AND e.state='__never__'#"
+
+# --- Step 22 network decision faults (IDs 110+; start after open-exposure 105-109) ---
+# Bible network-fault list re-derived against live authorities as of 2026-08-10.
+# Register only faults with a live source_target and a named invariant that fails
+# for the intended reason. Deferred ABSENT authorities are not stubbed here.
+"market_decision.go|push book allows dishonest lowest-cost reason at rank>1|s#if book.SelectedRank > 1 \&\& strings.Contains(book.SelectionReason, \"lowest verified-outcome cost\") {#if false \&\& book.SelectedRank > 1 \&\& strings.Contains(book.SelectionReason, \"lowest verified-outcome cost\") {#"
+"market_decision.go|lock-skipped better peer is annotated as worse economic rank|s#c.ExclusionReason = marketExclusionLockSkipped#c.ExclusionReason = marketExclusionNotSelectedWorseRank#"
+"realtime_clearing.go|contended selection reason still claims lowest verified-outcome cost|s#if selectedRank > 1 {#if false \&\& selectedRank > 1 {#"
+"realtime_clearing.go|supplier ranking prefers higher verified-outcome cost|s#return aCost < bCost#return aCost > bCost#"
+"realtime_clearing.go|measured failure rate stops adjusting verified-outcome cost|s#if terminalAttempts >= minRealtimeOutcomeSamples \&\& terminalFails >= 0 {#if false \&\& terminalAttempts >= minRealtimeOutcomeSamples \&\& terminalFails >= 0 {#"
+"realtime_clearing.go|measured refund risk stops adjusting verified-outcome cost|s#if verifiedSettlements >= minRealtimeOutcomeSamples \&\& refundCount >= 0 {#if false \&\& verifiedSettlements >= minRealtimeOutcomeSamples \&\& refundCount >= 0 {#"
+"worker_placement.go|locality-driven placement accepts unknown freshness|s#if !b.FreshnessKnown {#if false \&\& !b.FreshnessKnown {#; s#if strings.TrimSpace(b.FreshUntil) == \"\" {#if false \&\& strings.TrimSpace(b.FreshUntil) == \"\" {#; s#if b.FreshnessTTLSecs <= 0 {#if false \&\& b.FreshnessTTLSecs <= 0 {#"
+"runtime_decision.go|measured shadow selection basis seals as accept authority|s#if isMeasuredShadowSelectionBasis(d.SelectionBasis) {#if false \&\& isMeasuredShadowSelectionBasis(d.SelectionBasis) {#; s#if !isAcceptedRuntimeSelectionBasis(d.SelectionBasis) {#if false \&\& !isAcceptedRuntimeSelectionBasis(d.SelectionBasis) {#"
+"runtime_decision.go|shadow selection is allowed as money/routing authority|s#if d.ShadowSelectionAuthoritative {#if false \&\& d.ShadowSelectionAuthoritative {#"
+"topology_decision.go|WAN-tight topology accept-time tripwire is neutralised|s#if d.Status != topologyDecisionRefused {#if false \&\& d.Status != topologyDecisionRefused {#"
+"fabric_topology_planner.go|stale fabric evidence is treated as fresh|s#if !evaluation.EvidenceFreshUntil.After(now) {#if false \&\& !evaluation.EvidenceFreshUntil.After(now) {#"
+"evidence_envelope.go|ABSENT or PENDING links may omit the required reason|s#if strings.TrimSpace(link.Reason) == \"\" {#if false \&\& strings.TrimSpace(link.Reason) == \"\" {#"
+"evidence_envelope.go|ABSENT or PENDING links may carry a fabricated digest|s#if link.Digest != \"\" {#if false \&\& link.Digest != \"\" {#"
+"claim_narrowing.go|claim narrowing ladder allows surviving counts to increase|s#if i > 0 \&\& stages\[i\].Surviving > stages\[i-1\].Surviving {#if false \&\& i > 0 \&\& stages[i].Surviving > stages[i-1].Surviving {#"
+"batch_policy.go|impossible deadline is accepted against implied TTFT|s#if est := EstimatedTTFT(budget); est > deadline {#if est := EstimatedTTFT(budget); false \&\& est > deadline {#"
 )
 
 if [ "$MERC_MUTATION_LIST" = "1" ]; then

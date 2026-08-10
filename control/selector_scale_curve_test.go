@@ -46,14 +46,19 @@ import (
 )
 
 const (
-	selectorScaleSeed            int64 = 20260809
-	selectorScaleEnv                   = "MERC_SELECTOR_SCALE_CURVE"
-	selectorScaleSamples               = 40
-	selectorScaleWarmup                = 5
-	selectorScaleConcurrencyHigh       = 8 // multi-poller contention; not host saturation
-	selectorScaleJobBacklog            = 200
-	selectorScaleCopyChunk             = 20_000
-	selectorScaleEvidenceRel           = "evidence/perf/selector-scale-curve.json"
+	selectorScaleSeed    int64 = 20260809
+	selectorScaleEnv           = "MERC_SELECTOR_SCALE_CURVE"
+	selectorScaleSamples       = 40
+	// Per concurrency cell: discard this many leading calls after seed/EXPLAIN so
+	// plan compilation and cold shared-buffers do not enter the timed percentiles.
+	selectorScaleWarmup = 8
+	// Extra warm-up calls on the FIRST timed scale of each lane only (on top of
+	// the per-cell warm-up). Recorded in the artifact — never silently dropped.
+	selectorScaleLaneFirstPointWarmup = 12
+	selectorScaleConcurrencyHigh      = 8 // multi-poller contention; not host saturation
+	selectorScaleJobBacklog           = 200
+	selectorScaleCopyChunk            = 20_000
+	selectorScaleEvidenceRel          = "evidence/perf/selector-scale-curve.json"
 )
 
 var selectorScaleLadder = []int{1_000, 10_000, 100_000, 1_000_000}
@@ -106,6 +111,14 @@ func TestSelectorScaleCurve(t *testing.T) {
 			WhatThisDoesNotProve: "physical fleet performance, or any claim about a real network",
 			Contention:           "UNMEASURED until run completes",
 		},
+		MeasurementProtocol: selectorScaleMeasurementProtocol{
+			PerCellWarmupCalls:        selectorScaleWarmup,
+			LaneFirstPointExtraWarmup: selectorScaleLaneFirstPointWarmup,
+			WarmupPolicy:              "Each concurrency cell discards the first N production-SQL calls serially (plan compile + cold cache) before timed samples. The first scale point of each lane discards an additional M calls on c=1. Discarded latencies are recorded under each point's warmup field — never silently dropped. Timed wall_ms percentiles are SUCCESS-only and exclude warm-up calls. Realtime samples FinalizeRealtimeFailure after each auth so reserved credit cannot accumulate into later fast funding failures.",
+			AxisLabelling:             "batch.independent_variable = fleet_workers_online (EXISTS cheaper_class/ask scan cost). realtime and service_lease independent_variable = offer-book size for the profile (and region for leases) under test; the harness seeds that many offers on the measured profile, so scale is NOT ambient fleet size for those lanes.",
+			RealtimeAxisHypothesis:    "REFUTED as a mislabel: AuthorizeRealtimeContract scopes offers by runtime_profile_id + runtime_profile_sha256, and this harness seeds `scale` ACTIVE offers on the profile under test (workers==offers==scale). The x-axis for realtime/service_lease is offer-book size, which is what the SQL scans. Growing an unrelated fleet would not grow the book — that is why the IV is the book, not fleet size.",
+			TargetMetPolicy:           "Harness always writes target_met_judgement=NOT_JUDGED_BY_HARNESS. Reviewer fills reviewer_verdict.",
+		},
 		TargetsMS: selectorScaleTargetsMS,
 		Lanes:     map[string]selectorScaleLane{},
 	}
@@ -115,6 +128,9 @@ func TestSelectorScaleCurve(t *testing.T) {
 		laneReport, refusals := runSelectorScaleLane(t, ctx, store, pool, profile, lane)
 		report.Lanes[lane] = laneReport
 		report.Refusals = append(report.Refusals, refusals...)
+		for _, p := range laneReport.Points {
+			report.Defects = append(report.Defects, p.Defects...)
+		}
 	}
 
 	loadAfter, _ := readLoadAverage()
@@ -127,28 +143,52 @@ func TestSelectorScaleCurve(t *testing.T) {
 	if err := writeSelectorScaleEvidence(report); err != nil {
 		t.Fatalf("write evidence: %v", err)
 	}
-	t.Logf("wrote %s (wall=%.1fs load_before=%v load_after=%v)",
-		selectorScaleEvidenceRel, report.WallClockSeconds, loadBefore, loadAfter)
+	t.Logf("wrote %s (wall=%.1fs load_before=%v load_after=%v defects=%d)",
+		selectorScaleEvidenceRel, report.WallClockSeconds, loadBefore, loadAfter, len(report.Defects))
 }
 
 // --- report types -----------------------------------------------------------
 
 type selectorScaleReport struct {
-	SchemaVersion     int                          `json:"schema_version"`
-	GeneratedAt       string                       `json:"generated_at"`
-	FinishedAt        string                       `json:"finished_at,omitempty"`
-	WallClockSeconds  float64                      `json:"wall_clock_seconds,omitempty"`
-	SourceCommit      string                       `json:"source_commit"`
-	Seed              int64                        `json:"seed"`
-	Host              string                       `json:"host"`
-	NumCPU            int                          `json:"num_cpu"`
-	LoadAverageBefore []float64                    `json:"load_average_before"`
-	LoadAverageAfter  []float64                    `json:"load_average_after"`
-	Invocation        selectorScaleInvocation      `json:"invocation"`
-	Honesty           selectorScaleHonesty         `json:"honesty"`
-	TargetsMS         map[int]float64              `json:"bible_targets_ms"`
-	Lanes             map[string]selectorScaleLane `json:"lanes"`
-	Refusals          []selectorScaleRefusal       `json:"refusals,omitempty"`
+	SchemaVersion       int                              `json:"schema_version"`
+	GeneratedAt         string                           `json:"generated_at"`
+	FinishedAt          string                           `json:"finished_at,omitempty"`
+	WallClockSeconds    float64                          `json:"wall_clock_seconds,omitempty"`
+	SourceCommit        string                           `json:"source_commit"`
+	Seed                int64                            `json:"seed"`
+	Host                string                           `json:"host"`
+	NumCPU              int                              `json:"num_cpu"`
+	LoadAverageBefore   []float64                        `json:"load_average_before"`
+	LoadAverageAfter    []float64                        `json:"load_average_after"`
+	Invocation          selectorScaleInvocation          `json:"invocation"`
+	Honesty             selectorScaleHonesty             `json:"honesty"`
+	MeasurementProtocol selectorScaleMeasurementProtocol `json:"measurement_protocol"`
+	TargetsMS           map[int]float64                  `json:"bible_targets_ms"`
+	Lanes               map[string]selectorScaleLane     `json:"lanes"`
+	Refusals            []selectorScaleRefusal           `json:"refusals,omitempty"`
+	Defects             []selectorScaleDefect            `json:"defects,omitempty"`
+}
+
+// selectorScaleMeasurementProtocol records how contamination was handled so a
+// discarded warm-up call is visible evidence, not an invisible omission.
+type selectorScaleMeasurementProtocol struct {
+	PerCellWarmupCalls        int    `json:"per_cell_warmup_calls"`
+	LaneFirstPointExtraWarmup int    `json:"lane_first_point_extra_warmup_calls"`
+	WarmupPolicy              string `json:"warmup_policy"`
+	AxisLabelling             string `json:"axis_labelling"`
+	RealtimeAxisHypothesis    string `json:"realtime_axis_hypothesis"`
+	TargetMetPolicy           string `json:"target_met_policy"`
+}
+
+// selectorScaleDefect is a measured anomaly that must not be quoted as a
+// selection-cost datum without the accompanying explanation.
+type selectorScaleDefect struct {
+	Lane     string `json:"lane"`
+	Scale    int    `json:"scale"`
+	Cell     string `json:"cell,omitempty"`
+	Kind     string `json:"kind"`
+	Summary  string `json:"summary"`
+	Evidence string `json:"evidence"`
 }
 
 type selectorScaleInvocation struct {
@@ -165,17 +205,20 @@ type selectorScaleHonesty struct {
 }
 
 type selectorScaleLane struct {
-	EntryPoint          string                  `json:"entry_point"`
-	IndependentVariable string                  `json:"independent_variable"`
-	SQLTextDigest       string                  `json:"sql_text_digest"`
-	SQLStatementName    string                  `json:"sql_statement_name"`
-	Points              []selectorScalePoint    `json:"points"`
-	PlannerShapeFlips   []selectorScalePlanFlip `json:"planner_shape_flips,omitempty"`
+	EntryPoint              string                  `json:"entry_point"`
+	IndependentVariable     string                  `json:"independent_variable"`
+	IndependentVariableUnit string                  `json:"independent_variable_unit"`
+	XAxisIsFleetSize        bool                    `json:"x_axis_is_fleet_size"`
+	SQLTextDigest           string                  `json:"sql_text_digest"`
+	SQLStatementName        string                  `json:"sql_statement_name"`
+	Points                  []selectorScalePoint    `json:"points"`
+	PlannerShapeFlips       []selectorScalePlanFlip `json:"planner_shape_flips,omitempty"`
 }
 
 type selectorScalePoint struct {
 	Scale                    int                             `json:"scale"`
 	IndependentVariableValue int                             `json:"independent_variable_value"`
+	IndependentVariableName  string                          `json:"independent_variable_name,omitempty"`
 	TargetMS                 float64                         `json:"target_ms"`
 	TargetMetJudgement       string                          `json:"target_met_judgement"`
 	Seed                     int64                           `json:"seed"`
@@ -188,12 +231,31 @@ type selectorScalePoint struct {
 	ExplainBuffersSummary    string                          `json:"explain_buffers_summary,omitempty"`
 	ExplainRawTruncated      string                          `json:"explain_raw_truncated,omitempty"`
 	WallMS                   map[string]selectorScaleLatency `json:"wall_ms"`
+	Warmup                   *selectorScaleWarmupEvidence    `json:"warmup,omitempty"`
 	LoadAverageDuring        []float64                       `json:"load_average_during"`
 	SeedWallSeconds          float64                         `json:"seed_wall_seconds"`
 	MeasureWallSeconds       float64                         `json:"measure_wall_seconds"`
 	DBBytesApprox            int64                           `json:"db_bytes_approx,omitempty"`
 	Notes                    string                          `json:"notes,omitempty"`
 	Status                   string                          `json:"status"` // measured | refused
+	Defects                  []selectorScaleDefect           `json:"defects,omitempty"`
+}
+
+// selectorScaleWarmupEvidence makes discarded warm-up calls legible in the
+// artifact so a cold first call cannot be mistaken for a missing measurement.
+type selectorScaleWarmupEvidence struct {
+	Policy                         string `json:"policy"`
+	IsLaneFirstTimedPoint          bool   `json:"is_lane_first_timed_point"`
+	PerCellWarmupCalls             int    `json:"per_cell_warmup_calls"`
+	LaneFirstPointExtraWarmupCalls int    `json:"lane_first_point_extra_warmup_calls,omitempty"`
+	// Discarded wall times by concurrency cell (includes lane-first extras on c=1).
+	DiscardedByCell map[string]selectorScaleLatency `json:"discarded_by_cell_ms"`
+	// Coldest discarded call vs first timed sample — proof cold-start was removed from percentiles.
+	ColdestDiscardedMSByCell map[string]float64 `json:"coldest_discarded_ms_by_cell,omitempty"`
+	FirstTimedSampleMSByCell map[string]float64 `json:"first_timed_sample_ms_by_cell,omitempty"`
+	SampleFailuresInWarmup   map[string]int     `json:"sample_failures_in_warmup,omitempty"`
+	SampleFailuresInTimed    map[string]int     `json:"sample_failures_in_timed,omitempty"`
+	Note                     string             `json:"note"`
 }
 
 type selectorScaleLatency struct {
@@ -368,16 +430,22 @@ func runSelectorScaleLane(
 	case "batch":
 		out.EntryPoint = "Store.ClaimTasksTx"
 		out.IndependentVariable = "fleet_workers_online (EXISTS cheaper_class_online / cheaper_ask_online per eligible job)"
+		out.IndependentVariableUnit = "workers_online"
+		out.XAxisIsFleetSize = true
 		out.SQLStatementName = "ClaimTaskSQL(claimed_by IS NULL)"
 		out.SQLTextDigest = sqlTextDigest(ClaimTaskSQL("t.claimed_by IS NULL"))
 	case "realtime":
 		out.EntryPoint = "Store.AuthorizeRealtimeContract (offer-claim CTE)"
 		out.IndependentVariable = "realtime_worker_offers rows for one runtime_profile_id + runtime_profile_sha256"
+		out.IndependentVariableUnit = "offer_book_rows_on_profile"
+		out.XAxisIsFleetSize = false
 		out.SQLStatementName = "realtimeAuthorizeSelectOfferSQLSkip|Blocking"
 		out.SQLTextDigest = sqlTextDigest(realtimeAuthorizeSelectOfferSQLSkip + "\n" + realtimeAuthorizeSelectOfferSQLBlocking)
 	case "service_lease":
 		out.EntryPoint = "Store.CreateServiceLease"
 		out.IndependentVariable = "service_lease_worker_offers rows for one runtime_profile_id + region under FOR UPDATE"
+		out.IndependentVariableUnit = "offer_book_rows_on_profile_region"
+		out.XAxisIsFleetSize = false
 		out.SQLStatementName = "CreateServiceLease ordered FOR UPDATE book walk"
 		out.SQLTextDigest = sqlTextDigest(serviceLeaseBookWalkSQL())
 	default:
@@ -390,10 +458,11 @@ func runSelectorScaleLane(
 	var lastRows int64
 	var lastBytes int64
 	var lastWall float64
+	firstPoint := true
 
 	for _, scale := range selectorScaleLadder {
 		t.Logf("lane=%s scale=%d seeding…", lane, scale)
-		point, refuse, err := measureSelectorScalePoint(t, ctx, store, pool, profile, lane, scale, out.SQLTextDigest)
+		point, refuse, err := measureSelectorScalePoint(t, ctx, store, pool, profile, lane, scale, out.SQLTextDigest, firstPoint, out.IndependentVariable)
 		if err != nil {
 			t.Logf("lane=%s scale=%d REFUSED: %v", lane, scale, err)
 			refusals = append(refusals, selectorScaleRefusal{
@@ -410,6 +479,7 @@ func runSelectorScaleLane(
 			break
 		}
 		out.Points = append(out.Points, point)
+		firstPoint = false
 		lastCompleted = scale
 		lastRows = sumRowCounts(point.RowCounts)
 		lastBytes = point.DBBytesApprox
@@ -434,11 +504,13 @@ func runSelectorScaleLane(
 func measureSelectorScalePoint(
 	t *testing.T, ctx context.Context, store *Store, pool *pgxpool.Pool,
 	profile VLLMRuntimeProfile, lane string, scale int, sqlDigest string,
+	isLaneFirstTimedPoint bool, independentVariableName string,
 ) (selectorScalePoint, *selectorScaleRefusal, error) {
 	t.Helper()
 	point := selectorScalePoint{
 		Scale:                    scale,
 		IndependentVariableValue: scale,
+		IndependentVariableName:  independentVariableName,
 		TargetMS:                 selectorScaleTargetsMS[scale],
 		TargetMetJudgement:       "NOT_JUDGED_BY_HARNESS",
 		Seed:                     selectorScaleSeed,
@@ -469,11 +541,13 @@ func measureSelectorScalePoint(
 		}
 		jobBacklog = selectorScaleJobBacklog
 		// Enough queued tasks for concurrent samples without claim starvation.
-		taskN := selectorMaxInt(jobBacklog, selectorScaleSamples*selectorScaleConcurrencyHigh*2)
+		// Warm-up calls also consume tasks; size the backlog for warm+timed.
+		warmBudget := selectorScaleWarmup + selectorScaleLaneFirstPointWarmup
+		taskN := selectorMaxInt(jobBacklog, (selectorScaleSamples+warmBudget)*selectorScaleConcurrencyHigh*2)
 		var fleet selectorBatchFleet
 		fleet, seedErr = seedSelectorBatchFleet(ctx, pool, scale, selectorScaleSeed, taskN, buyerID)
 		claimer = WorkerAuth{WorkerID: fleet.ClaimerWorkerID, SupplierID: fleet.ClaimerSupplierID}
-		point.Notes = fmt.Sprintf("fixed job/task backlog=%d; independent variable is fleet workers=%d", taskN, scale)
+		point.Notes = fmt.Sprintf("fixed job/task backlog=%d; independent variable is fleet_workers_online=%d (x-axis unit=workers_online)", taskN, scale)
 	case "realtime":
 		buyerID, seedErr = store.CreateBuyerAccount(ctx, fmt.Sprintf("sel-r-%d-%s@example.test", scale, uuid.NewString()[:8]),
 			"integration-password", 100_000)
@@ -481,7 +555,7 @@ func measureSelectorScalePoint(
 			return point, nil, seedErr
 		}
 		seedErr = seedSelectorRealtimeBook(ctx, pool, profile, scale, selectorScaleSeed)
-		point.Notes = fmt.Sprintf("offer book size=%d on profile %s", scale, profile.RuntimeProfileID)
+		point.Notes = fmt.Sprintf("x-axis=offer_book_rows_on_profile; seeded %d realtime_worker_offers on profile %s (sha scoped); NOT ambient fleet size", scale, profile.RuntimeProfileID)
 	case "service_lease":
 		buyerID = uuid.New()
 		if _, seedErr = pool.Exec(ctx, `INSERT INTO buyers (id,email) VALUES ($1,$2)`,
@@ -493,7 +567,7 @@ func measureSelectorScalePoint(
 		}
 		region = "ca-sel-scale"
 		seedErr = seedSelectorLeaseBook(ctx, pool, profile, region, scale, selectorScaleSeed)
-		point.Notes = fmt.Sprintf("lease offer book size=%d on profile %s region %s", scale, profile.RuntimeProfileID, region)
+		point.Notes = fmt.Sprintf("x-axis=offer_book_rows_on_profile_region; seeded %d service_lease_worker_offers on profile %s region %s; NOT ambient fleet size", scale, profile.RuntimeProfileID, region)
 	}
 	point.SeedWallSeconds = time.Since(seedStart).Seconds()
 	if seedErr != nil {
@@ -539,6 +613,23 @@ func measureSelectorScalePoint(
 	loadDuring, _ := readLoadAverage()
 	point.LoadAverageDuring = loadDuring
 
+	warmEv := &selectorScaleWarmupEvidence{
+		Policy:                         "discard leading production-SQL calls per concurrency cell; record discarded latencies here",
+		IsLaneFirstTimedPoint:          isLaneFirstTimedPoint,
+		PerCellWarmupCalls:             selectorScaleWarmup,
+		LaneFirstPointExtraWarmupCalls: 0,
+		DiscardedByCell:                map[string]selectorScaleLatency{},
+		ColdestDiscardedMSByCell:       map[string]float64{},
+		FirstTimedSampleMSByCell:       map[string]float64{},
+		SampleFailuresInWarmup:         map[string]int{},
+		SampleFailuresInTimed:          map[string]int{},
+		Note:                           "Timed wall_ms excludes every discarded warm-up call. Coldest discarded vs first timed sample shows whether plan/cache cold-start was removed from the percentile set.",
+	}
+	if isLaneFirstTimedPoint {
+		warmEv.LaneFirstPointExtraWarmupCalls = selectorScaleLaneFirstPointWarmup
+		warmEv.Note += fmt.Sprintf(" Lane-first point also discarded %d extra c=1 warm-up calls before any timed percentile.", selectorScaleLaneFirstPointWarmup)
+	}
+
 	measureStart := time.Now()
 	for _, conc := range []int{1, selectorScaleConcurrencyHigh} {
 		// Replenish capacity before each concurrency cell.
@@ -549,17 +640,112 @@ func measureSelectorScalePoint(
 			return point, nil, err
 		}
 		nSamples := selectorScaleSampleCount(scale, conc)
-		samples := measureSelectorScaleSamples(t, ctx, store, pool, lane, profile, region, claimer, buyerID, conc, nSamples)
+		// Lane-first extra warm-up only on the serial cell — that is where the
+		// first-point cold plan compile was observed (batch n=1000 p50 ~1.6s).
+		extraWarm := 0
+		if isLaneFirstTimedPoint && conc == 1 {
+			extraWarm = selectorScaleLaneFirstPointWarmup
+		}
+		result := measureSelectorScaleSamples(t, ctx, store, pool, lane, profile, region, claimer, buyerID, conc, nSamples, selectorScaleWarmup+extraWarm)
 		key := fmt.Sprintf("concurrency_%d", conc)
-		point.WallMS[key] = latencyFromDurations(samples)
+		// Percentiles are SUCCESS-only. Failed calls (funding exhaustion, no
+		// work, etc.) stay in the failure counts; including them deflated p50
+		// into single-digit ms while the book grew (prior non-monotonic realtime).
+		successTimed := filterSuccessDurations(result.Timed, result.TimedFailFlags)
+		successWarm := filterSuccessDurations(result.Warmup, result.WarmupFailFlags)
+		if len(successTimed) == 0 {
+			// All failed: still record failure latencies so the point is not silent,
+			// but mark the cell so it cannot be quoted as selection cost.
+			point.WallMS[key] = latencyFromDurations(result.Timed)
+			point.Notes += fmt.Sprintf("; ALL_FAILED_c%d n=%d (wall_ms is failure latency, not selection cost)", conc, len(result.Timed))
+			point.Defects = append(point.Defects, selectorScaleDefect{
+				Lane: lane, Scale: scale, Cell: key, Kind: "all_samples_failed",
+				Summary:  fmt.Sprintf("%s %s scale=%d: every timed sample failed", lane, key, scale),
+				Evidence: fmt.Sprintf("timed_failures=%d timed_n=%d; wall_ms reflects error-path latency only", result.TimedFailures, len(result.Timed)),
+			})
+		} else {
+			point.WallMS[key] = latencyFromDurations(successTimed)
+			if len(successTimed) < len(result.Timed) {
+				point.Notes += fmt.Sprintf("; success_only_c%d n=%d/%d", conc, len(successTimed), len(result.Timed))
+			}
+		}
+		warmEv.DiscardedByCell[key] = latencyFromDurations(result.Warmup)
+		if len(successWarm) > 0 {
+			// Prefer success warm max for cold-start proof when available.
+			warmEv.ColdestDiscardedMSByCell[key] = float64(maxDuration(result.Warmup)) / float64(time.Millisecond)
+		} else if len(result.Warmup) > 0 {
+			warmEv.ColdestDiscardedMSByCell[key] = float64(maxDuration(result.Warmup)) / float64(time.Millisecond)
+		}
+		if len(successTimed) > 0 {
+			warmEv.FirstTimedSampleMSByCell[key] = float64(successTimed[0]) / float64(time.Millisecond)
+		} else if len(result.Timed) > 0 {
+			warmEv.FirstTimedSampleMSByCell[key] = float64(result.Timed[0]) / float64(time.Millisecond)
+		}
+		warmEv.SampleFailuresInWarmup[key] = result.WarmupFailures
+		warmEv.SampleFailuresInTimed[key] = result.TimedFailures
 		if nSamples < selectorScaleSamples {
 			point.Notes += fmt.Sprintf("; samples_c%d=%d (reduced at this scale for wall budget; p99 less stable)", conc, nSamples)
 		}
-		t.Logf("lane=%s scale=%d c=%d p50=%.3fms p95=%.3fms p99=%.3fms n=%d",
-			lane, scale, conc, point.WallMS[key].P50, point.WallMS[key].P95, point.WallMS[key].P99, point.WallMS[key].N)
+		if result.WarmupFailures+result.TimedFailures > 0 {
+			point.Notes += fmt.Sprintf("; failures_c%d warm=%d timed=%d", conc, result.WarmupFailures, result.TimedFailures)
+		}
+		// Contention / lock-convoy defect signature: concurrent cell where the
+		// bulk of samples sit near max while min is orders of magnitude smaller,
+		// or absolute multi-minute p50 under multi-poller load.
+		if conc > 1 {
+			lat := point.WallMS[key]
+			if defect := detectSelectorScaleContentionDefect(lane, scale, key, lat, result); defect != nil {
+				point.Defects = append(point.Defects, *defect)
+				point.Notes += "; DEFECT recorded for " + key + " (see point.defects)"
+			}
+		}
+		t.Logf("lane=%s scale=%d c=%d warm_n=%d warm_max=%.3fms timed p50=%.3fms p95=%.3fms p99=%.3fms n=%d fail_w=%d fail_t=%d",
+			lane, scale, conc, len(result.Warmup),
+			warmEv.ColdestDiscardedMSByCell[key],
+			point.WallMS[key].P50, point.WallMS[key].P95, point.WallMS[key].P99, point.WallMS[key].N,
+			result.WarmupFailures, result.TimedFailures)
 	}
+	point.Warmup = warmEv
 	point.MeasureWallSeconds = time.Since(measureStart).Seconds()
 	return point, nil, nil
+}
+
+func maxDuration(ds []time.Duration) time.Duration {
+	var m time.Duration
+	for _, d := range ds {
+		if d > m {
+			m = d
+		}
+	}
+	return m
+}
+
+// detectSelectorScaleContentionDefect flags multi-poller cells that are not
+// single-selection cost measurements (lock convoy / connection starvation).
+func detectSelectorScaleContentionDefect(lane string, scale int, cell string, lat selectorScaleLatency, result selectorScaleSampleResult) *selectorScaleDefect {
+	if lat.N < 1 || lat.Min <= 0 {
+		return nil
+	}
+	ratio := lat.P50 / lat.Min
+	// Multi-minute p50 under concurrency, or p50 >> min with a near-max cluster.
+	multiMinute := lat.P50 >= 60_000 // 60s
+	spreadConvoy := ratio >= 50 && lat.P50 >= 10_000 && lat.Max > 0 && lat.P50/lat.Max >= 0.9
+	if !multiMinute && !spreadConvoy {
+		return nil
+	}
+	kind := "multi_poller_contention"
+	summary := fmt.Sprintf("%s %s at scale=%d is a contention result, not single-selection cost", lane, cell, scale)
+	evidence := fmt.Sprintf("p50=%.3fms p95=%.3fms min=%.3fms max=%.3fms n=%d p50/min=%.1f timed_failures=%d; concurrent ClaimTasksTx/Authorize/CreateServiceLease under large synthetic state — FOR UPDATE + heavy SQL can convoy; do not quote p50 as selector latency",
+		lat.P50, lat.P95, lat.Min, lat.Max, lat.N, ratio, result.TimedFailures)
+	if lane == "batch" && scale >= 1_000_000 {
+		kind = "batch_1m_concurrency_lock_convoy"
+		summary = "batch 1M-worker concurrency cell: multi-poller claim under fleet-relative EXISTS — lock/buffer convoy, not per-claim selection cost"
+		evidence += "; independent variable (fleet EXISTS cheaper_class/ask) is evaluated inside each concurrent claim; workers take FOR UPDATE on distinct claimer rows then contend on tasks SKIP LOCKED and shared buffers while scanning a 1M-row fleet per eligible job"
+	}
+	return &selectorScaleDefect{
+		Lane: lane, Scale: scale, Cell: cell, Kind: kind,
+		Summary: summary, Evidence: evidence,
+	}
 }
 
 // selectorScaleSampleCount keeps p50/p95 honest at small scales and reduces
@@ -582,17 +768,31 @@ func selectorScaleSampleCount(scale, concurrency int) int {
 	}
 }
 
+type selectorScaleSampleResult struct {
+	Warmup         []time.Duration
+	Timed          []time.Duration
+	WarmupFailures int
+	TimedFailures  int
+	// Fail flags aligned with Warmup/Timed slices (true = production call errored / no work).
+	WarmupFailFlags []bool
+	TimedFailFlags  []bool
+}
+
 func measureSelectorScaleSamples(
 	t *testing.T, ctx context.Context, store *Store, pool *pgxpool.Pool,
 	lane string, profile VLLMRuntimeProfile, region string,
-	claimer WorkerAuth, buyerID uuid.UUID, concurrency, nSamples int,
-) []time.Duration {
+	claimer WorkerAuth, buyerID uuid.UUID, concurrency, nSamples, warmupN int,
+) selectorScaleSampleResult {
 	t.Helper()
 	if nSamples < 1 {
 		nSamples = selectorScaleSamples
 	}
-	total := selectorScaleWarmup + nSamples
+	if warmupN < 0 {
+		warmupN = 0
+	}
+	total := warmupN + nSamples
 	raw := make([]time.Duration, total)
+	failFlags := make([]bool, total)
 	var fail atomic.Int32
 
 	var maxUSD, estUSD float64
@@ -628,6 +828,93 @@ func measureSelectorScaleSamples(
 		}
 	}
 
+	runOne := func(workerIdx int, idx int) {
+		b := buyers[workerIdx%len(buyers)]
+		start := time.Now()
+		var callErr error
+		switch lane {
+		case "batch":
+			// Ensure a claimable task exists for this sample.
+			if err := ensureQueuedBatchTask(ctx, pool, b); err != nil {
+				fail.Add(1)
+				failFlags[idx] = true
+				raw[idx] = time.Since(start)
+				return
+			}
+			// Each concurrent goroutine claims as a DIFFERENT fleet worker.
+			// ClaimTasksTx takes FOR UPDATE on the claiming worker row first;
+			// reusing one claimer serialises the whole cell and measures the
+			// wrong contention (worker lock, not task SKIP LOCKED).
+			auth := claimer
+			if concurrency > 1 {
+				auth = WorkerAuth{
+					WorkerID:   detUUID(selectorScaleSeed, "wrk", workerIdx),
+					SupplierID: detUUID(selectorScaleSeed, "sup", workerIdx),
+				}
+			}
+			got, err := store.ClaimTasksTx(ctx, auth)
+			callErr = err
+			if err == nil && got == nil {
+				callErr = errors.New("ClaimTasksTx returned no work")
+			}
+		case "realtime":
+			// Authorize then immediately terminalise so reserved free_credit /
+			// prepaid does not accumulate across warm+timed samples and turn
+			// later points into fast funding failures (observed: 100k timed
+			// fail_t=n with p50~6ms). Teardown is harness accounting, not a
+			// production-SQL change.
+			var contract RealtimeContract
+			contract, _, callErr = store.AuthorizeRealtimeContract(ctx, RealtimeContractAuthorization{
+				RequestID: "sel-" + uuid.NewString(), BuyerID: b, Profile: profile,
+				InputCommitment: strings.Repeat("a", 64), RequestSHA256: strings.Repeat("b", 64),
+				MaximumPriceUSD: maxUSD, EstimatedPriceUSD: estUSD, DeadlineAt: time.Now().Add(time.Minute),
+				MaximumPromptTokens: maxPrompt, MaximumCompletionTokens: maxCompletion,
+				EstimatedPromptTokens: estPrompt, EstimatedCompletionTokens: estCompletion,
+				BuyerDeclaredCeilingUSD: maxUSD * 1.1,
+			})
+			if callErr == nil && contract.ID != uuid.Nil {
+				_, _ = store.FinalizeRealtimeFailure(ctx, contract.ID, uuid.New(), 500, 1,
+					"selector_scale", "harness sample teardown", false)
+			}
+		case "service_lease":
+			var lease ServiceLease
+			lease, callErr = store.CreateServiceLease(ctx, b, ServiceLeaseRequest{
+				RuntimeProfileID: profile.RuntimeProfileID, Region: region, Currency: "usd",
+				MinimumReplicas: 1, MaximumReplicas: 1, TermSeconds: 60,
+				MaximumP95LatencyMilliseconds: 500, BuyerDeclaredCeilingNanos: 135_000_000,
+			})
+			// Capacity is restored by replenishSelectorScaleCapacity between
+			// cells; terminalising here keeps open reservations from stacking
+			// inside a cell when many samples share one buyer.
+			if callErr == nil && lease.ID != uuid.Nil {
+				_, _ = pool.Exec(ctx, `
+					UPDATE service_leases
+					   SET state='CANCELLED', finalized_at=COALESCE(finalized_at, now()),
+					       expires_at=LEAST(expires_at, now())
+					 WHERE id=$1 AND state IN ('ACTIVE','UPGRADING','FAILOVER_REQUIRED')`, lease.ID)
+				_, _ = pool.Exec(ctx, `
+					UPDATE service_lease_worker_offers
+					   SET available_warm_replicas=maximum_warm_replicas, last_seen_at=now(), status='READY'
+					 WHERE worker_id=$1`, lease.WorkerID)
+			}
+		}
+		raw[idx] = time.Since(start)
+		if callErr != nil {
+			fail.Add(1)
+			failFlags[idx] = true
+			// Do not t.Error from workers (racy); count only.
+		}
+	}
+
+	// Phase 1: serial warm-up (always concurrency=1 shape) so plan compile and
+	// cold shared-buffers land in the discarded set, not the timed percentiles.
+	// Even for c=8 timed cells we warm serially first — cold-start is not the
+	// contention signal under test.
+	for i := 0; i < warmupN; i++ {
+		runOne(0, i)
+	}
+
+	// Phase 2: timed samples at the requested concurrency.
 	jobs := make(chan int)
 	var wg sync.WaitGroup
 	for w := 0; w < concurrency; w++ {
@@ -635,66 +922,55 @@ func measureSelectorScaleSamples(
 		go func(workerIdx int) {
 			defer wg.Done()
 			for idx := range jobs {
-				b := buyers[workerIdx%len(buyers)]
-				start := time.Now()
-				var callErr error
-				switch lane {
-				case "batch":
-					// Ensure a claimable task exists for this sample.
-					if err := ensureQueuedBatchTask(ctx, pool, b); err != nil {
-						fail.Add(1)
-						raw[idx] = time.Since(start)
-						continue
-					}
-					// Each concurrent goroutine claims as a DIFFERENT fleet worker.
-					// ClaimTasksTx takes FOR UPDATE on the claiming worker row first;
-					// reusing one claimer serialises the whole cell and measures the
-					// wrong contention (worker lock, not task SKIP LOCKED).
-					auth := claimer
-					if concurrency > 1 {
-						auth = WorkerAuth{
-							WorkerID:   detUUID(selectorScaleSeed, "wrk", workerIdx),
-							SupplierID: detUUID(selectorScaleSeed, "sup", workerIdx),
-						}
-					}
-					got, err := store.ClaimTasksTx(ctx, auth)
-					callErr = err
-					if err == nil && got == nil {
-						callErr = errors.New("ClaimTasksTx returned no work")
-					}
-				case "realtime":
-					_, _, callErr = store.AuthorizeRealtimeContract(ctx, RealtimeContractAuthorization{
-						RequestID: "sel-" + uuid.NewString(), BuyerID: b, Profile: profile,
-						InputCommitment: strings.Repeat("a", 64), RequestSHA256: strings.Repeat("b", 64),
-						MaximumPriceUSD: maxUSD, EstimatedPriceUSD: estUSD, DeadlineAt: time.Now().Add(time.Minute),
-						MaximumPromptTokens: maxPrompt, MaximumCompletionTokens: maxCompletion,
-						EstimatedPromptTokens: estPrompt, EstimatedCompletionTokens: estCompletion,
-						BuyerDeclaredCeilingUSD: maxUSD * 1.1,
-					})
-				case "service_lease":
-					_, callErr = store.CreateServiceLease(ctx, b, ServiceLeaseRequest{
-						RuntimeProfileID: profile.RuntimeProfileID, Region: region, Currency: "usd",
-						MinimumReplicas: 1, MaximumReplicas: 1, TermSeconds: 60,
-						MaximumP95LatencyMilliseconds: 500, BuyerDeclaredCeilingNanos: 135_000_000,
-					})
-				}
-				raw[idx] = time.Since(start)
-				if callErr != nil {
-					fail.Add(1)
-					// Do not t.Error from workers (racy); count only.
-				}
+				runOne(workerIdx, idx)
 			}
 		}(w)
 	}
-	for i := 0; i < total; i++ {
+	for i := warmupN; i < total; i++ {
 		jobs <- i
 	}
 	close(jobs)
 	wg.Wait()
+
 	if n := fail.Load(); n > 0 {
-		t.Logf("lane=%s c=%d sample failures=%d/%d (included in wall times)", lane, concurrency, n, total)
+		t.Logf("lane=%s c=%d sample failures=%d/%d (warm=%d timed=%d; failures stay in their bucket)",
+			lane, concurrency, n, total, countTrue(failFlags[:warmupN]), countTrue(failFlags[warmupN:]))
 	}
-	return raw[selectorScaleWarmup:]
+	out := selectorScaleSampleResult{
+		Warmup:          append([]time.Duration(nil), raw[:warmupN]...),
+		Timed:           append([]time.Duration(nil), raw[warmupN:]...),
+		WarmupFailFlags: append([]bool(nil), failFlags[:warmupN]...),
+		TimedFailFlags:  append([]bool(nil), failFlags[warmupN:]...),
+	}
+	out.WarmupFailures = countTrue(out.WarmupFailFlags)
+	out.TimedFailures = countTrue(out.TimedFailFlags)
+	return out
+}
+
+func countTrue(flags []bool) int {
+	n := 0
+	for _, f := range flags {
+		if f {
+			n++
+		}
+	}
+	return n
+}
+
+// filterSuccessDurations keeps only samples whose fail flag is false, preserving
+// issue order so first-timed-sample remains meaningful.
+func filterSuccessDurations(ds []time.Duration, fail []bool) []time.Duration {
+	if len(ds) == 0 {
+		return nil
+	}
+	out := make([]time.Duration, 0, len(ds))
+	for i, d := range ds {
+		if i < len(fail) && fail[i] {
+			continue
+		}
+		out = append(out, d)
+	}
+	return out
 }
 
 // --- fleet generators (CopyFrom, fixed seed) --------------------------------
@@ -1101,7 +1377,9 @@ func recycleClaimedBatchTasks(ctx context.Context, pool *pgxpool.Pool, buyerID u
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM tasks WHERE status='queued' AND claimed_by IS NULL`).Scan(&queued); err != nil {
 		return err
 	}
-	need := selectorScaleSamples*selectorScaleConcurrencyHigh*2 - queued
+	// Cover timed samples + warm-up + concurrent claimers; keep a 2× cushion.
+	warmBudget := selectorScaleWarmup + selectorScaleLaneFirstPointWarmup
+	need := (selectorScaleSamples+warmBudget)*selectorScaleConcurrencyHigh*2 - queued
 	if need < 1 {
 		return nil
 	}

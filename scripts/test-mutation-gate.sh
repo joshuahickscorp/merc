@@ -6,7 +6,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 help="$(bash scripts/mutation-gate.sh --help)"
-printf '%s\n' "$help" | rg --fixed-strings 'full       all 109 mutations exactly once' >/dev/null
+printf '%s\n' "$help" | rg --fixed-strings 'full       all 124 mutations exactly once' >/dev/null
 rg --fixed-strings 'budget="${MERC_MUTATION_WALLCLOCK_SECONDS:-299}"' scripts/mutation-gate.sh >/dev/null
 rg --fixed-strings 'default_workers=16' scripts/mutation-gate.sh >/dev/null
 if bash scripts/mutation-gate.sh deep >/dev/null 2>&1; then

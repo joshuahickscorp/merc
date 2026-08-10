@@ -1122,6 +1122,8 @@
         "TestRealtimePricingDecisionPreservesExactCeilingBeyondFloatIntegerRange",
         "TestRealtimePricingDecisionRefusesCurrencyMismatchAndZeroFloor",
         "TestRealtimePricingDecisionRefusesTamperingAndCeilingBreach",
+        "TestRealtimePushMarketDecisionRecordsConsideredSetOnUncontendedClaim",
+        "TestRealtimePushMarketDecisionRecordsContendedLockSkip",
         "TestRealtimeReusePricingDecisionBindsZeroPhysicalExactAuthority",
         "TestRealtimeReusePricingDecisionRefusesTamperCurrencyCeilingAndClass",
         "TestRealtimeStreamContractVerificationSettlementAndReceipt",
@@ -1173,6 +1175,8 @@
         "TestRealtimePricingDecisionPreservesExactCeilingBeyondFloatIntegerRange",
         "TestRealtimePricingDecisionRefusesCurrencyMismatchAndZeroFloor",
         "TestRealtimePricingDecisionRefusesTamperingAndCeilingBreach",
+        "TestRealtimePushMarketDecisionRecordsConsideredSetOnUncontendedClaim",
+        "TestRealtimePushMarketDecisionRecordsContendedLockSkip",
         "TestRealtimeReusePricingDecisionBindsZeroPhysicalExactAuthority",
         "TestRealtimeReusePricingDecisionRefusesTamperCurrencyCeilingAndClass",
         "TestRealtimeStreamContractVerificationSettlementAndReceipt",
@@ -1224,6 +1228,8 @@
         "TestRealtimePricingDecisionPreservesExactCeilingBeyondFloatIntegerRange",
         "TestRealtimePricingDecisionRefusesCurrencyMismatchAndZeroFloor",
         "TestRealtimePricingDecisionRefusesTamperingAndCeilingBreach",
+        "TestRealtimePushMarketDecisionRecordsConsideredSetOnUncontendedClaim",
+        "TestRealtimePushMarketDecisionRecordsContendedLockSkip",
         "TestRealtimeReusePricingDecisionBindsZeroPhysicalExactAuthority",
         "TestRealtimeReusePricingDecisionRefusesTamperCurrencyCeilingAndClass",
         "TestRealtimeStreamContractVerificationSettlementAndReceipt",
@@ -1275,6 +1281,8 @@
         "TestRealtimePricingDecisionPreservesExactCeilingBeyondFloatIntegerRange",
         "TestRealtimePricingDecisionRefusesCurrencyMismatchAndZeroFloor",
         "TestRealtimePricingDecisionRefusesTamperingAndCeilingBreach",
+        "TestRealtimePushMarketDecisionRecordsConsideredSetOnUncontendedClaim",
+        "TestRealtimePushMarketDecisionRecordsContendedLockSkip",
         "TestRealtimeReusePricingDecisionBindsZeroPhysicalExactAuthority",
         "TestRealtimeReusePricingDecisionRefusesTamperCurrencyCeilingAndClass",
         "TestRealtimeStreamContractVerificationSettlementAndReceipt",
@@ -1326,6 +1334,8 @@
         "TestRealtimePricingDecisionPreservesExactCeilingBeyondFloatIntegerRange",
         "TestRealtimePricingDecisionRefusesCurrencyMismatchAndZeroFloor",
         "TestRealtimePricingDecisionRefusesTamperingAndCeilingBreach",
+        "TestRealtimePushMarketDecisionRecordsConsideredSetOnUncontendedClaim",
+        "TestRealtimePushMarketDecisionRecordsContendedLockSkip",
         "TestRealtimeReusePricingDecisionBindsZeroPhysicalExactAuthority",
         "TestRealtimeReusePricingDecisionRefusesTamperCurrencyCeilingAndClass",
         "TestRealtimeStreamContractVerificationSettlementAndReceipt",
@@ -1377,6 +1387,8 @@
         "TestRealtimePricingDecisionPreservesExactCeilingBeyondFloatIntegerRange",
         "TestRealtimePricingDecisionRefusesCurrencyMismatchAndZeroFloor",
         "TestRealtimePricingDecisionRefusesTamperingAndCeilingBreach",
+        "TestRealtimePushMarketDecisionRecordsConsideredSetOnUncontendedClaim",
+        "TestRealtimePushMarketDecisionRecordsContendedLockSkip",
         "TestRealtimeReusePricingDecisionBindsZeroPhysicalExactAuthority",
         "TestRealtimeReusePricingDecisionRefusesTamperCurrencyCeilingAndClass",
         "TestRealtimeStreamContractVerificationSettlementAndReceipt",
@@ -1428,6 +1440,8 @@
         "TestRealtimePricingDecisionPreservesExactCeilingBeyondFloatIntegerRange",
         "TestRealtimePricingDecisionRefusesCurrencyMismatchAndZeroFloor",
         "TestRealtimePricingDecisionRefusesTamperingAndCeilingBreach",
+        "TestRealtimePushMarketDecisionRecordsConsideredSetOnUncontendedClaim",
+        "TestRealtimePushMarketDecisionRecordsContendedLockSkip",
         "TestRealtimeReusePricingDecisionBindsZeroPhysicalExactAuthority",
         "TestRealtimeReusePricingDecisionRefusesTamperCurrencyCeilingAndClass",
         "TestRealtimeStreamContractVerificationSettlementAndReceipt",
@@ -1479,6 +1493,8 @@
         "TestRealtimePricingDecisionPreservesExactCeilingBeyondFloatIntegerRange",
         "TestRealtimePricingDecisionRefusesCurrencyMismatchAndZeroFloor",
         "TestRealtimePricingDecisionRefusesTamperingAndCeilingBreach",
+        "TestRealtimePushMarketDecisionRecordsConsideredSetOnUncontendedClaim",
+        "TestRealtimePushMarketDecisionRecordsContendedLockSkip",
         "TestRealtimeReusePricingDecisionBindsZeroPhysicalExactAuthority",
         "TestRealtimeReusePricingDecisionRefusesTamperCurrencyCeilingAndClass",
         "TestRealtimeStreamContractVerificationSettlementAndReceipt",
@@ -1530,6 +1546,8 @@
         "TestRealtimePricingDecisionPreservesExactCeilingBeyondFloatIntegerRange",
         "TestRealtimePricingDecisionRefusesCurrencyMismatchAndZeroFloor",
         "TestRealtimePricingDecisionRefusesTamperingAndCeilingBreach",
+        "TestRealtimePushMarketDecisionRecordsConsideredSetOnUncontendedClaim",
+        "TestRealtimePushMarketDecisionRecordsContendedLockSkip",
         "TestRealtimeReusePricingDecisionBindsZeroPhysicalExactAuthority",
         "TestRealtimeReusePricingDecisionRefusesTamperCurrencyCeilingAndClass",
         "TestRealtimeStreamContractVerificationSettlementAndReceipt",
@@ -1581,6 +1599,8 @@
         "TestRealtimePricingDecisionPreservesExactCeilingBeyondFloatIntegerRange",
         "TestRealtimePricingDecisionRefusesCurrencyMismatchAndZeroFloor",
         "TestRealtimePricingDecisionRefusesTamperingAndCeilingBreach",
+        "TestRealtimePushMarketDecisionRecordsConsideredSetOnUncontendedClaim",
+        "TestRealtimePushMarketDecisionRecordsContendedLockSkip",
         "TestRealtimeReusePricingDecisionBindsZeroPhysicalExactAuthority",
         "TestRealtimeReusePricingDecisionRefusesTamperCurrencyCeilingAndClass",
         "TestRealtimeStreamContractVerificationSettlementAndReceipt",
@@ -2541,6 +2561,8 @@
         "TestRealtimePricingDecisionPreservesExactCeilingBeyondFloatIntegerRange",
         "TestRealtimePricingDecisionRefusesCurrencyMismatchAndZeroFloor",
         "TestRealtimePricingDecisionRefusesTamperingAndCeilingBreach",
+        "TestRealtimePushMarketDecisionRecordsConsideredSetOnUncontendedClaim",
+        "TestRealtimePushMarketDecisionRecordsContendedLockSkip",
         "TestRealtimeReusePricingDecisionBindsZeroPhysicalExactAuthority",
         "TestRealtimeReusePricingDecisionRefusesTamperCurrencyCeilingAndClass",
         "TestRealtimeStreamContractVerificationSettlementAndReceipt",
@@ -4345,7 +4367,6 @@
       "id": 108,
       "last_validated_commit": null,
       "required_invariant_contracts": [
-        "TestOpenExposureInOneCurrencyDoesNotOffsetAnother",
         "TestBuyerFreeCreditRemainingHoldsActiveEnvelope",
         "TestCeilNanosToMicrosHoldsHigherWholeMicro",
         "TestExpiredEnvelopeKeepsPrepaidReservationForInFlightWork",
@@ -4389,6 +4410,367 @@
         "TestRealtimeSettlementConservationExactNanos"
       ],
       "source_target": "control/buyer_open_exposure.go"
+    },
+    {
+      "authority_domain": "market_decision",
+      "class": "PURE",
+      "description": "push book allows dishonest lowest-cost reason at rank>1",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 110,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestMarketDecisionPushProjectsLegacyReceiptLosslessly",
+        "TestMarketDecisionRealtimeLaneRefusesPullBody",
+        "TestNewRealtimePushMarketDecisionRecordsLockSkippedPeers",
+        "TestRealtimeClearingSelectionReasonDoesNotClaimLowestWhenRankGreaterThanOne",
+        "TestValidateMarketDecisionRefusesDishonestSelectionReason"
+      ],
+      "source_target": "control/market_decision.go"
+    },
+    {
+      "authority_domain": "market_decision",
+      "class": "PURE",
+      "description": "lock-skipped better peer is annotated as worse economic rank",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 111,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestMarketDecisionPushProjectsLegacyReceiptLosslessly",
+        "TestMarketDecisionRealtimeLaneRefusesPullBody",
+        "TestNewRealtimePushMarketDecisionRecordsLockSkippedPeers",
+        "TestRealtimeClearingSelectionReasonDoesNotClaimLowestWhenRankGreaterThanOne",
+        "TestValidateMarketDecisionRefusesDishonestSelectionReason"
+      ],
+      "source_target": "control/market_decision.go"
+    },
+    {
+      "authority_domain": "realtime_clearing",
+      "class": "PURE",
+      "description": "contended selection reason still claims lowest verified-outcome cost",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 112,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestMarketDecisionPushProjectsLegacyReceiptLosslessly",
+        "TestMarketDecisionRealtimeLaneRefusesPullBody",
+        "TestNewRealtimePushMarketDecisionRecordsLockSkippedPeers",
+        "TestRealtimeClearingHigherAskWithNoFailuresBeatsCheaperThatNeedsDoubleExecution",
+        "TestRealtimeClearingRankingInputsRecordEveryTerm",
+        "TestRealtimeClearingReceiptRecordsEveryRankingInput",
+        "TestRealtimeClearingSameCostClassKeepsWarmthTiebreak",
+        "TestRealtimeClearingSelectionReasonDoesNotClaimLowestWhenRankGreaterThanOne",
+        "TestRealtimeClearingSelfDeclaredHOTDoesNotBeatCheaperVerifiedCost",
+        "TestRealtimeOfferBeatsPutsCostAboveWarmth",
+        "TestRealtimePushMarketDecisionRecordsConsideredSetOnUncontendedClaim",
+        "TestRealtimePushMarketDecisionRecordsContendedLockSkip",
+        "TestRealtimeVerifiedOutcomeCostUsesOnlyMeasuredTerms",
+        "TestServiceLeaseClearingRanksByTotalSupplierPlusResidency",
+        "TestValidateMarketDecisionRefusesDishonestSelectionReason"
+      ],
+      "source_target": "control/realtime_clearing.go"
+    },
+    {
+      "authority_domain": "realtime_clearing",
+      "class": "PURE",
+      "description": "supplier ranking prefers higher verified-outcome cost",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 113,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestMarketDecisionPushProjectsLegacyReceiptLosslessly",
+        "TestMarketDecisionRealtimeLaneRefusesPullBody",
+        "TestNewRealtimePushMarketDecisionRecordsLockSkippedPeers",
+        "TestRealtimeClearingHigherAskWithNoFailuresBeatsCheaperThatNeedsDoubleExecution",
+        "TestRealtimeClearingRankingInputsRecordEveryTerm",
+        "TestRealtimeClearingReceiptRecordsEveryRankingInput",
+        "TestRealtimeClearingSameCostClassKeepsWarmthTiebreak",
+        "TestRealtimeClearingSelectionReasonDoesNotClaimLowestWhenRankGreaterThanOne",
+        "TestRealtimeClearingSelfDeclaredHOTDoesNotBeatCheaperVerifiedCost",
+        "TestRealtimeOfferBeatsPutsCostAboveWarmth",
+        "TestRealtimePushMarketDecisionRecordsConsideredSetOnUncontendedClaim",
+        "TestRealtimePushMarketDecisionRecordsContendedLockSkip",
+        "TestRealtimeVerifiedOutcomeCostUsesOnlyMeasuredTerms",
+        "TestServiceLeaseClearingRanksByTotalSupplierPlusResidency",
+        "TestValidateMarketDecisionRefusesDishonestSelectionReason"
+      ],
+      "source_target": "control/realtime_clearing.go"
+    },
+    {
+      "authority_domain": "realtime_clearing",
+      "class": "PURE",
+      "description": "measured failure rate stops adjusting verified-outcome cost",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 114,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestMarketDecisionPushProjectsLegacyReceiptLosslessly",
+        "TestMarketDecisionRealtimeLaneRefusesPullBody",
+        "TestNewRealtimePushMarketDecisionRecordsLockSkippedPeers",
+        "TestRealtimeClearingHigherAskWithNoFailuresBeatsCheaperThatNeedsDoubleExecution",
+        "TestRealtimeClearingRankingInputsRecordEveryTerm",
+        "TestRealtimeClearingReceiptRecordsEveryRankingInput",
+        "TestRealtimeClearingSameCostClassKeepsWarmthTiebreak",
+        "TestRealtimeClearingSelectionReasonDoesNotClaimLowestWhenRankGreaterThanOne",
+        "TestRealtimeClearingSelfDeclaredHOTDoesNotBeatCheaperVerifiedCost",
+        "TestRealtimeOfferBeatsPutsCostAboveWarmth",
+        "TestRealtimePushMarketDecisionRecordsConsideredSetOnUncontendedClaim",
+        "TestRealtimePushMarketDecisionRecordsContendedLockSkip",
+        "TestRealtimeVerifiedOutcomeCostUsesOnlyMeasuredTerms",
+        "TestServiceLeaseClearingRanksByTotalSupplierPlusResidency",
+        "TestValidateMarketDecisionRefusesDishonestSelectionReason"
+      ],
+      "source_target": "control/realtime_clearing.go"
+    },
+    {
+      "authority_domain": "realtime_clearing",
+      "class": "PURE",
+      "description": "measured refund risk stops adjusting verified-outcome cost",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 115,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestMarketDecisionPushProjectsLegacyReceiptLosslessly",
+        "TestMarketDecisionRealtimeLaneRefusesPullBody",
+        "TestNewRealtimePushMarketDecisionRecordsLockSkippedPeers",
+        "TestRealtimeClearingHigherAskWithNoFailuresBeatsCheaperThatNeedsDoubleExecution",
+        "TestRealtimeClearingRankingInputsRecordEveryTerm",
+        "TestRealtimeClearingReceiptRecordsEveryRankingInput",
+        "TestRealtimeClearingSameCostClassKeepsWarmthTiebreak",
+        "TestRealtimeClearingSelectionReasonDoesNotClaimLowestWhenRankGreaterThanOne",
+        "TestRealtimeClearingSelfDeclaredHOTDoesNotBeatCheaperVerifiedCost",
+        "TestRealtimeOfferBeatsPutsCostAboveWarmth",
+        "TestRealtimePushMarketDecisionRecordsConsideredSetOnUncontendedClaim",
+        "TestRealtimePushMarketDecisionRecordsContendedLockSkip",
+        "TestRealtimeVerifiedOutcomeCostUsesOnlyMeasuredTerms",
+        "TestServiceLeaseClearingRanksByTotalSupplierPlusResidency",
+        "TestValidateMarketDecisionRefusesDishonestSelectionReason"
+      ],
+      "source_target": "control/realtime_clearing.go"
+    },
+    {
+      "authority_domain": "worker_placement",
+      "class": "PURE",
+      "description": "locality-driven placement accepts unknown freshness",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 116,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestWorkerPlacementAcceptedBindsWorkerOrRecordsWhyNot",
+        "TestWorkerPlacementBatchAcceptPendingDoesNotBindWorker",
+        "TestWorkerPlacementBatchClaimBindsWorkerWithoutFrozenEpoch",
+        "TestWorkerPlacementFallbackIsLaneDiscriminated",
+        "TestWorkerPlacementFourMeaningsRemainDistinct",
+        "TestWorkerPlacementLocalityDrivenRequiresFreshnessFailingBefore",
+        "TestWorkerPlacementRealtimeRefusesPullBodyCrossWiring"
+      ],
+      "source_target": "control/worker_placement.go"
+    },
+    {
+      "authority_domain": "runtime_decision",
+      "class": "PURE",
+      "description": "measured shadow selection basis seals as accept authority",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 117,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestEvidenceEnvelopeBindsRuntimeLinkInsteadOfAbsent",
+        "TestRuntimeDecisionDirectedCellBasis",
+        "TestRuntimeDecisionLadderBasisCannotBeLabelledMeasured",
+        "TestRuntimeDecisionShadowSelectionCannotBecomeAcceptedBasis",
+        "TestRuntimeDecisionStatesLifecycleLadderBasisNotMeasured",
+        "TestRuntimeDecisionTamperFailsDigest"
+      ],
+      "source_target": "control/runtime_decision.go"
+    },
+    {
+      "authority_domain": "runtime_decision",
+      "class": "PURE",
+      "description": "shadow selection is allowed as money/routing authority",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 118,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestEvidenceEnvelopeBindsRuntimeLinkInsteadOfAbsent",
+        "TestRuntimeDecisionDirectedCellBasis",
+        "TestRuntimeDecisionLadderBasisCannotBeLabelledMeasured",
+        "TestRuntimeDecisionShadowSelectionCannotBecomeAcceptedBasis",
+        "TestRuntimeDecisionStatesLifecycleLadderBasisNotMeasured",
+        "TestRuntimeDecisionTamperFailsDigest"
+      ],
+      "source_target": "control/runtime_decision.go"
+    },
+    {
+      "authority_domain": "topology_decision",
+      "class": "PURE",
+      "description": "WAN-tight topology accept-time tripwire is neutralised",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 119,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestTopologyDecisionBatchIndependentFanoutIsAccepted",
+        "TestTopologyDecisionExactReuseIsNotApplicable",
+        "TestTopologyDecisionNeverNeitherAcceptedNorRefusal",
+        "TestTopologyDecisionRealtimeCitesPlacementPlan",
+        "TestTopologyDecisionServiceLeaseIsExplicitNotApplicable",
+        "TestTopologyDecisionStaleOrAbsentFabricCannotAdmitTight",
+        "TestTopologyDecisionTamperFailsDigest",
+        "TestTopologyDecisionWANTightIsRefusedAndRecorded"
+      ],
+      "source_target": "control/topology_decision.go"
+    },
+    {
+      "authority_domain": "topology_decision",
+      "class": "PURE",
+      "description": "stale fabric evidence is treated as fresh",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 120,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestPlanTopologyChoosesBoundedIndependentShapes",
+        "TestPlanTopologyFromCurrentFabricEvaluationNeverPromotesSyntheticEvidence",
+        "TestPlanTopologyFromFabricEvaluationRefusesStaleOrForgedAdmission",
+        "TestPlanTopologyFromFabricEvaluationRequiresAnExplicitFutureAdmission",
+        "TestPlanTopologyRefusesUnknownShape",
+        "TestPlanTopologyRequiresMeasuredFabricForLocalGang",
+        "TestPlanTopologyUsesProviderOnlyForAdmittedTightGang",
+        "TestTopologyDecisionBatchIndependentFanoutIsAccepted",
+        "TestTopologyDecisionExactReuseIsNotApplicable",
+        "TestTopologyDecisionNeverNeitherAcceptedNorRefusal",
+        "TestTopologyDecisionRealtimeCitesPlacementPlan",
+        "TestTopologyDecisionServiceLeaseIsExplicitNotApplicable",
+        "TestTopologyDecisionStaleOrAbsentFabricCannotAdmitTight",
+        "TestTopologyDecisionTamperFailsDigest",
+        "TestTopologyDecisionWANTightIsRefusedAndRecorded"
+      ],
+      "source_target": "control/fabric_topology_planner.go"
+    },
+    {
+      "authority_domain": "evidence_envelope",
+      "class": "PURE",
+      "description": "ABSENT or PENDING links may omit the required reason",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 121,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestEvidenceEnvelopeAbsentLinksAreLegibleAndNotBreaks",
+        "TestEvidenceEnvelopeDoesNotRehashBoundBodies",
+        "TestEvidenceEnvelopePendingRequestWhenNoSubmitDigest",
+        "TestEvidenceEnvelopeRefusesMissingRequiredBoundDigest",
+        "TestEvidenceEnvelopeSealsAndValidates",
+        "TestEvidenceEnvelopeTamperRejection"
+      ],
+      "source_target": "control/evidence_envelope.go"
+    },
+    {
+      "authority_domain": "evidence_envelope",
+      "class": "PURE",
+      "description": "ABSENT or PENDING links may carry a fabricated digest",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 122,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestEvidenceEnvelopeAbsentLinksAreLegibleAndNotBreaks",
+        "TestEvidenceEnvelopeDoesNotRehashBoundBodies",
+        "TestEvidenceEnvelopePendingRequestWhenNoSubmitDigest",
+        "TestEvidenceEnvelopeRefusesMissingRequiredBoundDigest",
+        "TestEvidenceEnvelopeSealsAndValidates",
+        "TestEvidenceEnvelopeTamperRejection"
+      ],
+      "source_target": "control/evidence_envelope.go"
+    },
+    {
+      "authority_domain": "claim_narrowing",
+      "class": "PURE",
+      "description": "claim narrowing ladder allows surviving counts to increase",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 123,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestClaimExistsExplainBeforeAfterIndex",
+        "TestClaimNarrowingStagesAndEligibilityUnchanged",
+        "TestClaimObservationFamiliesRefuseEpochInvention",
+        "TestRealtimeAuthorizeNarrowingStagesDocumentProfileScope",
+        "TestValidateClaimNarrowingLadderNonIncreasing"
+      ],
+      "source_target": "control/claim_narrowing.go"
+    },
+    {
+      "authority_domain": "admission",
+      "class": "PURE",
+      "description": "impossible deadline is accepted against implied TTFT",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 124,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestBatchingPolicyIsReachedFromArrivalBatcher",
+        "TestBudgetIsTokensNotRequests",
+        "TestBudgetValidationRefusesImpossibleDeadlines",
+        "TestInteractiveBudgetIsTighterThanBatch",
+        "TestOversizedCandidateIsAdmittedAlone",
+        "TestSelectBatchDoesNotMutateCallerSlice",
+        "TestWarmPrefixDoesNotConsumeBudget"
+      ],
+      "source_target": "control/batch_policy.go"
     }
   ],
   "version": 1
