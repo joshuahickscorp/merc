@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // The rule the gate exists for: a receipt with a skipped or failed step
@@ -209,5 +210,76 @@ func TestCheckpointUsesTheIsolatedParallelMutationRunner(t *testing.T) {
 		if !strings.Contains(string(parallel), fragment) {
 			t.Fatalf("parallel mutation runner is missing required isolation guard %q", fragment)
 		}
+	}
+}
+
+// A cache entry stands in for a run only when it is about the same bytes and is
+// still young enough to say anything about today's toolchain.
+//
+// The two failures this guards are opposite and both silent. If the key ignored
+// any part of the step or the tree, a passing result would be served for work it
+// never saw. If a hit never expired, a pass from a retired toolchain would keep
+// authorizing pushes forever.
+func TestCheckpointCacheAnswersOnlyForTheSameTreeAndOnlyWhileFresh(t *testing.T) {
+	root := t.TempDir()
+	const digest, other = "digest-A", "digest-B"
+
+	key := devCheckpointCacheKey("pure-suite", "control", "go test ./...", digest)
+	for _, differs := range []struct{ name, dir, command, digest string }{
+		{"ci", "control", "go test ./...", digest},
+		{"pure-suite", "agent", "go test ./...", digest},
+		{"pure-suite", "control", "go test -race ./...", digest},
+		{"pure-suite", "control", "go test ./...", other},
+	} {
+		if got := devCheckpointCacheKey(differs.name, differs.dir, differs.command, differs.digest); got == key {
+			t.Fatalf("key collided for %+v: a changed step or tree must miss", differs)
+		}
+	}
+
+	fresh := devCheckpointCacheEntry{
+		Name: "pure-suite", Command: "go test ./...", Dir: "control",
+		WorktreeDigest: digest, DurationMS: 1234, Head: "abc123def456789",
+		CreatedAt: time.Now().UTC().Format(time.RFC3339),
+	}
+	storeDevCheckpointCache(root, key, fresh)
+	entry, ok, reason := loadDevCheckpointCache(root, key)
+	if !ok {
+		t.Fatalf("fresh entry rejected: %q", reason)
+	}
+	if entry.DurationMS != fresh.DurationMS || entry.Head != fresh.Head {
+		t.Fatalf("entry did not round trip: %+v", entry)
+	}
+	if _, ok, _ := loadDevCheckpointCache(root, devCheckpointCacheKey("pure-suite", "control", "go test ./...", other)); ok {
+		t.Fatal("a different tree digest was served from cache")
+	}
+
+	stale := fresh
+	stale.CreatedAt = time.Now().UTC().Add(-devCheckpointCacheTTL - time.Hour).Format(time.RFC3339)
+	staleKey := devCheckpointCacheKey("pure-suite", "control", "go test ./...", "digest-STALE")
+	storeDevCheckpointCache(root, staleKey, stale)
+	if _, ok, reason := loadDevCheckpointCache(root, staleKey); ok {
+		t.Fatal("an expired entry was served")
+	} else if reason == "" {
+		t.Fatal("an expired entry was rejected without saying why")
+	}
+}
+
+// A cached step is the same claim about the same bytes, made earlier, so it
+// still authorizes a push. A skipped step is nobody knowing, and does not.
+func TestACachedStepStillAuthorizesAPushAndASkippedOneDoesNot(t *testing.T) {
+	receipt := DevCheckpointReceipt{
+		Head: "abc123", MutationRestored: true,
+		Steps: []devCheckpointStep{
+			{Name: "pure-suite", Cached: true, CachedAt: "2026-08-10T00:00:00Z", CachedOn: "abc123"},
+		},
+	}
+	if !devCheckpointIsPushEligible(receipt) {
+		t.Fatal("a receipt whose steps all passed — some earlier, against these exact bytes — must authorize a push")
+	}
+	receipt.Steps = append(receipt.Steps, devCheckpointStep{
+		Name: "mutation-suite", Skipped: true, SkipReason: "--skip-mutation",
+	})
+	if devCheckpointIsPushEligible(receipt) {
+		t.Fatal("a skipped step must not authorize a push")
 	}
 }

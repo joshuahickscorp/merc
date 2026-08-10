@@ -48,6 +48,16 @@ type devCheckpointStep struct {
 	ExitCode   int    `json:"exit_code"`
 	Skipped    bool   `json:"skipped,omitempty"`
 	SkipReason string `json:"skip_reason,omitempty"`
+	// Cached records that this step was NOT run now: an identical step passed
+	// against byte-identical tracked source, and that earlier result is being
+	// reported instead. CachedAt is when it actually ran.
+	//
+	// This is not a skip. A skip means nobody knows; a cache hit means somebody
+	// knows, and the digest says the answer cannot have changed. Both are
+	// recorded rather than hidden, and only one of them still authorizes a push.
+	Cached   bool   `json:"cached,omitempty"`
+	CachedAt string `json:"cached_at,omitempty"`
+	CachedOn string `json:"cached_on_head,omitempty"`
 }
 
 // DevCheckpointReceipt binds a verification run to the exact source it verified.
@@ -152,7 +162,104 @@ type devCheckpointOptions struct {
 	root         string
 	skipMutation bool
 	skipCI       bool
+	noCache      bool
 	databaseURL  string
+}
+
+// Step results are cached against the CONTENT of the tracked tree.
+//
+// The checkpoint was all-or-nothing: six steps, about six hours, and a failure
+// in the last one discarded the five that had passed. Worse, committing a
+// typo in a doc re-ran the entire mutation suite to re-prove things about
+// source that had not moved a byte. That is not rigour, it is a tax on
+// rigour, and the way it gets paid is by people passing --skip-mutation.
+//
+// The key is the digest the checkpoint already computes over every tracked
+// file, plus the step's own name, command and directory. If a single byte of
+// any tracked file differs, every key differs and everything re-runs. So a
+// cache hit is not a weaker claim than a fresh run -- it is the same claim
+// about the same bytes, made earlier.
+//
+// What the key does NOT cover is the environment: the Go toolchain, the
+// database, the machine. A pass from six months ago on a different toolchain
+// is not evidence about today, so entries expire, and every hit is stamped
+// into the receipt with the time and commit it really ran on.
+const (
+	devCheckpointCacheDirName = "cache"
+	// devCheckpointCacheTTL bounds how long a result may stand in for a run.
+	// Long enough that a day of iteration is cheap, short enough that a stale
+	// toolchain cannot quietly authorize a push.
+	devCheckpointCacheTTL = 14 * 24 * time.Hour
+)
+
+type devCheckpointCacheEntry struct {
+	Name           string `json:"name"`
+	Command        string `json:"command"`
+	Dir            string `json:"dir"`
+	WorktreeDigest string `json:"worktree_digest"`
+	DurationMS     int64  `json:"duration_ms"`
+	Head           string `json:"head"`
+	CreatedAt      string `json:"created_at"`
+}
+
+// shortHead abbreviates a commit for a console line without hiding a short or
+// empty value behind a slice panic.
+func shortHead(head string) string {
+	if len(head) <= 12 {
+		return head
+	}
+	return head[:12]
+}
+
+func devCheckpointCacheKey(name, dir, command, digest string) string {
+	sum := sha256.Sum256([]byte(strings.Join([]string{name, dir, command, digest}, "\x00")))
+	return hex.EncodeToString(sum[:])
+}
+
+func devCheckpointCachePath(root, key string) string {
+	return filepath.Join(root, "evidence", "checkpoint", devCheckpointCacheDirName, key+".json")
+}
+
+// loadDevCheckpointCache returns a usable entry, or ok=false with the reason a
+// present entry was rejected. The reason is returned rather than logged so the
+// caller can print it: "cache expired" and "no cache" send a reader to
+// different places.
+func loadDevCheckpointCache(root, key string) (devCheckpointCacheEntry, bool, string) {
+	raw, err := os.ReadFile(devCheckpointCachePath(root, key))
+	if err != nil {
+		return devCheckpointCacheEntry{}, false, ""
+	}
+	var entry devCheckpointCacheEntry
+	if err := json.Unmarshal(raw, &entry); err != nil {
+		return devCheckpointCacheEntry{}, false, "unreadable cache entry"
+	}
+	created, err := time.Parse(time.RFC3339, entry.CreatedAt)
+	if err != nil {
+		return devCheckpointCacheEntry{}, false, "cache entry has no usable timestamp"
+	}
+	if age := time.Since(created); age > devCheckpointCacheTTL {
+		return devCheckpointCacheEntry{}, false,
+			fmt.Sprintf("cache entry is %s old (limit %s)",
+				age.Truncate(time.Hour), devCheckpointCacheTTL)
+	}
+	return entry, true, ""
+}
+
+// storeDevCheckpointCache records a PASS. Failures are never cached: a failing
+// step must be re-run every time, both because a flake should not become sticky
+// and because a cached failure would block the fix that already landed.
+func storeDevCheckpointCache(root, key string, entry devCheckpointCacheEntry) {
+	path := devCheckpointCachePath(root, key)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return
+	}
+	raw, err := json.Marshal(entry)
+	if err != nil {
+		return
+	}
+	// Best effort by design: a cache that cannot be written must slow the next
+	// run down, never fail this one.
+	_ = os.WriteFile(path, raw, 0o644)
 }
 
 func runDevCheckpoint(args []string) int {
@@ -161,6 +268,8 @@ func runDevCheckpoint(args []string) int {
 		"skip the mutation suite (records the skip in the receipt; the receipt is then not push-eligible)")
 	skipCI := fs.Bool("skip-ci", false,
 		"skip the full CI target (records the skip; the receipt is then not push-eligible)")
+	noCache := fs.Bool("no-cache", false,
+		"re-run every step even when an identical step already passed against this exact tree content")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -173,6 +282,7 @@ func runDevCheckpoint(args []string) int {
 		root:         root,
 		skipMutation: *skipMutation,
 		skipCI:       *skipCI,
+		noCache:      *noCache,
 		databaseURL:  os.Getenv("MERC_TEST_DATABASE_URL"),
 	}
 	receipt, err := performDevCheckpoint(opts)
@@ -321,6 +431,19 @@ func performDevCheckpoint(opts devCheckpointOptions) (DevCheckpointReceipt, erro
 			fmt.Printf("  ~ %-24s SKIPPED (%s)\n", name, skipReason)
 			return nil
 		}
+		key := devCheckpointCacheKey(name, dir, step.Command, before)
+		if !opts.noCache {
+			if entry, ok, reason := loadDevCheckpointCache(opts.root, key); ok {
+				step.Cached, step.CachedAt, step.CachedOn = true, entry.CreatedAt, entry.Head
+				step.DurationMS = entry.DurationMS
+				receipt.Steps = append(receipt.Steps, step)
+				fmt.Printf("  = %-24s CACHED (passed %s on %s, same tree content)\n",
+					name, entry.CreatedAt, shortHead(entry.Head))
+				return nil
+			} else if reason != "" {
+				fmt.Printf("  ! %-24s cache not used: %s\n", name, reason)
+			}
+		}
 		fmt.Printf("  > %-24s %s\n", name, step.Command)
 		started := time.Now()
 		cmd := exec.Command(argv[0], argv[1:]...)
@@ -341,6 +464,11 @@ func performDevCheckpoint(opts devCheckpointOptions) (DevCheckpointReceipt, erro
 			return fmt.Errorf("step %q failed (exit %d)", name, step.ExitCode)
 		}
 		receipt.Steps = append(receipt.Steps, step)
+		storeDevCheckpointCache(opts.root, key, devCheckpointCacheEntry{
+			Name: name, Command: step.Command, Dir: dir, WorktreeDigest: before,
+			DurationMS: step.DurationMS, Head: head,
+			CreatedAt: time.Now().UTC().Format(time.RFC3339),
+		})
 		return nil
 	}
 

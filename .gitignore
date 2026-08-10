@@ -155,3 +155,6 @@ evidence/checkpoint/
 
 # serena MCP writes a per-project cache here; it is tooling state, not source.
 .serena/
+
+# wrangler local state (auth, build cache); never committed
+.wrangler/
