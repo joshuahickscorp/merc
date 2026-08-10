@@ -1369,6 +1369,12 @@ func seedSelectorRealtimeBook(ctx context.Context, pool *pgxpool.Pool, profile V
 				idx := start + i
 				// Deterministic micro-spread on input rate only.
 				inRate := 0.08 + float64(idx%100)*0.0001
+				// Stagger last_seen_at across the liveness window. A real fleet's
+				// suppliers heartbeat at independent phases; seeding every offer
+				// with the same instant makes the whole book expire together,
+				// which is what forced the harness into a full-table refresh
+				// that cost 23.8s a sweep at 100k.
+				seen := now.Add(-time.Duration(idx%int(selectorScaleLivenessWindow/time.Second)) * time.Second)
 				return []any{
 					detUUID(seed, "rtw", idx), detUUID(seed, "rts", idx),
 					profile.RuntimeProfileID, profile.ProfileSHA256,
@@ -1376,7 +1382,7 @@ func seedSelectorRealtimeBook(ctx context.Context, pool *pgxpool.Pool, profile V
 					"http://127.0.0.1:8811/v1", sealed, "HOT",
 					1000, 1000,
 					inRate, 0.30,
-					"ACTIVE", now, now,
+					"ACTIVE", seen, now,
 				}, nil
 			}))
 		return err
@@ -1809,7 +1815,19 @@ func refreshSelectorScaleLiveness(ctx context.Context, pool *pgxpool.Pool, profi
 	if _, err := pool.Exec(ctx, `UPDATE workers SET last_seen_at=now()`); err != nil {
 		return err
 	}
-	if _, err := pool.Exec(ctx, `UPDATE realtime_worker_offers SET last_seen_at=now(), status='ACTIVE'`); err != nil {
+	// Refresh only what is actually going stale, not the whole book.
+	//
+	// A supplier heartbeats its own row; the platform never re-stamps every
+	// offer in one statement. Doing that took 23.8s mean and 49.5s worst at a
+	// 100k book — longer than the 45s window it was defending — so the harness
+	// was contending with itself and the measured p50 was its own lock wait.
+	// With staggered seeding this touches roughly one window-fraction per tick.
+	if _, err := pool.Exec(ctx, `
+		UPDATE realtime_worker_offers
+		   SET last_seen_at=now(), status='ACTIVE'
+		 WHERE last_seen_at < now() - $1::interval`,
+		fmt.Sprintf("%d seconds", int((selectorScaleLivenessWindow-selectorScaleHeartbeatInterval)/time.Second)),
+	); err != nil {
 		// table may be empty / ok
 		_ = err
 	}
