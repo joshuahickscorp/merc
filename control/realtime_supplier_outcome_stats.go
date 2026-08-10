@@ -48,12 +48,28 @@ const realtimeAuthorizeSelectOfferSQL = realtimeAuthorizeSelectOfferSQLBlocking
 
 // realtimeAuthorizeCandidatesCTE is the shared ranking body. $1 profile id,
 // $2 profile sha, $3/$4 buyer ceilings, $5 min outcome samples.
+// The ranking runs over a NARROW projection on purpose.
+//
+// It used to select every offer column — placement_plan JSON, the sealed
+// upstream token, the base URL — and carry all of it through the ORDER BY. At a
+// 100,000-offer book that is `width=1368`, and EXPLAIN showed what it cost:
+// `Sort Method: external merge  Disk: 131896kB`, roughly 1.2 GB of temp I/O, in
+// a 1,979 ms statement. None of that payload was ever read from here: `picked`
+// joins realtime_worker_offers back, and `updated` returns every wide value
+// from `o`. The sort was hauling 132 MB to disk to order rows by four scalars.
+//
+// The cost expression was also written out twice — once as
+// verified_outcome_cost and again inside row_number's ORDER BY. Postgres does
+// not common up two identical NUMERIC expressions, so every candidate paid for
+// it twice, and a future edit had to change both copies in step or the ranking
+// would silently stop matching the number reported beside it.
+//
+// Same rows, same order, same tie-breaks, same considered book. Only the width
+// of what gets sorted changed.
 const realtimeAuthorizeCandidatesCTE = `
-		WITH candidates AS (
-			SELECT c.worker_id,c.runtime_profile_id,c.supplier_id,c.upstream_base_url,
-			       c.upstream_token_sealed,c.supplier_input_usd_per_million_tokens::float8 AS supplier_input,
-			       c.supplier_output_usd_per_million_tokens::float8 AS supplier_output,
-			       c.placement_plan,c.placement_plan_sha256,c.warmth,
+		WITH eligible AS (
+			SELECT c.worker_id,c.runtime_profile_id,c.supplier_id,c.warmth,
+			       c.available_sequences,c.last_seen_at,
 			       COALESCE(st.terminal_attempts,0)::int AS terminal_attempts,
 			       COALESCE(st.terminal_fails,0)::int AS terminal_fails,
 			       COALESCE(st.verified_settlements,0)::int AS verified_settlements,
@@ -84,34 +100,7 @@ const realtimeAuthorizeCandidatesCTE = `
 			                  / (st.verified_settlements - st.refund_count)::numeric
 			             ELSE 1::numeric
 			           END
-			       ) AS verified_outcome_cost,
-			       count(*) OVER ()::int AS candidate_count,
-			       row_number() OVER (ORDER BY
-			         (
-			           (c.supplier_input_usd_per_million_tokens + c.supplier_output_usd_per_million_tokens)
-			           * CASE
-			               WHEN COALESCE(st.terminal_attempts,0) >= $5
-			                AND COALESCE(st.terminal_fails,0) >= st.terminal_attempts
-			               THEN 1e12::numeric
-			               WHEN COALESCE(st.terminal_attempts,0) >= $5
-			                AND COALESCE(st.terminal_fails,0) < st.terminal_attempts
-			               THEN st.terminal_attempts::numeric
-			                    / (st.terminal_attempts - st.terminal_fails)::numeric
-			               ELSE 1::numeric
-			             END
-			           * CASE
-			               WHEN COALESCE(st.verified_settlements,0) >= $5
-			                AND COALESCE(st.refund_count,0) >= st.verified_settlements
-			               THEN 1e12::numeric
-			               WHEN COALESCE(st.verified_settlements,0) >= $5
-			                AND COALESCE(st.refund_count,0) < st.verified_settlements
-			               THEN st.verified_settlements::numeric
-			                    / (st.verified_settlements - st.refund_count)::numeric
-			               ELSE 1::numeric
-			             END
-			         ) ASC,
-			         CASE c.warmth WHEN 'HOT' THEN 0 WHEN 'WARM' THEN 1 WHEN 'CACHED' THEN 2 ELSE 3 END,
-			         c.available_sequences DESC, c.last_seen_at DESC, c.worker_id ASC)::int AS selected_rank
+			       ) AS verified_outcome_cost
 			  FROM realtime_worker_offers c
 			  JOIN suppliers s ON s.id = c.supplier_id
 			  LEFT JOIN realtime_supplier_outcome_stats st
@@ -123,6 +112,16 @@ const realtimeAuthorizeCandidatesCTE = `
 			   AND s.status='active' AND s.quarantined_at IS NULL
 			   AND c.supplier_input_usd_per_million_tokens <= $3
 			   AND c.supplier_output_usd_per_million_tokens <= $4
+		), candidates AS (
+			SELECT e.worker_id,e.runtime_profile_id,e.supplier_id,e.warmth,
+			       e.terminal_attempts,e.terminal_fails,e.verified_settlements,e.refund_count,
+			       e.verified_outcome_cost,
+			       count(*) OVER ()::int AS candidate_count,
+			       row_number() OVER (ORDER BY
+			         e.verified_outcome_cost ASC,
+			         CASE e.warmth WHEN 'HOT' THEN 0 WHEN 'WARM' THEN 1 WHEN 'CACHED' THEN 2 ELSE 3 END,
+			         e.available_sequences DESC, e.last_seen_at DESC, e.worker_id ASC)::int AS selected_rank
+			  FROM eligible e
 		)`
 
 // realtimeAuthorizeBookAggSQL freezes the eligible ranked book from the same
@@ -147,9 +146,10 @@ const realtimeAuthorizeBookAggSQL = `
 // the claim so SKIP LOCKED contention (rank > 1) records lock-skipped peers.
 const realtimeAuthorizeSelectOfferSQLSkip = realtimeAuthorizeCandidatesCTE + `
 		, picked AS (
-			SELECT c.worker_id,c.runtime_profile_id,c.supplier_id,c.upstream_base_url,
-			       c.upstream_token_sealed,c.supplier_input,c.supplier_output,
-			       c.placement_plan,c.placement_plan_sha256,c.warmth,
+			-- Only the identity, the rank and the outcome counters. Every wide
+			-- value the caller needs is returned from o by the updated CTE, so
+			-- naming them here would put the payload back into the plan for nothing.
+			SELECT c.worker_id,c.runtime_profile_id,
 			       c.terminal_attempts,c.terminal_fails,c.verified_settlements,c.refund_count,
 			       c.candidate_count,c.selected_rank
 			  FROM candidates c
@@ -187,9 +187,10 @@ const realtimeAuthorizeSelectOfferSQLSkip = realtimeAuthorizeCandidatesCTE + `
 // (wait for capacity) or the book is empty (still returns no rows).
 const realtimeAuthorizeSelectOfferSQLBlocking = realtimeAuthorizeCandidatesCTE + `
 		, picked AS (
-			SELECT c.worker_id,c.runtime_profile_id,c.supplier_id,c.upstream_base_url,
-			       c.upstream_token_sealed,c.supplier_input,c.supplier_output,
-			       c.placement_plan,c.placement_plan_sha256,c.warmth,
+			-- Only the identity, the rank and the outcome counters. Every wide
+			-- value the caller needs is returned from o by the updated CTE, so
+			-- naming them here would put the payload back into the plan for nothing.
+			SELECT c.worker_id,c.runtime_profile_id,
 			       c.terminal_attempts,c.terminal_fails,c.verified_settlements,c.refund_count,
 			       c.candidate_count,c.selected_rank
 			  FROM candidates c
