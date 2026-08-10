@@ -13,8 +13,9 @@ func sampleBatchDigests() batchAcceptBoundDigests {
 		WorkloadSHA256:    strings.Repeat("b", 64),
 		PlacementSHA256:   strings.Repeat("c", 64),
 		PricingSHA256:     strings.Repeat("d", 64),
+		RuntimeSHA256:     strings.Repeat("e", 64),
 		TopologySHA256:    strings.Repeat("f", 64),
-		ComputePlanSHA256: strings.Repeat("e", 64),
+		ComputePlanSHA256: strings.Repeat("1", 64),
 	}
 }
 
@@ -95,8 +96,9 @@ func TestEvidenceEnvelopeAbsentLinksAreLegibleAndNotBreaks(t *testing.T) {
 		t.Fatalf("build: %v", err)
 	}
 	// Authority types that do not exist yet as accept-transaction objects.
+	// RuntimeDecision is BOUND at batch accept (Step 8); Market remains ABSENT.
 	for _, kind := range []string{
-		EnvelopeLinkMarket, EnvelopeLinkRuntime,
+		EnvelopeLinkMarket,
 		EnvelopeLinkVerification, EnvelopeLinkSettlement,
 	} {
 		link, ok := env.linkByKind(kind)
@@ -129,13 +131,14 @@ func TestEvidenceEnvelopeAbsentLinksAreLegibleAndNotBreaks(t *testing.T) {
 			t.Fatalf("%s pending shape: %+v", kind, link)
 		}
 	}
-	// Bound links cite real authorities (TopologyDecision is Step 10).
+	// Bound links cite real authorities (RuntimeDecision Step 8, Topology Step 10).
 	for _, tc := range []struct {
 		kind, authority string
 	}{
 		{EnvelopeLinkRequest, "SubmitRequest"},
 		{EnvelopeLinkWorkload, "WorkloadDecision"},
 		{EnvelopeLinkPricing, "PricingDecision"},
+		{EnvelopeLinkRuntime, "RuntimeDecision"},
 		{EnvelopeLinkPlacement, "PlacementRequirement"},
 		{EnvelopeLinkTopology, "TopologyDecision"},
 	} {
@@ -200,6 +203,7 @@ func TestEvidenceEnvelopeDoesNotRehashBoundBodies(t *testing.T) {
 		EnvelopeLinkWorkload:  d.WorkloadSHA256,
 		EnvelopeLinkPlacement: d.PlacementSHA256,
 		EnvelopeLinkPricing:   d.PricingSHA256,
+		EnvelopeLinkRuntime:   d.RuntimeSHA256,
 		EnvelopeLinkTopology:  d.TopologySHA256,
 		EnvelopeLinkRequest:   d.RequestSHA256,
 	} {

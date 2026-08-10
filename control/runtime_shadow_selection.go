@@ -615,7 +615,7 @@ func (s *Store) ObserveAcceptedBatchChain(ctx context.Context, jobID uuid.UUID) 
 			"observational shadow write did not land or was never attempted",
 	}
 	var (
-		envelopeSHA, requestSHA, workloadSHA, placementSHA, pricingSHA, topologySHA string
+		envelopeSHA, requestSHA, workloadSHA, placementSHA, pricingSHA, runtimeSHA, topologySHA string
 	)
 	err := s.pool.QueryRow(ctx, `
 		SELECT COALESCE(evidence_envelope_sha256,''),
@@ -623,9 +623,10 @@ func (s *Store) ObserveAcceptedBatchChain(ctx context.Context, jobID uuid.UUID) 
 		       COALESCE(workload_decision_sha256,''),
 		       COALESCE(placement_requirement_sha256,''),
 		       COALESCE(pricing_decision_sha256,''),
+		       COALESCE(runtime_decision_sha256,''),
 		       COALESCE(topology_decision_sha256,'')
 		  FROM jobs WHERE id=$1`, jobID).
-		Scan(&envelopeSHA, &requestSHA, &workloadSHA, &placementSHA, &pricingSHA, &topologySHA)
+		Scan(&envelopeSHA, &requestSHA, &workloadSHA, &placementSHA, &pricingSHA, &runtimeSHA, &topologySHA)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return AcceptedBatchChainObservation{}, errNotFound
 	}
@@ -646,7 +647,7 @@ func (s *Store) ObserveAcceptedBatchChain(ctx context.Context, jobID uuid.UUID) 
 		out.EnvelopeValid = ValidateEvidenceEnvelope(*env) == nil &&
 			env.EnvelopeSHA256 == envelopeSHA
 		out.BoundDigestsMatch = envelopeBoundDigestsMatchJobColumns(*env, requestSHA,
-			workloadSHA, placementSHA, pricingSHA, topologySHA)
+			workloadSHA, placementSHA, pricingSHA, runtimeSHA, topologySHA)
 		out.ChainCoherent = out.EnvelopeValid && out.BoundDigestsMatch
 	}
 
@@ -673,13 +674,14 @@ func (s *Store) ObserveAcceptedBatchChain(ctx context.Context, jobID uuid.UUID) 
 // equal the jobs column it cites. ABSENT/PENDING links are not compared.
 func envelopeBoundDigestsMatchJobColumns(
 	env EvidenceEnvelope,
-	requestSHA, workloadSHA, placementSHA, pricingSHA, topologySHA string,
+	requestSHA, workloadSHA, placementSHA, pricingSHA, runtimeSHA, topologySHA string,
 ) bool {
 	want := map[string]string{
 		EnvelopeLinkRequest:   requestSHA,
 		EnvelopeLinkWorkload:  workloadSHA,
 		EnvelopeLinkPlacement: placementSHA,
 		EnvelopeLinkPricing:   pricingSHA,
+		EnvelopeLinkRuntime:   runtimeSHA,
 		EnvelopeLinkTopology:  topologySHA,
 	}
 	for _, link := range env.Links {
@@ -693,7 +695,7 @@ func envelopeBoundDigestsMatchJobColumns(
 			if link.Status == EnvelopeLinkPending && col == "" {
 				continue
 			}
-			// Topology/workload/placement/pricing are required BOUND at accept.
+			// Runtime/topology/workload/placement/pricing are required BOUND at accept.
 			if link.Kind != EnvelopeLinkRequest {
 				return false
 			}

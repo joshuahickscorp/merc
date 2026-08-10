@@ -27,6 +27,11 @@ const (
 	KindPlatformRefund = "platform_refund"
 	KindPrepaidTopup   = "prepaid_topup"
 	KindPrepaidDebit   = "prepaid_debit"
+	// KindPrepaidRestore reverses a prepaid_debit on an internal refund path
+	// (realtime full credit, SLA premium miss). Positive amount; nets against
+	// prepaid_debit in capacity formulas that add back debits to avoid double
+	// counting with buyer_charge. Not a cash top-up.
+	KindPrepaidRestore = "prepaid_restore"
 	KindPrepaidRefund  = "prepaid_refund"
 	KindStripeFee      = "stripe_fee"
 )

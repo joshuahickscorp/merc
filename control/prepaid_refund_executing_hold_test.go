@@ -18,10 +18,11 @@ import (
 // balance - reserved - executingHold < need; refund historically computed
 // available := balance - reserved and could drain cash settlement still needs.
 //
-// execution_contracts does not persist which pocket funded an EXECUTING
-// ceiling (free credit vs prepaid). Settlement chooses free-first only at
-// debit time. These tests pin the conservative refund behaviour: hold the
-// full non-envelope EXECUTING ceiling against prepaid available.
+// Funding source is not determinable at refund time from the contract's own
+// spend rows: while EXECUTING there is no buyer_charge / prepaid_debit, and
+// free-vs-prepaid is chosen only at settle. G070 re-checked this and left the
+// conservative hold in place. These tests pin that behaviour: hold the full
+// non-envelope EXECUTING ceiling against prepaid available.
 
 // g069SeedAboveCeiling funds a prepaid balance B that covers one realtime
 // ceiling C with material slack, rounded up to whole settlement cents so
@@ -341,12 +342,13 @@ func TestPrepaidRefundRealtimeAuthorizeContestedCash(t *testing.T) {
 	}
 }
 
-// TestPrepaidRefundConservativeWhenExecutingFundedByFreeCredit pins case 4.
-// Prepaid-funded and free-credit-funded pure EXECUTING cannot be distinguished
-// from persisted rows (no funding-source column; free-vs-prepaid is chosen at
-// settle). Refund therefore holds the full non-envelope EXECUTING ceiling
-// against prepaid even when free credit alone covered admission — conservative
-// over-hold, not a silent cash-out.
+// TestPrepaidRefundConservativeWhenExecutingFundedByFreeCredit pins case 4 /
+// G070 P2. Funding source is not knowable from spend rows while EXECUTING
+// (none exist yet; free-first is deferred to settle). Refund therefore keeps
+// the full non-envelope EXECUTING ceiling hold against prepaid even when free
+// credit alone covered admission — conservative over-hold, not a silent
+// cash-out. If a funding-source column or settle-time spend row were present
+// on EXECUTING, the exact pocket would be preferred; they are not.
 func TestPrepaidRefundConservativeWhenExecutingFundedByFreeCredit(t *testing.T) {
 	installSettlementCurrencyForTest(t, "usd")
 	t.Setenv("MERC_TOKEN_KEY", "prepaid-refund-fc-key-with-at-least-32-bytes!!!!!!")

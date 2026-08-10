@@ -144,7 +144,12 @@ type BatchClaimEligibility struct {
 	AvailabilityMode string `json:"availability_mode"`
 	// CandidateEpoch is struck for batch. Empty or NONE_PULL_MARKET only.
 	CandidateEpoch string `json:"candidate_epoch"`
-	Note           string `json:"note,omitempty"`
+	// Observation records the TTL families the claim SQL trusted. It is not a
+	// coherent network epoch id and must not invent a frozen candidate set.
+	Observation *ClaimObservationFamilies `json:"observation,omitempty"`
+	// Narrowing is optional Stage 18 stage cardinalities when measured at claim.
+	Narrowing *ClaimNarrowingTrace `json:"narrowing,omitempty"`
+	Note      string               `json:"note,omitempty"`
 }
 
 // LocalityBelief records a soft residency/warmth signal and the freshness of
@@ -421,6 +426,8 @@ type BatchClaimPlacementInputs struct {
 	LocalityDroveSelection bool
 	// Hedge is true when this claim is a hedge/tiebreak attempt.
 	Hedge bool
+	// Narrowing is the optional Step 18 stage-cardinality trace measured at claim.
+	Narrowing *ClaimNarrowingTrace
 }
 
 // newBatchClaimWorkerPlacement binds the claiming worker with a claim-time
@@ -498,8 +505,11 @@ func newBatchClaimWorkerPlacement(in BatchClaimPlacementInputs) (WorkerPlacement
 			HWClass:            in.HWClass,
 			AvailabilityMode:   marketAvailabilitySkipLocked,
 			CandidateEpoch:     batchCandidateEpochNone,
+			Observation:        obsPtr(DefaultClaimObservationFamilies()),
+			Narrowing:          in.Narrowing,
 			Note: "claim-time eligibility snapshot over live queue × fleet; " +
-				"no frozen candidate epoch exists for batch pull + SKIP LOCKED",
+				"no frozen candidate epoch exists for batch pull + SKIP LOCKED. " +
+				"Observation documents mixed TTL families; it is not a coherent epoch product.",
 		},
 		Locality:               locality,
 		LocalityDroveSelection: drove,
@@ -669,3 +679,5 @@ func projectPullMarketDecision(p WorkerPlacement) (MarketDecision, error) {
 	}
 	return md, nil
 }
+
+func obsPtr(o ClaimObservationFamilies) *ClaimObservationFamilies { return &o }

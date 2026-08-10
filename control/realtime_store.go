@@ -109,7 +109,12 @@ func evaluateRealtimeBuyerFunding(ctx context.Context, tx pgx.Tx, buyerID uuid.U
 		                   AND le.currency=$2
 		                   AND le.kind IN ('buyer_charge','buyer_refund')),0)::float8,
 		       COALESCE((SELECT -sum(le.amount_usd) FROM ledger_entries le
-		                 WHERE le.buyer_id=b.id AND le.currency=$2 AND le.kind='prepaid_debit'),0)::float8,
+		                 WHERE le.buyer_id=b.id AND le.currency=$2
+		                   AND (
+		                     le.kind = 'prepaid_debit'
+		                     OR (le.kind = 'prepaid_restore'
+		                         AND le.payout_ref LIKE 'prepaid-execution-contract-restore-%')
+		                   )),0)::float8,
 		       `+sqlBuyerCommittedMoneyMicros("b.id", "$2")+`::bigint
 		  FROM buyers b WHERE b.id=$1 AND b.deleted_at IS NULL FOR UPDATE`, buyerID, currency)
 	br := tx.SendBatch(ctx, batch)
@@ -136,6 +141,11 @@ func evaluateRealtimeBuyerFunding(ctx context.Context, tx pgx.Tx, buyerID uuid.U
 	if needMicros < 0 {
 		return fmt.Errorf("realtime funding need must be non-negative")
 	}
+	// +prepaidDebited undoes double-count: spent includes buyer_charge while
+	// balance already fell on prepaid_debit. prepaid_restore rows for
+	// execution-contract internal refunds net that add-back when buyer_refund
+	// has zeroed spent (see restorePrepaidForExecutionContractRefundTx). SLA
+	// premium restores deliberately do not enter this sum.
 	availableMicros := usdToMicros(freeCredit) + prepaidMicros -
 		usdToMicros(spent) + usdToMicros(prepaidDebited) -
 		committedMicros
@@ -2507,6 +2517,14 @@ func (s *Store) RefundRealtimeContract(
 		if _, err := insertLedgerEntryTx(ctx, tx, reversals[i]); err != nil {
 			return RealtimeRefund{}, false, err
 		}
+	}
+	// buyer_refund zeros spent in evaluateRealtimeBuyerFunding while any
+	// prepaid_debit for this contract still reduces balance_micros and still
+	// contributes to +prepaidDebited. Restore materialisation (and a matching
+	// prepaid_restore ledger row) so capacity matches cash again. No-op when
+	// settle was free-credit-only. Idempotent on restore payout_ref.
+	if err := restorePrepaidForExecutionContractRefundTx(ctx, tx, buyerID, contractID, currency); err != nil {
+		return RealtimeRefund{}, false, err
 	}
 	tag, err := tx.Exec(ctx, `
 		UPDATE ledger_entries SET payout_status='clawed_back',release_at=NULL

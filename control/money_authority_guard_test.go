@@ -567,6 +567,10 @@ var declaredMoneyAuthority = []string{
 	"resolveDeclaredProjectContracts",                     // project_contracts.go
 	"resolveDisputeInTx",                                  // store_disputes.go
 	"resolveLFSPayload",                                   // evidence.go
+	"buildBatchRuntimeDecision",                           // runtime_decision.go
+	"restorePrepaidByDebitRefTx",                          // store_prepaid.go
+	"restorePrepaidForExecutionContractRefundTx",          // store_prepaid.go
+	"restorePrepaidForSLAPremiumRefundTx",                 // store_prepaid.go
 	"revalidateCataloguePriceScheduleCurrent",             // pricing_citation_authority.go
 	"revalidateCataloguePriceSchedulePhysicalCurrent",     // pricing_citation_authority.go
 	"revalidateCatalogueResultPhysicalCurrent",            // pricing_citation_authority.go

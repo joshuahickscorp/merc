@@ -478,6 +478,10 @@ type ClaimedTask struct {
 	// locality belief with freshness when a warmth signal applied, and
 	// lane-discriminated batch fallback.
 	WorkerPlacement *WorkerPlacement
+	// Narrowing is the Step 18 Bible-order stage cardinalities measured for
+	// this claiming worker against the live queue (jobs as candidates). Nil
+	// only when measurement failed non-fatally; claim still proceeds.
+	Narrowing *ClaimNarrowingTrace
 }
 
 // ClaimTaskSQL builds the production claim query. Shape preference is derived
@@ -854,8 +858,9 @@ func claimTaskSQL(claimedByPredicate, shapeOrderExpr string) string {
 	   WHERE j.status NOT IN ('cancelled','failed','complete')
 	     -- A queued obligation is executable only by a deployment configured
 	     -- for the exact currency frozen at acceptance. Currency cutovers never
-	     -- reinterpret old numeric amounts.
-	     AND j.currency = $7
+	     -- reinterpret old numeric amounts. claimCurrencyPredicate is the
+	     -- production j.currency = $7 filter; tests may tripwire it to FALSE.
+	     AND `+claimCurrencyPredicate()+`
 	     AND runtime_authority.model_kind <> ''
 	     -- Only jobs that ACTUALLY have a claimable task right now reach here. A job
 	     -- with no queued/retrying-and-visible task this worker could take can never
@@ -1215,6 +1220,18 @@ func (s *Store) ClaimTasksTx(ctx context.Context, w WorkerAuth) (*ClaimedTask, e
 	if settlementCurrency == "" {
 		return nil, errors.New("task claim requires a configured settlement currency")
 	}
+	// Step 18: optional Bible-order stage cardinalities. Off by default so the
+	// measure (which re-evaluates fleet-relative EXISTS) does not double the
+	// residual batch cost on every poll. Tests set claimNarrowingMeasureOnHotPath.
+	// Reservation remains durable-row SQL regardless.
+	if claimNarrowingMeasureOnHotPath.Load() {
+		if trace, nerr := s.MeasureClaimNarrowing(ctx, w, selfCostRank, selfMinPayoutUsdHr, settlementCurrency); nerr != nil {
+			_ = nerr // non-fatal observability
+		} else {
+			c.Narrowing = &trace
+		}
+	}
+
 	claimTaskQuery := ClaimTaskSQL
 	scanClaim := func(claimedByPredicate string) error {
 		return tx.QueryRow(ctx, claimTaskQuery(claimedByPredicate),
@@ -1426,6 +1443,7 @@ func bindBatchClaimWorkerPlacement(ctx context.Context, tx pgx.Tx, w WorkerAuth,
 		ModelLastSeen:          modelTS,
 		LocalityDroveSelection: drove,
 		Hedge:                  isHedge,
+		Narrowing:              c.Narrowing,
 	})
 }
 

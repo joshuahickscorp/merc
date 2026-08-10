@@ -1350,6 +1350,19 @@ CREATE INDEX IF NOT EXISTS tasks_ready_unclaimed_idx ON tasks (status, (COALESCE
 CREATE INDEX IF NOT EXISTS ledger_supplier_payout_idx ON ledger_entries (supplier_id, payout_status);
 CREATE INDEX IF NOT EXISTS ledger_kind_idx             ON ledger_entries (kind);  -- reconcile/audit sums by kind
 CREATE INDEX IF NOT EXISTS workers_hwclass_seen_idx  ON workers (hw_class, last_seen_at);
+-- Step 18: support fleet-relative cheaper_ask_online / cheaper_class_online
+-- EXISTS peer scans. Partial live+unthrottled predicates; last_seen rechecked
+-- against the 60s window (cannot embed now()-interval in the index predicate).
+-- Does not change claim eligibility — only access paths for the residual scans.
+CREATE INDEX IF NOT EXISTS workers_live_ask_seen_idx
+    ON workers (min_payout_usd_hr ASC, last_seen_at DESC, id)
+    WHERE last_seen_at IS NOT NULL AND NOT COALESCE(throttled, false);
+CREATE INDEX IF NOT EXISTS workers_live_hwclass_seen_idx
+    ON workers (hw_class, last_seen_at DESC, id)
+    WHERE last_seen_at IS NOT NULL AND NOT COALESCE(throttled, false);
+CREATE INDEX IF NOT EXISTS worker_authorized_capabilities_fresh_supply_idx
+    ON worker_authorized_capabilities (job_type, model_ref, matrix_sha256, authorized_at DESC, worker_id);
+
 CREATE INDEX IF NOT EXISTS benchmark_worker_type_time_idx ON benchmark_results (worker_id, job_type, measured_at DESC);
 CREATE INDEX IF NOT EXISTS workers_class_engine_seen_idx ON workers (hw_class, engine, build_hash, last_seen_at);  -- (hw_class, engine, build_hash) redundancy-peer class lookups
 CREATE INDEX IF NOT EXISTS webhooks_job_idx          ON webhooks (job_id);
@@ -7912,3 +7925,43 @@ CREATE TRIGGER service_leases_topology_decision_immutable
 
 COMMENT ON COLUMN jobs.topology_decision IS
   'Network V2 Step 10 TopologyDecision: accept-time chosen topology or explicit refusal. Shadow TopologyPlan is not authority.';
+
+
+-- =============================================================================
+-- Network V2 Step 8 — RuntimeDecision accept-time binding
+-- =============================================================================
+-- RuntimeDecision freezes engine/cell/model/precision/hardware/benchmark and
+-- activation revision as immutable accept authority. Selection basis is the
+-- lifecycle ladder (or directed cell), never a measured shadow tournament.
+-- runtime_shadow_selections remains post-commit observation only.
+
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS runtime_decision JSONB;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS runtime_decision_sha256 TEXT;
+ALTER TABLE jobs DROP CONSTRAINT IF EXISTS jobs_runtime_decision_sha256_valid;
+ALTER TABLE jobs ADD CONSTRAINT jobs_runtime_decision_sha256_valid
+    CHECK (runtime_decision_sha256 IS NULL
+           OR runtime_decision_sha256 ~ '^[0-9a-f]{64}$');
+ALTER TABLE jobs DROP CONSTRAINT IF EXISTS jobs_runtime_decision_pair;
+ALTER TABLE jobs ADD CONSTRAINT jobs_runtime_decision_pair CHECK (
+    (runtime_decision IS NULL) = (runtime_decision_sha256 IS NULL)
+) NOT VALID;
+
+CREATE OR REPLACE FUNCTION cx_reject_job_runtime_decision_update() RETURNS trigger AS $$
+BEGIN
+    IF OLD.runtime_decision IS DISTINCT FROM NEW.runtime_decision
+       OR OLD.runtime_decision_sha256 IS DISTINCT FROM NEW.runtime_decision_sha256 THEN
+        -- Allow first set (NULL → value) only; never rewrite a sealed decision.
+        IF OLD.runtime_decision IS NOT NULL OR OLD.runtime_decision_sha256 IS NOT NULL THEN
+            RAISE EXCEPTION 'runtime decision for job % is immutable', OLD.id;
+        END IF;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS jobs_runtime_decision_immutable ON jobs;
+CREATE TRIGGER jobs_runtime_decision_immutable
+    BEFORE UPDATE OF runtime_decision, runtime_decision_sha256 ON jobs
+    FOR EACH ROW EXECUTE FUNCTION cx_reject_job_runtime_decision_update();
+
+COMMENT ON COLUMN jobs.runtime_decision IS
+  'Network V2 Step 8 RuntimeDecision: accept-time engine/cell/benchmark/activation freeze. Shadow selection is not authority.';

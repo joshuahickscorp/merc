@@ -377,6 +377,27 @@ func (s *Store) SubmitJobTx(ctx context.Context, j *jobRow, tasks []taskRow) err
 		return fmt.Errorf("refusing job with inconsistent topology decision: %w", err)
 	}
 	j.TopologyDecision = topologyDecision
+	// RuntimeDecision freezes the lifecycle-ranked (or directed) singleton as
+	// accepted authority in the same transaction. Shadow measured re-ranking
+	// stays post-commit and non-authoritative (Step 8).
+	runtimeDecision, err := buildBatchRuntimeDecision(
+		j.WorkloadDecision, j.PlacementRequirement, activationRevision,
+	)
+	if err != nil {
+		return fmt.Errorf("refusing job without valid runtime decision: %w", err)
+	}
+	runtimeJSON, err := json.Marshal(runtimeDecision)
+	if err != nil {
+		return fmt.Errorf("marshal runtime decision: %w", err)
+	}
+	runtimeSHA256, err := runtimeDecisionDigest(runtimeDecision)
+	if err != nil {
+		return fmt.Errorf("hash runtime decision: %w", err)
+	}
+	if err := ValidateRuntimeDecisionDigest(runtimeDecision, runtimeSHA256); err != nil {
+		return fmt.Errorf("refusing job with inconsistent runtime decision: %w", err)
+	}
+	j.RuntimeDecision = runtimeDecision
 	// Step 9: batch accept cannot bind a worker (pull + SKIP LOCKED). Record
 	// PENDING_CLAIM so the fourth meaning of placement is explicit rather than
 	// silently absent. The claim path binds BOUND with claim-time eligibility.
@@ -391,6 +412,7 @@ func (s *Store) SubmitJobTx(ctx context.Context, j *jobRow, tasks []taskRow) err
 		WorkloadSHA256:    workloadSHA256,
 		PlacementSHA256:   placementSHA256,
 		PricingSHA256:     pricingSHA256,
+		RuntimeSHA256:     runtimeSHA256,
 		TopologySHA256:    topologySHA256,
 		ComputePlanSHA256: computeSHA256,
 	})
@@ -552,13 +574,14 @@ func (s *Store) SubmitJobTx(ctx context.Context, j *jobRow, tasks []taskRow) err
 		    compute_plan, compute_plan_sha256,
 		    placement_requirement, placement_requirement_sha256,
 		    pricing_decision, pricing_decision_sha256,
+		    runtime_decision, runtime_decision_sha256,
 		    topology_decision, topology_decision_sha256,
 		    currency, prepaid_required,
 		    project_order_id, project_step_id, evidence_envelope_sha256)
 		 VALUES ($1,$2,'queued',$3,$4,$5,$6,$7,$8,$9,0,$10,0,
 		         $11,$12,$13,$14,$15,$16,$17,$18,$19,$20,'tracking',$21,$22,$23,$24,$25,$26,$27,
 		         $28,$29,$30,NULLIF($31,''),NULLIF($32,''),NULLIF($33,''),
-		         $34,$35,$36,$37,$38,$39,$40,$41,$42,$43,$44,$45,$46,NULLIF($47,''),$48)`,
+		         $34,$35,$36,$37,$38,$39,$40,$41,$42,$43,$44,$45,$46,$47,$48,NULLIF($49,''),$50)`,
 		j.ID, j.BuyerID, j.JobType, j.ModelRef, j.InputRef, j.OutputRef,
 		j.Tier, j.VerificationPolicy, j.EstimatedUSD, j.TaskCount,
 		j.MinMemoryGB, j.MaxDurationSecs, nullStrSlice(j.HWClasses), nullStrSlice(j.DataResidency),
@@ -570,7 +593,8 @@ func (s *Store) SubmitJobTx(ctx context.Context, j *jobRow, tasks []taskRow) err
 		j.SubmitIdempotencyKey, j.SubmitRequestSHA256, j.PrefixID,
 		workloadJSON, workloadSHA256, computeJSON, computeSHA256,
 		placementJSON, placementSHA256, pricingJSON, pricingSHA256,
-		topologyJSON, topologySHA256, jobCurrency, j.PrepaidRequired,
+		runtimeJSON, runtimeSHA256, topologyJSON, topologySHA256,
+		jobCurrency, j.PrepaidRequired,
 		nullUUID(j.ProjectOrderID), j.ProjectStepID, envelope.EnvelopeSHA256,
 	)
 	if err != nil {
@@ -711,7 +735,11 @@ type jobRow struct {
 	PricingDecision      PricingDecision
 	// TopologyDecision is frozen at SubmitJobTx accept. Zero value means the
 	// caller did not pre-build one; SubmitJobTx always writes a decision.
-	TopologyDecision           TopologyDecision
+	TopologyDecision TopologyDecision
+	// RuntimeDecision is frozen at SubmitJobTx accept: lifecycle-ranked (or
+	// directed) cell, benchmark authority, and activation revision. Zero value
+	// means the caller did not pre-build one; SubmitJobTx always writes it.
+	RuntimeDecision            RuntimeDecision
 	WebhookID                  uuid.UUID
 	WebhookURL                 string
 	WebhookSigningSecretSealed string
@@ -724,8 +752,9 @@ type jobRow struct {
 	// submit. Empty when the input is shorter than the shallowest depth.
 	PrefixChain []PrefixChainEntry
 	// activationPolicyRevision is the epoch refreshed before this new job was
-	// classified. It is a transaction guard, not historical job authority; the
-	// accepted workload/placement/economics snapshots remain the replay record.
+	// classified. It is a transaction guard at write time; Step 8 also freezes
+	// the same epoch onto RuntimeDecision.ActivationPolicyRevision so replay
+	// cites it as accepted authority, not only admit-guard context.
 	activationPolicyRevision int64
 }
 

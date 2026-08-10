@@ -745,6 +745,16 @@ func (s *Store) SettleJobSLA(ctx context.Context, jobID uuid.UUID) (SLASettleRes
 		); err != nil {
 			return res, fmt.Errorf("consume risk reserve for SLA refund: %w", err)
 		}
+		// Prepaid finalize debited the premium from buyer_prepaid_balances. The
+		// sla_refund ledger credit alone does not re-materialise that cash; an
+		// admin prepaid refund would then be unable to return it. Restore the
+		// refund amount (≤ debit) when a prepaid-sla debit exists. Idempotent
+		// on prepaid_restore payout_ref; no-op when the premium was card/free.
+		if err := restorePrepaidForSLAPremiumRefundTx(
+			ctx, tx, buyerID, jobID, boundCurrency, usdToMicros(refund),
+		); err != nil {
+			return res, fmt.Errorf("restore prepaid SLA premium: %w", err)
+		}
 	}
 	if _, err := tx.Exec(ctx,
 		`UPDATE jobs SET sla_met = false WHERE id = $1 AND sla_met IS NULL`, jobID); err != nil {

@@ -218,13 +218,15 @@ type batchAcceptBoundDigests struct {
 	WorkloadSHA256    string
 	PlacementSHA256   string
 	PricingSHA256     string
+	RuntimeSHA256     string
 	TopologySHA256    string
 	ComputePlanSHA256 string // cited only when later steps need it; not a chain link
 }
 
 // buildBatchAcceptEvidenceEnvelope builds the batch-lane root written in the
-// same transaction as the job's decision digests. Market/Runtime remain ABSENT
-// with reasons until those types exist as accept authority.
+// same transaction as the job's decision digests. Market remains ABSENT with
+// reason until Step 7 batch MarketDecision exists.
+// RuntimeDecision is BOUND when RuntimeSHA256 is supplied (Step 8).
 // TopologyDecision is BOUND when TopologySHA256 is supplied (Step 10).
 // VerificationContract / SettlementPlan stay ABSENT. Execution/receipt stages
 // that belong later in the lifecycle are PENDING.
@@ -287,8 +289,9 @@ func batchAcceptLink(kind string, d batchAcceptBoundDigests) (EvidenceEnvelopeLi
 	case EnvelopeLinkPricing:
 		return bound("PricingDecision", d.PricingSHA256)
 	case EnvelopeLinkRuntime:
-		return absent("RuntimeDecision authority type not written at batch accept " +
-			"(Step 8: measured economics / shadow only; not accept-transaction authority)"), nil
+		// Step 8: RuntimeDecision is frozen on jobs.runtime_decision_sha256
+		// inside the accept transaction. Shadow selection remains non-authority.
+		return bound("RuntimeDecision", d.RuntimeSHA256)
 	case EnvelopeLinkPlacement:
 		// PlacementDecision as a unified type is partial; the frozen accept
 		// authority today is PlacementRequirement (jobs.placement_requirement_sha256).

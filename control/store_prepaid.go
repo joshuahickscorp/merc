@@ -336,11 +336,16 @@ func (s *Store) BeginPrepaidRefund(
 	// sqlBuyerOpenExposureMicros / prepaidOpenReservationMicros (that omission
 	// keeps free-credit batch exposure out of prepaid open-reservation).
 	//
-	// Can prepaid-funded vs free-credit-funded EXECUTING be distinguished?
-	// No. execution_contracts has no funding-source column; evaluateRealtimeBuyerFunding
-	// pools free_credit + prepaid against committed money; maybeDebitPrepaidForRealtimeTx
-	// chooses free-first only at settle. From persisted state alone every pure
-	// non-envelope EXECUTING ceiling is ambiguous.
+	// Funding source at refund time — not determinable from the contract's own
+	// spend rows. While state=EXECUTING there is no buyer_charge, no
+	// prepaid_debit, and no funding-source column on execution_contracts.
+	// evaluateRealtimeBuyerFunding pools free_credit + prepaid against committed
+	// money at admit; maybeDebitPrepaidForRealtimeTx chooses free-first only at
+	// settle. Spend rows appear only after settle, when the contract is no
+	// longer EXECUTING and this hold term is already zero. From persisted state
+	// alone every pure non-envelope EXECUTING ceiling is therefore ambiguous:
+	// free credit alone may cover admit today, but free can be consumed before
+	// settle and prepaid may still be required.
 	//
 	// Subtract the full hold anyway: refusing a refund is recoverable (buyer
 	// retries after settle); paying out cash that settlement still needs is not.
@@ -594,8 +599,9 @@ func (s *Store) SeedPrepaidBalance(ctx context.Context, buyerID uuid.UUID, micro
 // instead, so this read can never be mistaken for authorization.
 //
 // The EXECUTING sibling is held even when free credit may have covered
-// admission: funding source is not persisted per contract (see
-// BeginPrepaidRefund). sqlBuyerOpenExposureMicros is unchanged.
+// admission: funding source is not determinable from the contract's spend rows
+// while EXECUTING (no charge/debit yet; free-vs-prepaid is chosen only at
+// settle — see BeginPrepaidRefund). sqlBuyerOpenExposureMicros is unchanged.
 func (s *Store) BuyerPrepaidAvailableMicros(ctx context.Context, buyerID uuid.UUID) (int64, error) {
 	currency := SettlementCurrencyCode()
 	bal, err := s.buyerPrepaidBalanceMicrosInCurrency(ctx, buyerID, currency)
@@ -769,6 +775,185 @@ func (s *Store) DebitPrepaidForTask(ctx context.Context, buyerID, taskID uuid.UU
 
 func prepaidExecutionContractDebitRef(contractID uuid.UUID) string {
 	return "prepaid-execution-contract-" + contractID.String()
+}
+
+// prepaidExecutionContractRestoreRef keys the once-only prepaid_restore that
+// pairs with prepaidExecutionContractDebitRef on an internal realtime refund.
+func prepaidExecutionContractRestoreRef(contractID uuid.UUID) string {
+	return "prepaid-execution-contract-restore-" + contractID.String()
+}
+
+// prepaidSLAPremiumRestoreRef keys the once-only prepaid_restore for an SLA
+// premium debit returned on SLA miss.
+func prepaidSLAPremiumRestoreRef(jobID uuid.UUID) string {
+	return "prepaid-sla-restore-" + jobID.String()
+}
+
+// restorePrepaidByDebitRefTx re-materialises prepaid after an internal refund
+// undoes a charge that was funded by a prepaid_debit keyed by debitRef.
+//
+// Pairing: evaluateRealtimeBuyerFunding adds back prepaid_debit so spent
+// (buyer_charge) is not double-counted against the reduced balance. When a
+// refund zeros spent via buyer_refund (or returns premium via sla_refund while
+// the debit still stands in other formulas), the materialised balance must
+// rise by the same amount and a prepaid_restore row must net the debit in the
+// capacity sum — otherwise available becomes free+B while cash is only B−D.
+//
+// Idempotency: insertLedgerEntryIfAbsentByRefTx on restoreRef. Balance is
+// credited only when that insert lands a new row; a second call is a no-op.
+func restorePrepaidByDebitRefTx(
+	ctx context.Context, tx pgx.Tx,
+	buyerID uuid.UUID, currency string,
+	debitRef, restoreRef string,
+	restoreMicros int64,
+) error {
+	if buyerID == uuid.Nil || debitRef == "" || restoreRef == "" {
+		return fmt.Errorf("prepaid restore requires buyer, debit ref, and restore ref")
+	}
+	if restoreMicros <= 0 {
+		return nil
+	}
+	cur, err := ParseCurrency(currency)
+	if err != nil {
+		return err
+	}
+	// Fail closed if the debit we are reversing is missing or disagrees.
+	var debitAmount int64
+	var debitBuyer *uuid.UUID
+	var debitCurrency string
+	err = tx.QueryRow(ctx, `
+		SELECT (amount_usd*1000000)::bigint, buyer_id, currency
+		  FROM ledger_entries
+		 WHERE kind=$1 AND payout_ref=$2`, KindPrepaidDebit, debitRef).
+		Scan(&debitAmount, &debitBuyer, &debitCurrency)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("prepaid restore: no debit at ref %s", debitRef)
+	}
+	if err != nil {
+		return err
+	}
+	if debitAmount >= 0 {
+		return fmt.Errorf("prepaid restore: debit ref %s has non-negative amount %d", debitRef, debitAmount)
+	}
+	debitAbs := -debitAmount
+	if restoreMicros > debitAbs {
+		return fmt.Errorf("prepaid restore %d exceeds debit %d at ref %s", restoreMicros, debitAbs, debitRef)
+	}
+	if debitCurrency != cur.Code() || !sameOptionalUUID(debitBuyer, &buyerID) {
+		return fmt.Errorf("prepaid restore debit identity mismatch at ref %s", debitRef)
+	}
+	buyer := buyerID
+	ct, err := insertLedgerEntryIfAbsentByRefTx(ctx, tx, ledgerInsert{
+		Kind: KindPrepaidRestore, BuyerID: &buyer, AmountMicros: restoreMicros,
+		Currency: cur.Code(), CurrencyAuthority: ledgerCurrencyAuthorityPrepaid,
+		PayoutStatus: PayoutReleased, PayoutRef: restoreRef,
+	})
+	if err != nil {
+		return err
+	}
+	if ct.RowsAffected() == 0 {
+		// Restore already receipted — do not credit balance again.
+		return nil
+	}
+	return creditPrepaidBalanceTx(ctx, tx, buyerID, restoreMicros, cur.Code())
+}
+
+// restorePrepaidForExecutionContractRefundTx restores materialised prepaid for
+// a realtime contract that was settled with a prepaid_debit. No-op when settle
+// was free-credit-only (no debit row).
+func restorePrepaidForExecutionContractRefundTx(
+	ctx context.Context, tx pgx.Tx, buyerID, contractID uuid.UUID, currency string,
+) error {
+	if contractID == uuid.Nil {
+		return fmt.Errorf("prepaid execution restore requires contract id")
+	}
+	debitRef := prepaidExecutionContractDebitRef(contractID)
+	var debitAbs int64
+	err := tx.QueryRow(ctx, `
+		SELECT COALESCE((-amount_usd*1000000)::bigint, 0)
+		  FROM ledger_entries
+		 WHERE kind=$1 AND payout_ref=$2`, KindPrepaidDebit, debitRef).Scan(&debitAbs)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if debitAbs <= 0 {
+		return nil
+	}
+	return restorePrepaidByDebitRefTx(ctx, tx, buyerID, currency,
+		debitRef, prepaidExecutionContractRestoreRef(contractID), debitAbs)
+}
+
+// restorePrepaidForSLAPremiumRefundTx restores materialised prepaid for the
+// job-level SLA premium debit when SettleJobSLA credits an sla_refund. Amount
+// is the refund micros (≤ debit). No-op when the premium was not prepaid-funded.
+//
+// Unlike the realtime refund restore, this path does NOT write prepaid_restore
+// and does NOT net the prepaid_debit out of evaluateRealtimeBuyerFunding's
+// +prepaidDebited term. sla_refund is not in the buyer spent sum
+// (buyer_charge/buyer_refund only), so the debit must keep cancelling the
+// still-present premium buyer_charge in capacity math. Only the materialised
+// balance is raised — that is the cash an admin prepaid refund can return.
+//
+// Idempotency: SettleJobSLA decides once (sla_met IS NULL). This helper runs
+// only on that first miss path inside the same transaction as the sla_met
+// stamp, so a second call never re-enters. A restoreRef receipt still lands
+// so a future refactor cannot double-credit without tripping the if-absent
+// insert; the receipt amount is the restored micros but is excluded from the
+// capacity prepaidDebited sum (only execution-contract restore refs are
+// summed — see evaluateRealtimeBuyerFunding).
+func restorePrepaidForSLAPremiumRefundTx(
+	ctx context.Context, tx pgx.Tx, buyerID, jobID uuid.UUID, currency string, refundMicros int64,
+) error {
+	if jobID == uuid.Nil || refundMicros <= 0 {
+		return nil
+	}
+	debitRef := prepaidSLAPremiumDebitRef(jobID)
+	var debitAbs int64
+	var debitBuyer *uuid.UUID
+	var debitCurrency string
+	err := tx.QueryRow(ctx, `
+		SELECT (-amount_usd*1000000)::bigint, buyer_id, currency
+		  FROM ledger_entries
+		 WHERE kind=$1 AND payout_ref=$2`, KindPrepaidDebit, debitRef).
+		Scan(&debitAbs, &debitBuyer, &debitCurrency)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if debitAbs <= 0 {
+		return nil
+	}
+	cur, err := ParseCurrency(currency)
+	if err != nil {
+		return err
+	}
+	if debitCurrency != cur.Code() || !sameOptionalUUID(debitBuyer, &buyerID) {
+		return fmt.Errorf("prepaid SLA restore debit identity mismatch at ref %s", debitRef)
+	}
+	restore := refundMicros
+	if restore > debitAbs {
+		restore = debitAbs
+	}
+	buyer := buyerID
+	// Receipt for idempotency. Capacity formula only nets execution-contract
+	// restore refs (prepaid-execution-contract-restore-*), not prepaid-sla-restore-*.
+	ct, err := insertLedgerEntryIfAbsentByRefTx(ctx, tx, ledgerInsert{
+		Kind: KindPrepaidRestore, BuyerID: &buyer, AmountMicros: restore,
+		Currency: cur.Code(), CurrencyAuthority: ledgerCurrencyAuthorityPrepaid,
+		PayoutStatus: PayoutReleased, PayoutRef: prepaidSLAPremiumRestoreRef(jobID),
+	})
+	if err != nil {
+		return err
+	}
+	if ct.RowsAffected() == 0 {
+		return nil
+	}
+	return creditPrepaidBalanceTx(ctx, tx, buyerID, restore, cur.Code())
 }
 
 // maybeDebitPrepaidForRealtimeTx consumes prepaid for a settled realtime buyer

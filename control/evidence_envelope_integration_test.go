@@ -13,19 +13,23 @@ func TestSubmitJobTxWritesEvidenceEnvelopeInAcceptTransaction(t *testing.T) {
 
 	mustf(t, store.SubmitJobTx(ctx, job, tasks), "SubmitJobTx: %v")
 
-	var jobEnvelopeSHA, workloadSHA, placementSHA, pricingSHA, topologySHA, requestSHA string
+	var jobEnvelopeSHA, workloadSHA, placementSHA, pricingSHA, runtimeSHA, topologySHA, requestSHA string
 	mustf(t, pool.QueryRow(ctx, `
 		SELECT COALESCE(evidence_envelope_sha256,''),
 		       COALESCE(workload_decision_sha256,''),
 		       COALESCE(placement_requirement_sha256,''),
 		       COALESCE(pricing_decision_sha256,''),
+		       COALESCE(runtime_decision_sha256,''),
 		       COALESCE(topology_decision_sha256,''),
 		       COALESCE(submit_request_sha256,'')
 		  FROM jobs WHERE id=$1`, f.JobID,
-	).Scan(&jobEnvelopeSHA, &workloadSHA, &placementSHA, &pricingSHA, &topologySHA, &requestSHA),
+	).Scan(&jobEnvelopeSHA, &workloadSHA, &placementSHA, &pricingSHA, &runtimeSHA, &topologySHA, &requestSHA),
 		"load job digests: %v")
 	if !validSHA256(jobEnvelopeSHA) {
 		t.Fatalf("job missing evidence_envelope_sha256: %q", jobEnvelopeSHA)
+	}
+	if !validSHA256(runtimeSHA) {
+		t.Fatalf("job missing runtime_decision_sha256: %q", runtimeSHA)
 	}
 	if !validSHA256(topologySHA) {
 		t.Fatalf("job missing topology_decision_sha256: %q", topologySHA)
@@ -46,6 +50,7 @@ func TestSubmitJobTxWritesEvidenceEnvelopeInAcceptTransaction(t *testing.T) {
 		EnvelopeLinkWorkload:  workloadSHA,
 		EnvelopeLinkPlacement: placementSHA,
 		EnvelopeLinkPricing:   pricingSHA,
+		EnvelopeLinkRuntime:   runtimeSHA,
 		EnvelopeLinkTopology:  topologySHA,
 		EnvelopeLinkRequest:   requestSHA,
 	} {
@@ -106,6 +111,17 @@ func TestSubmitJobTxRolledBackAcceptLeavesNoEvidenceEnvelope(t *testing.T) {
 	mustf(t, err, "placement digest: %v")
 	pricingSHA, err := pricingDecisionDigest(job.PricingDecision)
 	mustf(t, err, "pricing digest: %v")
+	// Step 8 landed RuntimeDecision after this fixture was written. Production
+	// freezes a runtime digest in the accept transaction, so an envelope built
+	// without one is a broken link rather than ABSENT — the envelope behaving
+	// correctly. The fixture, not the production path, was stale.
+	activationRev := activationAdmissionRevision(job.activationPolicyRevision)
+	runtimeDecision, err := buildBatchRuntimeDecision(
+		job.WorkloadDecision, job.PlacementRequirement, activationRev,
+	)
+	mustf(t, err, "runtime decision: %v")
+	runtimeSHA, err := runtimeDecisionDigest(runtimeDecision)
+	mustf(t, err, "runtime digest: %v")
 	topologyDecision, err := buildBatchTopologyDecision(job.WorkloadDecision)
 	mustf(t, err, "topology decision: %v")
 	topologySHA, err := topologyDecisionDigest(topologyDecision)
@@ -115,6 +131,7 @@ func TestSubmitJobTxRolledBackAcceptLeavesNoEvidenceEnvelope(t *testing.T) {
 		WorkloadSHA256:    workloadSHA,
 		PlacementSHA256:   placementSHA,
 		PricingSHA256:     pricingSHA,
+		RuntimeSHA256:     runtimeSHA,
 		TopologySHA256:    topologySHA,
 		ComputePlanSHA256: computeSHA,
 	})
@@ -181,11 +198,18 @@ func TestSubmitJobTxFailedAfterEnvelopeWouldRollBackTogether(t *testing.T) {
 	mustf(t, err, "placement: %v")
 	pricingSHA, err := pricingDecisionDigest(job.PricingDecision)
 	mustf(t, err, "pricing: %v")
-	// Step 10 landed TopologyDecision after this fixture was written. Production
-	// (store_jobs.go) freezes a topology digest in the accept transaction, so an
-	// envelope built without one is now a broken link rather than an ABSENT one --
-	// which is the envelope behaving correctly: an authority that exists cannot be
-	// reported missing. The fixture, not the production path, was stale.
+	// Step 10 landed TopologyDecision; Step 8 landed RuntimeDecision. Production
+	// freezes both digests in the accept transaction, so an envelope built
+	// without either is a broken link rather than ABSENT — the envelope behaving
+	// correctly: an authority that exists cannot be reported missing. The
+	// fixture, not the production path, was stale.
+	activationRev := activationAdmissionRevision(job.activationPolicyRevision)
+	runtimeDecision, err := buildBatchRuntimeDecision(
+		job.WorkloadDecision, job.PlacementRequirement, activationRev,
+	)
+	mustf(t, err, "runtime decision: %v")
+	runtimeSHA, err := runtimeDecisionDigest(runtimeDecision)
+	mustf(t, err, "runtime digest: %v")
 	topologyDecision, err := buildBatchTopologyDecision(job.WorkloadDecision)
 	mustf(t, err, "topology decision: %v")
 	topologySHA, err := topologyDecisionDigest(topologyDecision)
@@ -194,6 +218,7 @@ func TestSubmitJobTxFailedAfterEnvelopeWouldRollBackTogether(t *testing.T) {
 		WorkloadSHA256:    workloadSHA,
 		PlacementSHA256:   placementSHA,
 		PricingSHA256:     pricingSHA,
+		RuntimeSHA256:     runtimeSHA,
 		TopologySHA256:    topologySHA,
 		ComputePlanSHA256: computeSHA,
 	})
