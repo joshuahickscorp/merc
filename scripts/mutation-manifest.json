@@ -4375,6 +4375,7 @@
         "TestOpenExposureDebitedReservationFreesCashForRealtime",
         "TestOpenExposureFreeCreditConcurrentCeiling",
         "TestOpenExposureFreeCreditSequentialHoldsReserved",
+        "TestOpenExposureInOneCurrencyDoesNotOffsetAnother",
         "TestOpenExposureRealtimeRefusesWhilePrepaidBatchReserves",
         "TestOpenExposureRealtimeRefusesWhileServiceLeaseHolds",
         "TestRealtimeConcurrentAuthRefusesProjectedMicroOverAdmit",

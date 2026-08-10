@@ -19,7 +19,8 @@
       "accounts_free_credit_envelope_test.go",
       "execution_envelope_expiry_hold_test.go",
       "realtime_funding_hold_precision_test.go",
-      "prepaid_envelope_expiry_reservation_test.go"
+      "prepaid_envelope_expiry_reservation_test.go",
+      "open_exposure_currency_test.go"
     ],
     "claim_narrowing.go": [
       "claim_narrowing_test.go"
