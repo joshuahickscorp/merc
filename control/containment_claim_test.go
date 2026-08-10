@@ -112,6 +112,8 @@ func TestSandboxedWorkerStillClaimsOrdinaryBuyerWork(t *testing.T) {
 	cap.Sandboxed = true
 	cap.UnsandboxedOptIn = false
 	mustf(t, store.UpsertWorker(ctx, cap), "register sandboxed worker: %v")
+	// Device-bound credential is required alongside sandboxed=true.
+	bindWorkerDeviceCredential(t, pool, ctx, workerID)
 
 	jobID, taskID := uuid.New(), uuid.New()
 	registerContainmentCleanup(t, pool, nil, []uuid.UUID{jobID})
@@ -359,17 +361,19 @@ func TestQuoteCapacityAgreesWithContainmentClaimGate(t *testing.T) {
 	peer := testWorkerCapability(peerWorker, peerSupplier)
 	peer.Sandboxed = true
 	mustf(t, store.UpsertWorker(ctx, peer), "register sandboxed quote peer: %v")
+	bindWorkerDeviceCredential(t, pool, ctx, peerWorker)
 
 	n, err = store.EligibleWorkerCountFor(ctx, "embed", "all-minilm-l6-v2",
 		QuoteSupplyRequirements{MinMemoryGB: 0})
-	mustf(t, err, "eligible count after sandboxed peer: %v")
+	mustf(t, err, "eligible count after sandboxed quote peer: %v")
 	if n < 1 {
 		t.Fatalf("quote capacity=%d after sandboxed peer registered; gate closed the market", n)
 	}
 }
 
 // TestClaimContainmentPredicatesArePresentOnEveryBranch is a structural lock
-// so a future rewrite cannot drop the sandboxed gate from one peer scan.
+// so a future rewrite cannot drop the sandboxed gate or device-bind from one
+// peer scan.
 func TestClaimContainmentPredicatesArePresentOnEveryBranch(t *testing.T) {
 	// The helper body is the single source of the predicates.
 	rawH, err := os.ReadFile("buyer_supplier_independence.go")
@@ -380,6 +384,9 @@ func TestClaimContainmentPredicatesArePresentOnEveryBranch(t *testing.T) {
 		"workload_decision->>'directed_cell_id'",
 		".unsandboxed_opt_in, false)",
 		"func workerJobContainmentSQL",
+		"func workerDeviceBoundSQL",
+		"device_fingerprint IS NOT NULL",
+		"FROM worker_tokens wt_bind",
 	} {
 		if !strings.Contains(helper, predicate) {
 			t.Errorf("workerJobContainmentSQL helper missing %q", predicate)
@@ -408,21 +415,26 @@ func TestClaimContainmentPredicatesArePresentOnEveryBranch(t *testing.T) {
 		"NOT COALESCE(me.unsandboxed_opt_in, false)",
 		"NOT COALESCE(w2.unsandboxed_opt_in, false)",
 		"NOT COALESCE(w3.unsandboxed_opt_in, false)",
+		"FROM worker_tokens wt_bind",
+		"wt_bind.device_fingerprint IS NOT NULL",
+		"wt_bind.worker_id = me.worker_id",
+		"wt_bind.worker_id = w2.id",
+		"wt_bind.worker_id = w3.id",
 	} {
 		if !strings.Contains(expanded, predicate) {
 			t.Errorf("expanded ClaimTaskSQL missing containment predicate %q", predicate)
 		}
 	}
-	// Quote capacity must require containment so it cannot advertise unfillable supply.
-	rawQ, err := os.ReadFile("quote.go")
-	must(t, err)
-	qsql := string(rawQ)
-	for _, predicate := range []string{
-		"COALESCE(w.sandboxed, false)",
-		"NOT COALESCE(w.unsandboxed_opt_in, false)",
-	} {
-		if !strings.Contains(qsql, predicate) {
-			t.Errorf("quote claimableWorkerPredicateSQL missing %q", predicate)
-		}
+	// Quote capacity must require containment + device bind so it cannot
+	// advertise unfillable supply.
+	if !strings.Contains(claimableWorkerPredicateSQL, "COALESCE(w.sandboxed, false)") {
+		t.Error("quote claimableWorkerPredicateSQL missing sandboxed gate")
+	}
+	if !strings.Contains(claimableWorkerPredicateSQL, "NOT COALESCE(w.unsandboxed_opt_in, false)") {
+		t.Error("quote claimableWorkerPredicateSQL missing unsandboxed_opt_in gate")
+	}
+	if !strings.Contains(claimableWorkerPredicateSQL, "FROM worker_tokens wt_bind") ||
+		!strings.Contains(claimableWorkerPredicateSQL, "wt_bind.worker_id = w.id") {
+		t.Error("quote claimableWorkerPredicateSQL missing device-bound credential gate")
 	}
 }

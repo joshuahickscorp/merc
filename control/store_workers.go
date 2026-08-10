@@ -5,6 +5,8 @@ import (
 	_ "embed"
 	"errors"
 	"fmt"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -16,8 +18,38 @@ import (
 // file move so that a reviewer can hold one subject at a time and two people
 // can edit payouts and job submission without conflicting.
 
+// errStripeAcctTaken is the named enrolment refusal when two suppliers would
+// share one Stripe Connect payout account. Mirrored by the partial UNIQUE on
+// suppliers.stripe_acct so a bypassed check still fails at the constraint.
+var errStripeAcctTaken = errors.New("STRIPE_ACCT_TAKEN: stripe connect account already linked to another supplier")
+
+// errWorkerTokenUnboundForbidden refuses CreateWorkerToken in production.
+// Unbound credentials cannot satisfy ordinary-work containment; production
+// suppliers must enrol through the device-bound path (EnrollWorkerTx).
+var errWorkerTokenUnboundForbidden = errors.New("WORKER_TOKEN_UNBOUND_FORBIDDEN: unbound worker tokens cannot be minted in production; enrol with device binding")
+
 func (s *Store) SetSupplierStripeAcct(ctx context.Context, supplierID uuid.UUID, acct string) error {
-	_, err := s.pool.Exec(ctx, `UPDATE suppliers SET stripe_acct=$2 WHERE id=$1`, supplierID, acct)
+	acct = strings.TrimSpace(acct)
+	if acct == "" {
+		_, err := s.pool.Exec(ctx, `UPDATE suppliers SET stripe_acct=NULL WHERE id=$1`, supplierID)
+		return err
+	}
+	var other uuid.UUID
+	err := s.pool.QueryRow(ctx,
+		`SELECT id FROM suppliers
+		  WHERE stripe_acct = $1 AND id <> $2
+		  LIMIT 1`, acct, supplierID,
+	).Scan(&other)
+	if err == nil {
+		return errStripeAcctTaken
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+	_, err = s.pool.Exec(ctx, `UPDATE suppliers SET stripe_acct=$2 WHERE id=$1`, supplierID, acct)
+	if isUniqueViolation(err) {
+		return errStripeAcctTaken
+	}
 	return err
 }
 
@@ -94,7 +126,19 @@ func (s *Store) LookupWorkerToken(ctx context.Context, token string) (WorkerAuth
 	return w, nil
 }
 
+// CreateWorkerToken mints an unbound worker credential. It is the legacy
+// self-serve path (POST /v1/supplier/worker-tokens) and remains available only
+// outside production for tests, local fleets, and directed-work fixtures.
+//
+// Unbound tokens never satisfy ordinary-buyer containment: eligibility requires
+// an active device-bound credential alongside sandboxed=true. Production
+// suppliers must use enrolment (EnrollWorkerTx), which binds device material.
+// Activating a pending supplier here is intentional for directed/dev paths that
+// still need status='active' without ordinary-work eligibility.
 func (s *Store) CreateWorkerToken(ctx context.Context, workerID, supplierID uuid.UUID) (string, error) {
+	if isProductionEnv(os.Getenv("MERC_ENV")) {
+		return "", errWorkerTokenUnboundForbidden
+	}
 	raw := newSecret("cxw_")
 	if raw == "" {
 		return "", errors.New("worker token: entropy failure")
@@ -131,9 +175,13 @@ func (s *Store) CreateWorkerToken(ctx context.Context, workerID, supplierID uuid
 	return raw, nil
 }
 
-// CreateWorkerTokenWithExpiry issues a token with an explicit lifetime. Used by
-// seed/dev so demo tokens have a visible (long) expiry rather than infinite.
+// CreateWorkerTokenWithExpiry issues an unbound token with an explicit lifetime.
+// Same production gate and containment non-eligibility as CreateWorkerToken.
+// Used by seed/dev so demo tokens have a visible (long) expiry rather than infinite.
 func (s *Store) CreateWorkerTokenWithExpiry(ctx context.Context, workerID, supplierID uuid.UUID, ttl time.Duration) (string, time.Time, error) {
+	if isProductionEnv(os.Getenv("MERC_ENV")) {
+		return "", time.Time{}, errWorkerTokenUnboundForbidden
+	}
 	if ttl <= 0 {
 		ttl = workerTokenTTL
 	}
@@ -165,6 +213,65 @@ func (s *Store) CreateWorkerTokenWithExpiry(ctx context.Context, workerID, suppl
 		return "", time.Time{}, err
 	}
 	return raw, expires, nil
+}
+
+// seedDevicePublicKey is a 65-byte uncompressed P-256 placeholder that satisfies
+// worker_tokens_device_binding_valid. Seed and test device binding use this shape;
+// production enrolment supplies a real device key via EnrollWorkerTx.
+func seedDevicePublicKey() []byte {
+	key := make([]byte, 65)
+	key[0] = 0x04
+	for i := 1; i < 65; i++ {
+		key[i] = byte(i)
+	}
+	return key
+}
+
+// IssueDeviceBoundWorkerToken installs an active device-bound credential for a
+// worker. Production suppliers receive this row shape only through enrolment;
+// seed and tests call this (or equivalent SQL) so ordinary-work eligibility can
+// honour sandboxed=true without driving the full enrolment ceremony.
+func (s *Store) IssueDeviceBoundWorkerToken(ctx context.Context, workerID, supplierID uuid.UUID, fingerprint string) (string, error) {
+	fingerprint = strings.TrimSpace(fingerprint)
+	if fingerprint == "" {
+		return "", errors.New("device-bound worker token requires device_fingerprint")
+	}
+	raw := newSecret("cxw_")
+	if raw == "" {
+		return "", errors.New("worker token: entropy failure")
+	}
+	expires := time.Now().UTC().Add(workerTokenTTL)
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO workers (id, supplier_id, hw_class) VALUES ($1, $2, 'cpu')
+		 ON CONFLICT (id) DO NOTHING`,
+		workerID, supplierID,
+	); err != nil {
+		return "", err
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO worker_tokens
+		  (token_hash, worker_id, supplier_id, revoked, expires_at, last_renewed_at,
+		   device_key_algorithm, device_public_key, device_fingerprint)
+		 VALUES ($1, $2, $3, false, $4, now(), 'p256', $5, $6)`,
+		hashKey(raw), workerID, supplierID, expires, seedDevicePublicKey(), fingerprint,
+	); err != nil {
+		return "", err
+	}
+	if _, err := tx.Exec(ctx,
+		`UPDATE suppliers SET status = 'active' WHERE id = $1 AND status = 'pending'`,
+		supplierID,
+	); err != nil {
+		return "", err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return "", err
+	}
+	return raw, nil
 }
 
 // RenewWorkerToken extends the lifetime of the credential currently presented

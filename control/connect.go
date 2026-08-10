@@ -29,6 +29,8 @@ func ensureConnectAccount(ctx context.Context, store *Store, supplierID uuid.UUI
 		return "", fmt.Errorf("stripe account: no id in response")
 	}
 	if err := store.SetSupplierStripeAcct(ctx, supplierID, acct); err != nil {
+		// Named enrolment refusal (duplicate payout instrument) must surface
+		// as-is so the API layer can map it without string matching.
 		return "", err
 	}
 	return acct, nil

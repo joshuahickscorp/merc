@@ -49,6 +49,48 @@ func bindWorkerToGovernedProfile(t *testing.T, pool *pgxpool.Pool, ctx context.C
 		  WHERE id=$1`, workerID, id, revision, digest); err != nil {
 		t.Fatalf("bind worker %s to governed profile: %v", workerID, err)
 	}
+	// Ordinary eligibility also requires an active device-bound credential.
+	// Dispatchable fixtures install the same row shape enrolment produces.
+	bindWorkerDeviceCredential(t, pool, ctx, workerID)
+}
+
+// bindWorkerDeviceCredential ensures the worker has an active device-bound
+// worker_tokens row so sandboxed=true is honourable for ordinary buyer work.
+// No-ops when a live bound credential already exists.
+func bindWorkerDeviceCredential(t *testing.T, pool *pgxpool.Pool, ctx context.Context, workerID uuid.UUID) {
+	t.Helper()
+	var supplierID uuid.UUID
+	if err := pool.QueryRow(ctx,
+		`SELECT supplier_id FROM workers WHERE id=$1`, workerID,
+	).Scan(&supplierID); err != nil {
+		t.Fatalf("resolve supplier for device bind of worker %s: %v", workerID, err)
+	}
+	var already bool
+	if err := pool.QueryRow(ctx, `
+		SELECT EXISTS (
+		  SELECT 1 FROM worker_tokens
+		   WHERE worker_id=$1 AND revoked=false
+		     AND device_fingerprint IS NOT NULL
+		     AND btrim(device_fingerprint) <> ''
+		     AND (expires_at IS NULL OR expires_at > now())
+		)`, workerID).Scan(&already); err != nil {
+		t.Fatalf("check device bind for worker %s: %v", workerID, err)
+	}
+	if already {
+		return
+	}
+	fingerprint := "test-device-" + workerID.String()
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO worker_tokens
+		  (token_hash, worker_id, supplier_id, revoked, expires_at, last_renewed_at,
+		   device_key_algorithm, device_public_key, device_fingerprint)
+		 VALUES ($1, $2, $3, false, now() + interval '2 hours', now(),
+		         'p256', $4, $5)`,
+		hashKey("test-bound-"+workerID.String()), workerID, supplierID,
+		seedDevicePublicKey(), fingerprint,
+	); err != nil {
+		t.Fatalf("device-bind worker %s: %v", workerID, err)
+	}
 }
 
 // bindLegacyTestWorkerExactExecutionIdentity upgrades a direct-SQL legacy
