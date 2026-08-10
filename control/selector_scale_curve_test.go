@@ -30,6 +30,7 @@ import (
 	"math"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
@@ -706,6 +707,33 @@ func measureSelectorScalePoint(
 	point.RowCounts = rows
 	point.DBBytesApprox, _ = approxDBBytes(ctx, pool)
 	point.CandidateStages = selectorCandidateStagesFixed(ctx, pool, lane, profile, region, claimer)
+	// A point that claims to measure N candidates while ZERO are live is not
+	// measuring N candidates.
+	//
+	// service_lease@1M published p50=12.1ms — faster than the 174.5ms at 100k,
+	// with no sample failures — and its stage counts read
+	// offers_on_profile_region=1,000,000 alongside ready_offers_live=0. The plan
+	// had flipped from Seq to Index and EXPLAIN fell from 120ms to 3.2ms,
+	// because an index scan over an empty eligible set finds nothing very fast.
+	// The c=8 cell of the same point failed every sample, which the
+	// all_samples_failed detector caught; the c=1 cell succeeded early, before
+	// the book went stale, so it published a number that looks like the best
+	// result in the artifact.
+	//
+	// Empty is not fast. Checking the seeded population is not enough — what
+	// matters is how many survive the liveness predicate the production SQL
+	// actually applies.
+	if live, name, ok := selectorScaleLiveCandidateCount(lane, point.CandidateStages); ok && live == 0 && scale > 0 {
+		point.Defects = append(point.Defects, selectorScaleDefect{
+			Lane: lane, Scale: scale, Kind: "no_live_candidates_at_measurement",
+			Summary: fmt.Sprintf("%s scale=%d: %s is 0 — the eligible population was empty when the "+
+				"point was characterised, so any latency here is an empty-scan cost, not selection over %d",
+				lane, scale, name, scale),
+			Evidence: fmt.Sprintf("candidate stages: %v; a fast p50 on this point is the shape of a "+
+				"query finding nothing, and must not be compared against points whose book was live",
+				point.CandidateStages),
+		})
+	}
 
 	// EXPLAIN the production selection SQL (not a stand-in).
 	planShape, planNodes, explainSummary, buffersSummary, explainRaw, err := explainSelectorSQL(ctx, pool, store, lane, profile, region, claimer, buyerID)
@@ -1755,6 +1783,27 @@ func scanCount(ctx context.Context, pool *pgxpool.Pool, dest map[string]int64, k
 	}
 }
 
+// selectorScaleLiveCandidateCount picks the stage count that reflects the
+// LIVENESS predicate production applies, per lane. Seeded population is not the
+// same question: a million rows none of which pass `last_seen_at > now()-45s`
+// is an empty book with a large table behind it.
+func selectorScaleLiveCandidateCount(lane string, stages map[string]int64) (int64, string, bool) {
+	key := ""
+	switch lane {
+	case "batch":
+		key = "workers_online_60s"
+	case "realtime":
+		key = "active_offers_live"
+	case "service_lease":
+		key = "ready_offers_live"
+	}
+	if key == "" || stages == nil {
+		return 0, "", false
+	}
+	v, ok := stages[key]
+	return v, key, ok
+}
+
 func selectorCandidateStagesFixed(ctx context.Context, pool *pgxpool.Pool, lane string, profile VLLMRuntimeProfile, region string, claimer WorkerAuth) map[string]int64 {
 	out := map[string]int64{}
 	switch lane {
@@ -2118,6 +2167,25 @@ func mercSourceCommitSHA() string {
 			if s.Key == "vcs.revision" && s.Value != "" {
 				return s.Value
 			}
+		}
+	}
+	// `go test` does not stamp vcs.revision, which is how a 2.2-hour scale curve
+	// came to be written with source_commit "unknown". An artifact that cannot
+	// name the source it measured is not evidence about that source, and the
+	// whole point of this file is that its numbers can be bound to a HEAD.
+	//
+	// Dirtiness is recorded rather than hidden: the measurement is produced by
+	// the binary compiled when the run started, so a tree that moves underneath
+	// a long run must be visible in the artifact instead of implied by a clean
+	// commit id.
+	if out, err := exec.Command("git", "rev-parse", "HEAD").Output(); err == nil {
+		head := strings.TrimSpace(string(out))
+		if head != "" {
+			if status, err := exec.Command("git", "status", "--porcelain").Output(); err == nil &&
+				strings.TrimSpace(string(status)) != "" {
+				return head + "-dirty"
+			}
+			return head
 		}
 	}
 	return "unknown"
