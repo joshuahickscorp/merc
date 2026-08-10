@@ -102,6 +102,13 @@ TestMercSegmentLatencyMeasure
 TestPrefixKVHitRateAgentRAGProductionClaim
 TestRealtimeAuthLatencyProbe
 #
+# Opt-in production-SQL selector scale curve (Step 20 digital twin harness).
+# Seeds up to 1M synthetic workers/offers and times ClaimTasksTx /
+# AuthorizeRealtimeContract / CreateServiceLease. Minutes-to-hours of wall clock
+# and multi-GB of disposable PostgreSQL; never part of make test / make ci.
+# Set MERC_SELECTOR_SCALE_CURVE=1 and use scripts/with-isolated-test-db.sh.
+TestSelectorScaleCurve
+#
 # Env-gated writer for the cell-economics census receipt. Arithmetic and the
 # still-tie prediction run unconditionally in TestCensusUnitsPerSecCancels and
 # TestCellEconomicsStillTiesWithoutBreakingCancellation; this test only emits

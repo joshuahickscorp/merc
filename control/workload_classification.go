@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"math"
 	"sort"
-	"strings"
 )
 
 const (
@@ -313,18 +312,17 @@ func modelRevisionFor(modelID string) string {
 	return ""
 }
 
+// verificationStrategyFor projects the legacy composite strategy string from
+// cell method + buyer composition knobs. It is not the acceptance-time
+// verification authority — VerificationContract is. Callers that need to know
+// whether a check ran must also read verification_selected / class.
 func verificationStrategyFor(binding WorkloadBinding, capability generatedRuntimeCapability) string {
-	parts := []string{capability.Verification}
-	if binding.Verification.RedundancyFrac > 0 {
-		parts = append(parts, "redundant_execution")
-	}
-	if binding.Verification.HoneypotFrac > 0 {
-		parts = append(parts, "honeypot")
-	}
-	if binding.Verification.RedundancyFrac <= 0 && binding.Verification.HoneypotFrac <= 0 {
-		parts = append(parts, "platform_honeypot_floor")
-	}
-	return strings.Join(parts, "+")
+	// Built through the contract projector so strategy and contract cannot drift.
+	return projectLegacyVerificationStrategy(VerificationContract{
+		CellVerification: capability.Verification,
+		RedundancyFrac:   binding.Verification.RedundancyFrac,
+		HoneypotFrac:     binding.Verification.HoneypotFrac,
+	})
 }
 
 func buildWorkloadDecisionFromBinding(binding WorkloadBinding) (WorkloadDecision, error) {

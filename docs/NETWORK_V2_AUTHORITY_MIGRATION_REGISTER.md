@@ -38,7 +38,7 @@ the condition under which the old representation leaves production authority.
 | PlacementDecision | name exists with wrong scope | expanded canonical `PlacementDecision` | mode-only `PlacementDecision`, `PlacementRequirement`, `RealtimePlacementPlan`, implicit claim SQL | Steps 9 and 11 |
 | RuntimeDecision | absent | new immutable `RuntimeDecision` | first `WorkloadRuntimeCandidate` plus post-commit `ShadowSelection` as explanation | Steps 8 and 11 |
 | TopologyDecision | planner exists under another name | promoted `TopologyDecision` from `TopologyPlan` | compiler topology, embedded realtime topology, private TP plan as competing decisions | Steps 10 and 11 |
-| VerificationContract | absent | new immutable `VerificationContract` | composite strategy string and disconnected policy/class/comparator authority | Step 12 |
+| VerificationContract | canonical at acceptance (batch) | `VerificationContract` on `ComputePlan` (`control/verification_contract.go`) | composite strategy string as claim of completed check; outcome `decision_sha256` remains attempt authority | Step 12 |
 | SettlementPlan | absent | new immutable `SettlementPlan` | accepted amounts plus later lane-specific settlement plans | Step 13 |
 | EvidenceEnvelope | absent | new immutable `EvidenceEnvelope` chain root | lane-specific receipt roots assembled from current rows | Step 14 |
 | ServiceLease | substantive canonical aggregate | existing `ServiceLease`, extended | no alternate aggregate; request/offer/assignment/outcome DTOs remain | Step 28 |
@@ -450,39 +450,51 @@ admission is rollback.
 
 ### Current representations and callers
 
-- `VerificationPolicy` in `control/types.go` is buyer input.
-- Runtime cells carry a free verification string.
-- `WorkloadDecision.VerificationStrategy` freezes a composite string.
-- Governed classes live in `control/verification_class.go`.
-- `VerificationWorkPlan`, `VerificationDecision`, verification attempts and
-  apply/effect code decide later lifecycle stages.
-- `EmbeddingComparison` is rich, but `resultsAgree` reduces it to `.Passed` for
-  ordinary task flow, losing comparator detail from the normal receipt.
+- `VerificationContract` in `control/verification_contract.go` is the acceptance
+  authority. Bound onto `ComputePlan` at quote and submit
+  (`stampVerificationContractOnPlan`); cited on `ClearingReceipt.Authority`.
+- `VerificationPolicy` in `control/types.go` remains buyer input (composition
+  knobs only).
+- Runtime cells still carry a free verification string; the contract freezes the
+  winning cell method and refuses job/cell mismatches.
+- `WorkloadDecision.VerificationStrategy` is a **projection** of the contract
+  (`projectLegacyVerificationStrategy` / `verificationStrategyFor`), not a
+  completed-check claim. `verificationClaimMayCite` gates "verified under X".
+- Governed classes (`control/verification_class.go`) and sampling policy
+  identity (`hmac-reputation-v1`) are cited by the contract, not re-authored.
+- `VerificationWorkPlan` / `VerificationDecision` / `decision_sha256` remain
+  attempt **outcome** authority and must not compete with the contract digest.
+- `EmbeddingComparison` remains the rich check-time record; acceptance freezes
+  live embed thresholds/revision on the contract. Per-check reference digests
+  stay check-time (`reference_binding=check_time_peer_or_honeypot`).
+- Named recompute policy is explicitly `absent` until product requires one.
+- Realtime lane still carries a free verification string (cross-lane residual).
 
 ### Canonical decision
 
 `VerificationContract` is the accepted immutable authority for verifier class,
-evaluator/reference/digest, threshold/comparator revision, sampling, failure
-consequence, recompute, confidence and quality contract.
+evaluator kind, comparator revision and frozen thresholds, sampling policy
+identity, failure-consequence vocabulary, and recompute policy (absent).
 
 Buyer policy and runtime promise are inputs. VerificationWorkPlan is an execution
-plan derived from the contract. VerificationDecision/attempt/artifact are
+plan / outcome derived after the check. VerificationDecision/attempt/artifact are
 outcomes. None independently changes the accepted contract.
 
 ### Conversion, allocation, and loss
 
 | Edge | Allocation/copy | Current loss | V2 disposition |
 |---|---|---|---|
-| buyer/runtime/workload inputs → strategy string | string construction | threshold, revision, reference, sampling/consequence not structurally bound | canonical contract builder |
-| contract intent → VerificationWorkPlan | value/JSON | currently reconstructed after acceptance | lossless derivation citing contract digest |
-| rich comparator → boolean agreement | drops fields | comparator revision/threshold/reference/result detail absent | retain rich outcome and bind it in EvidenceEnvelope |
+| buyer/runtime/workload inputs → strategy string | projection from contract | strategy alone never authorises a verified claim | `verificationClaimMayCite` + contract digest on receipt |
+| contract intent → VerificationWorkPlan | value/JSON at check time | selection/probability are check-time, not acceptance claims | work plan cites sampling policy identity frozen on contract |
+| rich comparator → boolean agreement | ordinary path still uses `.Passed` | per-check diagnosis not always on decision JSON | acceptance binds revision/thresholds; full `EmbeddingComparison` remains for check-time use / EvidenceEnvelope |
 
 ### Removal sequence and proof
 
-Build contract at acceptance, move every verifier/settlement caller to its
-digest, retain rich outcomes, then delete composite strategy as authority.
-Completion requires exact threshold/reference/revision/sampling/consequence
-replay and money agreement. Any weakening or evidence loss is rollback.
+Contract is built at acceptance and cited by plan/receipt digest. Strategy is a
+projection. Outcomes keep `decision_sha256`. Residual: realtime free string;
+ordinary-path rich comparison retention on every decision; EvidenceEnvelope
+(Step 14). Rollback if verification weakens or money can settle against a
+different class/threshold than the pinned contract.
 
 ## 9. SettlementPlan
 

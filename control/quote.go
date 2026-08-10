@@ -866,6 +866,13 @@ func (s *Server) buildQuoteWithSchedule(ctx context.Context, buyerID uuid.UUID, 
 	if err != nil {
 		return Quote{}, fmt.Errorf("building compute plan: %w", err)
 	}
+	// Bind VerificationContract before pricing so the quote's compute-plan digest
+	// already includes acceptance-time verification identity. Submit re-stamps
+	// the same inputs and must produce the same digest.
+	computePlan, err = stampVerificationContractOnPlan(computePlan, workload)
+	if err != nil {
+		return Quote{}, fmt.Errorf("binding verification contract: %w", err)
+	}
 	pricing, err := newDistributedPricingDecision(
 		workload, computePlan, placement, economicPlan, catalogue, tier, "",
 	)

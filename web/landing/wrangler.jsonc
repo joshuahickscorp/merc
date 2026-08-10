@@ -1,0 +1,11 @@
+{
+  "name": "merc-landing",
+  "main": "worker.js",
+  "compatibility_date": "2026-08-01",
+  "workers_dev": true,
+  "observability": { "enabled": true },
+  "routes": [
+    { "pattern": "mercmerc.app", "custom_domain": true },
+    { "pattern": "www.mercmerc.app", "custom_domain": true }
+  ]
+}

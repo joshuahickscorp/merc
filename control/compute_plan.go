@@ -82,11 +82,17 @@ type ComputePlan struct {
 	// Bound into the plan because the class is priced: a REQUIRED job buys
 	// verification for every task, and a plan that did not record which class it
 	// was frozen under could not be settled against the work that was done.
-	VerificationClass       string   `json:"verification_class,omitempty"`
-	VerificationClassPolicy string   `json:"verification_class_policy,omitempty"`
-	Confidence              float64  `json:"confidence"`
-	ConfidenceReasons       []string `json:"confidence_reasons"`
-	Unknowns                []string `json:"unknowns,omitempty"`
+	VerificationClass       string `json:"verification_class,omitempty"`
+	VerificationClassPolicy string `json:"verification_class_policy,omitempty"`
+	// VerificationContract is the acceptance-time verification identity (class,
+	// sampling policy, evaluator/thresholds, failure vocabulary, recompute).
+	// Empty on historical plans. When set, VerificationContractSHA256 is its
+	// digest and both are required together. Outcomes still use decision_sha256.
+	VerificationContract       *VerificationContract `json:"verification_contract,omitempty"`
+	VerificationContractSHA256 string                `json:"verification_contract_sha256,omitempty"`
+	Confidence                 float64               `json:"confidence"`
+	ConfidenceReasons          []string              `json:"confidence_reasons"`
+	Unknowns                   []string              `json:"unknowns,omitempty"`
 }
 
 func supportedComputePlanVersion(version int) bool {
@@ -432,6 +438,9 @@ func ValidateFrozenComputePlanSnapshot(plan ComputePlan, decision WorkloadDecisi
 		return errors.New("compute plan requires positive input records and bytes")
 	}
 	if err := validateComputePlanVerificationClass(plan); err != nil {
+		return err
+	}
+	if err := validateComputePlanVerificationContract(plan); err != nil {
 		return err
 	}
 	switch plan.Version {

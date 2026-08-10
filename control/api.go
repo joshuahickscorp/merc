@@ -1201,6 +1201,12 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 				return JobSubmitResponse{}, &httpError{http.StatusInternalServerError,
 					"freezing exact-reuse compute plan: " + rperr.Error()}
 			}
+			if stamped, cerr := stampVerificationContractOnPlan(reuseComputePlan, workloadDecision); cerr != nil {
+				return JobSubmitResponse{}, &httpError{http.StatusInternalServerError,
+					"binding verification contract: " + cerr.Error()}
+			} else {
+				reuseComputePlan = stamped
+			}
 			reusePricing, rperr := newExactReusePricingDecision(
 				workloadDecision, reuseComputePlan, cataloguePrice, sub.Tier,
 				reuseBuyerCharge, originPricingSHA,
@@ -1534,6 +1540,17 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 			return JobSubmitResponse{}, &httpError{http.StatusInternalServerError,
 				"freezing verification class: " + classErr.Error()}
 		}
+		computePlan = stamped
+	}
+	// Freeze the acceptance-time VerificationContract on the plan. Class,
+	// sampling policy identity, evaluator/thresholds, failure vocabulary and
+	// recompute=absent become one digested authority before execution. The
+	// legacy strategy string on the workload decision is a projection of this
+	// contract, not an independent claim that any task was checked.
+	if stamped, contractErr := stampVerificationContractOnPlan(computePlan, workloadDecision); contractErr != nil {
+		return JobSubmitResponse{}, &httpError{http.StatusInternalServerError,
+			"binding verification contract: " + contractErr.Error()}
+	} else {
 		computePlan = stamped
 	}
 	if err := ValidateComputePlanEconomicSnapshot(computePlan, workloadDecision, economicPlan); err != nil {

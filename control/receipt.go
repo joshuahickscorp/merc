@@ -23,6 +23,11 @@ type ReceiptAuthority struct {
 	ComputePlanSHA256          string `json:"compute_plan_sha256,omitempty"`
 	PlacementRequirementSHA256 string `json:"placement_requirement_sha256,omitempty"`
 	PricingDecisionSHA256      string `json:"pricing_decision_sha256,omitempty"`
+	// VerificationContractSHA256 cites the acceptance-time verification identity
+	// frozen on the compute plan. Absent on historical receipts. Task-level
+	// verification_selected still answers whether a check ran; this digest
+	// answers under which class/evaluator/thresholds the job was accepted.
+	VerificationContractSHA256 string `json:"verification_contract_sha256,omitempty"`
 }
 
 type PricingReconciliation struct {
@@ -131,6 +136,7 @@ func assembleClearingReceipt(
 	}
 	if computePlan != nil {
 		out.Authority.ComputePlanSHA256, _ = computePlanDigest(*computePlan)
+		out.Authority.VerificationContractSHA256 = computePlan.VerificationContractSHA256
 	}
 	if placement != nil {
 		out.Authority.PlacementRequirementSHA256, _ = placementRequirementDigest(*placement)
