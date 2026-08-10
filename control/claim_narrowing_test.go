@@ -352,3 +352,82 @@ func planMentionsAny(s string, needles ...string) bool {
 
 // Ensure openIsolatedTestStore import of context stays used when tests skip.
 var _ = context.Background
+
+// A buyer's declared data residency is a hard claim filter, not a preference.
+//
+// The claim SQL carries `j.data_residency IS NULL OR me.data_country = ANY(...)`
+// (scheduler.go:894), and nothing asserted it. Deleting that line leaves every
+// other test green, which is how a compliance filter becomes decorative: the
+// buyer names the countries their data may be processed in, the receipt still
+// records the job as claimed normally, and the work runs wherever capacity was.
+//
+// Registered as a network fault ("erase region restriction") against a live
+// target, so it is a mutant rather than a deferred entry.
+func TestClaimRefusesAWorkerOutsideTheBuyerDeclaredResidency(t *testing.T) {
+	ctx, store, pool := openIsolatedTestStore(t)
+	installSettlementCurrencyForTest(t, "usd")
+
+	buyerID, err := store.CreateBuyerAccount(ctx,
+		"residency-"+uuid.NewString()+"@example.test", "integration-password", 100)
+	must(t, err)
+
+	// One worker, in Germany.
+	supplierID, workerID := uuid.New(), uuid.New()
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO suppliers (id,email,status,reputation,completed_tasks,data_country)
+		 VALUES ($1,$2,'active',0.95,100,'de')`,
+		supplierID, "res-sup-"+uuid.NewString()+"@example.test"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO workers (id,supplier_id,hw_class,memory_gb,effective_memory_gb,
+		                      last_seen_at,throttled,min_payout_usd_hr)
+		 VALUES ($1,$2,'apple_silicon_max',64,64,now(),false,5.0)`,
+		workerID, supplierID); err != nil {
+		t.Fatal(err)
+	}
+	bindLegacyTestWorkerExactExecutionIdentity(t, pool, ctx, workerID)
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO worker_authorized_capabilities
+		   (worker_id,cell_id,runtime_id,job_type,model_ref,model_kind,matrix_sha256)
+		 VALUES ($1,'cell','rt','embed','all-minilm-l6-v2','hf',$2)`,
+		workerID, generatedRuntimeMatrixSHA256); err != nil {
+		t.Fatal(err)
+	}
+
+	claimable := func(residency any, label string) bool {
+		t.Helper()
+		jobID, taskID := uuid.New(), uuid.New()
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO jobs (id,buyer_id,status,job_type,model_ref,input_ref,task_count,
+			                  offered_rate_usd_hr,min_memory_gb,tier,currency,data_residency)
+			VALUES ($1,$2,'running','embed','all-minilm-l6-v2','in',1,10.0,0,'batch','usd',$3)`,
+			jobID, buyerID, residency); err != nil {
+			t.Fatalf("%s: seed job: %v", label, err)
+		}
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO tasks (id,job_id,status,input_ref,result_key,visible_at)
+			VALUES ($1,$2,'queued','in','rk',now())`, taskID, jobID); err != nil {
+			t.Fatalf("%s: seed task: %v", label, err)
+		}
+		got, err := store.ClaimTasksTx(ctx, WorkerAuth{WorkerID: workerID, SupplierID: supplierID})
+		if err != nil {
+			t.Fatalf("%s: claim: %v", label, err)
+		}
+		return got != nil
+	}
+
+	// Control: with no residency restriction the German worker must claim.
+	// Without this the refusal below could be any unrelated ineligibility and
+	// the test would pass while proving nothing.
+	if !claimable(nil, "unrestricted") {
+		t.Fatal("the worker could not claim an unrestricted job, so the residency " +
+			"refusal below would not be evidence about residency")
+	}
+
+	// A job restricted to France and Ireland must not be claimable from Germany.
+	if claimable([]string{"fr", "ie"}, "restricted") {
+		t.Fatal("a worker in 'de' claimed a job the buyer restricted to fr/ie; " +
+			"the claim path is not enforcing declared data residency")
+	}
+}

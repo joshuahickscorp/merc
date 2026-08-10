@@ -145,7 +145,8 @@
     "scheduler.go": [
       "scheduler_ask_claim_integration_test.go",
       "prefix_placement_test.go",
-      "workload_classification_test.go"
+      "workload_classification_test.go",
+      "claim_narrowing_test.go"
     ],
     "store_jobs.go": [
       "job_task_money_integration_test.go",

@@ -460,6 +460,7 @@ MUTATIONS=(
 "exact_reuse_batch.go|exact reuse omits frozen workload authority|s|workloadJSON, err := json.Marshal(workloadDecision)|workloadJSON, err := json.Marshal(WorkloadDecision{})|"
 "exact_reuse_batch.go|exact reuse hashes request shape but not runtime authority|s|decisionSHA256, err := workloadDecisionDigest(decision)|decisionSHA256, err := workloadBindingDigest(decision.Binding)|"
 "scheduler.go|claim ignores frozen runtime candidates|s|j.workload_decision IS NULL|true|"
+"scheduler.go|claim erases the buyer data residency restriction|s#AND (j.data_residency IS NULL OR me.data_country = ANY(j.data_residency))##"
 "compute_plan.go|bound quote recomputes split from the live planner|s|return bound.ComputePlan.SplitSize, nil|return unbound(), nil|"
 "compute_plan.go|compute plan accepts tampered task totals|s|if plan.TotalInitialTasks != expectedTotal {|if false {|"
 "store_jobs.go|job persistence ignores bound quote compute authority|s#quoteComputeSHA256 == \"\" || quoteComputeSHA256 != computeSHA256#false#"
