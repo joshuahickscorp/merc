@@ -530,6 +530,7 @@ func claimTaskSQL(claimedByPredicate, shapeOrderExpr string) string {
 	 -- byte-identical full ordered task lists at every queue position).
 	 eligible_jobs AS MATERIALIZED (
 	   SELECT j.id AS job_id, j.tier, j.job_type, j.model_ref,
+	     j.sla_guarantee_secs, j.eta_secs, j.created_at AS job_created_at,
 	     me.worker_id AS claim_worker_id,
 	     me.supplier_id_s AS claim_supplier_id,
 	     me.hw_class AS claim_hw_class,
@@ -982,8 +983,27 @@ func claimTaskSQL(claimedByPredicate, shapeOrderExpr string) string {
 	     -- itself and then never polls cannot starve the queue.  cheaper_ask_online
 	     -- already requires the rival to be seen within 60s, active, unthrottled,
 	     -- capability-matched and affordable to this job.
+	     --
+	     -- Slack-aware: a task may be held for the cheaper ask ONLY when the wait
+	     -- demonstrably fits inside the job's paid speed guarantee.  Defer when
+	     --   (no SLA) OR (eta known AND elapsed_since_job_created + window + eta
+	     --   <= sla_guarantee_secs).  Fail closed on a missing prediction: a
+	     -- guarantee with eta_secs IS NULL means the wait cannot be shown to fit,
+	     -- so do not defer (unknown is not zero).  askDeferralWindow itself is
+	     -- unchanged; only the eligibility of the hold is gated by slack.
 	     AND (NOT ej.cheaper_ask_online
-	          OR COALESCE(t.visible_at, t.created_at) <= now() - $6::interval)
+	          OR COALESCE(t.visible_at, t.created_at) <= now() - $6::interval
+	          OR (
+	            COALESCE(ej.sla_guarantee_secs, 0) > 0
+	            AND (
+	              ej.eta_secs IS NULL
+	              OR (
+	                EXTRACT(EPOCH FROM (now() - ej.job_created_at))
+	                + EXTRACT(EPOCH FROM ($6::interval))
+	                + ej.eta_secs
+	              ) > ej.sla_guarantee_secs
+	            )
+	          ))
 	     -- claimable when unclaimed, OR pre-claimed (pinned) to THIS worker and
 	     -- not yet started (a tiebreak/hedge dispatch pinned to a chosen peer).
 	     -- PATCH (P-splitclaim, docs/CREED_AND_PATH_TO_TEN.md "Control plane hot

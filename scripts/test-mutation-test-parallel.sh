@@ -10,7 +10,7 @@ plan="$(MERC_MUTATION_WORKERS=16 MERC_MUTATION_WALLCLOCK_SECONDS=1500 \
 printf '%s\n' "$plan"
 
 header="$(printf '%s\n' "$plan" | sed -n '1p')"
-printf '%s\n' "$header" | grep -Eq 'cases=104 workers=16 budget=1500s db=isolated-clusters strategy=adaptive gomaxprocs=1 sharding=weighted-p90-pure-warmup' || {
+printf '%s\n' "$header" | grep -Eq 'cases=109 workers=16 budget=1500s db=isolated-clusters strategy=adaptive gomaxprocs=1 sharding=weighted-p90-pure-warmup' || {
   echo "parallel mutation plan has an unexpected header" >&2
   exit 1
 }
@@ -20,7 +20,7 @@ count="$(printf '%s\n' "$ids" | sed '/^$/d' | wc -l | tr -d ' ')"
 unique="$(printf '%s\n' "$ids" | sed '/^$/d' | uniq | wc -l | tr -d ' ')"
 first="$(printf '%s\n' "$ids" | sed -n '1p')"
 last="$(printf '%s\n' "$ids" | sed -n '$p')"
-if [ "$count" != 104 ] || [ "$unique" != 104 ] || [ "$first" != 1 ] || [ "$last" != 104 ]; then
+if [ "$count" != 109 ] || [ "$unique" != 109 ] || [ "$first" != 1 ] || [ "$last" != 109 ]; then
   echo "parallel mutation plan drops or duplicates declared cases" >&2
   exit 1
 fi
@@ -71,7 +71,7 @@ subset_ids="$(printf '%s\n' "$subset" | sed -n 's/^  worker [0-9][0-9]: \(.*\) (
   echo "parallel mutation subset contains the wrong cases: $subset_ids" >&2
   exit 1
 }
-if MERC_MUTATION_PARALLEL_CASE_IDS=105 bash scripts/mutation-test-parallel.sh --plan >/dev/null 2>&1; then
+if MERC_MUTATION_PARALLEL_CASE_IDS=110 bash scripts/mutation-test-parallel.sh --plan >/dev/null 2>&1; then
   echo "parallel mutation runner accepted an unknown subset case" >&2
   exit 1
 fi
@@ -174,4 +174,4 @@ before('cat "$log" >>"$run_root/preflight-db.json"', '--cache "$preflight_cache"
 before('assert_exact_clean_worktree "$aggregate_unit_worktree"', 'export MERC_MUTATION_CASE_IDS="$shard_ids"')
 PY
 
-echo "test-mutation-test-parallel: PASS all 104 cases are uniquely sharded"
+echo "test-mutation-test-parallel: PASS all 109 cases are uniquely sharded"

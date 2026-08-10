@@ -4248,6 +4248,147 @@
         "TestStoreAnchoredPricingSurvivesLegitimateReprice"
       ],
       "source_target": "control/cost_schedule.go"
+    },
+    {
+      "authority_domain": "open_exposure",
+      "class": "DB",
+      "description": "open exposure drops the service-lease reserved arm",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 105,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestBuyerFreeCreditRemainingHoldsActiveEnvelope",
+        "TestCeilNanosToMicrosHoldsHigherWholeMicro",
+        "TestExpiredEnvelopeKeepsPrepaidReservationForInFlightWork",
+        "TestExpiredEnvelopeStillHoldsFundsForInFlightWork",
+        "TestOpenExposureDebitedReservationFreesCashForRealtime",
+        "TestOpenExposureFreeCreditConcurrentCeiling",
+        "TestOpenExposureFreeCreditSequentialHoldsReserved",
+        "TestOpenExposureRealtimeRefusesWhilePrepaidBatchReserves",
+        "TestOpenExposureRealtimeRefusesWhileServiceLeaseHolds",
+        "TestRealtimeConcurrentAuthRefusesProjectedMicroOverAdmit",
+        "TestRealtimeEnvelopeAndNonEnvelopeHoldSameNeed",
+        "TestRealtimeFundingNeedCeilsSubMicroRemainder",
+        "TestRealtimeSettlementConservationExactNanos"
+      ],
+      "source_target": "control/buyer_open_exposure.go"
+    },
+    {
+      "authority_domain": "open_exposure",
+      "class": "DB",
+      "description": "open exposure prepaid residual uses estimated not reserved",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 106,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestBuyerFreeCreditRemainingHoldsActiveEnvelope",
+        "TestCeilNanosToMicrosHoldsHigherWholeMicro",
+        "TestExpiredEnvelopeKeepsPrepaidReservationForInFlightWork",
+        "TestExpiredEnvelopeStillHoldsFundsForInFlightWork",
+        "TestOpenExposureDebitedReservationFreesCashForRealtime",
+        "TestOpenExposureFreeCreditConcurrentCeiling",
+        "TestOpenExposureFreeCreditSequentialHoldsReserved",
+        "TestOpenExposureRealtimeRefusesWhilePrepaidBatchReserves",
+        "TestOpenExposureRealtimeRefusesWhileServiceLeaseHolds",
+        "TestRealtimeConcurrentAuthRefusesProjectedMicroOverAdmit",
+        "TestRealtimeEnvelopeAndNonEnvelopeHoldSameNeed",
+        "TestRealtimeFundingNeedCeilsSubMicroRemainder",
+        "TestRealtimeSettlementConservationExactNanos"
+      ],
+      "source_target": "control/buyer_open_exposure.go"
+    },
+    {
+      "authority_domain": "open_exposure",
+      "class": "DB",
+      "description": "open exposure floors nanos to micros instead of ceiling",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 107,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestBuyerFreeCreditRemainingHoldsActiveEnvelope",
+        "TestCeilNanosToMicrosHoldsHigherWholeMicro",
+        "TestExpiredEnvelopeKeepsPrepaidReservationForInFlightWork",
+        "TestExpiredEnvelopeStillHoldsFundsForInFlightWork",
+        "TestOpenExposureDebitedReservationFreesCashForRealtime",
+        "TestOpenExposureFreeCreditConcurrentCeiling",
+        "TestOpenExposureFreeCreditSequentialHoldsReserved",
+        "TestOpenExposureRealtimeRefusesWhilePrepaidBatchReserves",
+        "TestOpenExposureRealtimeRefusesWhileServiceLeaseHolds",
+        "TestRealtimeConcurrentAuthRefusesProjectedMicroOverAdmit",
+        "TestRealtimeEnvelopeAndNonEnvelopeHoldSameNeed",
+        "TestRealtimeFundingNeedCeilsSubMicroRemainder",
+        "TestRealtimeSettlementConservationExactNanos"
+      ],
+      "source_target": "control/buyer_open_exposure.go"
+    },
+    {
+      "authority_domain": "open_exposure",
+      "class": "DB",
+      "description": "open exposure prepaid residual drops the currency predicate",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 108,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestOpenExposureInOneCurrencyDoesNotOffsetAnother",
+        "TestBuyerFreeCreditRemainingHoldsActiveEnvelope",
+        "TestCeilNanosToMicrosHoldsHigherWholeMicro",
+        "TestExpiredEnvelopeKeepsPrepaidReservationForInFlightWork",
+        "TestExpiredEnvelopeStillHoldsFundsForInFlightWork",
+        "TestOpenExposureDebitedReservationFreesCashForRealtime",
+        "TestOpenExposureFreeCreditConcurrentCeiling",
+        "TestOpenExposureFreeCreditSequentialHoldsReserved",
+        "TestOpenExposureRealtimeRefusesWhilePrepaidBatchReserves",
+        "TestOpenExposureRealtimeRefusesWhileServiceLeaseHolds",
+        "TestRealtimeConcurrentAuthRefusesProjectedMicroOverAdmit",
+        "TestRealtimeEnvelopeAndNonEnvelopeHoldSameNeed",
+        "TestRealtimeFundingNeedCeilsSubMicroRemainder",
+        "TestRealtimeSettlementConservationExactNanos"
+      ],
+      "source_target": "control/buyer_open_exposure.go"
+    },
+    {
+      "authority_domain": "open_exposure",
+      "class": "DB",
+      "description": "open exposure drops the ACTIVE envelope residual arm",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
+      "id": 109,
+      "last_validated_commit": null,
+      "required_invariant_contracts": [
+        "TestBuyerFreeCreditRemainingHoldsActiveEnvelope",
+        "TestCeilNanosToMicrosHoldsHigherWholeMicro",
+        "TestExpiredEnvelopeKeepsPrepaidReservationForInFlightWork",
+        "TestExpiredEnvelopeStillHoldsFundsForInFlightWork",
+        "TestOpenExposureDebitedReservationFreesCashForRealtime",
+        "TestOpenExposureFreeCreditConcurrentCeiling",
+        "TestOpenExposureFreeCreditSequentialHoldsReserved",
+        "TestOpenExposureRealtimeRefusesWhilePrepaidBatchReserves",
+        "TestOpenExposureRealtimeRefusesWhileServiceLeaseHolds",
+        "TestRealtimeConcurrentAuthRefusesProjectedMicroOverAdmit",
+        "TestRealtimeEnvelopeAndNonEnvelopeHoldSameNeed",
+        "TestRealtimeFundingNeedCeilsSubMicroRemainder",
+        "TestRealtimeSettlementConservationExactNanos"
+      ],
+      "source_target": "control/buyer_open_exposure.go"
     }
   ],
   "version": 1

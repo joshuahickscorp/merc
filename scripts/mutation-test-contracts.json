@@ -14,6 +14,13 @@
       "billing_classes_test.go",
       "money_state_machine_test.go"
     ],
+    "buyer_open_exposure.go": [
+      "open_exposure_funding_test.go",
+      "accounts_free_credit_envelope_test.go",
+      "execution_envelope_expiry_hold_test.go",
+      "realtime_funding_hold_precision_test.go",
+      "prepaid_envelope_expiry_reservation_test.go"
+    ],
     "compute_plan.go": [
       "compute_plan_test.go",
       "project_quote_test.go"
@@ -80,9 +87,6 @@
     "realtime_placement.go": [
       "realtime_placement_test.go"
     ],
-    "risk_reserve_ledger.go": [
-      "risk_reserve_lifecycle_test.go"
-    ],
     "realtime_pricing_decision.go": [
       "realtime_pricing_decision_test.go"
     ],
@@ -97,6 +101,9 @@
       "realtime_reuse_pricing_decision_test.go",
       "reuse_money_wiring_test.go",
       "reuse_underflow_test.go"
+    ],
+    "risk_reserve_ledger.go": [
+      "risk_reserve_lifecycle_test.go"
     ],
     "runtime_cell_admission_binding.go": [
       "runtime_cell_admission_binding_test.go"

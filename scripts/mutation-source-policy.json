@@ -4,6 +4,7 @@
     "batch_policy.go": {"authority_domain": "admission", "default_class": "PURE"},
     "billing.go": {"authority_domain": "stripe_money", "default_class": "DB"},
     "billing_classes.go": {"authority_domain": "pricing", "default_class": "PURE"},
+    "buyer_open_exposure.go": {"authority_domain": "open_exposure", "default_class": "DB"},
     "contribution_settlement.go": {"authority_domain": "true_net_authority", "default_class": "PURE"},
     "cost_schedule.go": {"authority_domain": "pricing", "default_class": "PURE"},
     "compute_plan.go": {"authority_domain": "quote_compute", "default_class": "PURE"},

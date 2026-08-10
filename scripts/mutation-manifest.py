@@ -2,7 +2,7 @@
 """Generate, validate, update, and weight the durable mutation manifest.
 
 The manifest is deliberately data rather than an alternate source of truth for
-mutants: the shell runner still declares the 104 actual transformations.  This
+mutants: the shell runner still declares the 109 actual transformations.  This
 tool joins that inventory to the named invariant contracts, authority policy,
 and observed runtimes, refusing gaps or duplicates before a scheduler can use
 the data.

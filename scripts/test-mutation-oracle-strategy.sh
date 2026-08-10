@@ -24,7 +24,7 @@ rg --fixed-strings 'MERC_MUTATION_TEST_STRATEGY=oracle' scripts/mutation-test.sh
 rg --fixed-strings 'full|whole-suite)' scripts/mutation-test.sh >/dev/null
 rg --fixed-strings 'strategy=oracle' scripts/mutation-gate.sh >/dev/null
 # The gate tier name "full" must remain a tier, not be confused with the strategy.
-rg --fixed-strings 'full       all 104 mutations exactly once' scripts/mutation-gate.sh >/dev/null
+rg --fixed-strings 'full       all 109 mutations exactly once' scripts/mutation-gate.sh >/dev/null
 # Deep is the only tier that selects the oracle strategy.
 python3 - <<'PY'
 from pathlib import Path
@@ -48,24 +48,24 @@ alias_help="$(
 )"
 # Listing must succeed under the historical alias.
 list_count="$(MERC_MUTATION_LIST=1 MERC_MUTATION_TEST_STRATEGY=full bash scripts/mutation-test.sh | wc -l | tr -d ' ')"
-[ "$list_count" = "104" ] || {
-  echo "full alias did not list 104 mutations (got $list_count)" >&2
+[ "$list_count" = "109" ] || {
+  echo "full alias did not list 109 mutations (got $list_count)" >&2
   exit 1
 }
 list_count_oracle="$(MERC_MUTATION_LIST=1 MERC_MUTATION_TEST_STRATEGY=oracle bash scripts/mutation-test.sh | wc -l | tr -d ' ')"
-[ "$list_count_oracle" = "104" ] || {
-  echo "oracle strategy did not list 104 mutations (got $list_count_oracle)" >&2
+[ "$list_count_oracle" = "109" ] || {
+  echo "oracle strategy did not list 109 mutations (got $list_count_oracle)" >&2
   exit 1
 }
 list_count_ws="$(MERC_MUTATION_LIST=1 MERC_MUTATION_TEST_STRATEGY=whole-suite bash scripts/mutation-test.sh | wc -l | tr -d ' ')"
-[ "$list_count_ws" = "104" ] || {
-  echo "whole-suite alias did not list 104 mutations (got $list_count_ws)" >&2
+[ "$list_count_ws" = "109" ] || {
+  echo "whole-suite alias did not list 109 mutations (got $list_count_ws)" >&2
   exit 1
 }
 
 # ---------------------------------------------------------------------------
 # Sandbox harness: tiny control package + one mutation case path.
-# We do not run the real 104-case campaign. We exercise the oracle preflight and
+# We do not run the real 109-case campaign. We exercise the oracle preflight and
 # scoring path with the smallest package that still goes through mutation-test.sh.
 # ---------------------------------------------------------------------------
 PROOF="$(mktemp -d "${TMPDIR:-/tmp}/merc-oracle-proof.XXXXXX")"

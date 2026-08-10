@@ -534,6 +534,18 @@ MUTATIONS=(
 "risk_reserve_ledger.go|risk reserve filing-window comparison is inverted|s#if !now.After(reserve.ReleaseEligibleAt) {#if now.After(reserve.ReleaseEligibleAt) {#"
 "store_prepaid.go|prepaid balance lookup drops the currency predicate|s#WHERE buyer_id=\$1 AND currency=\$2), 0)#WHERE buyer_id=\$1), 0)#"
 "cost_schedule.go|same-currency cost FX authority skips exact-identity requirement|s#return errors.New(\"same-currency cost FX authority is not exact identity\")#return nil#"
+
+# --- Buyer open-exposure authority (singular hold definition) ---
+# control/buyer_open_exposure.go is the single definition of cash already held
+# against a buyer's funds. Without mutants here the suite proves older money
+# paths and says nothing about the authority that now decides whether a
+# realtime ceiling, free-credit batch admit, or prepaid refund may proceed.
+# Each case is a defect this programme actually found and fixed.
+"buyer_open_exposure.go|open exposure drops the service-lease reserved arm|s#l.state IN ('ACTIVE','UPGRADING','FAILOVER_REQUIRED')#l.state IN ('__never__')#"
+"buyer_open_exposure.go|open exposure prepaid residual uses estimated not reserved|s#		  (p.reserved_buyer_charge_usd \* 1000000)::bigint#		  (COALESCE(j.estimated_usd,0) * 1000000)::bigint#"
+"buyer_open_exposure.go|open exposure floors nanos to micros instead of ceiling|s#((e.cap_nanos - e.spent_nanos) + 999) / 1000#(e.cap_nanos - e.spent_nanos) / 1000#; s#((s.reserved_nanos + 999) / 1000)#(s.reserved_nanos / 1000)#; s|((c.pricing_decision #>> '{fixed_point,accepted_ceiling_nanos}')::bigint + 999) / 1000|((c.pricing_decision #>> '{fixed_point,accepted_ceiling_nanos}')::bigint) / 1000|"
+"buyer_open_exposure.go|open exposure prepaid residual drops the currency predicate|s#j.buyer_id=%\[1\]s AND j.currency=%\[2\]s AND j.prepaid_required#j.buyer_id=%[1]s AND j.prepaid_required#"
+"buyer_open_exposure.go|open exposure drops the ACTIVE envelope residual arm|s#e.buyer_id=%\[1\]s AND e.currency=%\[2\]s AND e.state='ACTIVE'#e.buyer_id=%[1]s AND e.currency=%[2]s AND e.state='__never__'#"
 )
 
 if [ "$MERC_MUTATION_LIST" = "1" ]; then
