@@ -783,8 +783,16 @@ func prepaidExecutionContractRestoreRef(contractID uuid.UUID) string {
 	return "prepaid-execution-contract-restore-" + contractID.String()
 }
 
-// prepaidSLAPremiumRestoreRef keys the once-only prepaid_restore for an SLA
-// premium debit returned on SLA miss.
+// prepaidTaskRestoreRef keys the once-only prepaid_restore that pairs with a
+// task-scoped prepaid_debit (dispute buyer refund). Uniqueness is also
+// enforced by (task_id, kind); the ref is audit/idempotency evidence.
+func prepaidTaskRestoreRef(taskID uuid.UUID) string {
+	return "prepaid-task-restore-" + taskID.String()
+}
+
+// prepaidSLAPremiumRestoreRef keys the once-only prepaid_balance_return for an
+// SLA premium debit returned on SLA miss. Not a KindPrepaidRestore — see
+// restorePrepaidForSLAPremiumRefundTx.
 func prepaidSLAPremiumRestoreRef(jobID uuid.UUID) string {
 	return "prepaid-sla-restore-" + jobID.String()
 }
@@ -794,9 +802,8 @@ func prepaidSLAPremiumRestoreRef(jobID uuid.UUID) string {
 //
 // Pairing: evaluateRealtimeBuyerFunding adds back prepaid_debit so spent
 // (buyer_charge) is not double-counted against the reduced balance. When a
-// refund zeros spent via buyer_refund (or returns premium via sla_refund while
-// the debit still stands in other formulas), the materialised balance must
-// rise by the same amount and a prepaid_restore row must net the debit in the
+// refund zeros spent via buyer_refund, the materialised balance must rise by
+// the same amount and a KindPrepaidRestore row must net the debit in the
 // capacity sum — otherwise available becomes free+B while cash is only B−D.
 //
 // Idempotency: insertLedgerEntryIfAbsentByRefTx on restoreRef. Balance is
@@ -890,20 +897,20 @@ func restorePrepaidForExecutionContractRefundTx(
 // job-level SLA premium debit when SettleJobSLA credits an sla_refund. Amount
 // is the refund micros (≤ debit). No-op when the premium was not prepaid-funded.
 //
-// Unlike the realtime refund restore, this path does NOT write prepaid_restore
-// and does NOT net the prepaid_debit out of evaluateRealtimeBuyerFunding's
-// +prepaidDebited term. sla_refund is not in the buyer spent sum
-// (buyer_charge/buyer_refund only), so the debit must keep cancelling the
-// still-present premium buyer_charge in capacity math. Only the materialised
-// balance is raised — that is the cash an admin prepaid refund can return.
+// Unlike KindPrepaidRestore paths (realtime refund, dispute refund), this
+// writes KindPrepaidBalanceReturn and does NOT net the prepaid_debit out of
+// evaluateRealtimeBuyerFunding's +prepaidDebited term. sla_refund is not in
+// the buyer spent sum (buyer_charge/buyer_refund only), so the debit must keep
+// cancelling the still-present premium buyer_charge in capacity math. Only
+// the materialised balance is raised — that is the cash an admin prepaid
+// refund can return. The kind is the typed distinction; do not reintroduce a
+// payout_ref prefix filter in the capacity formula.
 //
 // Idempotency: SettleJobSLA decides once (sla_met IS NULL). This helper runs
 // only on that first miss path inside the same transaction as the sla_met
 // stamp, so a second call never re-enters. A restoreRef receipt still lands
 // so a future refactor cannot double-credit without tripping the if-absent
-// insert; the receipt amount is the restored micros but is excluded from the
-// capacity prepaidDebited sum (only execution-contract restore refs are
-// summed — see evaluateRealtimeBuyerFunding).
+// insert.
 func restorePrepaidForSLAPremiumRefundTx(
 	ctx context.Context, tx pgx.Tx, buyerID, jobID uuid.UUID, currency string, refundMicros int64,
 ) error {
@@ -940,10 +947,10 @@ func restorePrepaidForSLAPremiumRefundTx(
 		restore = debitAbs
 	}
 	buyer := buyerID
-	// Receipt for idempotency. Capacity formula only nets execution-contract
-	// restore refs (prepaid-execution-contract-restore-*), not prepaid-sla-restore-*.
+	// Receipt for idempotency. KindPrepaidBalanceReturn is excluded from the
+	// capacity prepaidDebited sum by kind (not by payout_ref prefix).
 	ct, err := insertLedgerEntryIfAbsentByRefTx(ctx, tx, ledgerInsert{
-		Kind: KindPrepaidRestore, BuyerID: &buyer, AmountMicros: restore,
+		Kind: KindPrepaidBalanceReturn, BuyerID: &buyer, AmountMicros: restore,
 		Currency: cur.Code(), CurrencyAuthority: ledgerCurrencyAuthorityPrepaid,
 		PayoutStatus: PayoutReleased, PayoutRef: prepaidSLAPremiumRestoreRef(jobID),
 	})
@@ -954,6 +961,113 @@ func restorePrepaidForSLAPremiumRefundTx(
 		return nil
 	}
 	return creditPrepaidBalanceTx(ctx, tx, buyerID, restore, cur.Code())
+}
+
+// restorePrepaidForTaskDebitTx re-materialises prepaid for a task-scoped
+// prepaid_debit after buyer_refund has zeroed spent. Writes KindPrepaidRestore
+// so capacity nets the debit. Idempotent on (task_id, kind): a second dispute
+// or funding replay cannot credit twice.
+func restorePrepaidForTaskDebitTx(
+	ctx context.Context, tx pgx.Tx, buyerID, taskID uuid.UUID, currency string,
+) error {
+	if buyerID == uuid.Nil || taskID == uuid.Nil {
+		return fmt.Errorf("prepaid task restore requires buyer and task")
+	}
+	cur, err := ParseCurrency(currency)
+	if err != nil {
+		return err
+	}
+	var debitAmount int64
+	var debitBuyer *uuid.UUID
+	var debitCurrency string
+	err = tx.QueryRow(ctx, `
+		SELECT (amount_usd*1000000)::bigint, buyer_id, currency
+		  FROM ledger_entries
+		 WHERE kind=$1 AND task_id=$2`, KindPrepaidDebit, taskID).
+		Scan(&debitAmount, &debitBuyer, &debitCurrency)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("prepaid task restore: no debit on task %s", taskID)
+	}
+	if err != nil {
+		return err
+	}
+	if debitAmount >= 0 {
+		return fmt.Errorf("prepaid task restore: debit on task %s has non-negative amount %d", taskID, debitAmount)
+	}
+	restoreMicros := -debitAmount
+	if debitCurrency != cur.Code() || !sameOptionalUUID(debitBuyer, &buyerID) {
+		return fmt.Errorf("prepaid task restore debit identity mismatch on task %s", taskID)
+	}
+	// Fail closed if spent was not zeroed for this task — netting a debit while
+	// buyer_charge still counts would under-hold capacity.
+	var netSpentMicros int64
+	if err := tx.QueryRow(ctx, `
+		SELECT COALESCE((SUM(-le.amount_usd) * 1000000)::bigint, 0)
+		  FROM ledger_entries le
+		 WHERE le.task_id=$1 AND le.kind IN ('buyer_charge','buyer_refund')
+		   AND le.currency=$2`, taskID, cur.Code()).Scan(&netSpentMicros); err != nil {
+		return err
+	}
+	if netSpentMicros != 0 {
+		return fmt.Errorf("prepaid task restore refused: task %s still has net spent micros %d", taskID, netSpentMicros)
+	}
+	buyer := buyerID
+	task := taskID
+	ct, err := insertLedgerEntryOnTaskConflictDoNothingTx(ctx, tx, ledgerInsert{
+		Kind: KindPrepaidRestore, BuyerID: &buyer, TaskID: &task,
+		AmountMicros: restoreMicros, Currency: cur.Code(),
+		CurrencyAuthority: ledgerCurrencyAuthorityPrepaid,
+		PayoutStatus:      PayoutReleased, PayoutRef: prepaidTaskRestoreRef(taskID),
+	})
+	if err != nil {
+		return err
+	}
+	if ct.RowsAffected() == 0 {
+		return nil
+	}
+	return creditPrepaidBalanceTx(ctx, tx, buyerID, restoreMicros, cur.Code())
+}
+
+// restorePrepaidForDisputeJobTasksTx restores materialised prepaid for every
+// task-scoped prepaid_debit on the job that has a matching buyer_refund.
+// Each task restore is independently idempotent; bulk credit without receipts
+// is forbidden.
+func restorePrepaidForDisputeJobTasksTx(
+	ctx context.Context, tx pgx.Tx, buyerID, jobID uuid.UUID, currency string,
+) error {
+	if buyerID == uuid.Nil || jobID == uuid.Nil {
+		return fmt.Errorf("prepaid dispute restore requires buyer and job")
+	}
+	rows, err := tx.Query(ctx, `
+		SELECT d.task_id
+		  FROM ledger_entries d
+		  JOIN tasks t ON t.id = d.task_id
+		  JOIN ledger_entries r ON r.task_id = d.task_id AND r.kind = 'buyer_refund'
+		 WHERE t.job_id = $1 AND d.kind = 'prepaid_debit'
+		   AND d.task_id IS NOT NULL
+		   AND (-d.amount_usd) IS NOT DISTINCT FROM r.amount_usd
+		 ORDER BY d.task_id`, jobID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	var taskIDs []uuid.UUID
+	for rows.Next() {
+		var taskID uuid.UUID
+		if err := rows.Scan(&taskID); err != nil {
+			return err
+		}
+		taskIDs = append(taskIDs, taskID)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, taskID := range taskIDs {
+		if err := restorePrepaidForTaskDebitTx(ctx, tx, buyerID, taskID, currency); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // maybeDebitPrepaidForRealtimeTx consumes prepaid for a settled realtime buyer
@@ -1102,10 +1216,17 @@ func debitPrepaidForServiceLeaseTx(ctx context.Context, tx pgx.Tx, buyerID, leas
 	)
 }
 
-// creditPrepaidBalanceTx restores prepaid liability after a dispute (or other
-// internal) refund. It does not write a prepaid_topup cash row — the cash
-// already sat on the platform as prepaid liability that was spent and is now
-// un-spent. Callers must enforce idempotency (e.g. job_dispute_refunds).
+// creditPrepaidBalanceTx mutates buyer_prepaid_balances only. It does not write
+// a prepaid_topup cash row — the cash already sat on the platform as prepaid
+// liability that was spent and is now un-spent. It does not write a capacity
+// netting receipt either.
+//
+// Callers that reverse a prepaid_debit after spent has been zeroed MUST go
+// through restorePrepaidByDebitRefTx / restorePrepaidForTaskDebitTx (which
+// write KindPrepaidRestore and then call this). Bare credit without a restore
+// receipt is how phantom realtime capacity is minted. SLA materialisation is
+// the documented exception and uses KindPrepaidBalanceReturn via
+// restorePrepaidForSLAPremiumRefundTx.
 func creditPrepaidBalanceTx(ctx context.Context, tx pgx.Tx, buyerID uuid.UUID, amountMicros int64, currency string) error {
 	if amountMicros <= 0 {
 		return fmt.Errorf("prepaid credit requires positive micro-units, got %d", amountMicros)

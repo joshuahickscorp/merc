@@ -3182,6 +3182,21 @@ CREATE UNIQUE INDEX IF NOT EXISTS ledger_prepaid_topup_ref_uniq
     ON ledger_entries (payout_ref) WHERE kind = 'prepaid_topup';
 CREATE UNIQUE INDEX IF NOT EXISTS ledger_prepaid_refund_ref_uniq
     ON ledger_entries (payout_ref) WHERE kind = 'prepaid_refund';
+CREATE UNIQUE INDEX IF NOT EXISTS ledger_prepaid_restore_ref_uniq
+    ON ledger_entries (payout_ref) WHERE kind = 'prepaid_restore' AND payout_ref IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS ledger_prepaid_balance_return_ref_uniq
+    ON ledger_entries (payout_ref) WHERE kind = 'prepaid_balance_return' AND payout_ref IS NOT NULL;
+
+-- Capacity netting is kind-typed: every prepaid_restore nets prepaid_debit in
+-- evaluateRealtimeBuyerFunding. Historical SLA premium materialisation
+-- receipts used prepaid_restore with payout_ref prepaid-sla-restore-* and
+-- deliberately did not net (spent still includes the premium charge).
+-- Reclassify those receipts to prepaid_balance_return so the formula can
+-- match every prepaid_restore without a payout_ref prefix filter.
+UPDATE ledger_entries
+   SET kind = 'prepaid_balance_return'
+ WHERE kind = 'prepaid_restore'
+   AND payout_ref LIKE 'prepaid-sla-restore-%';
 
 -- Top-up cash is a first-class collection source (not a job/batch charge).
 -- Inline CHECKs on CREATE TABLE get auto-generated names; drop any source_kind

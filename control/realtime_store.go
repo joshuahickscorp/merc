@@ -110,11 +110,7 @@ func evaluateRealtimeBuyerFunding(ctx context.Context, tx pgx.Tx, buyerID uuid.U
 		                   AND le.kind IN ('buyer_charge','buyer_refund')),0)::float8,
 		       COALESCE((SELECT -sum(le.amount_usd) FROM ledger_entries le
 		                 WHERE le.buyer_id=b.id AND le.currency=$2
-		                   AND (
-		                     le.kind = 'prepaid_debit'
-		                     OR (le.kind = 'prepaid_restore'
-		                         AND le.payout_ref LIKE 'prepaid-execution-contract-restore-%')
-		                   )),0)::float8,
+		                   AND le.kind IN ('prepaid_debit','prepaid_restore')),0)::float8,
 		       `+sqlBuyerCommittedMoneyMicros("b.id", "$2")+`::bigint
 		  FROM buyers b WHERE b.id=$1 AND b.deleted_at IS NULL FOR UPDATE`, buyerID, currency)
 	br := tx.SendBatch(ctx, batch)
@@ -142,10 +138,11 @@ func evaluateRealtimeBuyerFunding(ctx context.Context, tx pgx.Tx, buyerID uuid.U
 		return fmt.Errorf("realtime funding need must be non-negative")
 	}
 	// +prepaidDebited undoes double-count: spent includes buyer_charge while
-	// balance already fell on prepaid_debit. prepaid_restore rows for
-	// execution-contract internal refunds net that add-back when buyer_refund
-	// has zeroed spent (see restorePrepaidForExecutionContractRefundTx). SLA
-	// premium restores deliberately do not enter this sum.
+	// balance already fell on prepaid_debit. Every KindPrepaidRestore nets that
+	// add-back when buyer_refund has zeroed spent (realtime refund, dispute
+	// refund). SLA premium materialisation uses KindPrepaidBalanceReturn and
+	// deliberately does not enter this sum — sla_refund is outside spent, so
+	// the debit must keep cancelling the still-present premium charge.
 	availableMicros := usdToMicros(freeCredit) + prepaidMicros -
 		usdToMicros(spent) + usdToMicros(prepaidDebited) -
 		committedMicros

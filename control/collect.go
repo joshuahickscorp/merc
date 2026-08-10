@@ -748,8 +748,9 @@ func (s *Store) SettleJobSLA(ctx context.Context, jobID uuid.UUID) (SLASettleRes
 		// Prepaid finalize debited the premium from buyer_prepaid_balances. The
 		// sla_refund ledger credit alone does not re-materialise that cash; an
 		// admin prepaid refund would then be unable to return it. Restore the
-		// refund amount (≤ debit) when a prepaid-sla debit exists. Idempotent
-		// on prepaid_restore payout_ref; no-op when the premium was card/free.
+		// refund amount (≤ debit) when a prepaid-sla debit exists via
+		// KindPrepaidBalanceReturn (balance only; does not net capacity).
+		// Idempotent on payout_ref; no-op when the premium was card/free.
 		if err := restorePrepaidForSLAPremiumRefundTx(
 			ctx, tx, buyerID, jobID, boundCurrency, usdToMicros(refund),
 		); err != nil {

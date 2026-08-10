@@ -27,13 +27,23 @@ const (
 	KindPlatformRefund = "platform_refund"
 	KindPrepaidTopup   = "prepaid_topup"
 	KindPrepaidDebit   = "prepaid_debit"
-	// KindPrepaidRestore reverses a prepaid_debit on an internal refund path
-	// (realtime full credit, SLA premium miss). Positive amount; nets against
-	// prepaid_debit in capacity formulas that add back debits to avoid double
-	// counting with buyer_charge. Not a cash top-up.
+	// KindPrepaidRestore re-materialises prepaid after an internal refund that
+	// zeros spent (buyer_refund on the charge the debit funded). Positive
+	// amount. Every row of this kind nets against prepaid_debit in capacity
+	// formulas that add debits back to avoid double-counting with
+	// buyer_charge — the formula matches the kind, not a payout_ref prefix.
+	// Not a cash top-up.
 	KindPrepaidRestore = "prepaid_restore"
-	KindPrepaidRefund  = "prepaid_refund"
-	KindStripeFee      = "stripe_fee"
+	// KindPrepaidBalanceReturn re-materialises prepaid cash when the matching
+	// buyer_charge remains inside the spent sum (SLA premium miss: sla_refund
+	// is not in buyer spent). Positive amount. Does NOT enter capacity
+	// prepaidDebited netting — the debit must keep cancelling the still-present
+	// charge. Not a cash top-up. Typed distinctly from KindPrepaidRestore so a
+	// future writer cannot silently fail to net (or incorrectly net) by
+	// forgetting a string prefix.
+	KindPrepaidBalanceReturn = "prepaid_balance_return"
+	KindPrepaidRefund        = "prepaid_refund"
+	KindStripeFee            = "stripe_fee"
 )
 
 // Buyer-refund funding destinations after an internal ledger credit is recorded.

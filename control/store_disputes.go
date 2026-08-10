@@ -715,7 +715,11 @@ func applyDisputeBuyerRefundFundingTx(
 	case prepaidRestoreMicros > 0:
 		funding = refundFundingPrepaidBalance
 		externalCash = "NOT_APPLICABLE"
-		if err := creditPrepaidBalanceTx(ctx, tx, buyerID, prepaidRestoreMicros, refund.Currency); err != nil {
+		// KindPrepaidRestore per refunded task (idempotent on task debit). Bare
+		// creditPrepaidBalanceTx without a restore receipt leaves prepaidDebited
+		// counting the original debit after buyer_refund zeros spent — phantom
+		// realtime capacity of exactly D, mintable again on re-entry.
+		if err := restorePrepaidForDisputeJobTasksTx(ctx, tx, buyerID, jobID, refund.Currency); err != nil {
 			return "", err
 		}
 	case refund.BuyerRefundMicros > 0 && hasCardCollection:

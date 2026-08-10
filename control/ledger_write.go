@@ -503,7 +503,8 @@ func resolveLedgerInsert(e ledgerInsert) (ledgerInsert, error) {
 	case ledgerCurrencyAuthorityNone:
 	case ledgerCurrencyAuthorityPrepaid:
 		sourceBound = e.Kind == KindPrepaidTopup || e.Kind == KindPrepaidDebit ||
-			e.Kind == KindPrepaidRestore || e.Kind == KindPrepaidRefund
+			e.Kind == KindPrepaidRestore || e.Kind == KindPrepaidBalanceReturn ||
+			e.Kind == KindPrepaidRefund
 	case ledgerCurrencyAuthorityExecutionContract:
 		sourceBound = e.ExecutionContractID != nil
 	case ledgerCurrencyAuthorityJob:
