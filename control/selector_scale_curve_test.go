@@ -34,6 +34,7 @@ import (
 	"runtime"
 	"runtime/debug"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -58,10 +59,80 @@ const (
 	selectorScaleConcurrencyHigh      = 8 // multi-poller contention; not host saturation
 	selectorScaleJobBacklog           = 200
 	selectorScaleCopyChunk            = 20_000
-	selectorScaleEvidenceRel          = "evidence/perf/selector-scale-curve.json"
+	// Production supplier cadence: agent/src/vllm.rs HEARTBEAT_INTERVAL is 15s
+	// against the 45s liveness window. The harness beats at the same rate so it
+	// measures selection over a live book, not over a book it let die.
+	selectorScaleHeartbeatInterval = 15 * time.Second
+	// The window the heartbeat is racing: realtime_store.go:1099 and the lease
+	// offer predicate both admit supply seen within 45 seconds.
+	selectorScaleLivenessWindow = 45 * time.Second
+	selectorScaleEvidenceRel    = "evidence/perf/selector-scale-curve.json"
+	// A narrowed run writes here so it can never be mistaken for, or overwrite,
+	// the curve.
+	selectorScaleDiagnosticEvidenceRel = "evidence/perf/selector-scale-diagnostic.json"
 )
 
 var selectorScaleLadder = []int{1_000, 10_000, 100_000, 1_000_000}
+
+// A full ladder is 1.4 hours. Diagnosing one bad cell should not cost that, and
+// the first run's realtime failure was diagnosed by re-reading an artifact
+// rather than by asking the one question that would have answered it — because
+// asking it meant buying the whole campaign again.
+//
+// These narrow the run. A narrowed run is NOT a scale curve, so the artifact
+// records the filter and marks itself partial; nothing downstream may read a
+// diagnostic artifact as the curve.
+const (
+	selectorScaleLanesEnv  = "MERC_SELECTOR_SCALE_LANES"
+	selectorScaleLadderEnv = "MERC_SELECTOR_SCALE_LADDER"
+)
+
+func selectorScaleSelectedLanes() ([]string, bool) {
+	all := []string{"batch", "realtime", "service_lease"}
+	raw := strings.TrimSpace(os.Getenv(selectorScaleLanesEnv))
+	if raw == "" {
+		return all, false
+	}
+	allowed := map[string]bool{}
+	for _, l := range all {
+		allowed[l] = true
+	}
+	var out []string
+	for _, want := range strings.Split(raw, ",") {
+		want = strings.TrimSpace(want)
+		if allowed[want] {
+			out = append(out, want)
+		}
+	}
+	if len(out) == 0 {
+		return all, false
+	}
+	return out, true
+}
+
+func selectorScaleSelectedLadder(t *testing.T) ([]int, bool) {
+	raw := strings.TrimSpace(os.Getenv(selectorScaleLadderEnv))
+	if raw == "" {
+		return selectorScaleLadder, false
+	}
+	var out []int
+	for _, field := range strings.Split(raw, ",") {
+		field = strings.TrimSpace(field)
+		if field == "" {
+			continue
+		}
+		n, err := strconv.Atoi(field)
+		if err != nil || n <= 0 {
+			t.Fatalf("%s=%q: %q is not a positive scale", selectorScaleLadderEnv, raw, field)
+		}
+		out = append(out, n)
+	}
+	if len(out) == 0 {
+		return selectorScaleLadder, false
+	}
+	sort.Ints(out)
+	return out, true
+}
 
 // Bible scale targets (recorded as targets only; harness never marks them met).
 var selectorScaleTargetsMS = map[int]float64{
@@ -123,9 +194,23 @@ func TestSelectorScaleCurve(t *testing.T) {
 		Lanes:     map[string]selectorScaleLane{},
 	}
 
+	lanes, lanesFiltered := selectorScaleSelectedLanes()
+	ladder, ladderFiltered := selectorScaleSelectedLadder(t)
+	if lanesFiltered || ladderFiltered {
+		report.Partial = &selectorScalePartial{
+			Filtered:           true,
+			Lanes:              lanes,
+			Ladder:             ladder,
+			LanesEnv:           os.Getenv(selectorScaleLanesEnv),
+			LadderEnv:          os.Getenv(selectorScaleLadderEnv),
+			WhyThisIsNotACurve: "A filtered run measures the cells asked for and nothing else. It is a diagnostic. It may not be read as, compared against, or substituted for the full scale curve, and no target may be judged from it.",
+		}
+		t.Logf("DIAGNOSTIC RUN (not a curve): lanes=%v ladder=%v", lanes, ladder)
+	}
+
 	// Run lanes serially so fleet tables do not fight each other for RAM/disk.
-	for _, lane := range []string{"batch", "realtime", "service_lease"} {
-		laneReport, refusals := runSelectorScaleLane(t, ctx, store, pool, profile, lane)
+	for _, lane := range lanes {
+		laneReport, refusals := runSelectorScaleLane(t, ctx, store, pool, profile, lane, ladder)
 		report.Lanes[lane] = laneReport
 		report.Refusals = append(report.Refusals, refusals...)
 		for _, p := range laneReport.Points {
@@ -143,8 +228,12 @@ func TestSelectorScaleCurve(t *testing.T) {
 	if err := writeSelectorScaleEvidence(report); err != nil {
 		t.Fatalf("write evidence: %v", err)
 	}
+	wrote := selectorScaleEvidenceRel
+	if report.Partial != nil {
+		wrote = selectorScaleDiagnosticEvidenceRel
+	}
 	t.Logf("wrote %s (wall=%.1fs load_before=%v load_after=%v defects=%d)",
-		selectorScaleEvidenceRel, report.WallClockSeconds, loadBefore, loadAfter, len(report.Defects))
+		wrote, report.WallClockSeconds, loadBefore, loadAfter, len(report.Defects))
 }
 
 // --- report types -----------------------------------------------------------
@@ -166,6 +255,7 @@ type selectorScaleReport struct {
 	TargetsMS           map[int]float64                  `json:"bible_targets_ms"`
 	Lanes               map[string]selectorScaleLane     `json:"lanes"`
 	Refusals            []selectorScaleRefusal           `json:"refusals,omitempty"`
+	Partial             *selectorScalePartial            `json:"partial_diagnostic_run,omitempty"`
 	Defects             []selectorScaleDefect            `json:"defects,omitempty"`
 }
 
@@ -178,6 +268,18 @@ type selectorScaleMeasurementProtocol struct {
 	AxisLabelling             string `json:"axis_labelling"`
 	RealtimeAxisHypothesis    string `json:"realtime_axis_hypothesis"`
 	TargetMetPolicy           string `json:"target_met_policy"`
+}
+
+// selectorScalePartial marks an artifact produced by a narrowed run. Its
+// presence is the refusal: a reader that finds this field is holding a
+// diagnostic, not a curve.
+type selectorScalePartial struct {
+	Filtered           bool     `json:"filtered"`
+	Lanes              []string `json:"lanes_measured"`
+	Ladder             []int    `json:"ladder_measured"`
+	LanesEnv           string   `json:"lanes_env,omitempty"`
+	LadderEnv          string   `json:"ladder_env,omitempty"`
+	WhyThisIsNotACurve string   `json:"why_this_is_not_a_curve"`
 }
 
 // selectorScaleDefect is a measured anomaly that must not be quoted as a
@@ -255,6 +357,12 @@ type selectorScaleWarmupEvidence struct {
 	FirstTimedSampleMSByCell map[string]float64 `json:"first_timed_sample_ms_by_cell,omitempty"`
 	SampleFailuresInWarmup   map[string]int     `json:"sample_failures_in_warmup,omitempty"`
 	SampleFailuresInTimed    map[string]int     `json:"sample_failures_in_timed,omitempty"`
+	// Supplier-heartbeat sweeps run during the cell at the production cadence,
+	// with their measured cost. Selection is timed against a live book, and the
+	// cost of keeping it live is contention the artifact must show.
+	HeartbeatSweepsByCell    map[string]int     `json:"heartbeat_sweeps_by_cell,omitempty"`
+	HeartbeatMeanMSByCell    map[string]float64 `json:"heartbeat_mean_ms_by_cell,omitempty"`
+	HeartbeatSlowestMSByCell map[string]float64 `json:"heartbeat_slowest_ms_by_cell,omitempty"`
 	Note                     string             `json:"note"`
 }
 
@@ -421,7 +529,7 @@ func verifySelectorScaleEligibility(t *testing.T, ctx context.Context, store *St
 
 func runSelectorScaleLane(
 	t *testing.T, ctx context.Context, store *Store, pool *pgxpool.Pool,
-	profile VLLMRuntimeProfile, lane string,
+	profile VLLMRuntimeProfile, lane string, ladder []int,
 ) (selectorScaleLane, []selectorScaleRefusal) {
 	t.Helper()
 	var out selectorScaleLane
@@ -460,7 +568,7 @@ func runSelectorScaleLane(
 	var lastWall float64
 	firstPoint := true
 
-	for _, scale := range selectorScaleLadder {
+	for _, scale := range ladder {
 		t.Logf("lane=%s scale=%d seeding…", lane, scale)
 		point, refuse, err := measureSelectorScalePoint(t, ctx, store, pool, profile, lane, scale, out.SQLTextDigest, firstPoint, out.IndependentVariable)
 		if err != nil {
@@ -623,6 +731,9 @@ func measureSelectorScalePoint(
 		FirstTimedSampleMSByCell:       map[string]float64{},
 		SampleFailuresInWarmup:         map[string]int{},
 		SampleFailuresInTimed:          map[string]int{},
+		HeartbeatSweepsByCell:          map[string]int{},
+		HeartbeatMeanMSByCell:          map[string]float64{},
+		HeartbeatSlowestMSByCell:       map[string]float64{},
 		Note:                           "Timed wall_ms excludes every discarded warm-up call. Coldest discarded vs first timed sample shows whether plan/cache cold-start was removed from the percentile set.",
 	}
 	if isLaneFirstTimedPoint {
@@ -660,8 +771,9 @@ func measureSelectorScalePoint(
 			point.Notes += fmt.Sprintf("; ALL_FAILED_c%d n=%d (wall_ms is failure latency, not selection cost)", conc, len(result.Timed))
 			point.Defects = append(point.Defects, selectorScaleDefect{
 				Lane: lane, Scale: scale, Cell: key, Kind: "all_samples_failed",
-				Summary:  fmt.Sprintf("%s %s scale=%d: every timed sample failed", lane, key, scale),
-				Evidence: fmt.Sprintf("timed_failures=%d timed_n=%d; wall_ms reflects error-path latency only", result.TimedFailures, len(result.Timed)),
+				Summary: fmt.Sprintf("%s %s scale=%d: every timed sample failed (%s)", lane, key, scale, firstErrorText(result)),
+				Evidence: fmt.Sprintf("timed_failures=%d timed_n=%d; wall_ms reflects error-path latency only; errors=%v",
+					result.TimedFailures, len(result.Timed), result.DistinctErrors),
 			})
 		} else {
 			point.WallMS[key] = latencyFromDurations(successTimed)
@@ -683,6 +795,23 @@ func measureSelectorScalePoint(
 		}
 		warmEv.SampleFailuresInWarmup[key] = result.WarmupFailures
 		warmEv.SampleFailuresInTimed[key] = result.TimedFailures
+		if result.HeartbeatSweeps > 0 {
+			warmEv.HeartbeatSweepsByCell[key] = result.HeartbeatSweeps
+			warmEv.HeartbeatMeanMSByCell[key] = result.HeartbeatMeanMS
+			warmEv.HeartbeatSlowestMSByCell[key] = result.HeartbeatSlowestMS
+			// A sweep that outlasts the window cannot keep the book alive, so
+			// any measurement over that book is bounded by the harness, not by
+			// the selector. Say so rather than publish the number quietly.
+			if result.HeartbeatSlowestMS > float64(selectorScaleLivenessWindow/time.Millisecond) {
+				point.Defects = append(point.Defects, selectorScaleDefect{
+					Lane: lane, Scale: scale, Cell: key, Kind: "heartbeat_slower_than_liveness_window",
+					Summary: fmt.Sprintf("%s %s scale=%d: a supplier-heartbeat sweep took %.0fms against a %s liveness window",
+						lane, key, scale, result.HeartbeatSlowestMS, selectorScaleLivenessWindow),
+					Evidence: fmt.Sprintf("sweeps=%d mean=%.0fms slowest=%.0fms; the harness cannot hold a book this large alive at the production cadence on this host, so selection cost at this scale is harness-bounded",
+						result.HeartbeatSweeps, result.HeartbeatMeanMS, result.HeartbeatSlowestMS),
+				})
+			}
+		}
 		if nSamples < selectorScaleSamples {
 			point.Notes += fmt.Sprintf("; samples_c%d=%d (reduced at this scale for wall budget; p99 less stable)", conc, nSamples)
 		}
@@ -776,6 +905,15 @@ type selectorScaleSampleResult struct {
 	// Fail flags aligned with Warmup/Timed slices (true = production call errored / no work).
 	WarmupFailFlags []bool
 	TimedFailFlags  []bool
+	// FirstError and DistinctErrors name what refused, so a wholly-failed cell
+	// is a diagnosis rather than only an alarm.
+	FirstError     *string
+	DistinctErrors []string
+	// Heartbeat cost during this cell. A sweep that does not fit inside the
+	// liveness window is a measurement limit worth publishing.
+	HeartbeatSweeps    int
+	HeartbeatMeanMS    float64
+	HeartbeatSlowestMS float64
 }
 
 func measureSelectorScaleSamples(
@@ -794,6 +932,20 @@ func measureSelectorScaleSamples(
 	raw := make([]time.Duration, total)
 	failFlags := make([]bool, total)
 	var fail atomic.Int32
+
+	// A cell that reports "every sample failed" without saying WHY is half a
+	// finding. The first run's realtime cells at 100k and 1M read 8.8ms and
+	// 17.9ms p50 — under target — because a refusal is fast; the defect record
+	// caught that they were refusals but could not say what refused, so the
+	// diagnosis cost a second run. Record the error text with the count.
+	var firstErr atomic.Pointer[string]
+	var errKinds sync.Map
+	noteErr := func(err error) {
+		msg := err.Error()
+		firstErr.CompareAndSwap(nil, &msg)
+		n, _ := errKinds.LoadOrStore(msg, new(int64))
+		atomic.AddInt64(n.(*int64), 1)
+	}
 
 	var maxUSD, estUSD float64
 	var maxPrompt, maxCompletion int64
@@ -838,6 +990,7 @@ func measureSelectorScaleSamples(
 			if err := ensureQueuedBatchTask(ctx, pool, b); err != nil {
 				fail.Add(1)
 				failFlags[idx] = true
+				noteErr(err)
 				raw[idx] = time.Since(start)
 				return
 			}
@@ -902,9 +1055,64 @@ func measureSelectorScaleSamples(
 		if callErr != nil {
 			fail.Add(1)
 			failFlags[idx] = true
+			noteErr(callErr)
 			// Do not t.Error from workers (racy); count only.
 		}
 	}
+
+	// A real supply book does not sit still. Suppliers re-register every 15s
+	// (agent/src/vllm.rs HEARTBEAT_INTERVAL) against the 45s liveness window in
+	// realtime_store.go:1099, so in production the book is continuously alive.
+	//
+	// A harness that seeds once and then measures has no heartbeat, and at 100k
+	// one authorization takes ~14s — three consecutive calls outlive the window
+	// and the book goes dark underneath the scan. That produced `no active
+	// compatible realtime supply` on every sample at 100k and 1M, timed at
+	// 8.8ms and 17.9ms, which are the two fastest numbers in the artifact and
+	// mean nothing. Refusal is fast.
+	//
+	// So the heartbeat runs at the production cadence for the lanes that have a
+	// liveness window. It contends with the selection SQL exactly as a real
+	// supplier fleet's registrations would; its own cost is measured rather
+	// than assumed, because at a large book the sweep may not fit in the
+	// window, and that would be a finding rather than something to hide.
+	var beats atomic.Int64
+	var beatNanos atomic.Int64
+	var beatSlowest atomic.Int64
+	stopBeat := make(chan struct{})
+	var beatWG sync.WaitGroup
+	if lane == "realtime" || lane == "service_lease" {
+		beatWG.Add(1)
+		go func() {
+			defer beatWG.Done()
+			tick := time.NewTicker(selectorScaleHeartbeatInterval)
+			defer tick.Stop()
+			for {
+				select {
+				case <-stopBeat:
+					return
+				case <-tick.C:
+					start := time.Now()
+					if err := refreshSelectorScaleLiveness(ctx, pool, profile, region); err != nil {
+						continue
+					}
+					took := time.Since(start).Nanoseconds()
+					beats.Add(1)
+					beatNanos.Add(took)
+					for {
+						prev := beatSlowest.Load()
+						if took <= prev || beatSlowest.CompareAndSwap(prev, took) {
+							break
+						}
+					}
+				}
+			}
+		}()
+	}
+	defer func() {
+		close(stopBeat)
+		beatWG.Wait()
+	}()
 
 	// Phase 1: serial warm-up (always concurrency=1 shape) so plan compile and
 	// cold shared-buffers land in the discarded set, not the timed percentiles.
@@ -944,6 +1152,24 @@ func measureSelectorScaleSamples(
 	}
 	out.WarmupFailures = countTrue(out.WarmupFailFlags)
 	out.TimedFailures = countTrue(out.TimedFailFlags)
+	out.FirstError, out.DistinctErrors = firstErr.Load(), distinctErrorList(&errKinds)
+	if n := beats.Load(); n > 0 {
+		out.HeartbeatSweeps = int(n)
+		out.HeartbeatMeanMS = float64(beatNanos.Load()) / float64(n) / float64(time.Millisecond)
+		out.HeartbeatSlowestMS = float64(beatSlowest.Load()) / float64(time.Millisecond)
+	}
+	return out
+}
+
+// distinctErrorList renders the observed error texts, so a cell that failed
+// wholly for one reason reads differently from a cell that failed for several.
+func distinctErrorList(m *sync.Map) []string {
+	var out []string
+	m.Range(func(k, v any) bool {
+		out = append(out, fmt.Sprintf("%s (x%d)", k.(string), *v.(*int64)))
+		return true
+	})
+	sort.Strings(out)
 	return out
 }
 
@@ -1782,7 +2008,15 @@ func mercSourceCommitSHA() string {
 
 func writeSelectorScaleEvidence(report selectorScaleReport) error {
 	// control/ tests run with cwd=control/; evidence lives at repo root.
-	path := filepath.Join("..", selectorScaleEvidenceRel)
+	//
+	// A diagnostic run writes beside the curve, never over it. Overwriting would
+	// destroy 1.4 hours of measurement with three cells and leave an artifact
+	// whose filename still claims to be the curve.
+	rel := selectorScaleEvidenceRel
+	if report.Partial != nil {
+		rel = selectorScaleDiagnosticEvidenceRel
+	}
+	path := filepath.Join("..", rel)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
@@ -1792,4 +2026,13 @@ func writeSelectorScaleEvidence(report selectorScaleReport) error {
 	}
 	raw = append(raw, '\n')
 	return os.WriteFile(path, raw, 0o644)
+}
+
+// firstErrorText names what a cell refused with, or says plainly that nothing
+// was captured — never an empty string that reads as "no error".
+func firstErrorText(r selectorScaleSampleResult) string {
+	if r.FirstError == nil {
+		return "no error text captured"
+	}
+	return *r.FirstError
 }
