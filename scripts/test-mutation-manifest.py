@@ -27,8 +27,8 @@ def main() -> int:
     run("--validate")
     payload = json.loads(MANIFEST.read_text(encoding="utf-8"))
     mutations = payload.get("mutations", [])
-    if len(mutations) != 109 or [item["id"] for item in mutations] != list(range(1, 110)):
-        raise SystemExit("manifest does not contain exactly the 109 declared mutations")
+    if len(mutations) != 124 or [item["id"] for item in mutations] != list(range(1, 125)):
+        raise SystemExit("manifest does not contain exactly the 124 declared mutations")
     if any(not item["required_invariant_contracts"] for item in mutations):
         raise SystemExit("manifest has a mutation without invariant contracts")
     original_sample_counts = {item["id"]: len(item["historical"]["samples_seconds"]) for item in mutations}
@@ -104,7 +104,7 @@ def main() -> int:
         )
         if result.returncode == 0:
             raise SystemExit("manifest accepted duplicate timing records")
-    print("test-mutation-manifest: PASS 109 exact mutations and timing guards")
+    print("test-mutation-manifest: PASS 124 exact mutations and timing guards")
     return 0
 
 

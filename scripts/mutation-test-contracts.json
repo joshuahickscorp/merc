@@ -21,6 +21,9 @@
       "realtime_funding_hold_precision_test.go",
       "prepaid_envelope_expiry_reservation_test.go"
     ],
+    "claim_narrowing.go": [
+      "claim_narrowing_test.go"
+    ],
     "compute_plan.go": [
       "compute_plan_test.go",
       "project_quote_test.go"
@@ -32,6 +35,9 @@
       "cost_schedule_currency_test.go",
       "pricing_decision_catalogue_anchor_test.go"
     ],
+    "evidence_envelope.go": [
+      "evidence_envelope_test.go"
+    ],
     "exact_reuse.go": [
       "exact_reuse_test.go",
       "exact_reuse_authority_test.go",
@@ -42,6 +48,13 @@
       "reuse_money_wiring_test.go",
       "project_order_test.go",
       "job_task_money_integration_test.go"
+    ],
+    "fabric_topology_planner.go": [
+      "topology_planner_test.go",
+      "topology_decision_test.go"
+    ],
+    "market_decision.go": [
+      "market_decision_test.go"
     ],
     "money_nanos.go": [
       "money_nanos_test.go",
@@ -77,6 +90,10 @@
       "realtime_test.go",
       "realtime_pricing_decision_test.go",
       "realtime_reuse_pricing_decision_test.go"
+    ],
+    "realtime_clearing.go": [
+      "realtime_clearing_test.go",
+      "market_decision_test.go"
     ],
     "realtime_currency_authority.go": [
       "realtime_currency_authority_test.go",
@@ -114,6 +131,9 @@
     "runtime_cost_tie_authority.go": [
       "runtime_cost_tie_authority_test.go"
     ],
+    "runtime_decision.go": [
+      "runtime_decision_test.go"
+    ],
     "runtime_governed_comparison.go": [
       "runtime_governed_comparison_test.go"
     ],
@@ -139,6 +159,12 @@
     ],
     "supplier_accrual.go": [
       "supplier_accrual_test.go"
+    ],
+    "topology_decision.go": [
+      "topology_decision_test.go"
+    ],
+    "worker_placement.go": [
+      "worker_placement_test.go"
     ],
     "workload_classification.go": [
       "workload_classification_test.go"
