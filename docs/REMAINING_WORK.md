@@ -71,10 +71,10 @@ design report exists for both.
 | **G016** Step 16 | Workload graph survives compile→receipt; IR currently flattens | [auto] |
 | **G017/G019/G020** | Twin harness + fleets + scale curves. **The selector is SQL inside Postgres** — no extracted `Select(epoch, request)` exists, so the twin must drive production's own entry points. A Go stand-in would produce numbers shaped like the targets and meaning nothing | [auto] |
 | **G018** Step 18 | Hierarchical indexes. Realtime/service are already profile-scoped; the residual is batch's fleet-relative `EXISTS` per eligible job | [auto] |
-| **G021** Step 21 | Replay needs capture that was never taken — the first obligation is the capture, not the replay | [auto] |
+| **G021** Step 21 | Capture is **partly already there**: the batch lane's actuals decompose from existing populated timestamps (landed 2026-08-10), realtime needs real new columns for the queue/startup/prefill split inside TTFT, and leases are a continuous metered contract whose "phases" need defining before capture. The prediction side is untouched | [auto] |
 | **G022** Step 22 | Network-fault mutants. Work exists but **collided on IDs 105–109** with the open-exposure mutants; needs re-authoring from 110 | [auto] |
 | **G025** Step 25 | Adapters/datasets/render/layers/kernels are ABSENT as elimination classes, not near-term | [auto] |
-| **G053** | Per-phase predicted-vs-actual. Total-duration prediction already exists (`eta_calibration`); **no queue-wait, startup or cold-start column exists anywhere** | [auto] |
+| **G053** | Per-phase predicted-vs-actual. Total-duration prediction already exists (`eta_calibration`). The "no queue-wait, startup or cold-start column exists anywhere" claim was **true of column names and false about the data** — corrected 2026-08-10. Batch decomposes with no migration from timestamps production already writes (`created_at`, `visible_at`, `claimed_at`, `started_at`, `completed_at`, `verified_at`), and `DecomposeTaskPhases` now does it. Realtime genuinely lacks the split: it has only contract `created_at`→`finalized_at` plus `time_to_first_event_ms`, and TTFT conflates queue, startup and prefill. What remains everywhere is the per-phase **prediction** to regret against | [auto] |
 | **G062** | 3 stale mutants (28, 29, 34) orphaned by the money-rail rewrite + 3 real survivors | [auto] |
 | **G048/G049/G050** | Narrowing ladder; tail-latency law; validation rhythm timings (needs a quiet box — measured under load 60–180 tonight, so not quotable) | [auto] |
 
