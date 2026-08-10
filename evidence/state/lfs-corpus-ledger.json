@@ -4,7 +4,7 @@
   "binding_status": "BOUND",
   "producer_identity": {
     "source_commit": {
-      "value": "03f07d36781626665bd3f4285efefcc492cb6bda"
+      "value": "50eee0ec"
     },
     "build_digest": {
       "na": "ledger of expected corpus counts; no binary produced"
@@ -29,8 +29,8 @@
     }
   },
   "expected": {
-    "tracked_pointer_files": 90,
-    "unique_payload_oids": 75,
+    "tracked_pointer_files": 92,
+    "unique_payload_oids": 77,
     "missing_objects": 0,
     "corrupt_objects": 0,
     "resolved_payload_mismatches": 0
@@ -43,5 +43,13 @@
     "authority": "sha256(resolved payload bytes) must equal the pointer oid; computed by scripts/verify-lfs-corpus.py and control/lfs_corpus_integrity_test.go. git lfs fsck is a supplementary cross-check only \u2014 it returned OK while two objects were corrupt on 2026-08-04 (see evidence/state/lfs-corruption-incident-20260804.json).",
     "drift": "If the tree legitimately gains or loses an evidence file, the gate must fail with 'N pointers, expected 88 \u2014 update the ledger' rather than silently pass. Edit this file when updating the expected counts; never silence a real integrity failure by raising the expected-corrupt counter.",
     "citation": "refuse citation of any LFS path when missing, corrupt, or worktree-mismatched"
-  }
+  },
+  "change_log": [
+    {
+      "at_commit": "50eee0ec",
+      "tracked_pointer_files": "90 -> 92",
+      "unique_payload_oids": "75 -> 77",
+      "why": "Two new perf artifacts under evidence/perf/, both LFS-tracked by the existing attribute: selector-scale-diagnostic.json (filtered diagnostic runs, written beside the scale curve so a partial run can never overwrite it) and realtime-candidate-projection-ab.json (the paired A/B behind the candidate-projection change). Both are new content, so pointers and OIDs move together and the 15 content-addressed aliases are unchanged."
+    }
+  ]
 }
