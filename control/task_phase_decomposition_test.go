@@ -77,7 +77,8 @@ func TestTaskPhaseDecompositionMeasuresWhatHappenedAndRefusesTheRest(t *testing.
 		}
 		// The phases must account for the total, or the decomposition is
 		// describing a different task than the one it measured.
-		sum := got.Queue.DurationMS + got.Startup.DurationMS + got.Runtime.DurationMS + got.Verification.DurationMS
+		sum := got.Backoff.DurationMS + got.Queue.DurationMS + got.Startup.DurationMS +
+			got.Runtime.DurationMS + got.Verification.DurationMS
 		if sum != got.Total.DurationMS {
 			t.Fatalf("phases sum to %.0fms but total is %.0fms; %.0fms of the task's life is "+
 				"unaccounted for", sum, got.Total.DurationMS, got.Total.DurationMS-sum)
@@ -96,16 +97,32 @@ func TestTaskPhaseDecompositionMeasuresWhatHappenedAndRefusesTheRest(t *testing.
 		}
 	})
 
-	t.Run("retry backoff is not counted as queue wait", func(t *testing.T) {
+	t.Run("retry backoff is its own span, not queue wait and not lost", func(t *testing.T) {
 		// Created an hour ago, invisible for the first 30s of backoff, claimed
-		// 10s after becoming visible. The market waited 10s, not 40s.
-		id := newTask(at(0), at(30*time.Second), at(40*time.Second), nil, nil, nil, nil)
+		// 10s after becoming visible. The market waited 10s, not 40s — and the
+		// 30s merc itself chose to wait must still appear somewhere.
+		id := newTask(at(0), at(30*time.Second), at(40*time.Second),
+			at(41*time.Second), at(42*time.Second), at(43*time.Second), nil)
 		got, err := DecomposeTaskPhases(ctx, pool, id)
 		must(t, err)
 		if !got.Queue.Known || got.Queue.DurationMS != 10_000 {
 			t.Fatalf("queue = %.0fms (known=%v), want 10000ms measured from visible_at; "+
 				"counting retry backoff as queue wait blames the market for the retry policy's delay",
 				got.Queue.DurationMS, got.Queue.Known)
+		}
+		if !got.Backoff.Known || got.Backoff.DurationMS != 30_000 {
+			t.Fatalf("backoff = %.0fms (known=%v), want 30000ms; the delay merc's own retry "+
+				"policy imposed must be attributed, not deleted",
+				got.Backoff.DurationMS, got.Backoff.Known)
+		}
+		// And with backoff named, the accounting closes on a retried task too —
+		// which it did NOT before backoff existed, precisely on the tasks that
+		// took longest.
+		sum := got.Backoff.DurationMS + got.Queue.DurationMS + got.Startup.DurationMS +
+			got.Runtime.DurationMS + got.Verification.DurationMS
+		if sum != got.Total.DurationMS {
+			t.Fatalf("a retried task's phases sum to %.0fms against a total of %.0fms; "+
+				"%.0fms went unattributed", sum, got.Total.DurationMS, got.Total.DurationMS-sum)
 		}
 	})
 
@@ -125,9 +142,18 @@ func TestTaskPhaseDecompositionMeasuresWhatHappenedAndRefusesTheRest(t *testing.
 				t.Fatalf("%s is unknown but does not say which timestamp was missing", name)
 			}
 		}
-		if n := len(got.KnownPhases()); n != 1 {
-			t.Fatalf("KnownPhases returned %d spans for a task with only a queue wait; "+
-				"an aggregator using it would average in phases that were never observed", n)
+		// Two known spans: the queue wait, and a zero-length backoff. A first
+		// attempt genuinely had no retry delay — that is a measured fact, not an
+		// absent measurement, and it is the one case where zero is the honest
+		// answer rather than the dangerous one.
+		if n := len(got.KnownPhases()); n != 2 {
+			t.Fatalf("KnownPhases returned %d spans for a task that queued and never started; "+
+				"want 2 (queue, plus a zero-length backoff) — an aggregator using this must not "+
+				"average in phases that were never observed, nor drop one that was", n)
+		}
+		if !got.Backoff.Known || got.Backoff.DurationMS != 0 {
+			t.Fatalf("first-attempt backoff = %.0fms (known=%v), want a measured 0ms",
+				got.Backoff.DurationMS, got.Backoff.Known)
 		}
 	})
 

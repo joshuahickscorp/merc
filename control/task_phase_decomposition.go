@@ -57,10 +57,19 @@ type TaskPhaseDecomposition struct {
 	// Empty when the job predates the decision chain.
 	PricingDecisionSHA256 string `json:"pricing_decision_sha256,omitempty"`
 
-	// Queue is the wait between becoming claimable and being claimed. The start
-	// is max(created_at, visible_at): a retried task is invisible until its
-	// backoff expires, and counting the backoff as queue wait would blame the
-	// market for a delay the retry policy chose.
+	// Backoff is created_at to visible_at — the deliberate invisibility a retry
+	// policy imposes before the task may be claimed again. Zero-length for a
+	// first attempt.
+	//
+	// It exists as its own span rather than being folded into Queue because the
+	// two have different owners: backoff is merc's own retry policy choosing to
+	// wait, queue is the market failing to pick the work up. Blaming the market
+	// for a delay the platform chose is exactly the misattribution a latency
+	// atlas is supposed to prevent. But leaving the gap unnamed is no better —
+	// it would simply vanish from the accounting, and the phases would quietly
+	// fail to sum to the total on precisely the tasks that took longest.
+	Backoff TaskPhase `json:"backoff"`
+	// Queue is the wait between becoming claimable and being claimed.
 	Queue TaskPhase `json:"queue"`
 	// Startup is claim to execution start — dispatch, artifact and model load.
 	Startup TaskPhase `json:"startup"`
@@ -83,7 +92,7 @@ type TaskPhaseDecomposition struct {
 // aggregating percentiles cannot silently include a zero that means "no data".
 func (d TaskPhaseDecomposition) KnownPhases() []TaskPhase {
 	var out []TaskPhase
-	for _, p := range []TaskPhase{d.Queue, d.Startup, d.Runtime, d.Verification, d.Total} {
+	for _, p := range []TaskPhase{d.Backoff, d.Queue, d.Startup, d.Runtime, d.Verification, d.Total} {
 		if p.Known {
 			out = append(out, p)
 		}
@@ -163,6 +172,16 @@ func DecomposeTaskPhases(ctx context.Context, db ledgerExec, taskID uuid.UUID) (
 	}
 
 	claimable, claimableName := later(createdAt, visibleAt)
+	// Backoff is only a real span when the task was held invisible; when
+	// visible_at is at or before created_at there was no retry delay, and a
+	// zero-length measured span is the truthful answer rather than an unknown.
+	if createdAt != nil && visibleAt != nil && visibleAt.After(*createdAt) {
+		out.Backoff = measuredPhase("backoff", createdAt, visibleAt, "created_at", "visible_at")
+	} else if createdAt != nil {
+		out.Backoff = TaskPhase{Name: "backoff", Known: true}
+	} else {
+		out.Backoff = TaskPhase{Name: "backoff", Why: "created_at is unset"}
+	}
 	out.Queue = measuredPhase("queue", claimable, claimedAt, claimableName, "claimed_at")
 	out.Startup = measuredPhase("startup", claimedAt, startedAt, "claimed_at", "started_at")
 	out.Runtime = measuredPhase("runtime", startedAt, completedAt, "started_at", "completed_at")
