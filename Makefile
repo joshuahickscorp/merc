@@ -128,6 +128,7 @@ ci:
 	python3 scripts/verify-lfs-corpus.py
 	python3 scripts/test-evidence-writer-bypass.py
 	bash scripts/test-mutation-test-parallel.sh
+	bash scripts/test-mutation-load-preflight.sh
 	python3 scripts/test-mutation-test-contracts.py
 	python3 scripts/test-mutation-contract-observer.py
 	python3 scripts/test-mutation-suite-observer.py

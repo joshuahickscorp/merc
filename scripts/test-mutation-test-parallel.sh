@@ -10,7 +10,7 @@ plan="$(MERC_MUTATION_WORKERS=16 MERC_MUTATION_WALLCLOCK_SECONDS=1500 \
 printf '%s\n' "$plan"
 
 header="$(printf '%s\n' "$plan" | sed -n '1p')"
-printf '%s\n' "$header" | grep -Eq 'cases=124 workers=16 budget=1500s db=isolated-clusters strategy=adaptive gomaxprocs=1 sharding=weighted-p90-pure-warmup' || {
+printf '%s\n' "$header" | grep -Eq 'cases=125 workers=16 budget=1500s db=isolated-clusters strategy=adaptive gomaxprocs=1 sharding=weighted-p90-pure-warmup' || {
   echo "parallel mutation plan has an unexpected header" >&2
   exit 1
 }
@@ -20,7 +20,7 @@ count="$(printf '%s\n' "$ids" | sed '/^$/d' | wc -l | tr -d ' ')"
 unique="$(printf '%s\n' "$ids" | sed '/^$/d' | uniq | wc -l | tr -d ' ')"
 first="$(printf '%s\n' "$ids" | sed -n '1p')"
 last="$(printf '%s\n' "$ids" | sed -n '$p')"
-if [ "$count" != 124 ] || [ "$unique" != 124 ] || [ "$first" != 1 ] || [ "$last" != 124 ]; then
+if [ "$count" != 125 ] || [ "$unique" != 125 ] || [ "$first" != 1 ] || [ "$last" != 125 ]; then
   echo "parallel mutation plan drops or duplicates declared cases" >&2
   exit 1
 fi
@@ -71,7 +71,7 @@ subset_ids="$(printf '%s\n' "$subset" | sed -n 's/^  worker [0-9][0-9]: \(.*\) (
   echo "parallel mutation subset contains the wrong cases: $subset_ids" >&2
   exit 1
 }
-if MERC_MUTATION_PARALLEL_CASE_IDS=125 bash scripts/mutation-test-parallel.sh --plan >/dev/null 2>&1; then
+if MERC_MUTATION_PARALLEL_CASE_IDS=126 bash scripts/mutation-test-parallel.sh --plan >/dev/null 2>&1; then
   echo "parallel mutation runner accepted an unknown subset case" >&2
   exit 1
 fi
@@ -146,6 +146,13 @@ rg --fixed-strings 'MERC_MUTATION_PREFLIGHT_CACHE' scripts/mutation-test-paralle
 rg --fixed-strings 'preflight-db.json' scripts/mutation-test-parallel.sh >/dev/null
 rg --fixed-strings 'default_workers=16' scripts/mutation-test-parallel.sh >/dev/null
 rg --fixed-strings 'weighted-p90-pure-warmup' scripts/mutation-test-parallel.sh >/dev/null
+rg --fixed-strings 'source "$ROOT/scripts/lib/mutation-load-preflight.sh"' scripts/mutation-test-parallel.sh >/dev/null
+rg --fixed-strings 'mutation_run_load_preflight' scripts/mutation-test-parallel.sh >/dev/null
+rg --fixed-strings 'MERC_MUTATION_SUITE_TIMEOUT' scripts/mutation-test-parallel.sh >/dev/null
+rg --fixed-strings 'MERC_MUTATION_MIN_CPU_HEADROOM' scripts/mutation-test-parallel.sh >/dev/null
+rg --fixed-strings 'MERC_MUTATION_IGNORE_LOAD' scripts/mutation-test-parallel.sh >/dev/null
+rg --fixed-strings 'load_precondition_waived' scripts/mutation-test-parallel.sh >/dev/null
+rg --fixed-strings 'LC_ALL=C LANG=C pg_ctl' scripts/mutation-test-parallel.sh >/dev/null
 rg --fixed-strings 'MERC_TEST_S3_' scripts/mutation-preflight-cache.py >/dev/null
 rg --fixed-strings 'newArtifactHarness(' scripts/mutation-preflight-cache.py >/dev/null
 rg --fixed-strings 'NewStorageFromEnv(' scripts/mutation-preflight-cache.py >/dev/null
@@ -172,6 +179,17 @@ before('wait "${preflight_db_pids[$((lane - 1))]}"', 'cat "$log" >>"$run_root/pr
 before('cat "$log" >>"$run_root/preflight-db.json"', '--cache "$preflight_cache" --create')
 # Exact-clean proofs precede source-mutating worker launch.
 before('assert_exact_clean_worktree "$aggregate_unit_worktree"', 'export MERC_MUTATION_CASE_IDS="$shard_ids"')
+# Load preflight refuses before any worktree materialization.
+before('mutation_run_load_preflight', 'prepare_exact_worktree')
+# Measured baseline completes and derives the suite budget before aggregate
+# unit / DB suite preflights are launched under that budget.
+before('mutation_derive_suite_timeout_seconds', 'aggregate_unit_pid="$!"')
+before('export MERC_MUTATION_SUITE_TIMEOUT="$suite_timeout_seconds"', 'run_aggregate_db_lane')
 PY
 
-echo "test-mutation-test-parallel: PASS all 124 cases are uniquely sharded"
+if rg -n -F -- '-timeout=2m' scripts/mutation-test-parallel.sh; then
+  echo "parallel mutation runner still hard-codes -timeout=2m" >&2
+  exit 1
+fi
+
+echo "test-mutation-test-parallel: PASS all 125 cases are uniquely sharded"

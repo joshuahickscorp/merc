@@ -36,10 +36,21 @@ MERC_MUTATION_TIMINGS_FILE="${MERC_MUTATION_TIMINGS_FILE:-}"
 MERC_MUTATION_GLOBAL_UNIT_PREFLIGHT="${MERC_MUTATION_GLOBAL_UNIT_PREFLIGHT:-0}"
 MERC_MUTATION_PREFLIGHT_CACHE="${MERC_MUTATION_PREFLIGHT_CACHE:-}"
 MERC_MUTATION_DRY_ORDER="${MERC_MUTATION_DRY_ORDER:-0}"
+# Per go-test suite budget in seconds. The parallel campaign measures a clean-
+# source baseline B and exports max(120, 3*B). Standalone serial without that
+# export keeps the historical 120s floor so an unset env never silently lengthens
+# a budget; never raise this to make a red gate green.
+MERC_MUTATION_SUITE_TIMEOUT="${MERC_MUTATION_SUITE_TIMEOUT:-120}"
 MUTATION_LOCK=""
 BACKUP=""
 MUTATION_OBSERVATION=""
 MUTATION_PATHWAY=""
+
+if ! [[ "$MERC_MUTATION_SUITE_TIMEOUT" =~ ^[1-9][0-9]*$ ]]; then
+  echo "MERC_MUTATION_SUITE_TIMEOUT must be a positive integer number of seconds" >&2
+  exit 2
+fi
+MERC_MUTATION_SUITE_TIMEOUT_FLAG="${MERC_MUTATION_SUITE_TIMEOUT}s"
 
 # Canonical name is oracle. "full" and "whole-suite" are accepted aliases so
 # external callers keep working; the tier name "full" is unrelated (gate uses
@@ -125,7 +136,7 @@ run_unit_tests() {
   if (
     cd "$CONTROL" &&
       env -u MERC_TEST_DATABASE_URL MERC_ALLOW_SKIPPING_DB_TESTS=1 \
-        go test -count=1 -timeout=2m ./... >"$log" 2>&1
+        go test -count=1 -timeout="$MERC_MUTATION_SUITE_TIMEOUT_FLAG" ./... >"$log" 2>&1
   ); then
     return 0
   fi
@@ -214,7 +225,7 @@ run_oracle_suite_tests() {
     (
       cd "$CONTROL" &&
         env -u MERC_TEST_DATABASE_URL MERC_ALLOW_SKIPPING_DB_TESTS=1 \
-          go test -json -count=1 -timeout=2m ./...
+          go test -json -count=1 -timeout="$MERC_MUTATION_SUITE_TIMEOUT_FLAG" ./...
     ) >"$log" 2>&1
     status=$?
     observe_suite_log "$log" "$status" "$mode"
@@ -227,7 +238,7 @@ run_oracle_suite_tests() {
   MERC_ISOLATED_TEST_DB_PREFIX="$MERC_MUTATION_DB_PREFIX" \
     MERC_ISOLATED_TEST_DB_TEMPLATE="$MERC_MUTATION_DB_TEMPLATE" \
     bash scripts/with-isolated-test-db.sh \
-    bash -c 'cd "$1" && go test -json -count=1 ./...' _ "$CONTROL" \
+    bash -c 'cd "$1" && go test -json -count=1 -timeout="$2" ./...' _ "$CONTROL" "$MERC_MUTATION_SUITE_TIMEOUT_FLAG" \
     >"$log" 2>&1
   status=$?
   observe_suite_log "$log" "$status" "$mode"
@@ -243,7 +254,7 @@ run_unit_contract_tests() {
   (
     cd "$CONTROL" &&
       env -u MERC_TEST_DATABASE_URL MERC_ALLOW_SKIPPING_DB_TESTS=1 \
-        go test -json -count=1 -timeout=2m -run "$selector" .
+        go test -json -count=1 -timeout="$MERC_MUTATION_SUITE_TIMEOUT_FLAG" -run "$selector" .
   ) >"$log" 2>&1
   status=$?
   observe_contract_log "$source" "$log" "$status" "$completion_requirement"
@@ -266,7 +277,7 @@ run_db_contract_tests() {
   MERC_ISOLATED_TEST_DB_PREFIX="$MERC_MUTATION_DB_PREFIX" \
     MERC_ISOLATED_TEST_DB_TEMPLATE="$MERC_MUTATION_DB_TEMPLATE" \
     bash scripts/with-isolated-test-db.sh \
-    bash -c 'cd "$1" && go test -json -count=1 -timeout=2m -run "$2" .' _ "$CONTROL" "$selector" \
+    bash -c 'cd "$1" && go test -json -count=1 -timeout="$3" -run "$2" .' _ "$CONTROL" "$selector" "$MERC_MUTATION_SUITE_TIMEOUT_FLAG" \
     >"$log" 2>&1
   status=$?
   observe_contract_log "$source" "$log" "$status" "$completion_requirement"

@@ -5,7 +5,7 @@
 # must own that tree.  This orchestrator keeps the candidate tree read-only:
 # every shard receives a detached worktree at the same exact commit and every
 # shard receives its own temporary PostgreSQL cluster. Every mutant still gets
-# a fresh disposable database inside that cluster. That gives the full 124-case
+# a fresh disposable database inside that cluster. That gives the full 125-case
 # campaign useful wall-clock parallelism without letting concurrent tests share
 # source bytes, database state, or one server's WAL lock.
 #
@@ -24,6 +24,10 @@
 #   MERC_MUTATION_PARALLEL_CASE_IDS=1,25   # optional calibrated subset
 #   MERC_MUTATION_KEEP_WORKDIR=1          # retain failed shard logs/worktrees
 #   MERC_MUTATION_TIMINGS_OUT=/tmp/run.json # external, validated timing record
+#   MERC_MUTATION_SUITE_TIMEOUT=228       # per go-test suite budget in seconds; default derived
+#                                         # from this run's clean-source baseline B as max(120, 3*B)
+#   MERC_MUTATION_MIN_CPU_HEADROOM=18      # refuse when (cpus-load1) is below this; default workers+2
+#   MERC_MUTATION_IGNORE_LOAD=1            # waive the load refusal; artifacts record the waiver
 #
 #   bash scripts/mutation-test-parallel.sh --plan
 #   bash scripts/mutation-test-parallel.sh
@@ -31,6 +35,8 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
+# shellcheck source=lib/mutation-load-preflight.sh
+source "$ROOT/scripts/lib/mutation-load-preflight.sh"
 
 usage() {
   cat <<'EOF'
@@ -67,6 +73,31 @@ test_strategy="${MERC_MUTATION_TEST_STRATEGY:-adaptive}"
 go_max_procs="${MERC_MUTATION_GOMAXPROCS:-1}"
 parallel_case_ids="${MERC_MUTATION_PARALLEL_CASE_IDS:-}"
 timings_out="${MERC_MUTATION_TIMINGS_OUT:-}"
+suite_timeout_explicit=0
+suite_timeout_seconds=""
+measured_baseline_seconds=""
+load1_start=""
+load1_end=""
+load_precondition_waived=0
+if [ -n "${MERC_MUTATION_SUITE_TIMEOUT:-}" ]; then
+  if ! [[ "$MERC_MUTATION_SUITE_TIMEOUT" =~ ^[1-9][0-9]*$ ]]; then
+    echo "MERC_MUTATION_SUITE_TIMEOUT must be a positive integer number of seconds" >&2
+    exit 2
+  fi
+  suite_timeout_seconds="$MERC_MUTATION_SUITE_TIMEOUT"
+  suite_timeout_explicit=1
+fi
+if [ -n "${MERC_MUTATION_MIN_CPU_HEADROOM:-}" ] && ! [[ "$MERC_MUTATION_MIN_CPU_HEADROOM" =~ ^[0-9]+$ ]]; then
+  echo "MERC_MUTATION_MIN_CPU_HEADROOM must be a non-negative integer" >&2
+  exit 2
+fi
+case "${MERC_MUTATION_IGNORE_LOAD:-0}" in
+  0|1) ;;
+  *)
+    echo "MERC_MUTATION_IGNORE_LOAD must be 0 or 1" >&2
+    exit 2
+    ;;
+esac
 if ! [[ "$workers" =~ ^[1-9][0-9]*$ ]] || [ "$workers" -gt 32 ]; then
   echo "MERC_MUTATION_WORKERS must be an integer from 1 through 32" >&2
   exit 2
@@ -264,6 +295,17 @@ if [ -n "$(git status --porcelain)" ]; then
   echo "parallel mutation test requires a clean frozen candidate" >&2
   exit 2
 fi
+
+# Capacity preflight before any worktree, lock, or cluster. A refusal here is
+# infrastructure, not a mutation result: the machine cannot host the campaign
+# honestly, so we do not score anything.
+run_parent="${TMPDIR:-/tmp}"
+if ! mutation_run_load_preflight "$workers" "$run_parent"; then
+  exit 2
+fi
+load1_start="$MUTATION_PREFLIGHT_LOAD1"
+load_precondition_waived="$MUTATION_PREFLIGHT_WAIVED"
+
 started="$(date +%s)"
 
 # Share the serial runner's candidate-root lock.  A concurrent serial mutation
@@ -306,10 +348,11 @@ run_ok=0
 
 terminate_pid_tree() {
   local pid="$1" child
+  # ps can be unavailable under some sandboxes; still try to kill the root pid.
   while IFS= read -r child; do
     [ -n "$child" ] || continue
     terminate_pid_tree "$child"
-  done < <(ps -ax -o pid= -o ppid= | awk -v parent="$pid" '$2 == parent { print $1 }')
+  done < <(ps -ax -o pid= -o ppid= 2>/dev/null | /usr/bin/awk -v parent="$pid" '$2 == parent { print $1 }' || true)
   kill -TERM "$pid" >/dev/null 2>&1 || true
 }
 
@@ -473,9 +516,11 @@ start_worker_cluster() {
   port=$((cluster_port_base + worker - 1))
   cluster_dirs[$((worker - 1))]="$cluster"
   cluster_ports[$((worker - 1))]="$port"
-  initdb --no-locale --encoding=UTF8 --auth-host=trust --auth-local=trust \
+  # PG17 on macOS dies with "postmaster became multithreaded during startup"
+  # when the caller's locale is unset/invalid; keep cluster init hermetic.
+  LC_ALL=C LANG=C initdb --no-locale --encoding=UTF8 --auth-host=trust --auth-local=trust \
     --username=cx -D "$cluster" >/dev/null
-  pg_ctl -D "$cluster" -l "$run_root/postgres-$worker.log" \
+  LC_ALL=C LANG=C pg_ctl -D "$cluster" -l "$run_root/postgres-$worker.log" \
     -o "-h 127.0.0.1 -p $port" -w start >/dev/null
   createdb --host=127.0.0.1 --port="$port" --username=cx \
     --maintenance-db=postgres cx
@@ -507,7 +552,7 @@ prepare_seed_template() {
     cd "$worktree/control" &&
       MERC_TEST_DATABASE_URL="$template_url" MERC_MUTATION_TEMPLATE_DB=1 \
         GOMAXPROCS="$go_max_procs" \
-        go test -count=1 -timeout=2m -run '^TestMutationTemplateSchema$' .
+        go test -count=1 -timeout="${suite_timeout_seconds}s" -run '^TestMutationTemplateSchema$' .
   ) >"$run_root/template-seed.log" 2>&1
 }
 
@@ -535,19 +580,56 @@ for ((worker = 1; worker <= workers; worker++)); do
   template_names[$((worker - 1))]="merc_mutation_template_w${worker}"
 done
 
-# Materialize only the database-preflight workers plus two dedicated proof
-# worktrees first. This starts all clean-candidate proofs while the remaining
-# twelve default workers and fourteen clusters are still being prepared. The
-# dedicated worktrees are essential: some contract tests can write repository
-# evidence when explicitly armed, so concurrent Go processes never share one
-# checkout even under a hostile inherited environment.
-for ((worker = 1; worker <= preflight_db_lanes; worker++)); do
-  prepare_worker_worktree "$worker"
-done
+# Measure the clean-source unit baseline ONCE before any other suite budget is
+# applied. When MERC_MUTATION_SUITE_TIMEOUT is unset, B is the wall time of this
+# run under a generous 10-minute hang ceiling only; the suite budget for every
+# subsequent go test is max(120s, ceil(3*B)). A suite that exceeds 3x its own
+# just-measured baseline is genuinely wrong, not merely unlucky. If B itself
+# hits the ceiling, the box or the suite is broken and we refuse to score.
 candidate_baseline_worktree="$run_root/proof-candidate-baseline"
 aggregate_unit_worktree="$run_root/proof-aggregate-unit"
 proof_worktrees+=("$candidate_baseline_worktree" "$aggregate_unit_worktree")
 prepare_exact_worktree "$candidate_baseline_worktree" "candidate baseline proof"
+
+baseline_measure_timeout="$suite_timeout_seconds"
+if [ "$suite_timeout_explicit" -eq 0 ]; then
+  baseline_measure_timeout="$MERC_MUTATION_BASELINE_MEASURE_CEILING_SECONDS"
+fi
+baseline_started="$(date +%s)"
+(
+  cd "$candidate_baseline_worktree/control" &&
+    exec env -u MERC_TEST_DATABASE_URL MERC_ALLOW_SKIPPING_DB_TESTS=1 \
+      go test -count=1 -timeout="${baseline_measure_timeout}s" ./...
+) >"$run_root/candidate-unit-baseline.log" 2>&1
+baseline_status=$?
+baseline_finished="$(date +%s)"
+measured_baseline_seconds=$((baseline_finished - baseline_started))
+if [ "$baseline_status" -ne 0 ]; then
+  # Still report B so operators see the measured cost that tripped infrastructure.
+  echo "parallel-mutation-test: candidate unit baseline failed after ${measured_baseline_seconds}s (infrastructure, not a mutation result)" >&2
+  cat "$run_root/candidate-unit-baseline.log" >&2 || true
+  exit 1
+fi
+if [ "$suite_timeout_explicit" -eq 0 ]; then
+  if [ "$measured_baseline_seconds" -ge "$MERC_MUTATION_BASELINE_MEASURE_CEILING_SECONDS" ]; then
+    echo "parallel-mutation-test: clean-source baseline took ${measured_baseline_seconds}s (>= ${MERC_MUTATION_BASELINE_MEASURE_CEILING_SECONDS}s ceiling); refusing to score mutants on a broken box or suite" >&2
+    exit 1
+  fi
+  suite_timeout_seconds="$(mutation_derive_suite_timeout_seconds "$measured_baseline_seconds")"
+fi
+export MERC_MUTATION_SUITE_TIMEOUT="$suite_timeout_seconds"
+printf 'parallel-mutation-test: measured baseline B=%ss; suite timeout=%ss (explicit=%s, multiplier=3, floor=120s)\n' \
+  "$measured_baseline_seconds" "$suite_timeout_seconds" "$suite_timeout_explicit"
+
+# Materialize the database-preflight workers plus the aggregate unit proof
+# worktree. The candidate unit baseline already completed above; remaining clean
+# proofs run under the derived suite budget. Dedicated worktrees are essential:
+# some contract tests can write repository evidence when explicitly armed, so
+# concurrent Go processes never share one checkout even under a hostile
+# inherited environment.
+for ((worker = 1; worker <= preflight_db_lanes; worker++)); do
+  prepare_worker_worktree "$worker"
+done
 prepare_exact_worktree "$aggregate_unit_worktree" "aggregate unit proof"
 
 aggregate_selector="$(cd "${worktrees[0]}" && python3 scripts/mutation-preflight-cache.py \
@@ -568,19 +650,12 @@ if [ "${#preflight_db_selectors[@]}" -ne "$preflight_db_lanes" ]; then
   exit 1
 fi
 
-# Preserve both former clean checks verbatim, but run them in distinct exact
-# worktrees. Their results remain prerequisites for mutation launch.
-(
-  cd "$candidate_baseline_worktree/control" &&
-    exec env -u MERC_TEST_DATABASE_URL MERC_ALLOW_SKIPPING_DB_TESTS=1 \
-      go test -count=1 -timeout=2m ./...
-) >"$run_root/candidate-unit-baseline.log" 2>&1 &
-candidate_baseline_pid="$!"
+# Aggregate unit contract preflight under the measured suite budget.
 (
   cd "$aggregate_unit_worktree/control" &&
     exec env -u MERC_TEST_DATABASE_URL MERC_ALLOW_SKIPPING_DB_TESTS=1 \
       GOMAXPROCS="$go_max_procs" \
-      go test -json -count=1 -timeout=2m -run "$aggregate_selector" .
+      go test -json -count=1 -timeout="${suite_timeout_seconds}s" -run "$aggregate_selector" .
 ) >"$run_root/preflight-unit.json" 2>&1 &
 aggregate_unit_pid="$!"
 
@@ -615,8 +690,8 @@ run_aggregate_db_lane() {
     MERC_ISOLATED_TEST_DB_TEMPLATE="${template_names[$((lane - 1))]}" \
     GOMAXPROCS="$go_max_procs" \
     bash scripts/with-isolated-test-db.sh \
-      bash -c 'cd "$1" && go test -json -count=1 -timeout=2m -run "$2" .' \
-      _ "$worktree/control" "$lane_selector"
+      bash -c 'cd "$1" && go test -json -count=1 -timeout="$3" -run "$2" .' \
+      _ "$worktree/control" "$lane_selector" "${suite_timeout_seconds}s"
 }
 
 for ((lane = 1; lane <= preflight_db_lanes; lane++)); do
@@ -652,12 +727,9 @@ if [ "$template_failed" -ne 0 ]; then
 fi
 
 # No mutation starts until every exact-candidate prerequisite has completed.
+# The candidate unit baseline already completed (and derived the suite budget)
+# before these parallel proofs were launched.
 preflight_failed=0
-if ! wait "$candidate_baseline_pid"; then
-  echo "parallel-mutation-test: candidate unit baseline failed" >&2
-  cat "$run_root/candidate-unit-baseline.log" >&2 || true
-  preflight_failed=1
-fi
 candidate_baseline_pid=""
 if ! wait "$aggregate_unit_pid"; then
   echo "parallel-mutation-test: aggregate unit contract preflight failed" >&2
@@ -752,6 +824,7 @@ done
 worker_pids=()
 
 elapsed=$(( $(date +%s) - started ))
+load1_end="$(mutation_read_load1 || echo unknown)"
 for ((worker = 1; worker <= workers; worker++)); do
   worktree="${worktrees[$((worker - 1))]}"
   expected="$(wc -l <"$run_root/shard-$worker.ids" | tr -d ' ')"
@@ -789,13 +862,31 @@ fi
 # outside the frozen tree only after every worker has proven one legitimate
 # catch per assigned mutation and restored its exact source bytes.
 timing_report="$run_root/mutation-timings.json"
-python3 - "$candidate" "$case_count" "$workers" "$elapsed" "$run_root" "$timing_report" "$timings_out" <<'PY'
+python3 - \
+  "$candidate" "$case_count" "$workers" "$elapsed" "$run_root" "$timing_report" "$timings_out" \
+  "$MUTATION_PREFLIGHT_CPU_COUNT" "$load1_start" "$load1_end" "$MUTATION_PREFLIGHT_HEADROOM" \
+  "$measured_baseline_seconds" "$suite_timeout_seconds" "$load_precondition_waived" <<'PY'
 import json
 import os
 import sys
 from pathlib import Path
 
-candidate, case_count, workers, elapsed, run_root, internal, requested = sys.argv[1:]
+(
+    candidate,
+    case_count,
+    workers,
+    elapsed,
+    run_root,
+    internal,
+    requested,
+    cpu_count,
+    load1_start,
+    load1_end,
+    cpu_headroom_start,
+    measured_baseline_seconds,
+    derived_suite_timeout_seconds,
+    load_precondition_waived,
+) = sys.argv[1:]
 case_count = int(case_count)
 workers = int(workers)
 elapsed = int(elapsed)
@@ -826,11 +917,28 @@ for worker in range(1, workers + 1):
         records.append(record)
 if expected != seen or len(expected) != case_count:
     raise SystemExit(f"timing report coverage mismatch: expected={len(expected)} seen={len(seen)}")
+
+def number_or_raw(value: str):
+    try:
+        if "." in value:
+            return float(value)
+        return int(value)
+    except ValueError:
+        return value
+
 report = {
     "version": 1,
     "candidate": candidate,
     "workers": workers,
     "elapsed_seconds": elapsed,
+    "cpu_count": int(cpu_count),
+    "load1_start": number_or_raw(load1_start),
+    "load1_end": number_or_raw(load1_end),
+    "cpu_headroom_start": number_or_raw(cpu_headroom_start),
+    "measured_baseline_seconds": int(measured_baseline_seconds),
+    "derived_suite_timeout_seconds": int(derived_suite_timeout_seconds),
+    "suite_timeout_multiplier": 3,
+    "load_precondition_waived": load_precondition_waived == "1",
     "mutations": sorted(records, key=lambda item: item["case_id"]),
 }
 payload = json.dumps(report, indent=2, sort_keys=True) + "\n"
@@ -842,8 +950,10 @@ if requested:
     os.replace(temporary, target)
 PY
 
-printf 'parallel-mutation-test: PASS %s caught, 0 survived, 0 stale; %s workers; %ss (budget %ss)\n' \
-  "$case_count" "$workers" "$elapsed" "$budget_seconds"
+printf 'parallel-mutation-test: PASS %s caught, 0 survived, 0 stale; %s workers; %ss (budget %ss); baseline_B=%ss suite_timeout=%ss load1_start=%s load1_end=%s headroom_start=%s waived=%s\n' \
+  "$case_count" "$workers" "$elapsed" "$budget_seconds" \
+  "$measured_baseline_seconds" "$suite_timeout_seconds" \
+  "$load1_start" "$load1_end" "$MUTATION_PREFLIGHT_HEADROOM" "$load_precondition_waived"
 if [ -n "$timings_out" ]; then
   printf 'parallel-mutation-test: timing report %s\n' "$timings_out"
 fi
