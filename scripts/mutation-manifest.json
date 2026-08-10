@@ -1482,6 +1482,7 @@
         "TestAttachRealtimeContractPricingRefusesDigestAndLegacyAuthorityDrift",
         "TestAttachRealtimeReusePricingRefusesPersistedAuthorityDrift",
         "TestCacheHitBillsReuseClassAndSchedulesNoSupplier",
+        "TestConcurrentExactReuseSettlesOnceUnderOneIdempotencyKey",
         "TestExecutionContractBindingShapeIsEnforced",
         "TestLegacyRealtimePricingAuthoritiesOmitFutureFXFields",
         "TestPropertyBuyerChargeImpliesPositiveSupplierLiability",

@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/google/uuid"
@@ -256,4 +257,135 @@ func TestStoreExactResultAliasPopulatesCache(t *testing.T) {
 	if err != nil || !ok || hit.ResultRef != ref {
 		t.Fatalf("alias store did not populate cache: %+v ok=%v err=%v", hit, ok, err)
 	}
+}
+
+// Two settles racing on one idempotency key must produce one contract.
+//
+// TestRealtimeExactReuseSettlementNoSupplier replays the settle SEQUENTIALLY
+// and passes even with the idempotency guard disabled — proven by applying the
+// mutation and running it. That is not a weak test; it is a test of the wrong
+// axis. Something else already returns the original contract on a sequential
+// second call, so the guard's lookup is redundant there.
+//
+// What is NOT redundant is the pg_advisory_xact_lock the guard takes on
+// buyer+key. It exists for the case a sequential test cannot construct: two
+// callers arriving at once, both finding no existing contract because neither
+// has committed, and both proceeding to create one. A retrying client and its
+// own timeout are exactly that shape.
+//
+// So this races them deliberately. The buyer must end up with one contract and
+// one settlement, and must be charged once.
+func TestConcurrentExactReuseSettlesOnceUnderOneIdempotencyKey(t *testing.T) {
+	ctx, store, pool := openPayoutTestStore(t)
+	buyerID := uuid.New()
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO buyers (id,email,password_hash,free_credit_usd)
+		VALUES ($1,$2,'x',10.0)`, buyerID, buyerID.String()+"@reuse-race.invalid"); err != nil {
+		t.Fatalf("seed buyer: %v", err)
+	}
+
+	id, err := detIdentity("rt-reuse-race-" + uuid.NewString()).Compute()
+	must(t, err)
+	const tokens int64 = 64
+	must(t, store.StoreExactResult(ctx, id, "cas/sha256/"+uuid.NewString(), tokens))
+	hit, ok, err := store.LookupExactResult(ctx, id)
+	if err != nil || !ok {
+		t.Fatalf("lookup: %v %v", ok, err)
+	}
+
+	profile := sortedVLLMProfiles()[0]
+	currency, err := SettlementCurrency()
+	must(t, err)
+	money, err := SettleRealtimeReuseHitMoney(currency, tokens,
+		profile.BuyerInputUSDPerMillionTokens, profile.BuyerOutputUSDPerMillionTokens)
+	must(t, err)
+
+	authorization := RealtimeContractAuthorization{
+		RequestID: "req_" + uuid.NewString(), BuyerID: buyerID, Profile: profile,
+		InputCommitment:   "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+		RequestSHA256:     "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+		MaximumPriceUSD:   microsToUSD(money.BuyerDebitMicros),
+		EstimatedPriceUSD: microsToUSD(money.BuyerDebitMicros),
+		ReuseClass:        ClassExactResultReuse,
+		IdempotencyKey:    "reuse-race-" + uuid.NewString(),
+	}
+	const resultCommitment = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+
+	const racers = 4
+	type outcome struct {
+		contractID   uuid.UUID
+		settlementID uuid.UUID
+		err          error
+	}
+	results := make([]outcome, racers)
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := 0; i < racers; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start // release them together, so they contend rather than queue
+			c, s, err := store.SettleRealtimeExactReuse(ctx, authorization, hit, money, resultCommitment)
+			results[i] = outcome{c.ID, s.ID, err}
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+
+	// Durable state is the authority: whatever the callers were told, the buyer
+	// must own exactly one contract and one settlement for this key.
+	var contracts, settlements int
+	must(t, pool.QueryRow(ctx,
+		`SELECT count(*) FROM execution_contracts WHERE buyer_id=$1 AND idempotency_key=$2`,
+		buyerID, authorization.IdempotencyKey).Scan(&contracts))
+	if contracts != 1 {
+		t.Fatalf("%d racing settles created %d contracts under one idempotency key; a retrying "+
+			"client that timed out would be charged once per retry", racers, contracts)
+	}
+	must(t, pool.QueryRow(ctx, `
+		SELECT count(*) FROM realtime_settlements s
+		  JOIN execution_contracts c ON c.id = s.contract_id
+		 WHERE c.buyer_id=$1 AND c.idempotency_key=$2`,
+		buyerID, authorization.IdempotencyKey).Scan(&settlements))
+	if settlements != 1 {
+		t.Fatalf("%d racing settles produced %d settlements for one contract", racers, settlements)
+	}
+
+	// And every caller that succeeded must have been told about the same one —
+	// a racer handed a different id would report a charge that does not exist.
+	var succeeded int
+	var firstID uuid.UUID
+	for i, r := range results {
+		if r.err != nil {
+			continue
+		}
+		succeeded++
+		if firstID == uuid.Nil {
+			firstID = r.contractID
+		} else if r.contractID != firstID {
+			t.Fatalf("racer %d was handed contract %s while another got %s; only one exists",
+				i, r.contractID, firstID)
+		}
+	}
+	// EVERY racer must succeed. This is the assertion that matters, and it is
+	// not the same as "one contract exists" — the unique constraints on
+	// request_id and (buyer_id, idempotency_key) guarantee that on their own,
+	// with or without the guard.
+	//
+	// What the guard changes is what the LOSERS are told. With it, each racer is
+	// handed the original contract, which is what idempotency means: a client
+	// that retried because it never saw a response gets its receipt. Without it
+	// the losers collide on the unique index and receive an error for work that
+	// was in fact accepted and charged — so a timed-out retry reports failure
+	// for a contract the buyer owns.
+	//
+	// Measured: 4/4 succeed on the intact guard, 1/4 with it disabled.
+	if succeeded != racers {
+		t.Fatalf("only %d of %d racing settles succeeded on one idempotency key. The durable "+
+			"state is still single — the unique indexes see to that — but the losers were "+
+			"handed errors instead of the contract they share. A client retrying after a "+
+			"timeout would report a failure for work the buyer has already been charged for. "+
+			"outcomes=%+v", succeeded, racers, results)
+	}
+	t.Logf("%d/%d racers succeeded, all on contract %s", succeeded, racers, firstID)
 }
