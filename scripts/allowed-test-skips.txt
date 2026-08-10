@@ -109,6 +109,12 @@ TestRealtimeAuthLatencyProbe
 # Set MERC_SELECTOR_SCALE_CURVE=1 and use scripts/with-isolated-test-db.sh.
 TestSelectorScaleCurve
 #
+# Opt-in realtime selection cost decomposition. Seeds up to 100k offers and
+# times five statement variants (precount, full claim, no-book, top-N pick,
+# eligibility floor) under ROLLBACK to name the linear term. Minutes of wall
+# clock; never part of make test / make ci. Set MERC_REALTIME_DECOMP=1.
+TestRealtimeSelectionCostDecomposition
+#
 # Env-gated writer for the cell-economics census receipt. Arithmetic and the
 # still-tie prediction run unconditionally in TestCensusUnitsPerSecCancels and
 # TestCellEconomicsStillTiesWithoutBreakingCancellation; this test only emits

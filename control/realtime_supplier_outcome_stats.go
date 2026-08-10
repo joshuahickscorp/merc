@@ -46,6 +46,35 @@ type realtimeSupplierOutcomeStats struct {
 // capacity truth stays on the counter + release path.
 const realtimeAuthorizeSelectOfferSQL = realtimeAuthorizeSelectOfferSQLBlocking
 
+// realtimeOfferBookBranchProbePredicate is the eligibility filter shared by
+// the unbounded book count and the bounded branch probe. Projection and LIMIT
+// differ; the WHERE list must stay byte-identical.
+const realtimeOfferBookBranchProbePredicate = `
+		   o.runtime_profile_id=$1 AND o.runtime_profile_sha256=$2
+		   AND o.status='ACTIVE' AND o.available_sequences > 0
+		   AND o.last_seen_at > now()-interval '45 seconds'
+		   AND s.status='active' AND s.quarantined_at IS NULL
+		   AND o.supplier_input_usd_per_million_tokens <= $3
+		   AND o.supplier_output_usd_per_million_tokens <= $4`
+
+// realtimeOfferBookUnboundedCountSQL is the historical full-book COUNT used
+// only as a cost baseline and semantic twin of the bounded probe. Production
+// no longer runs it: the branch only needs "at least two eligible offers".
+const realtimeOfferBookUnboundedCountSQL = `
+		SELECT count(*)::int FROM realtime_worker_offers o
+		 JOIN suppliers s ON s.id = o.supplier_id
+		 WHERE` + realtimeOfferBookBranchProbePredicate
+
+// realtimeOfferBookBranchProbeSQL stops after two eligible rows. The only
+// consumer is multiOfferBookProbe > 1 (SKIP LOCKED vs blocking claim); the
+// exact cardinality past two is never read.
+const realtimeOfferBookBranchProbeSQL = `
+		SELECT count(*)::int FROM (
+		  SELECT 1 FROM realtime_worker_offers o
+		   JOIN suppliers s ON s.id = o.supplier_id
+		   WHERE` + realtimeOfferBookBranchProbePredicate + `
+		   LIMIT 2) probe`
+
 // realtimeAuthorizeCandidatesCTE is the shared ranking body. $1 profile id,
 // $2 profile sha, $3/$4 buyer ceilings, $5 min outcome samples.
 // The ranking runs over a NARROW projection on purpose.

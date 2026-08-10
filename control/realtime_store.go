@@ -1090,19 +1090,16 @@ func (s *Store) AuthorizeRealtimeContract(ctx context.Context, auth RealtimeCont
 	// The claim SQL also freezes the eligible considered book (MarketDecision
 	// PUSH_ORDER_BOOK) so a rank>1 SKIP LOCKED win records lock-skipped peers
 	// rather than rewriting the receipt as "lowest cost".
-	var activeOfferCount int
-	if err := tx.QueryRow(ctx, `
-		SELECT count(*)::int FROM realtime_worker_offers o
-		 JOIN suppliers s ON s.id = o.supplier_id
-		 WHERE o.runtime_profile_id=$1 AND o.runtime_profile_sha256=$2
-		   AND o.status='ACTIVE' AND o.available_sequences > 0
-		   AND o.last_seen_at > now()-interval '45 seconds'
-		   AND s.status='active' AND s.quarantined_at IS NULL
-		   AND o.supplier_input_usd_per_million_tokens <= $3
-		   AND o.supplier_output_usd_per_million_tokens <= $4`,
+	//
+	// The result feeds exactly one predicate: multiOfferBookProbe > 1, which
+	// chooses SKIP LOCKED vs blocking claim. Cardinality past two is never
+	// read, so the probe stops after two eligible rows (LIMIT 2) instead of
+	// counting the whole book.
+	var multiOfferBookProbe int
+	if err := tx.QueryRow(ctx, realtimeOfferBookBranchProbeSQL,
 		auth.Profile.RuntimeProfileID, auth.Profile.ProfileSHA256,
 		auth.Profile.BuyerInputUSDPerMillionTokens, auth.Profile.BuyerOutputUSDPerMillionTokens,
-	).Scan(&activeOfferCount); err != nil {
+	).Scan(&multiOfferBookProbe); err != nil {
 		return RealtimeContract{}, false, err
 	}
 	scanOffer := func(sql string) error {
@@ -1115,7 +1112,7 @@ func (s *Store) AuthorizeRealtimeContract(ctx context.Context, auth RealtimeCont
 				&terminalAttempts, &terminalFails, &verifiedSettlements, &refundCount,
 				&consideredJSON)
 	}
-	if activeOfferCount > 1 {
+	if multiOfferBookProbe > 1 {
 		err = scanOffer(realtimeAuthorizeSelectOfferSQLSkip)
 		if errors.Is(err, pgx.ErrNoRows) {
 			err = scanOffer(realtimeAuthorizeSelectOfferSQLBlocking)
