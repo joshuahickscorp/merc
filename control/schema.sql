@@ -7777,3 +7777,68 @@ ALTER TABLE supplier_minor_unit_settlements DROP CONSTRAINT IF EXISTS supplier_m
 ALTER TABLE supplier_minor_unit_settlements ADD CONSTRAINT supplier_minor_unit_settlements_lifecycle_revision_known
     CHECK (lifecycle_revision IS NULL
            OR lifecycle_revision = 'refund-dispute-payout-lifecycle-v1') NOT VALID;
+
+-- =============================================================================
+-- Network V2 Step 14 — EvidenceEnvelope transaction chain root
+-- =============================================================================
+-- Distinct from funding execution_envelopes (prepaid holds). This table stores
+-- the immutable hash-linked request→…→receipt root. Links cite existing
+-- authority digests; they do not recompute alternate digests of the same facts.
+
+CREATE TABLE IF NOT EXISTS evidence_envelopes (
+    envelope_sha256 TEXT PRIMARY KEY
+        CHECK (envelope_sha256 ~ '^[0-9a-f]{64}$'),
+    lane            TEXT NOT NULL,
+    subject_id      UUID NOT NULL,
+    version         INT  NOT NULL,
+    envelope        JSONB NOT NULL,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CHECK (version > 0),
+    CHECK (lane <> ''),
+    -- One sealed root per (lane, subject) for the accept write. Later append
+    -- steps must introduce an explicit sequence rather than mutating this row.
+    UNIQUE (lane, subject_id)
+);
+CREATE INDEX IF NOT EXISTS evidence_envelopes_subject_idx
+    ON evidence_envelopes (subject_id, created_at DESC);
+
+CREATE OR REPLACE FUNCTION cx_reject_evidence_envelope_mutation() RETURNS trigger AS $$
+BEGIN
+    IF TG_OP = 'UPDATE' THEN
+        RAISE EXCEPTION 'evidence_envelopes are append-only (immutable chain root)';
+    END IF;
+    IF TG_OP = 'DELETE' THEN
+        RAISE EXCEPTION 'evidence_envelopes are append-only (immutable chain root)';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS evidence_envelopes_append_only ON evidence_envelopes;
+CREATE TRIGGER evidence_envelopes_append_only
+BEFORE UPDATE OR DELETE ON evidence_envelopes
+FOR EACH ROW EXECUTE FUNCTION cx_reject_evidence_envelope_mutation();
+
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS evidence_envelope_sha256 TEXT;
+ALTER TABLE jobs DROP CONSTRAINT IF EXISTS jobs_evidence_envelope_sha256_valid;
+ALTER TABLE jobs ADD CONSTRAINT jobs_evidence_envelope_sha256_valid
+    CHECK (evidence_envelope_sha256 IS NULL
+           OR evidence_envelope_sha256 ~ '^[0-9a-f]{64}$');
+
+CREATE OR REPLACE FUNCTION cx_reject_job_evidence_envelope_update() RETURNS trigger AS $$
+BEGIN
+    IF OLD.evidence_envelope_sha256 IS DISTINCT FROM NEW.evidence_envelope_sha256 THEN
+        -- Allow first set (NULL → value) only; never rewrite a sealed root.
+        IF OLD.evidence_envelope_sha256 IS NOT NULL THEN
+            RAISE EXCEPTION 'evidence envelope root for job % is immutable', OLD.id;
+        END IF;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS jobs_evidence_envelope_immutable ON jobs;
+CREATE TRIGGER jobs_evidence_envelope_immutable
+    BEFORE UPDATE OF evidence_envelope_sha256 ON jobs
+    FOR EACH ROW EXECUTE FUNCTION cx_reject_job_evidence_envelope_update();
+
+COMMENT ON TABLE evidence_envelopes IS
+  'Network V2 Step 14 EvidenceEnvelope chain root. Not funding execution_envelopes. Links cite existing digests; ABSENT links record missing authority types with reasons.';
