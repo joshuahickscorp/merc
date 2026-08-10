@@ -154,9 +154,15 @@ arguably better — replacement for the per-buyer advisory lock. It replaces 25 
    nicety: it removes seven round trips per connection (TCP, TLS ×3, auth ×3) and
    pools globally. Free plan. Private databases connect via Workers VPC over a
    Cloudflare Tunnel.
-4. **[auto]** Run the control plane on **Cloudflare Containers**, not Workers.
-   There are 23 background loops in production — verification processor, lease
-   sweeps, rate limiter, latency watchdog — and Workers are request-scoped.
+4. **[you → then auto]** Run the control plane on **Cloudflare Containers**, not
+   Workers. There are 23 background loops in production — verification processor,
+   lease sweeps, rate limiter, latency watchdog — and Workers are request-scoped.
+   **Containers needs the Workers Paid plan**; on Free, `wrangler containers list`
+   returns `Unauthorized: You do not have access to Cloudflare Containers`. Config
+   is written and waiting at `deploy/cloudflare/` — `wrangler.jsonc`,
+   `container-entry.js`, and `migrate-to-cloudflare.sh`. The existing
+   `Dockerfile.control` (distroless, digest-pinned) is the image, so nothing new
+   has to be built.
 5. **[auto]** Move `mercmerc.net` to proxied, put the Worker in front, and set
    SSL/TLS to **Full (strict)** with Authenticated Origin Pulls. Flexible leaves
    the origin hop unencrypted; plain Full does not validate the origin cert;

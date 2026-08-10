@@ -1,0 +1,38 @@
+{
+  // merc control plane on Cloudflare Containers.
+  //
+  // Containers, not Workers, and the reason is structural rather than
+  // preference: control/ runs 23 long-lived background loops (verification
+  // processor, lease recovery sweeps, rate limiter, latency watchdog). Workers
+  // are request-scoped isolates and cannot host a ticker that must outlive a
+  // request.
+  //
+  // Requires the Workers Paid plan. On Free, `wrangler containers list` returns
+  // "Unauthorized: You do not have access to Cloudflare Containers."
+  "name": "merc-control",
+  "main": "container-entry.js",
+  "compatibility_date": "2026-08-01",
+  "observability": { "enabled": true },
+
+  "containers": [
+    {
+      "class_name": "MercControl",
+      "image": "../../Dockerfile.control",
+      // The control plane is stateful in Postgres, not on local disk, so
+      // instances are interchangeable. Start small; this is a canary.
+      "max_instances": 2,
+      "instance_type": "standard"
+    }
+  ],
+
+  "durable_objects": {
+    "bindings": [{ "name": "MERC_CONTROL", "class_name": "MercControl" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["MercControl"] }],
+
+  // Hyperdrive removes seven round trips per connection (TCP, TLS x3, auth x3)
+  // and pools globally. Create it first:
+  //   wrangler hyperdrive create merc-pg --connection-string "postgres://..."
+  // then paste the id here. Free plan.
+  "hyperdrive": [{ "binding": "MERC_PG", "id": "REPLACE_WITH_HYPERDRIVE_ID" }]
+}
