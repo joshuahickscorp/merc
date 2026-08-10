@@ -1082,7 +1082,8 @@
       "required_invariant_contracts": [
         "TestAttachRealtimeReusePricingRefusesPersistedAuthorityDrift",
         "TestRealtimeReusePricingDecisionBindsZeroPhysicalExactAuthority",
-        "TestRealtimeReusePricingDecisionRefusesTamperCurrencyCeilingAndClass"
+        "TestRealtimeReusePricingDecisionRefusesTamperCurrencyCeilingAndClass",
+        "TestReuseBuyerCeilingHoldsInTheSettlementCurrencyNotOnlyTheReferenceOne"
       ],
       "source_target": "control/realtime_reuse_pricing_decision.go"
     },

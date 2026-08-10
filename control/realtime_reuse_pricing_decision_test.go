@@ -92,3 +92,56 @@ func TestRealtimeReusePricingDecisionRefusesTamperCurrencyCeilingAndClass(t *tes
 		t.Fatal("divergent embedded reuse profile passed")
 	}
 }
+
+// The reuse arm of the same gap. See
+// TestBuyerCeilingHoldsInTheSettlementCurrencyNotOnlyTheReferenceOne for the
+// mechanism: the ceiling check is a disjunction over reference and settlement
+// amounts, charges round UP into settlement and ceilings round DOWN, and every
+// existing test runs where the two currencies are one number so only the
+// reference arm is ever exercised.
+//
+// A cache hit is the cheapest thing merc sells, which is exactly why this
+// matters: at a ceiling set to the reuse charge, the rounding step is a large
+// fraction of the charge itself rather than a rounding error on a big number.
+func TestReuseBuyerCeilingHoldsInTheSettlementCurrencyNotOnlyTheReferenceOne(t *testing.T) {
+	in := realtimeReusePricingFixture(t)
+	// A rate with enough precision to leave a remainder; the shared 1.37 helper
+	// converts this fixture exactly and would not exercise the arm at all.
+	t.Setenv(priceFXRateEnv, "1.3712345")
+	t.Setenv(priceFXRevisionEnv, "reuse-settlement-ceiling-rounding-2026-08-10")
+
+	probe := in
+	probe.BuyerDeclaredCeiling = 0
+	probe.BuyerDeclaredCeilingReferenceNanos = 0
+	priced, err := newRealtimeReusePricingDecision(probe)
+	must(t, err)
+	referenceCharge := priced.RealtimeReuse.ReferenceBuyerChargeNanos
+	if referenceCharge <= 0 {
+		t.Fatalf("fixture produced no reference charge (%d); the ceiling below would not bind",
+			referenceCharge)
+	}
+
+	// Prove the rounding step actually exists at this rate, so a pass cannot be
+	// a fixture that never diverged.
+	up, err := mulDiv(referenceCharge, priced.RealtimeReuse.FX.ReferenceToSettlementNanos, realtimeFXRateScale, true)
+	must(t, err)
+	down, err := mulDiv(referenceCharge, priced.RealtimeReuse.FX.ReferenceToSettlementNanos, realtimeFXRateScale, false)
+	must(t, err)
+	if up == down {
+		t.Fatalf("this FX rate converts the reuse charge exactly (%d nanos, no rounding step), "+
+			"so accepting a contract at the cap would be correct and this test would prove "+
+			"nothing; choose a rate with a remainder", up)
+	}
+
+	atCap := in
+	atCap.BuyerDeclaredCeilingReferenceNanos = referenceCharge
+	atCap.BuyerDeclaredCeiling = float64(referenceCharge) / float64(NanosPerMajorUnit)
+	if _, err := newRealtimeReusePricingDecision(atCap); err == nil {
+		t.Fatal("a reuse charge at exactly the buyer's USD ceiling was accepted under a " +
+			"non-unit FX rate. The charge rounds UP into settlement and the ceiling rounds " +
+			"DOWN, so the buyer pays above the cap they declared in the currency they are " +
+			"billed in; the reference arm cannot see it, because there the two are equal.")
+	} else if !strings.Contains(err.Error(), "exceeds buyer ceiling") {
+		t.Fatalf("refused for the wrong reason: %v", err)
+	}
+}
