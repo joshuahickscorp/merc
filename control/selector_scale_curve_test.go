@@ -59,6 +59,9 @@ const (
 	selectorScaleConcurrencyHigh      = 8 // multi-poller contention; not host saturation
 	selectorScaleJobBacklog           = 200
 	selectorScaleCopyChunk            = 20_000
+	// Concurrent COPY streams during seeding. Seeding is setup, not measurement:
+	// overlapping fsync waits changes what the seed costs, never what it makes.
+	selectorScaleCopyParallelism = 8
 	// Production supplier cadence: agent/src/vllm.rs HEARTBEAT_INTERVAL is 15s
 	// against the 45s liveness window. The harness beats at the same rate so it
 	// measures selection over a live book, not over a book it let die.
@@ -1890,6 +1893,19 @@ func approxDBBytes(ctx context.Context, pool *pgxpool.Pool) (int64, error) {
 
 // --- small utilities --------------------------------------------------------
 
+// copyInChunks seeds a synthetic fleet. Chunks run CONCURRENTLY because seeding
+// is setup, not measurement, and it had become the dominant cost of a run: the
+// 1,000,000-worker batch point spent roughly forty minutes in COPY before a
+// single latency sample was taken, across three tables and 150 serial round
+// trips.
+//
+// Rows are addressed by disjoint index ranges with deterministic UUIDs, so
+// chunks have no ordering dependency on each other and concurrency changes what
+// the seed COSTS without changing what it produces. The measurement that
+// follows is untouched — same rows, same statistics, same plans.
+//
+// Bounded rather than unbounded: the pool is finite and the point is to overlap
+// fsync waits, not to convince Postgres to thrash.
 func copyInChunks(ctx context.Context, pool *pgxpool.Pool, total, chunk int, fn func(start, n int) error) error {
 	if total < 1 {
 		return nil
@@ -1897,11 +1913,45 @@ func copyInChunks(ctx context.Context, pool *pgxpool.Pool, total, chunk int, fn 
 	if chunk < 1 {
 		chunk = total
 	}
+	type span struct{ start, n int }
+	var spans []span
 	for start := 0; start < total; start += chunk {
 		n := chunk
 		if start+n > total {
 			n = total - start
 		}
+		spans = append(spans, span{start, n})
+	}
+	workers := selectorScaleCopyParallelism
+	if len(spans) < workers {
+		workers = len(spans)
+	}
+	if workers > 1 {
+		jobs := make(chan span)
+		errs := make(chan error, workers)
+		var wg sync.WaitGroup
+		for i := 0; i < workers; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for sp := range jobs {
+					if err := fn(sp.start, sp.n); err != nil {
+						errs <- fmt.Errorf("chunk start=%d n=%d: %w", sp.start, sp.n, err)
+						return
+					}
+				}
+			}()
+		}
+		for _, sp := range spans {
+			jobs <- sp
+		}
+		close(jobs)
+		wg.Wait()
+		close(errs)
+		return <-errs
+	}
+	for _, sp := range spans {
+		start, n := sp.start, sp.n
 		if err := fn(start, n); err != nil {
 			return fmt.Errorf("chunk start=%d n=%d: %w", start, n, err)
 		}
