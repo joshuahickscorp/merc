@@ -267,3 +267,73 @@ func TestLegacyRealtimeAuthorityMustAgreeWithDurableSupplierRates(t *testing.T) 
 		}
 	}
 }
+
+// The buyer's ceiling must hold in the currency they actually pay in, not only
+// in the reference currency.
+//
+// Both ceiling checks are two-armed disjunctions over the same quantity in two
+// currencies — reference and settlement. Every existing ceiling test runs in
+// USD, where the two are the same number, so the reference arm always fires
+// first and the settlement arm has never been exercised. Deleting it survives
+// the whole suite.
+//
+// The arms genuinely differ, and deliberately so. convertRealtimeReferenceNanos
+// rounds charges UP so conversion cannot erase a positive liability, and rounds
+// buyer ceilings DOWN so conversion cannot spend more than the cap the buyer
+// supplied. Under a non-unit FX rate with a remainder, a maximum charge that
+// exactly equals the ceiling in USD converts to a settlement maximum ABOVE the
+// converted settlement ceiling — the reference arm sees equality and passes,
+// and only the settlement arm refuses.
+//
+// What the missing guard would allow: a buyer's declared ceiling honoured in
+// USD and quietly exceeded in CAD, by the width of the rounding step, on every
+// contract priced at exactly the cap.
+func TestBuyerCeilingHoldsInTheSettlementCurrencyNotOnlyTheReferenceOne(t *testing.T) {
+	in := realtimePricingFixture(t)
+	// The shared CAD fixture uses 1.37, and this fixture's reference maximum
+	// happens to convert exactly at that rate — no remainder, so no divergence,
+	// and the invariant would not be exercised at all. Real FX rates carry more
+	// precision than two decimals; this one produces a one-nano rounding step,
+	// which is the smallest case the settlement arm has to catch.
+	t.Setenv(priceFXRateEnv, "1.3712345")
+	t.Setenv(priceFXRevisionEnv, "settlement-ceiling-rounding-2026-08-10")
+
+	// Learn this fixture's exact reference maximum by pricing it under a
+	// ceiling that cannot bind.
+	probe := in
+	probe.BuyerDeclaredCeiling = 0
+	probe.BuyerDeclaredCeilingReferenceNanos = 0
+	priced, err := newRealtimePricingDecision(probe)
+	must(t, err)
+	referenceMaximum := priced.Realtime.ReferenceMaximumBuyerChargeNanos
+	if referenceMaximum <= 0 {
+		t.Fatalf("fixture produced no reference maximum (%d); the ceiling below would not bind",
+			referenceMaximum)
+	}
+
+	// Set the ceiling to exactly the reference maximum. In USD this is legal to
+	// the nano: the charge equals the cap and does not exceed it.
+	atCap := in
+	atCap.BuyerDeclaredCeilingReferenceNanos = referenceMaximum
+	atCap.BuyerDeclaredCeiling = float64(referenceMaximum) / float64(NanosPerMajorUnit)
+
+	_, err = newRealtimePricingDecision(atCap)
+	if err == nil {
+		t.Fatal("a contract priced at exactly the buyer's USD ceiling was accepted under a " +
+			"non-unit FX rate. The maximum charge rounds UP into settlement and the ceiling " +
+			"rounds DOWN, so the buyer is charged above the cap they declared, in the currency " +
+			"they actually pay in. The reference arm cannot catch this — it sees equality.")
+	}
+	if !strings.Contains(err.Error(), "exceeds buyer ceiling") {
+		t.Fatalf("refused for the wrong reason: %v", err)
+	}
+
+	// And the refusal must be the SETTLEMENT arm doing the work, not the
+	// reference arm. If reference maximum still exceeded reference ceiling the
+	// test would pass for a reason that has nothing to do with the gap.
+	if !strings.Contains(err.Error(), "exceeds buyer ceiling") ||
+		!strings.Contains(err.Error(), "nano-cad") {
+		t.Fatalf("refusal does not name the settlement-currency amounts, so it cannot be "+
+			"attributed to the settlement arm: %v", err)
+	}
+}

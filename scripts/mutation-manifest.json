@@ -999,6 +999,7 @@
       "last_validated_commit": "8cbeaacb283a1a41889e0629aaa191dac9da56c3",
       "required_invariant_contracts": [
         "TestAttachRealtimeContractPricingRefusesDigestAndLegacyAuthorityDrift",
+        "TestBuyerCeilingHoldsInTheSettlementCurrencyNotOnlyTheReferenceOne",
         "TestLegacyRealtimePricingAuthoritiesOmitFutureFXFields",
         "TestRealtimePricingDecisionBindsExactCompositeAuthority",
         "TestRealtimePricingDecisionPreservesExactCeilingBeyondFloatIntegerRange",
