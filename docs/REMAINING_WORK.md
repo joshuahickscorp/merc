@@ -1,6 +1,13 @@
 # Everything remaining
 
-State at 2026-08-09. Ledger: 31 verified / 32 open. `main` at `8e6b1024`.
+State at 2026-08-10. Ledger: 44 verified / 25 open. `main` at `353840cb`.
+
+Since the 2026-08-09 pass: the network-v2 branch is merged into `main` (one line
+of work, one writer); the corrected scale rerun turned out to have finished and
+its realtime cells were refusals, not measurements; the realtime candidate
+ranking is 1.75x faster on a measured paired A/B; the buyer funding rails gained
+the ordering test they never had; and mutants 28, 29 and 34 point at live code
+again — one of which was hiding a real gap in the legacy pricing branch.
 
 Ordered by consequence, not by step number. Each item says what closes it and
 who has to do it — **[auto]** runs unattended here, **[you]** needs a human once,
@@ -11,7 +18,7 @@ who has to do it — **[auto]** runs unattended here, **[you]** needs a human on
 ## 0. Urgent — a live payment rail is running stale money code
 
 **G063.** `https://mercmerc.net/version` reports commit `41db85b5`,
-`"modified": true`, **727 commits behind** HEAD, and
+`"modified": true`, **733 commits behind** HEAD (re-verified 2026-08-10), and
 `evidence/deploy/live-cutover.json` records `stripe_mode: "live"` with its own
 warning that real money moves.
 
@@ -20,6 +27,11 @@ exposure — no service-lease term at all, and `estimated_usd` where the reserve
 residual belonged, which is roughly half) and `dd59aa62` (the P1: prepaid
 admission never took the buyer funding advisory lock). Both were reproduced with
 failing-before tests today.
+
+There is no remote way to check whether live payments are already sealed:
+`GET /readyz` on that host returns `{"status":"ready"}` and nothing else, while
+current code returns `payment_mode`, `provider_enabled` and `live_value_movement`
+there. The host predates the probe that would answer the question about it.
 
 - **[you]** Seal payments (`MERC_PAYMENT_MODE=sealed`) **or** deploy current code.
   No SSH key to that host exists on this machine — probed, and `docs/RUNBOOKS.md`
