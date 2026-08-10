@@ -911,23 +911,43 @@ func maxDuration(ds []time.Duration) time.Duration {
 // Reported rather than repaired: the harness cannot know which mode is the real
 // selection cost, and guessing would be inventing the answer.
 func detectSelectorScaleUnstablePopulation(lane string, scale int, cell string, lat selectorScaleLatency) *selectorScaleDefect {
-	// Need a real sample set and a positive median to speak about a ratio.
-	if lat.N < 10 || lat.P50 <= 0 || lat.P99 <= 0 {
+	// Need a real sample set and positive statistics to speak about a ratio.
+	if lat.N < 10 || lat.P50 <= 0 || lat.P99 <= 0 || lat.Min <= 0 {
 		return nil
 	}
-	const unstableTailRatio = 25.0
-	ratio := lat.P99 / lat.P50
-	if ratio < unstableTailRatio {
+	const unstableRatio = 25.0
+	// Two shapes, and the second was found only because the first missed the
+	// artifact that motivated it.
+	//
+	// A slow TAIL over a fast bulk shows up as p99 >> p50. That is the shape the
+	// isolated diagnostics produced: p50 64.6ms, p99 8,037.9ms.
+	//
+	// The same cell in the full curve produced the OPPOSITE arrangement of the
+	// same two regimes — min 31.4ms with p50 2,613.5ms and p99 3,260.8ms, so
+	// almost every sample was slow and one was fast. Its p99/p50 ratio is 1.25,
+	// which the tail check waves through, while its p50/min ratio is 83.
+	//
+	// So the cell is not merely tail-heavy; it is BISTABLE ACROSS RUNS, settling
+	// into one regime for a whole cell and the other regime on a later run. Both
+	// arrangements mean the same thing — the samples are not one population —
+	// and only checking both catches both.
+	tail, spread := lat.P99/lat.P50, lat.P50/lat.Min
+	if tail < unstableRatio && spread < unstableRatio {
 		return nil
+	}
+	shape, ratio := "p99 is %.0fx p50 (slow tail over a fast bulk)", tail
+	if spread >= unstableRatio && spread > tail {
+		shape, ratio = "p50 is %.0fx min (a slow bulk with a fast outlier)", spread
 	}
 	return &selectorScaleDefect{
 		Lane: lane, Scale: scale, Cell: cell, Kind: "unstable_sample_population",
-		Summary: fmt.Sprintf("%s %s scale=%d: p99 is %.0fx p50 (%.1fms vs %.1fms) — the samples are "+
-			"not one population and the p50 is not a stable statistic", lane, cell, scale, ratio, lat.P99, lat.P50),
-		Evidence: fmt.Sprintf("n=%d min=%.1fms p50=%.1fms p95=%.1fms p99=%.1fms max=%.1fms; "+
-			"re-running this cell can move the p50 by orders of magnitude, so it must not be "+
-			"quoted as the selection cost at this scale without explaining the two modes",
-			lat.N, lat.Min, lat.P50, lat.P95, lat.P99, lat.Max),
+		Summary: fmt.Sprintf("%s %s scale=%d: "+shape+" — the samples are not one population and "+
+			"the p50 is not a stable statistic", lane, cell, scale, ratio),
+		Evidence: fmt.Sprintf("n=%d min=%.1fms p50=%.1fms p95=%.1fms p99=%.1fms max=%.1fms "+
+			"(p99/p50=%.1f, p50/min=%.1f); this cell has been observed settling into either "+
+			"regime for a whole run, so its p50 can move by orders of magnitude between runs of "+
+			"the same commit and must not be quoted as the selection cost without explaining both",
+			lat.N, lat.Min, lat.P50, lat.P95, lat.P99, lat.Max, tail, spread),
 	}
 }
 
