@@ -219,8 +219,15 @@ type RealtimeContract struct {
 	ReuseDeliveredTokens              int64
 	Pricing                           *PricingDecision
 	PricingDecisionSHA256             string
-	MarketClearing                    *RealtimeMarketClearingReceipt
-	Currency                          string
+	// MarketDecision is the canonical accepted market authority when the stored
+	// market_clearing column carries a shape-discriminated decision (Step 7).
+	// Historical rows store only RealtimeMarketClearingReceipt and leave this nil.
+	MarketDecision *MarketDecision
+	// MarketClearing is the legacy receipt projection. For new writes it is
+	// projected losslessly from MarketDecision; for historical rows it is the
+	// stored receipt itself.
+	MarketClearing *RealtimeMarketClearingReceipt
+	Currency       string
 }
 
 // RealtimeMarketClearingReceipt is the immutable result of crossing one
@@ -502,10 +509,55 @@ func attachRealtimeMarketClearing(contract *RealtimeContract, raw []byte) error 
 	if len(raw) == 0 {
 		return nil
 	}
+	// Shape-discriminated MarketDecision (Step 7) is the canonical stored form
+	// for new realtime admits. Detect by market_shape; project the legacy receipt.
+	var shapeProbe struct {
+		MarketShape string `json:"market_shape"`
+	}
+	if err := json.Unmarshal(raw, &shapeProbe); err != nil {
+		return fmt.Errorf("decode realtime market-clearing payload: %w", err)
+	}
+	if strings.TrimSpace(shapeProbe.MarketShape) != "" {
+		var md MarketDecision
+		if err := json.Unmarshal(raw, &md); err != nil {
+			return fmt.Errorf("decode realtime MarketDecision: %w", err)
+		}
+		if err := ValidateMarketDecision(md); err != nil {
+			return fmt.Errorf("realtime MarketDecision invalid: %w", err)
+		}
+		// Realtime lane only accepts push books. A pull body on this column is a
+		// shape violation even if ValidateMarketDecision would accept a complete
+		// pull snapshot on the batch path.
+		if md.MarketShape != marketShapePushOrderBook {
+			return refuseRealtimePullMarketDecision()
+		}
+		market, err := projectRealtimeMarketClearingReceipt(md)
+		if err != nil {
+			return err
+		}
+		if err := bindRealtimeMarketClearingReceipt(contract, market); err != nil {
+			return err
+		}
+		contract.MarketDecision = &md
+		contract.MarketClearing = market
+		return nil
+	}
+
 	var market RealtimeMarketClearingReceipt
 	if err := json.Unmarshal(raw, &market); err != nil {
 		return fmt.Errorf("decode realtime market-clearing receipt: %w", err)
 	}
+	if err := validateRealtimeMarketClearingReceiptShape(market, contract.Currency); err != nil {
+		return err
+	}
+	if err := bindRealtimeMarketClearingReceipt(contract, &market); err != nil {
+		return err
+	}
+	contract.MarketClearing = &market
+	return nil
+}
+
+func validateRealtimeMarketClearingReceiptShape(market RealtimeMarketClearingReceipt, settlementCurrency string) error {
 	if (market.Version < 1 || market.Version > 3) || market.CandidateCount <= 0 ||
 		market.SelectedRank <= 0 || market.SelectedRank > market.CandidateCount ||
 		market.SelectedWorkerID == uuid.Nil || market.SelectedSupplierID == uuid.Nil ||
@@ -520,7 +572,7 @@ func attachRealtimeMarketClearing(contract *RealtimeContract, raw []byte) error 
 		return errors.New("realtime market-clearing receipt has invalid bounded authority")
 	}
 	if (market.Version == 2 || market.Version == 3) && (market.ReferenceCurrency != realtimeReferenceCurrency ||
-		market.SettlementCurrency != contract.Currency) {
+		market.SettlementCurrency != settlementCurrency) {
 		return errors.New("realtime market-clearing receipt lacks explicit reference/settlement currencies")
 	}
 	if market.Version == 1 && (market.ReferenceCurrency != "" || market.SettlementCurrency != "") {
@@ -550,6 +602,17 @@ func attachRealtimeMarketClearing(contract *RealtimeContract, raw []byte) error 
 			return errors.New("realtime market-clearing receipt lacks ranking inputs")
 		}
 	}
+	// Honesty tripwire also on historical-shaped receipts that carry rank > 1.
+	if market.SelectedRank > 1 && strings.Contains(market.SelectionReason, "lowest verified-outcome cost") {
+		return errors.New("realtime market-clearing receipt claims lowest cost while selected_rank > 1")
+	}
+	return nil
+}
+
+func bindRealtimeMarketClearingReceipt(contract *RealtimeContract, market *RealtimeMarketClearingReceipt) error {
+	if market == nil {
+		return errors.New("realtime market-clearing receipt is nil")
+	}
 	if contract.WorkerID == uuid.Nil || contract.SupplierID == uuid.Nil ||
 		market.SelectedWorkerID != contract.WorkerID || market.SelectedSupplierID != contract.SupplierID {
 		return errors.New("realtime market-clearing receipt does not bind selected offer to contract")
@@ -574,10 +637,13 @@ func attachRealtimeMarketClearing(contract *RealtimeContract, raw []byte) error 
 			return errors.New("realtime market-clearing receipt supplier USD rates disagree with PricingDecision")
 		}
 	}
-	contract.MarketClearing = &market
 	return nil
 }
 
+// newRealtimeMarketClearingReceipt builds a version-3 legacy receipt for probe
+// and measurement helpers that do not freeze a full MarketDecision book. The
+// production authorize path builds MarketDecision first and projects via
+// projectRealtimeMarketClearingReceipt.
 func newRealtimeMarketClearingReceipt(
 	candidateCount, selectedRank int, workerID, supplierID uuid.UUID,
 	supplierInput, supplierOutput float64, pricing PricingDecision, pricingSHA256 string,
@@ -624,11 +690,14 @@ func newRealtimeMarketClearingReceipt(
 		PricingDecisionSHA256:       pricingSHA256,
 		PositiveContributionNanos:   pricing.FixedPoint.KnownCostContributionNanos,
 		OrderBookPolicy:             realtimeOrderBookPolicy,
-		SelectionReason:             realtimeClearingSelectionReason(inputs),
+		SelectionReason:             realtimeClearingSelectionReason(inputs, selectedRank, candidateCount),
 		RankingInputs:               &inputs,
 	}
 	if market.PositiveContributionNanos <= 0 || !validSHA256(pricingSHA256) {
 		return nil, errors.New("realtime market-clearing receipt lacks positive PricingDecision contribution")
+	}
+	if market.SelectedRank > 1 && strings.Contains(market.SelectionReason, "lowest verified-outcome cost") {
+		return nil, errors.New("realtime market-clearing receipt claims lowest cost while selected_rank > 1")
 	}
 	return market, nil
 }
@@ -972,6 +1041,8 @@ func (s *Store) AuthorizeRealtimeContract(ctx context.Context, auth RealtimeCont
 		terminalFails        int
 		verifiedSettlements  int
 		refundCount          int
+		consideredJSON       []byte
+		availabilityMode     = marketAvailabilityBlockingForUpdate
 	)
 	// Reserve a sequence with an atomic decrement that is also the selection.
 	// Hierarchy step 2: offer capacity after buyer funding.
@@ -1004,6 +1075,10 @@ func (s *Store) AuthorizeRealtimeContract(ctx context.Context, auth RealtimeCont
 	// settlements/refunds are written. Money (buyer charge / supplier payable)
 	// still comes only from the selected offer rates and PricingDecision —
 	// never from these counters.
+	//
+	// The claim SQL also freezes the eligible considered book (MarketDecision
+	// PUSH_ORDER_BOOK) so a rank>1 SKIP LOCKED win records lock-skipped peers
+	// rather than rewriting the receipt as "lowest cost".
 	var activeOfferCount int
 	if err := tx.QueryRow(ctx, `
 		SELECT count(*)::int FROM realtime_worker_offers o
@@ -1026,15 +1101,20 @@ func (s *Store) AuthorizeRealtimeContract(ctx context.Context, auth RealtimeCont
 			minRealtimeOutcomeSamples).
 			Scan(&workerID, &supplierID, &baseURL, &sealed, &supplierInput, &supplierOutput,
 				&placementJSON, &placementSHA256, &selectedWarmth, &candidateCount, &selectedRank,
-				&terminalAttempts, &terminalFails, &verifiedSettlements, &refundCount)
+				&terminalAttempts, &terminalFails, &verifiedSettlements, &refundCount,
+				&consideredJSON)
 	}
 	if activeOfferCount > 1 {
 		err = scanOffer(realtimeAuthorizeSelectOfferSQLSkip)
 		if errors.Is(err, pgx.ErrNoRows) {
 			err = scanOffer(realtimeAuthorizeSelectOfferSQLBlocking)
+			availabilityMode = marketAvailabilityBlockingForUpdate
+		} else if err == nil {
+			availabilityMode = marketAvailabilitySkipLocked
 		}
 	} else {
 		err = scanOffer(realtimeAuthorizeSelectOfferSQLBlocking)
+		availabilityMode = marketAvailabilityBlockingForUpdate
 	}
 	if errors.Is(err, pgx.ErrNoRows) {
 		return RealtimeContract{}, false, errRealtimeNoSupply
@@ -1087,13 +1167,19 @@ func (s *Store) AuthorizeRealtimeContract(ctx context.Context, auth RealtimeCont
 		terminalAttempts, terminalFails, verifiedSettlements, refundCount,
 		selectedWarmth,
 	)
-	market, err := newRealtimeMarketClearingReceipt(
+	marketDecision, err := newRealtimePushMarketDecision(
+		availabilityMode,
 		candidateCount, selectedRank, workerID, supplierID, supplierInput, supplierOutput, pricing, pricingSHA256,
-		rankingInputs)
+		rankingInputs, consideredJSON)
 	if err != nil {
 		return RealtimeContract{}, false, err
 	}
-	marketJSON, err := json.Marshal(market)
+	market, err := projectRealtimeMarketClearingReceipt(marketDecision)
+	if err != nil {
+		return RealtimeContract{}, false, err
+	}
+	// Persist the canonical MarketDecision; attach projects the legacy receipt.
+	marketJSON, err := json.Marshal(marketDecision)
 	if err != nil {
 		return RealtimeContract{}, false, err
 	}
@@ -1196,7 +1282,8 @@ func (s *Store) AuthorizeRealtimeContract(ctx context.Context, auth RealtimeCont
 		EstimatedPromptTokens:     auth.EstimatedPromptTokens,
 		EstimatedCompletionTokens: auth.EstimatedCompletionTokens,
 		BuyerDeclaredCeilingNanos: pricing.Realtime.BuyerDeclaredCeilingNanos,
-		Pricing:                   &pricing, PricingDecisionSHA256: pricingSHA256, MarketClearing: market,
+		Pricing:                   &pricing, PricingDecisionSHA256: pricingSHA256,
+		MarketDecision: &marketDecision, MarketClearing: market,
 		Currency: currency.Code(),
 	}, false, nil
 }

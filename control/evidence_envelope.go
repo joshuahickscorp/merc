@@ -218,14 +218,16 @@ type batchAcceptBoundDigests struct {
 	WorkloadSHA256    string
 	PlacementSHA256   string
 	PricingSHA256     string
+	TopologySHA256    string
 	ComputePlanSHA256 string // cited only when later steps need it; not a chain link
 }
 
 // buildBatchAcceptEvidenceEnvelope builds the batch-lane root written in the
-// same transaction as the job's decision digests. Market/Runtime/Topology
-// (and VerificationContract / SettlementPlan types) are recorded ABSENT with
-// reasons — never placeholder digests. Execution/receipt stages that belong
-// later in the lifecycle are PENDING.
+// same transaction as the job's decision digests. Market/Runtime remain ABSENT
+// with reasons until those types exist as accept authority.
+// TopologyDecision is BOUND when TopologySHA256 is supplied (Step 10).
+// VerificationContract / SettlementPlan stay ABSENT. Execution/receipt stages
+// that belong later in the lifecycle are PENDING.
 func buildBatchAcceptEvidenceEnvelope(jobID uuid.UUID, d batchAcceptBoundDigests) (EvidenceEnvelope, error) {
 	if jobID == uuid.Nil {
 		return EvidenceEnvelope{}, fmt.Errorf("%w: nil job id", errEvidenceEnvelopeInvalid)
@@ -292,8 +294,9 @@ func batchAcceptLink(kind string, d batchAcceptBoundDigests) (EvidenceEnvelopeLi
 		// authority today is PlacementRequirement (jobs.placement_requirement_sha256).
 		return bound("PlacementRequirement", d.PlacementSHA256)
 	case EnvelopeLinkTopology:
-		return absent("TopologyDecision authority type ABSENT " +
-			"(Step 10: no Go type/digest/accepted-job column; shadow TopologyPlan is post-commit)"), nil
+		// Step 10: TopologyDecision is frozen on jobs.topology_decision_sha256
+		// inside the accept transaction. Shadow TopologyPlan remains non-authority.
+		return bound("TopologyDecision", d.TopologySHA256)
 	case EnvelopeLinkExecution:
 		return pending("execution attempts not yet written at accept; " +
 			"task execution identity is recorded per-task at claim/complete"), nil

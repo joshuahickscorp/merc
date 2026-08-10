@@ -752,6 +752,7 @@ func oneAuthorizeDecomposition(
 		terminalFails        int
 		verifiedSettlements  int
 		refundCount          int
+		consideredJSON       []byte
 	)
 	err = tx.QueryRow(ctx, realtimeAuthorizeSelectOfferSQL,
 		profile.RuntimeProfileID, profile.ProfileSHA256,
@@ -759,7 +760,9 @@ func oneAuthorizeDecomposition(
 		minRealtimeOutcomeSamples).
 		Scan(&workerID, &supplierID, &baseURL, &sealed, &supplierInput, &supplierOutput,
 			&placementJSON, &placementSHA256, &selectedWarmth, &candidateCount, &selectedRank,
-			&terminalAttempts, &terminalFails, &verifiedSettlements, &refundCount)
+			&terminalAttempts, &terminalFails, &verifiedSettlements, &refundCount,
+			&consideredJSON)
+	_ = consideredJSON
 	if err != nil {
 		return nil, fmt.Errorf("offer_claim: %w", err)
 	}

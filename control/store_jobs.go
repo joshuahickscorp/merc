@@ -358,6 +358,25 @@ func (s *Store) SubmitJobTx(ctx context.Context, j *jobRow, tasks []taskRow) err
 	if err != nil {
 		return fmt.Errorf("hash pricing decision: %w", err)
 	}
+	// TopologyDecision is frozen inside the accept transaction — never only as
+	// post-commit shadow TopologyPlan. Batch today chooses independent fan-out
+	// over FabricUnknown (POOL) and records LOCAL_CLUSTER as construction-refused.
+	topologyDecision, err := buildBatchTopologyDecision(j.WorkloadDecision)
+	if err != nil {
+		return fmt.Errorf("refusing job without valid topology decision: %w", err)
+	}
+	topologyJSON, err := json.Marshal(topologyDecision)
+	if err != nil {
+		return fmt.Errorf("marshal topology decision: %w", err)
+	}
+	topologySHA256, err := topologyDecisionDigest(topologyDecision)
+	if err != nil {
+		return fmt.Errorf("hash topology decision: %w", err)
+	}
+	if err := ValidateTopologyDecisionDigest(topologyDecision, topologySHA256); err != nil {
+		return fmt.Errorf("refusing job with inconsistent topology decision: %w", err)
+	}
+	j.TopologyDecision = topologyDecision
 	// EvidenceEnvelope cites the digests frozen below; it does not re-hash
 	// decision bodies. Built before the TX so a seal failure never opens a
 	// transaction, then written in the same TX as the jobs INSERT.
@@ -366,6 +385,7 @@ func (s *Store) SubmitJobTx(ctx context.Context, j *jobRow, tasks []taskRow) err
 		WorkloadSHA256:    workloadSHA256,
 		PlacementSHA256:   placementSHA256,
 		PricingSHA256:     pricingSHA256,
+		TopologySHA256:    topologySHA256,
 		ComputePlanSHA256: computeSHA256,
 	})
 	if err != nil {
@@ -525,12 +545,14 @@ func (s *Store) SubmitJobTx(ctx context.Context, j *jobRow, tasks []taskRow) err
 		    workload_decision, workload_decision_sha256,
 		    compute_plan, compute_plan_sha256,
 		    placement_requirement, placement_requirement_sha256,
-		    pricing_decision, pricing_decision_sha256, currency, prepaid_required,
+		    pricing_decision, pricing_decision_sha256,
+		    topology_decision, topology_decision_sha256,
+		    currency, prepaid_required,
 		    project_order_id, project_step_id, evidence_envelope_sha256)
 		 VALUES ($1,$2,'queued',$3,$4,$5,$6,$7,$8,$9,0,$10,0,
 		         $11,$12,$13,$14,$15,$16,$17,$18,$19,$20,'tracking',$21,$22,$23,$24,$25,$26,$27,
 		         $28,$29,$30,NULLIF($31,''),NULLIF($32,''),NULLIF($33,''),
-		         $34,$35,$36,$37,$38,$39,$40,$41,$42,$43,$44,NULLIF($45,''),$46)`,
+		         $34,$35,$36,$37,$38,$39,$40,$41,$42,$43,$44,$45,$46,NULLIF($47,''),$48)`,
 		j.ID, j.BuyerID, j.JobType, j.ModelRef, j.InputRef, j.OutputRef,
 		j.Tier, j.VerificationPolicy, j.EstimatedUSD, j.TaskCount,
 		j.MinMemoryGB, j.MaxDurationSecs, nullStrSlice(j.HWClasses), nullStrSlice(j.DataResidency),
@@ -541,7 +563,8 @@ func (s *Store) SubmitJobTx(ctx context.Context, j *jobRow, tasks []taskRow) err
 		economicInputRecords, economicInputBytes, economicInputSource,
 		j.SubmitIdempotencyKey, j.SubmitRequestSHA256, j.PrefixID,
 		workloadJSON, workloadSHA256, computeJSON, computeSHA256,
-		placementJSON, placementSHA256, pricingJSON, pricingSHA256, jobCurrency, j.PrepaidRequired,
+		placementJSON, placementSHA256, pricingJSON, pricingSHA256,
+		topologyJSON, topologySHA256, jobCurrency, j.PrepaidRequired,
 		nullUUID(j.ProjectOrderID), j.ProjectStepID, envelope.EnvelopeSHA256,
 	)
 	if err != nil {
@@ -671,15 +694,18 @@ type jobRow struct {
 	SLAPremiumUSD      float64
 	// PrepaidRequired freezes default-mode batch funding at acceptance. It is
 	// false for legacy and explicitly deferred-charge jobs.
-	PrepaidRequired            bool
-	EconomicInputRecords       int64
-	EconomicInputBytes         int64
-	EconomicInputSource        string
-	EconomicPlan               EconomicPlan
-	WorkloadDecision           WorkloadDecision
-	ComputePlan                ComputePlan
-	PlacementRequirement       PlacementRequirement
-	PricingDecision            PricingDecision
+	PrepaidRequired      bool
+	EconomicInputRecords int64
+	EconomicInputBytes   int64
+	EconomicInputSource  string
+	EconomicPlan         EconomicPlan
+	WorkloadDecision     WorkloadDecision
+	ComputePlan          ComputePlan
+	PlacementRequirement PlacementRequirement
+	PricingDecision      PricingDecision
+	// TopologyDecision is frozen at SubmitJobTx accept. Zero value means the
+	// caller did not pre-build one; SubmitJobTx always writes a decision.
+	TopologyDecision           TopologyDecision
 	WebhookID                  uuid.UUID
 	WebhookURL                 string
 	WebhookSigningSecretSealed string

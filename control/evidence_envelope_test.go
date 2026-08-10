@@ -13,6 +13,7 @@ func sampleBatchDigests() batchAcceptBoundDigests {
 		WorkloadSHA256:    strings.Repeat("b", 64),
 		PlacementSHA256:   strings.Repeat("c", 64),
 		PricingSHA256:     strings.Repeat("d", 64),
+		TopologySHA256:    strings.Repeat("f", 64),
 		ComputePlanSHA256: strings.Repeat("e", 64),
 	}
 }
@@ -93,9 +94,9 @@ func TestEvidenceEnvelopeAbsentLinksAreLegibleAndNotBreaks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build: %v", err)
 	}
-	// Authority types that do not exist yet.
+	// Authority types that do not exist yet as accept-transaction objects.
 	for _, kind := range []string{
-		EnvelopeLinkMarket, EnvelopeLinkRuntime, EnvelopeLinkTopology,
+		EnvelopeLinkMarket, EnvelopeLinkRuntime,
 		EnvelopeLinkVerification, EnvelopeLinkSettlement,
 	} {
 		link, ok := env.linkByKind(kind)
@@ -128,7 +129,7 @@ func TestEvidenceEnvelopeAbsentLinksAreLegibleAndNotBreaks(t *testing.T) {
 			t.Fatalf("%s pending shape: %+v", kind, link)
 		}
 	}
-	// Bound links cite real authorities.
+	// Bound links cite real authorities (TopologyDecision is Step 10).
 	for _, tc := range []struct {
 		kind, authority string
 	}{
@@ -136,6 +137,7 @@ func TestEvidenceEnvelopeAbsentLinksAreLegibleAndNotBreaks(t *testing.T) {
 		{EnvelopeLinkWorkload, "WorkloadDecision"},
 		{EnvelopeLinkPricing, "PricingDecision"},
 		{EnvelopeLinkPlacement, "PlacementRequirement"},
+		{EnvelopeLinkTopology, "TopologyDecision"},
 	} {
 		link, ok := env.linkByKind(tc.kind)
 		if !ok || link.Status != EnvelopeLinkBound || link.Authority != tc.authority {
@@ -198,6 +200,7 @@ func TestEvidenceEnvelopeDoesNotRehashBoundBodies(t *testing.T) {
 		EnvelopeLinkWorkload:  d.WorkloadSHA256,
 		EnvelopeLinkPlacement: d.PlacementSHA256,
 		EnvelopeLinkPricing:   d.PricingSHA256,
+		EnvelopeLinkTopology:  d.TopologySHA256,
 		EnvelopeLinkRequest:   d.RequestSHA256,
 	} {
 		link, ok := env.linkByKind(kind)

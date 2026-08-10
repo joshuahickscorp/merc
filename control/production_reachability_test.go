@@ -188,10 +188,11 @@ var productionReachability = []reachabilityClaim{
 	},
 	{
 		From:   "Store.AuthorizeRealtimeContract",
-		Target: "newRealtimeMarketClearingReceipt",
+		Target: "newRealtimePushMarketDecision",
 		Consequence: "a realtime buyer order would still reserve one supplier sequence, but its " +
-			"contract and receipt would lose the candidate depth, selected rank, and fixed-point " +
-			"offer identity needed to prove that a live order book—not a hard-coded worker—cleared it.",
+			"contract and receipt would lose the MarketDecision push book, candidate depth, " +
+			"selected rank, lock-skip exclusions, and fixed-point offer identity needed to prove " +
+			"that a live order book—not a hard-coded worker—cleared it.",
 	},
 	{
 		From:   "Server.handleAdminServiceLeaseMarketLiquidity",

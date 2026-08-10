@@ -216,24 +216,38 @@ func buildRealtimeClearingRankingInputs(
 }
 
 // realtimeClearingSelectionReason is the human-readable selection line frozen
-// into the receipt. It names the ranking discipline, not the winner's warmth.
-func realtimeClearingSelectionReason(inputs RealtimeClearingRankingInputs) string {
+// into the receipt and MarketDecision. It names the ranking discipline and,
+// when selected_rank > 1 under SKIP LOCKED, refuses to claim the winner was
+// the lowest cost — that would rewrite contention as pure economic clearing.
+func realtimeClearingSelectionReason(inputs RealtimeClearingRankingInputs, selectedRank, candidateCount int) string {
+	discipline := realtimeClearingRankingDiscipline(inputs)
+	if selectedRank > 1 {
+		return fmt.Sprintf(
+			"SKIP LOCKED admitted economic rank %d of %d; better-ranked peers were lock-skipped under concurrent reservation (not lowest unlocked cost). Ranking: %s",
+			selectedRank, candidateCount, discipline)
+	}
+	return "lowest verified-outcome cost (" + discipline + ")"
+}
+
+// realtimeClearingRankingDiscipline is the ranking-terms clause shared by the
+// uncontended "lowest cost" reason and the contended rank>1 reason.
+func realtimeClearingRankingDiscipline(inputs RealtimeClearingRankingInputs) string {
 	switch {
 	case inputs.RetryCostApplied && inputs.RefundRiskApplied:
 		return fmt.Sprintf(
-			"lowest verified-outcome cost (base ask adjusted by measured failure rate %.4f and refund rate %.4f); warmth %s is tiebreak only",
+			"base ask adjusted by measured failure rate %.4f and refund rate %.4f; warmth %s is tiebreak only",
 			*inputs.ObservedFailureRate, *inputs.ObservedRefundRate, inputs.Warmth)
 	case inputs.RetryCostApplied:
 		return fmt.Sprintf(
-			"lowest verified-outcome cost (base ask adjusted by measured failure rate %.4f); warmth %s is tiebreak only",
+			"base ask adjusted by measured failure rate %.4f; warmth %s is tiebreak only",
 			*inputs.ObservedFailureRate, inputs.Warmth)
 	case inputs.RefundRiskApplied:
 		return fmt.Sprintf(
-			"lowest verified-outcome cost (base ask adjusted by measured refund rate %.4f); warmth %s is tiebreak only",
+			"base ask adjusted by measured refund rate %.4f; warmth %s is tiebreak only",
 			*inputs.ObservedRefundRate, inputs.Warmth)
 	default:
 		return fmt.Sprintf(
-			"lowest verified-outcome cost (base supplier ask; failure and refund rates unmeasured below %d samples); warmth %s is tiebreak only",
+			"base supplier ask; failure and refund rates unmeasured below %d samples; warmth %s is tiebreak only",
 			minRealtimeOutcomeSamples, inputs.Warmth)
 	}
 }

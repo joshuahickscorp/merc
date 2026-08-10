@@ -339,6 +339,12 @@ func TestRealtimeAuthorizeSQLUsesStatsJoin(t *testing.T) {
 	if strings.Contains(realtimeAuthorizeSelectOfferSQLBlocking, "SKIP LOCKED") {
 		t.Fatal("blocking authorize SQL must not SKIP LOCKED (single-offer wait path)")
 	}
+	// Step 7: claim freezes the considered book with the reservation so a
+	// rank>1 SKIP LOCKED win can record lock-skipped peers.
+	if !strings.Contains(realtimeAuthorizeSelectOfferSQLSkip, "jsonb_agg") ||
+		!strings.Contains(realtimeAuthorizeSelectOfferSQLBlocking, "jsonb_agg") {
+		t.Fatal("authorize SQL must freeze the considered book with the claim")
+	}
 	// Legacy probe must still hold the aggregate so drift tests stay meaningful.
 	if !strings.Contains(realtimeClearingProbeLegacySQL, "FROM execution_contracts") {
 		t.Fatal("legacy probe lost the full aggregate; drift comparison would be vacuous")

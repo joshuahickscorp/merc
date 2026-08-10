@@ -107,6 +107,18 @@ func (s *Store) SubmitExactReuseBatchJob(
 	if err != nil {
 		return fmt.Errorf("hash exact-reuse pricing decision: %w", err)
 	}
+	topologyDecision, err := buildExactReuseTopologyDecision(workloadSHA256)
+	if err != nil {
+		return fmt.Errorf("exact-reuse topology decision: %w", err)
+	}
+	topologyJSON, err := json.Marshal(topologyDecision)
+	if err != nil {
+		return fmt.Errorf("marshal exact-reuse topology decision: %w", err)
+	}
+	topologySHA256, err := topologyDecisionDigest(topologyDecision)
+	if err != nil {
+		return fmt.Errorf("hash exact-reuse topology decision: %w", err)
+	}
 
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -163,16 +175,18 @@ func (s *Store) SubmitExactReuseBatchJob(
 		   workload_decision, workload_decision_sha256,
 		   compute_plan, compute_plan_sha256,
 		   pricing_decision, pricing_decision_sha256,
+		   topology_decision, topology_decision_sha256,
 		   quote_id, firm_quote, firm_quote_max_usd, currency)
 		VALUES ($1,$2,'complete',$3,$4,$5,$6,$7,'{}'::jsonb,$8,$8,0,0,
 		        'tracking','charged',
 		        $9,$10,'exact_result_reuse',
 		        NULLIF($11,''),NULLIF($12,''),$13::jsonb,$14,
-		        $15::jsonb,$16,$17::jsonb,$18,$19,$20,$21,$22)`,
+		        $15::jsonb,$16,$17::jsonb,$18,$19::jsonb,$20,$21,$22,$23,$24)`,
 		jobID, buyerID, jobType, modelRef, inputRef, outputRef, tier,
 		buyerCharge, inputRecords, inputBytes,
 		submitIdempotencyKey, submitRequestSHA256, workloadJSON, workloadSHA256,
 		computeJSON, computeSHA256, pricingJSON, pricingSHA256,
+		topologyJSON, topologySHA256,
 		nullUUID(quoteID), firmQuote, nullPosFloat(firmQuoteMaxUSD), jobCurrency)
 	if err != nil {
 		return err

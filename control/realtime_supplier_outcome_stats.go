@@ -125,9 +125,26 @@ const realtimeAuthorizeCandidatesCTE = `
 			   AND c.supplier_output_usd_per_million_tokens <= $4
 		)`
 
+// realtimeAuthorizeBookAggSQL freezes the eligible ranked book from the same
+// candidates CTE that produced the claim, so the MarketDecision considered set
+// is claim-time truth rather than a post-decrement re-query that could drop the
+// selected offer when its last sequence was just claimed.
+const realtimeAuthorizeBookAggSQL = `
+		, book AS (
+			SELECT COALESCE(jsonb_agg(jsonb_build_object(
+			         'rank', c.selected_rank,
+			         'worker_id', c.worker_id,
+			         'supplier_id', c.supplier_id,
+			         'warmth', c.warmth,
+			         'verified_outcome_cost', c.verified_outcome_cost
+			       ) ORDER BY c.selected_rank), '[]'::jsonb) AS considered
+			  FROM candidates c
+		)`
+
 // realtimeAuthorizeSelectOfferSQLSkip claims the best currently-unlocked offer
 // by rank. Contenders step to the next free candidate instead of queueing on
-// rank-1 when other offers have capacity.
+// rank-1 when other offers have capacity. The considered book is returned with
+// the claim so SKIP LOCKED contention (rank > 1) records lock-skipped peers.
 const realtimeAuthorizeSelectOfferSQLSkip = realtimeAuthorizeCandidatesCTE + `
 		, picked AS (
 			SELECT c.worker_id,c.runtime_profile_id,c.supplier_id,c.upstream_base_url,
@@ -154,14 +171,16 @@ const realtimeAuthorizeSelectOfferSQLSkip = realtimeAuthorizeCandidatesCTE + `
 			           c.candidate_count,c.selected_rank,
 			           c.terminal_attempts,c.terminal_fails,
 			           c.verified_settlements,c.refund_count
-		)
-		SELECT worker_id,supplier_id,upstream_base_url,upstream_token_sealed,
-		       supplier_input_usd_per_million_tokens::float8,
-		       supplier_output_usd_per_million_tokens::float8,
-		       placement_plan,placement_plan_sha256,warmth,
-		       candidate_count,selected_rank,
-		       terminal_attempts,terminal_fails,verified_settlements,refund_count
-		  FROM updated`
+		)` + realtimeAuthorizeBookAggSQL + `
+		SELECT u.worker_id,u.supplier_id,u.upstream_base_url,u.upstream_token_sealed,
+		       u.supplier_input_usd_per_million_tokens::float8,
+		       u.supplier_output_usd_per_million_tokens::float8,
+		       u.placement_plan,u.placement_plan_sha256,u.warmth,
+		       u.candidate_count,u.selected_rank,
+		       u.terminal_attempts,u.terminal_fails,u.verified_settlements,u.refund_count,
+		       b.considered
+		  FROM updated u
+		  CROSS JOIN book b`
 
 // realtimeAuthorizeSelectOfferSQLBlocking waits for the best-ranked offer row.
 // Used when SKIP LOCKED found nothing: either the only candidate is locked
@@ -192,14 +211,16 @@ const realtimeAuthorizeSelectOfferSQLBlocking = realtimeAuthorizeCandidatesCTE +
 			           c.candidate_count,c.selected_rank,
 			           c.terminal_attempts,c.terminal_fails,
 			           c.verified_settlements,c.refund_count
-		)
-		SELECT worker_id,supplier_id,upstream_base_url,upstream_token_sealed,
-		       supplier_input_usd_per_million_tokens::float8,
-		       supplier_output_usd_per_million_tokens::float8,
-		       placement_plan,placement_plan_sha256,warmth,
-		       candidate_count,selected_rank,
-		       terminal_attempts,terminal_fails,verified_settlements,refund_count
-		  FROM updated`
+		)` + realtimeAuthorizeBookAggSQL + `
+		SELECT u.worker_id,u.supplier_id,u.upstream_base_url,u.upstream_token_sealed,
+		       u.supplier_input_usd_per_million_tokens::float8,
+		       u.supplier_output_usd_per_million_tokens::float8,
+		       u.placement_plan,u.placement_plan_sha256,u.warmth,
+		       u.candidate_count,u.selected_rank,
+		       u.terminal_attempts,u.terminal_fails,u.verified_settlements,u.refund_count,
+		       b.considered
+		  FROM updated u
+		  CROSS JOIN book b`
 
 // realtimeClearingProbeSelectSQLShared is the candidates ranking body used by
 // both the legacy full-aggregate probe and the stats-table probe. $1 profile,

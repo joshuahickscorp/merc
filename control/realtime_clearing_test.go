@@ -419,6 +419,139 @@ func TestRealtimeClearingSameCostClassKeepsWarmthTiebreak(t *testing.T) {
 	}
 }
 
+// TestRealtimePushMarketDecisionRecordsContendedLockSkip is the production
+// integration for Step 7: hold FOR UPDATE on the economic rank-1 offer so
+// SKIP LOCKED admits rank 2, and prove MarketDecision records the lock-skipped
+// peer without claiming lowest cost.
+func TestRealtimePushMarketDecisionRecordsContendedLockSkip(t *testing.T) {
+	installSettlementCurrencyForTest(t, "usd")
+	ctx, store, pool := openPayoutTestStore(t)
+	t.Setenv("MERC_TOKEN_KEY", "clearing-contention-test-key-with-32-bytes!!")
+	resetRealtimeClearingState(t, ctx, pool)
+
+	buyerID, err := store.CreateBuyerAccount(ctx,
+		"clearing-contention-"+uuid.NewString()+"@example.test", "integration-password", 5)
+	must(t, err)
+	profile := sortedVLLMProfiles()[0]
+	// Cheaper offer is economic rank 1; more expensive is rank 2.
+	rank1 := newRealtimeClearingOffer(t, ctx, store, pool, profile, "COLD", 0.05, 0.20, 2)
+	rank2 := newRealtimeClearingOffer(t, ctx, store, pool, profile, "HOT", 0.08, 0.30, 2)
+
+	// Hold the rank-1 offer row lock on a separate connection so authorize's
+	// SKIP LOCKED path must step to rank 2. Do not serialise the market.
+	lockConn, err := pool.Acquire(ctx)
+	must(t, err)
+	defer lockConn.Release()
+	lockTx, err := lockConn.Begin(ctx)
+	must(t, err)
+	defer func() { _ = lockTx.Rollback(ctx) }()
+	var lockedWorker uuid.UUID
+	if err := lockTx.QueryRow(ctx, `
+		SELECT worker_id FROM realtime_worker_offers
+		 WHERE worker_id=$1 AND runtime_profile_id=$2
+		 FOR UPDATE`, rank1.WorkerID, profile.RuntimeProfileID).Scan(&lockedWorker); err != nil {
+		t.Fatalf("hold rank-1 offer lock: %v", err)
+	}
+	if lockedWorker != rank1.WorkerID {
+		t.Fatalf("locked unexpected worker %s", lockedWorker)
+	}
+
+	contract := authorizeClearingContract(t, ctx, store, buyerID, profile)
+	if contract.WorkerID != rank2.WorkerID || contract.SupplierID != rank2.SupplierID {
+		t.Fatalf("SKIP LOCKED should admit rank-2 while rank-1 is locked: chose=%s want=%s rank1=%s market=%+v decision=%+v",
+			contract.WorkerID, rank2.WorkerID, rank1.WorkerID, contract.MarketClearing, contract.MarketDecision)
+	}
+	if contract.MarketClearing == nil || contract.MarketClearing.SelectedRank != 2 {
+		t.Fatalf("receipt must record economic rank 2, not rewrite to 1: %+v", contract.MarketClearing)
+	}
+	if strings.Contains(contract.MarketClearing.SelectionReason, "lowest verified-outcome cost") {
+		t.Fatalf("SelectionReason claims lowest cost under contention: %q", contract.MarketClearing.SelectionReason)
+	}
+	md := contract.MarketDecision
+	if md == nil || md.MarketShape != marketShapePushOrderBook || md.PushOrderBook == nil {
+		t.Fatalf("authorize must bind PUSH_ORDER_BOOK MarketDecision: %+v", md)
+	}
+	book := md.PushOrderBook
+	if book.AvailabilityMode != marketAvailabilitySkipLocked {
+		t.Fatalf("contended multi-offer claim must record SKIP_LOCKED: %+v", book)
+	}
+	if len(book.Considered) != 2 {
+		t.Fatalf("considered set must freeze both eligible peers: %+v", book.Considered)
+	}
+	var sawLockSkip bool
+	for _, c := range book.Considered {
+		if c.WorkerID == rank1.WorkerID {
+			if c.ExclusionReason != marketExclusionLockSkipped {
+				t.Fatalf("better-ranked peer must be lock_skipped: %+v", c)
+			}
+			sawLockSkip = true
+		}
+		if c.WorkerID == rank2.WorkerID && c.ExclusionReason != "" {
+			t.Fatalf("selected candidate must not carry exclusion: %+v", c)
+		}
+	}
+	if !sawLockSkip {
+		t.Fatalf("lock-skipped rank-1 peer missing from considered set: %+v", book.Considered)
+	}
+
+	// Durable re-read projects the same receipt from the stored decision.
+	receipt, err := store.RealtimeReceipt(ctx, buyerID, contract.ID)
+	must(t, err)
+	if receipt.MarketClearing == nil ||
+		receipt.MarketClearing.SelectedRank != 2 ||
+		receipt.MarketClearing.SelectedWorkerID != rank2.WorkerID ||
+		strings.Contains(receipt.MarketClearing.SelectionReason, "lowest verified-outcome cost") {
+		t.Fatalf("buyer receipt lost contention truth: %+v", receipt.MarketClearing)
+	}
+}
+
+// TestRealtimePushMarketDecisionRecordsConsideredSetOnUncontendedClaim proves
+// the considered set and exclusion reasons are frozen even when rank 1 wins.
+func TestRealtimePushMarketDecisionRecordsConsideredSetOnUncontendedClaim(t *testing.T) {
+	installSettlementCurrencyForTest(t, "usd")
+	ctx, store, pool := openPayoutTestStore(t)
+	t.Setenv("MERC_TOKEN_KEY", "clearing-book-test-key-with-at-least-32-bytes!")
+	resetRealtimeClearingState(t, ctx, pool)
+
+	buyerID, err := store.CreateBuyerAccount(ctx,
+		"clearing-book-"+uuid.NewString()+"@example.test", "integration-password", 5)
+	must(t, err)
+	profile := sortedVLLMProfiles()[0]
+	cheap := newRealtimeClearingOffer(t, ctx, store, pool, profile, "WARM", 0.05, 0.20, 2)
+	expensive := newRealtimeClearingOffer(t, ctx, store, pool, profile, "HOT", 0.08, 0.30, 2)
+
+	contract := authorizeClearingContract(t, ctx, store, buyerID, profile)
+	if contract.WorkerID != cheap.WorkerID {
+		t.Fatalf("uncontended claim should pick cheaper: chose=%s cheap=%s expensive=%s",
+			contract.WorkerID, cheap.WorkerID, expensive.WorkerID)
+	}
+	md := contract.MarketDecision
+	if md == nil || md.MarketShape != marketShapePushOrderBook || md.PushOrderBook == nil {
+		t.Fatalf("missing MarketDecision: %+v", md)
+	}
+	book := md.PushOrderBook
+	if book.SelectedRank != 1 || book.CandidateCount != 2 || len(book.Considered) != 2 {
+		t.Fatalf("book shape: %+v", book)
+	}
+	if book.Considered[0].WorkerID != cheap.WorkerID || book.Considered[0].ExclusionReason != "" {
+		t.Fatalf("selected rank-1: %+v", book.Considered[0])
+	}
+	if book.Considered[1].WorkerID != expensive.WorkerID ||
+		book.Considered[1].ExclusionReason != marketExclusionNotSelectedWorseRank {
+		t.Fatalf("worse-ranked peer exclusion: %+v", book.Considered[1])
+	}
+	if !strings.Contains(book.SelectionReason, "lowest verified-outcome cost") {
+		t.Fatalf("uncontended rank-1 should still claim lowest cost: %q", book.SelectionReason)
+	}
+	// Legacy receipt projects losslessly.
+	if contract.MarketClearing == nil ||
+		contract.MarketClearing.SelectedWorkerID != book.SelectedWorkerID ||
+		contract.MarketClearing.SelectionReason != book.SelectionReason ||
+		contract.MarketClearing.CandidateCount != book.CandidateCount {
+		t.Fatalf("legacy receipt projection disagree: receipt=%+v book=%+v", contract.MarketClearing, book)
+	}
+}
+
 func TestServiceLeaseClearingRanksByTotalSupplierPlusResidency(t *testing.T) {
 	// Region stays a hard filter. Residency nanos are a measured cost component
 	// of the lease price, so ranking by supplier ask alone would let a cheap

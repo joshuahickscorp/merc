@@ -7842,3 +7842,73 @@ CREATE TRIGGER jobs_evidence_envelope_immutable
 
 COMMENT ON TABLE evidence_envelopes IS
   'Network V2 Step 14 EvidenceEnvelope chain root. Not funding execution_envelopes. Links cite existing digests; ABSENT links record missing authority types with reasons.';
+
+
+-- =============================================================================
+-- Network V2 Step 10 — TopologyDecision accept-time binding
+-- =============================================================================
+-- TopologyPlan remains the pure planner result and post-commit shadow projection.
+-- TopologyDecision is the immutable accept-time record (chosen topology or an
+-- explicit refusal / not-applicable). Legacy jobs remain NULL; every new
+-- SubmitJobTx path requires a validated decision.
+
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS topology_decision JSONB;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS topology_decision_sha256 TEXT;
+ALTER TABLE jobs DROP CONSTRAINT IF EXISTS jobs_topology_decision_sha256_valid;
+ALTER TABLE jobs ADD CONSTRAINT jobs_topology_decision_sha256_valid
+    CHECK (topology_decision_sha256 IS NULL
+           OR topology_decision_sha256 ~ '^[0-9a-f]{64}$');
+ALTER TABLE jobs DROP CONSTRAINT IF EXISTS jobs_topology_decision_pair;
+ALTER TABLE jobs ADD CONSTRAINT jobs_topology_decision_pair CHECK (
+    (topology_decision IS NULL) = (topology_decision_sha256 IS NULL)
+) NOT VALID;
+
+CREATE OR REPLACE FUNCTION cx_reject_job_topology_decision_update() RETURNS trigger AS $$
+BEGIN
+    IF OLD.topology_decision IS DISTINCT FROM NEW.topology_decision
+       OR OLD.topology_decision_sha256 IS DISTINCT FROM NEW.topology_decision_sha256 THEN
+        -- Allow first set (NULL → value) only; never rewrite a sealed decision.
+        IF OLD.topology_decision IS NOT NULL OR OLD.topology_decision_sha256 IS NOT NULL THEN
+            RAISE EXCEPTION 'topology decision for job % is immutable', OLD.id;
+        END IF;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS jobs_topology_decision_immutable ON jobs;
+CREATE TRIGGER jobs_topology_decision_immutable
+    BEFORE UPDATE OF topology_decision, topology_decision_sha256 ON jobs
+    FOR EACH ROW EXECUTE FUNCTION cx_reject_job_topology_decision_update();
+
+-- Service lease freezes worker + pricing, not multi-host topology. The column
+-- still records an explicit NOT_APPLICABLE TopologyDecision so accepted leases
+-- never bind neither a decision nor a refusal.
+ALTER TABLE service_leases ADD COLUMN IF NOT EXISTS topology_decision JSONB;
+ALTER TABLE service_leases ADD COLUMN IF NOT EXISTS topology_decision_sha256 TEXT;
+ALTER TABLE service_leases DROP CONSTRAINT IF EXISTS service_leases_topology_decision_sha256_valid;
+ALTER TABLE service_leases ADD CONSTRAINT service_leases_topology_decision_sha256_valid
+    CHECK (topology_decision_sha256 IS NULL
+           OR topology_decision_sha256 ~ '^[0-9a-f]{64}$');
+ALTER TABLE service_leases DROP CONSTRAINT IF EXISTS service_leases_topology_decision_pair;
+ALTER TABLE service_leases ADD CONSTRAINT service_leases_topology_decision_pair CHECK (
+    (topology_decision IS NULL) = (topology_decision_sha256 IS NULL)
+) NOT VALID;
+
+CREATE OR REPLACE FUNCTION cx_reject_service_lease_topology_decision_update() RETURNS trigger AS $$
+BEGIN
+    IF OLD.topology_decision IS DISTINCT FROM NEW.topology_decision
+       OR OLD.topology_decision_sha256 IS DISTINCT FROM NEW.topology_decision_sha256 THEN
+        IF OLD.topology_decision IS NOT NULL OR OLD.topology_decision_sha256 IS NOT NULL THEN
+            RAISE EXCEPTION 'topology decision for service lease % is immutable', OLD.id;
+        END IF;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS service_leases_topology_decision_immutable ON service_leases;
+CREATE TRIGGER service_leases_topology_decision_immutable
+    BEFORE UPDATE OF topology_decision, topology_decision_sha256 ON service_leases
+    FOR EACH ROW EXECUTE FUNCTION cx_reject_service_lease_topology_decision_update();
+
+COMMENT ON COLUMN jobs.topology_decision IS
+  'Network V2 Step 10 TopologyDecision: accept-time chosen topology or explicit refusal. Shadow TopologyPlan is not authority.';

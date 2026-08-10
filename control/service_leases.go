@@ -794,6 +794,20 @@ func (s *Store) CreateServiceLease(ctx context.Context, buyerID uuid.UUID, reque
 	if err != nil {
 		return ServiceLease{}, err
 	}
+	// Service lease freezes worker + pricing, not multi-host topology. Record
+	// an explicit NOT_APPLICABLE TopologyDecision so accept never binds neither.
+	topologyDecision, err := buildServiceLeaseTopologyDecision()
+	if err != nil {
+		return ServiceLease{}, err
+	}
+	topologyJSON, err := json.Marshal(topologyDecision)
+	if err != nil {
+		return ServiceLease{}, err
+	}
+	topologySHA, err := topologyDecisionDigest(topologyDecision)
+	if err != nil {
+		return ServiceLease{}, err
+	}
 	now := time.Now().UTC()
 	leaseID := uuid.New()
 	lease := ServiceLease{ID: leaseID, BuyerID: buyerID, WorkerID: workerID, SupplierID: supplierID,
@@ -814,11 +828,13 @@ func (s *Store) CreateServiceLease(ctx context.Context, buyerID uuid.UUID, reque
 		 (id,buyer_id,worker_id,supplier_id,runtime_profile_id,runtime_profile_sha256,region,
 		  minimum_replicas,maximum_replicas,maximum_p95_latency_milliseconds,term_seconds,state,
 		  active_replicas,reserved_buyer_micros,pricing_acceptance_id,pricing_decision,pricing_decision_sha256,
+		  topology_decision,topology_decision_sha256,
 		  started_at,expires_at,last_metered_at,last_worker_heartbeat_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'ACTIVE',$8,$12,$1,$13,$14,$15,$16,$15,$15)`,
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'ACTIVE',$8,$12,$1,$13,$14,$15,$16,$17,$18,$17,$17)`,
 		lease.ID, lease.BuyerID, lease.WorkerID, lease.SupplierID, lease.RuntimeProfileID,
 		lease.RuntimeProfileSHA256, lease.Region, lease.MinimumReplicas, lease.MaximumReplicas,
-		lease.MaximumP95LatencyMillis, lease.TermSeconds, lease.ReservedBuyerMicros, pricingJSON, pricingSHA, now, lease.ExpiresAt)
+		lease.MaximumP95LatencyMillis, lease.TermSeconds, lease.ReservedBuyerMicros,
+		pricingJSON, pricingSHA, topologyJSON, topologySHA, now, lease.ExpiresAt)
 	if err != nil {
 		return ServiceLease{}, err
 	}
