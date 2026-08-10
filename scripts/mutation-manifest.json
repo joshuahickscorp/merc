@@ -1268,6 +1268,7 @@
         "TestAttachRealtimeReusePricingRefusesPersistedAuthorityDrift",
         "TestCacheHitBillsReuseClassAndSchedulesNoSupplier",
         "TestExecutionContractBindingShapeIsEnforced",
+        "TestLegacyRealtimeAuthorityMustAgreeWithDurableSupplierRates",
         "TestLegacyRealtimePricingAuthoritiesOmitFutureFXFields",
         "TestPropertyBuyerChargeImpliesPositiveSupplierLiability",
         "TestRealtimeClearingHigherAskWithNoFailuresBeatsCheaperThatNeedsDoubleExecution",
@@ -1613,7 +1614,7 @@
         "TestServiceLeaseClearingRanksByTotalSupplierPlusResidency",
         "TestStoreExactResultAliasPopulatesCache"
       ],
-      "source_target": "control/realtime_store.go"
+      "source_target": "control/realtime_pricing_decision.go"
     },
     {
       "authority_domain": "supplier_liability",

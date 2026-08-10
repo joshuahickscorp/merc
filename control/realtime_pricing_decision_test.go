@@ -176,3 +176,94 @@ func TestAttachRealtimeContractPricingRefusesDigestAndLegacyAuthorityDrift(t *te
 		t.Fatal("divergent legacy token bound passed frozen PricingDecision validation")
 	}
 }
+
+// A version-1 realtime authority must agree with the durable contract's
+// supplier rates, not only its buyer rates.
+//
+// TestAttachRealtimeContractPricingRefusesDigestAndLegacyAuthorityDrift covers
+// drift, but every contract it builds is version 2, so it only ever exercises
+// the reference-rate branch. The legacy branch — the `else if` that guards
+// pre-FX authorities — had no test at all, and a mutation that deletes its
+// supplier-input term survives the entire suite.
+//
+// What that would let through: a legacy contract whose frozen authority pays
+// the supplier at a rate the durable contract does not record. The buyer side
+// still reconciles, so nothing else notices; the divergence is entirely in what
+// the supplier is owed.
+func TestLegacyRealtimeAuthorityMustAgreeWithDurableSupplierRates(t *testing.T) {
+	in := realtimePricingFixture(t)
+	decision, err := newRealtimePricingDecision(in)
+	must(t, err)
+	placementSHA, err := realtimePlacementPlanDigest(in.Placement)
+	must(t, err)
+
+	// Downgrade the v2 authority to the legacy shape: settlement nanos only, no
+	// reference rates, no FX, legacy rounding policy.
+	legacy := *decision.Realtime
+	legacy.Version = realtimePricingLegacyVersion
+	legacy.RoundingPolicy = realtimePricingLegacyRounding
+	legacy.ReferenceCurrency, legacy.SettlementCurrency = "", ""
+	legacy.FX = nil
+	legacy.BuyerInputReferenceNanosPerMillion = 0
+	legacy.BuyerOutputReferenceNanosPerMillion = 0
+	legacy.SupplierInputReferenceNanosPerMillion = 0
+	legacy.SupplierOutputReferenceNanosPerMillion = 0
+	legacy.ReferenceExpectedBuyerChargeNanos = 0
+	legacy.ReferenceMaximumBuyerChargeNanos = 0
+	legacy.BuyerDeclaredCeilingReferenceNanos = 0
+
+	legacyDecision := decision
+	legacyDecision.Realtime = &legacy
+	raw, err := json.Marshal(legacyDecision)
+	must(t, err)
+	digest, err := pricingDecisionDigest(legacyDecision)
+	must(t, err)
+	expected, maximum, err := realtimePricingLegacyProjection(legacyDecision)
+	must(t, err)
+
+	// A legacy authority carries settlement nanos, and the durable contract
+	// carries the float projection of those same rates. Deriving one from the
+	// other is what makes the sound case genuinely sound rather than
+	// accidentally equal when FX happens to be 1.
+	rate := func(nanos int64) float64 { return float64(nanos) / float64(NanosPerMajorUnit) }
+
+	base := RealtimeContract{
+		RuntimeProfileID: in.Profile.RuntimeProfileID, RuntimeProfileSHA256: in.Profile.ProfileSHA256,
+		InputCommitment: in.InputCommitment, RequestSHA256: in.RequestSHA256,
+		PlacementPlan: in.Placement, PlacementPlanSHA256: placementSHA,
+		MaximumPriceUSD: maximum, EstimatedPriceUSD: expected,
+		BuyerInputUSDPerMillionTokens:     rate(legacy.BuyerInputNanosPerMillion),
+		BuyerOutputUSDPerMillionTokens:    rate(legacy.BuyerOutputNanosPerMillion),
+		SupplierInputUSDPerMillionTokens:  rate(legacy.SupplierInputNanosPerMillion),
+		SupplierOutputUSDPerMillionTokens: rate(legacy.SupplierOutputNanosPerMillion),
+		MaximumPromptTokens:               in.MaximumPromptTokens, MaximumCompletionTokens: in.MaximumCompletionTokens,
+		EstimatedPromptTokens: in.EstimatedPromptTokens, EstimatedCompletionTokens: in.EstimatedCompletionTokens,
+		BuyerDeclaredCeilingNanos: legacy.BuyerDeclaredCeilingNanos,
+		Currency:                  in.Currency.Code(), PricingDecisionSHA256: digest,
+	}
+
+	sound := base
+	if err := attachRealtimeContractPricing(&sound, raw); err != nil || sound.Pricing == nil {
+		t.Fatalf("a well-formed legacy realtime authority did not attach: pricing=%v err=%v", sound.Pricing, err)
+	}
+
+	// Each rate the legacy branch is supposed to bind, one at a time, so a
+	// refusal cannot be credited to the wrong term.
+	for name, drift := range map[string]func(*RealtimeContract){
+		"supplier input":  func(c *RealtimeContract) { c.SupplierInputUSDPerMillionTokens += 0.001 },
+		"supplier output": func(c *RealtimeContract) { c.SupplierOutputUSDPerMillionTokens += 0.001 },
+		"buyer input":     func(c *RealtimeContract) { c.BuyerInputUSDPerMillionTokens += 0.001 },
+		"buyer output":    func(c *RealtimeContract) { c.BuyerOutputUSDPerMillionTokens += 0.001 },
+	} {
+		drifted := base
+		drift(&drifted)
+		err := attachRealtimeContractPricing(&drifted, raw)
+		if err == nil {
+			t.Fatalf("a legacy authority whose %s rate disagrees with the durable contract attached anyway; "+
+				"the legacy rate comparison does not bind that term", name)
+		}
+		if !strings.Contains(err.Error(), "legacy realtime rates disagree") {
+			t.Fatalf("legacy %s drift was refused for the wrong reason: %v", name, err)
+		}
+	}
+}
