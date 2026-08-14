@@ -200,10 +200,41 @@ func supplierNotLinkedToBuyerSQL(supplierAlias string) string {
 	     )`
 }
 
+// workerDeviceBoundSQL is the structural half of ordinary-work containment:
+// sandboxed=true is agent-reported and alone is not trust; an active
+// device-bound supply credential (enrolment device fingerprint on a live
+// worker_tokens row) is required alongside it. Unbound tokens — including
+// CreateWorkerToken mints — never satisfy this predicate.
+//
+// workerIDExpr is the worker primary-key expression in scope (e.g. "w.id",
+// "me.worker_id"). The me CTE renames w.id → worker_id.
+func workerDeviceBoundSQL(workerIDExpr string) string {
+	return `EXISTS (
+	       SELECT 1 FROM worker_tokens wt_bind
+	        WHERE wt_bind.worker_id = ` + workerIDExpr + `
+	          AND wt_bind.revoked = false
+	          AND wt_bind.device_fingerprint IS NOT NULL
+	          AND btrim(wt_bind.device_fingerprint) <> ''
+	          AND (wt_bind.expires_at IS NULL OR wt_bind.expires_at > now())
+	     )`
+}
+
+// workerIDExprForContainment resolves the worker id column for a workers-row
+// alias used in claim/quote SQL. The claiming-worker CTE projects
+// w.id AS worker_id; every other alias is the workers table itself.
+func workerIDExprForContainment(workerAlias string) string {
+	if workerAlias == "me" {
+		return "me.worker_id"
+	}
+	return workerAlias + ".id"
+}
+
 // workerJobContainmentSQL gates a worker against a job's containment
 // requirement.
 //
-// Ordinary buyer work requires platform-enforced sandbox (sandboxed=true).
+// Ordinary buyer work requires platform-enforced sandbox (sandboxed=true)
+// AND an active device-bound supply credential. sandboxed alone is
+// self-declared at registration and is not honoured without device binding.
 // Work with a frozen directed_cell_id on the workload decision is the named
 // permit for uncontained supply: that is how operator-directed, lab, and
 // canary lanes are already distinguished in this codebase, so the permit is
@@ -213,14 +244,21 @@ func supplierNotLinkedToBuyerSQL(supplierAlias string) string {
 //
 // workerAlias is the workers-table alias (e.g. "me", "w2", "nw"); jobAlias is
 // the jobs-table alias (always "j" in current claim SQL).
+//
+// Every claim/quote/narrowing reader of ordinary containment must go through
+// this helper (or claimableWorkerPredicateSQL, which shares the same device
+// bind) so a future path cannot re-introduce self-declared eligibility.
 func workerJobContainmentSQL(workerAlias, jobAlias string) string {
 	return `
 	     -- Containment eligibility (Bible §18): public supply requires
-	     -- sandboxed=true. Directed work (workload_decision.directed_cell_id)
-	     -- is the explicit permit for uncontained hosts. unsandboxed_opt_in
-	     -- is a separate absolute exclusion.
+	     -- sandboxed=true AND an active device-bound credential. Directed work
+	     -- (workload_decision.directed_cell_id) is the explicit permit for
+	     -- uncontained hosts. unsandboxed_opt_in is a separate absolute exclusion.
 	     AND (
-	       COALESCE(` + workerAlias + `.sandboxed, false)
+	       (
+	         COALESCE(` + workerAlias + `.sandboxed, false)
+	         AND ` + workerDeviceBoundSQL(workerIDExprForContainment(workerAlias)) + `
+	       )
 	       OR COALESCE(` + jobAlias + `.workload_decision->>'directed_cell_id','') <> ''
 	     )
 	     AND NOT COALESCE(` + workerAlias + `.unsandboxed_opt_in, false)`

@@ -7996,3 +7996,23 @@ CREATE TRIGGER jobs_runtime_decision_immutable
 
 COMMENT ON COLUMN jobs.runtime_decision IS
   'Network V2 Step 8 RuntimeDecision: accept-time engine/cell/benchmark/activation freeze. Shadow selection is not authority.';
+
+-- Payout identity uniqueness: one Stripe Connect account may back at most one
+-- supplier. Buyer-side stripe_customer_id is already UNIQUE; this mirrors that
+-- bar for supplier payout instruments. Partial (non-null only) so pending
+-- suppliers without Connect remain valid.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM suppliers
+     WHERE stripe_acct IS NOT NULL AND btrim(stripe_acct) <> ''
+     GROUP BY stripe_acct
+    HAVING COUNT(*) > 1
+  ) THEN
+    RAISE EXCEPTION
+      'suppliers.stripe_acct has duplicate non-null values; resolve collisions before applying uniqueness';
+  END IF;
+END $$;
+CREATE UNIQUE INDEX IF NOT EXISTS suppliers_stripe_acct_uniq
+    ON suppliers (stripe_acct)
+    WHERE stripe_acct IS NOT NULL AND btrim(stripe_acct) <> '';

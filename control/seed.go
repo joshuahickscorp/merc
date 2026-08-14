@@ -24,8 +24,13 @@ const (
 
 	demoWorkerToken  = "dev-worker-token-0001"
 	demoWorkerToken2 = "dev-worker-token-0002"
-	demoAPIKey       = "dev-api-key-0001"
-	demoAdminAPIKey  = "dev-admin-key-0001"
+	// Stable device fingerprints for the seed fleet. Ordinary-work eligibility
+	// requires device-bound credentials alongside sandboxed=true; seed installs
+	// real binding row shape (not a production exception).
+	demoDeviceFingerprint  = "seed-demo-device-0001"
+	demoDeviceFingerprint2 = "seed-demo-device-0002"
+	demoAPIKey             = "dev-api-key-0001"
+	demoAdminAPIKey        = "dev-admin-key-0001"
 
 	demoHoneypotEmbedRef  = "honeypots/embed/0001/input.jsonl"
 	demoHoneypotEmbedText = "the quick brown fox jumps over the lazy dog"
@@ -61,7 +66,8 @@ func seedDemo(ctx context.Context, pool *pgxpool.Pool, storage *Storage) error {
 		// sandboxed=true is deliberate: the local seed fleet is the named
 		// development class permitted to take ordinary work. Uncontained
 		// public supply is not routable; seed workers earn eligibility by
-		// declaring containment rather than by the gate being absent.
+		// containment PLUS device-bound credentials (same bar as production),
+		// not by a gate exception.
 		{`INSERT INTO workers (id, supplier_id, hw_class, memory_gb, bw_gbps, last_seen_at, version,
 		                       supported_jobs, supported_models, min_payout_usd_hr, thermal_ok,
 		                       sandboxed)
@@ -76,16 +82,23 @@ func seedDemo(ctx context.Context, pool *pgxpool.Pool, storage *Storage) error {
 		{`UPDATE workers SET sandboxed = true WHERE id = $1`, []any{demoWorkerID}},
 		// Remap demo tokens onto the v4 worker rows so existing local DBs that still
 		// hold version-nibble-0 demo workers stop advertising non-receipt-grade IDs.
-		// Expiry is long but finite (1 year) so local agent configs keep working
-		// and the lifetime is visible rather than infinite.
-		{`INSERT INTO worker_tokens (token_hash, worker_id, supplier_id, revoked, expires_at, last_renewed_at)
-		  VALUES ($1, $2, $3, false, now() + interval '365 days', now())
+		// Device binding is required for ordinary-work eligibility; seed installs
+		// full device material so the fleet meets the same predicate as production
+		// enrolled workers. Expiry is long but finite (1 year).
+		{`INSERT INTO worker_tokens (token_hash, worker_id, supplier_id, revoked, expires_at, last_renewed_at,
+		                             device_key_algorithm, device_public_key, device_fingerprint)
+		  VALUES ($1, $2, $3, false, now() + interval '365 days', now(),
+		          'p256', $4, $5)
 		  ON CONFLICT (token_hash) DO UPDATE
 		  SET worker_id = EXCLUDED.worker_id,
 		      supplier_id = EXCLUDED.supplier_id,
 		      revoked = false,
 		      expires_at = EXCLUDED.expires_at,
-		      last_renewed_at = now()`, []any{hashKey(demoWorkerToken), demoWorkerID, demoSupplierID}},
+		      last_renewed_at = now(),
+		      device_key_algorithm = EXCLUDED.device_key_algorithm,
+		      device_public_key = EXCLUDED.device_public_key,
+		      device_fingerprint = EXCLUDED.device_fingerprint`,
+			[]any{hashKey(demoWorkerToken), demoWorkerID, demoSupplierID, seedDevicePublicKey(), demoDeviceFingerprint}},
 		{`INSERT INTO suppliers (id, email, reputation, tier, status)
 		  VALUES ($1, 'demo-supplier-2@example.com', 0.90, 2, 'active')
 		  ON CONFLICT (id) DO NOTHING`, []any{demoSupplierID2}},
@@ -99,14 +112,20 @@ func seedDemo(ctx context.Context, pool *pgxpool.Pool, storage *Storage) error {
 		{`UPDATE suppliers SET data_country = 'US' WHERE id = $1 AND data_country IS NULL`,
 			[]any{demoSupplierID2}},
 		{`UPDATE workers SET sandboxed = true WHERE id = $1`, []any{demoWorkerID2}},
-		{`INSERT INTO worker_tokens (token_hash, worker_id, supplier_id, revoked, expires_at, last_renewed_at)
-		  VALUES ($1, $2, $3, false, now() + interval '365 days', now())
+		{`INSERT INTO worker_tokens (token_hash, worker_id, supplier_id, revoked, expires_at, last_renewed_at,
+		                             device_key_algorithm, device_public_key, device_fingerprint)
+		  VALUES ($1, $2, $3, false, now() + interval '365 days', now(),
+		          'p256', $4, $5)
 		  ON CONFLICT (token_hash) DO UPDATE
 		  SET worker_id = EXCLUDED.worker_id,
 		      supplier_id = EXCLUDED.supplier_id,
 		      revoked = false,
 		      expires_at = EXCLUDED.expires_at,
-		      last_renewed_at = now()`, []any{hashKey(demoWorkerToken2), demoWorkerID2, demoSupplierID2}},
+		      last_renewed_at = now(),
+		      device_key_algorithm = EXCLUDED.device_key_algorithm,
+		      device_public_key = EXCLUDED.device_public_key,
+		      device_fingerprint = EXCLUDED.device_fingerprint`,
+			[]any{hashKey(demoWorkerToken2), demoWorkerID2, demoSupplierID2, seedDevicePublicKey(), demoDeviceFingerprint2}},
 		{`INSERT INTO api_keys (buyer_id, key_hash, is_admin, revoked)
 		  VALUES ($1, $2, false, false)
 		  ON CONFLICT (key_hash) DO NOTHING`, []any{demoBuyerID, hashKey(demoAPIKey)}},

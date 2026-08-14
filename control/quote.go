@@ -1197,15 +1197,20 @@ func (s *Store) EligibleWorkerCount(ctx context.Context, jobType, modelRef strin
 
 // claimableWorkerPredicateSQL is the ordinary-buyer supply set used by quote
 // capacity, warm capacity, pool reputation, and fleet rate snapshots. It must
-// agree with the claim path for ordinary work: sandboxed=true and not
-// unsandboxed_opt_in. Directed (uncontained-permitted) work is operator-path
-// only and does not inflate public quote capacity.
-const claimableWorkerPredicateSQL = `
+// agree with the claim path for ordinary work: sandboxed=true, an active
+// device-bound supply credential, and not unsandboxed_opt_in. Directed
+// (uncontained-permitted) work is operator-path only and does not inflate
+// public quote capacity.
+//
+// Device binding is inlined via workerDeviceBoundSQL rather than re-stated so
+// quote capacity cannot advertise workers claim would refuse.
+var claimableWorkerPredicateSQL = `
 	w.last_seen_at IS NOT NULL
 	AND w.last_seen_at > now() - interval '60 seconds'
 	AND s.status = 'active'
 	AND NOT COALESCE(w.throttled, false)
 	AND COALESCE(w.sandboxed, false)
+	AND ` + workerDeviceBoundSQL("w.id") + `
 	AND NOT COALESCE(w.unsandboxed_opt_in, false)
 	AND COALESCE($3,0) <= COALESCE(w.effective_memory_gb, w.memory_gb, 0)
 	AND ($4::text[] IS NULL OR w.hw_class = ANY($4))

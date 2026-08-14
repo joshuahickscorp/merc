@@ -182,6 +182,10 @@ func writeSupplierStoreError(w http.ResponseWriter, action string, err error) {
 		writeErr(w, http.StatusForbidden, errSupplierAccountRequired.Error())
 	case errors.Is(err, errSupplierOwnershipConflict):
 		writeErr(w, http.StatusConflict, "supplier ownership requires operator review")
+	case errors.Is(err, errStripeAcctTaken):
+		writeErr(w, http.StatusConflict, errStripeAcctTaken.Error())
+	case errors.Is(err, errWorkerTokenUnboundForbidden):
+		writeErr(w, http.StatusForbidden, errWorkerTokenUnboundForbidden.Error())
 	default:
 		writeErr(w, http.StatusInternalServerError, action+": "+err.Error())
 	}
