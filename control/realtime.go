@@ -750,6 +750,84 @@ func finalizeRealtimeFailure(store *Store, contractID, executionID uuid.UUID, st
 	}
 }
 
+// realtimeTTFTPhaseCapture is always-on wall-clock capture for the G021 TTFT
+// split. Unlike realtimePathTiming it is not gated by an env flag: every live
+// execution that reaches finalize writes what it observed.
+//
+// Boundaries (post-authorize):
+//
+//	queue_wait           started → dial start (arrival batch + pre_upstream)
+//	provider_startup     dial start → response headers (connect + engine accept)
+//	engine_to_first_event headers → first upstream SSE/event body
+//	prefill              NEVER populated — OpenAI-compatible streaming has no
+//	                     prefill/first-token boundary on the wire
+//
+// Unknown stays nil. A phase that did not happen is not recorded as zero.
+type realtimeTTFTPhaseCapture struct {
+	started       time.Time
+	dialStart     time.Time
+	headersAt     time.Time
+	firstEventAt  time.Time
+	dialSet       bool
+	headersSet    bool
+	firstEventSet bool
+}
+
+func newRealtimeTTFTPhaseCapture(started time.Time) *realtimeTTFTPhaseCapture {
+	return &realtimeTTFTPhaseCapture{started: started}
+}
+
+func (c *realtimeTTFTPhaseCapture) markDialStart() {
+	if c == nil || c.dialSet {
+		return
+	}
+	c.dialStart = time.Now()
+	c.dialSet = true
+}
+
+func (c *realtimeTTFTPhaseCapture) markHeaders() {
+	if c == nil || c.headersSet {
+		return
+	}
+	c.headersAt = time.Now()
+	c.headersSet = true
+}
+
+func (c *realtimeTTFTPhaseCapture) markFirstEvent() {
+	if c == nil || c.firstEventSet {
+		return
+	}
+	c.firstEventAt = time.Now()
+	c.firstEventSet = true
+}
+
+func msSince(from, to time.Time) int64 {
+	d := to.Sub(from)
+	if d < 0 {
+		return 0
+	}
+	return d.Milliseconds()
+}
+
+func int64ptr(v int64) *int64 { return &v }
+
+// apply writes observed phases onto evidence. Prefill is left nil on purpose.
+func (c *realtimeTTFTPhaseCapture) apply(ev *RealtimeExecutionEvidence) {
+	if c == nil || ev == nil {
+		return
+	}
+	if c.dialSet && !c.started.IsZero() {
+		ev.QueueWaitMS = int64ptr(msSince(c.started, c.dialStart))
+	}
+	if c.dialSet && c.headersSet {
+		ev.ProviderStartupMS = int64ptr(msSince(c.dialStart, c.headersAt))
+	}
+	if c.headersSet && c.firstEventSet {
+		ev.EngineToFirstEventMS = int64ptr(msSince(c.headersAt, c.firstEventAt))
+	}
+	// PrefillMS deliberately omitted: not observable on this protocol.
+}
+
 // realtimePathTiming is an opt-in stage clock for gateway overhead work.
 // Enabled with MERC_REALTIME_PATH_TIMING=1; emits one structured log line per
 // request. Never gates or alters the request path.
@@ -1129,6 +1207,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	// when delivery never happens, so an early insert on a failed attempt
 	// cannot become an unbilled-or-overbilled obligation.
 	started := time.Now()
+	ttftPhases := newRealtimeTTFTPhaseCapture(started)
 	executionID := uuid.New()
 	var (
 		intentErrCh  chan error
@@ -1236,9 +1315,13 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			connectOnce.Do(func() { connectDur = time.Since(stage) })
 		},
 	}))
+	ttftPhases.markDialStart()
 	response, err := client.Do(upstreamRequest)
 	pathTiming.mark("upstream_ttfb", stage)
 	pathTiming.set("upstream_connect", connectDur)
+	if err == nil {
+		ttftPhases.markHeaders()
+	}
 	if err != nil {
 		_ = drainIntent()
 		cancelled := errors.Is(requestContext.Err(), context.Canceled)
@@ -1308,6 +1391,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		hooks := &proxySSEFirstHooks{
 			onUpstreamEvent: func(waitForEvent time.Duration) {
 				pathTiming.set("upstream_first_sse", waitForEvent)
+				ttftPhases.markFirstEvent()
 			},
 			onBuyerFlush: pathTiming.markFirstBuyerByte,
 		}
@@ -1334,6 +1418,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			pathTiming.log(true, contract.ID.String())
 			return
 		}
+		ttftPhases.apply(&evidence)
 		settlementContext, settlementCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		stage = time.Now()
 		_, err = s.store.FinalizeRealtimeSuccess(settlementContext, contract.ID, evidence)
@@ -1346,6 +1431,10 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			_ = s.store.RecordRealtimeSettlementIntentFailure(context.Background(), contract.ID, executionID, evidence, err)
 		} else {
 			metrics.realtimeVerified.Add(1)
+			// G053 observation only — never gates settlement or selection.
+			if cerr := s.store.RecordRealtimePhaseCalibrations(context.Background(), evidence.ID); cerr != nil {
+				log.Printf("realtime phase calibrations for %s: %v (settlement unaffected)", evidence.ID, cerr)
+			}
 		}
 		pathTiming.log(true, contract.ID.String())
 		return
@@ -1426,6 +1515,9 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	chainDigest := sha256.Sum256(append(make([]byte, 40), bodyDigest[:]...))
+	// Non-stream: the first "event" is the complete JSON body. markFirstEvent
+	// after the body is fully read; prefill remains unobservable.
+	ttftPhases.markFirstEvent()
 	evidence := RealtimeExecutionEvidence{
 		ID: executionID, UpstreamRequestID: completion.ID, HTTPStatus: response.StatusCode,
 		StreamEventCount: 1, StreamRootSHA256: hex.EncodeToString(chainDigest[:]),
@@ -1433,6 +1525,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		CompletionTokens: completion.Usage.CompletionTokens, TotalTokens: completion.Usage.TotalTokens,
 		TimeToFirstEventMS: time.Since(started).Milliseconds(), DurationMS: time.Since(started).Milliseconds(),
 	}
+	ttftPhases.apply(&evidence)
 	pathTiming.mark("usage_reconcile", stage)
 	// Delivered non-stream work must settle even if the buyer hung up after
 	// the upstream body was fully received. Match the streaming path: detach
@@ -1442,6 +1535,11 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	_, err = s.store.FinalizeRealtimeSuccess(settlementContext, contract.ID, evidence)
 	pathTiming.mark("settlement", stage)
 	settlementCancel()
+	if err == nil {
+		if cerr := s.store.RecordRealtimePhaseCalibrations(context.Background(), evidence.ID); cerr != nil {
+			log.Printf("realtime phase calibrations for %s: %v (settlement unaffected)", evidence.ID, cerr)
+		}
+	}
 	if err != nil {
 		metrics.realtimeFinalizationErrors.Add(1)
 		// Pass cancellation truth for bookkeeping/metrics. Money on this path

@@ -1021,6 +1021,9 @@ func recordEtaCalibration(ctx context.Context, store *Store, jobID uuid.UUID) {
 		log.Printf("eta calibration for job %s: %v (finalize unaffected)", jobID, err)
 		return
 	}
+	// G053: per-phase actuals on the same eta_calibration surface. Never blocks
+	// finalize; never feeds ETABiasFactor (phase <> 'total').
+	recordJobPhaseCalibrations(ctx, store, jobID)
 	// This metric is a buyer-promise near miss, not raw-estimator drift.
 	if quoted > 0 && float64(realized) > 1.2*float64(quoted) {
 		metrics.watchdogNearMiss.Add(1)

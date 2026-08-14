@@ -679,6 +679,9 @@ func (s *Store) ETABiasFactor(
 	ctx context.Context, jobType, tier, modelRef, inputDepthBand string,
 ) (factor float64, samples int, err error) {
 	var median float64
+	// phase='total' only: per-phase rows (G053) are observations and must not
+	// stretch a quoted ETA. Empty phase is treated as total for pre-migration
+	// rows that somehow lack the DEFAULT (none should, after ADD COLUMN).
 	err = s.pool.QueryRow(ctx,
 		`SELECT COUNT(*),
 		        COALESCE(percentile_cont(0.5) WITHIN GROUP (
@@ -688,6 +691,7 @@ func (s *Store) ETABiasFactor(
 		    AND tier = $2
 		    AND COALESCE(model_ref,'') = $3
 		    AND COALESCE(input_depth_band,'') = $4
+		    AND COALESCE(phase,'total') = 'total'
 		    AND predicted_secs > 0
 		    AND realized_secs >= 0
 		    AND created_at > now() - make_interval(secs => $5)`,
@@ -1731,10 +1735,12 @@ func (s *Store) RecordEtaCalibration(
 		    WHERE id = $1 AND COALESCE(eta_secs_raw, eta_secs, 0) > 0
 		 ), inserted AS (
 		   INSERT INTO eta_calibration
-		     (job_id, job_type, tier, model_ref, input_depth_band, predicted_secs, realized_secs)
-		   SELECT id, job_type, tier, model_ref, input_depth_band, raw_predicted_secs, realized_secs
+		     (job_id, job_type, tier, model_ref, input_depth_band, phase,
+		      predicted_secs, realized_secs)
+		   SELECT id, job_type, tier, model_ref, input_depth_band, 'total',
+		          raw_predicted_secs, realized_secs
 		     FROM source
-		   ON CONFLICT (job_id) DO NOTHING
+		   ON CONFLICT (job_id, phase) WHERE job_id IS NOT NULL DO NOTHING
 		   RETURNING job_id, predicted_secs, realized_secs
 		 )
 		 SELECT i.predicted_secs, s.quoted_predicted_secs, i.realized_secs

@@ -1343,6 +1343,15 @@ func realtimeNullIfEmpty(value string) any {
 	return value
 }
 
+// nullableInt64 maps an unobserved phase (*int64 == nil) to a SQL NULL rather
+// than zero. A measured zero is a real observation and must survive.
+func nullableInt64(v *int64) any {
+	if v == nil {
+		return nil
+	}
+	return *v
+}
+
 type RealtimeExecutionEvidence struct {
 	ID                 uuid.UUID
 	UpstreamRequestID  string
@@ -1355,6 +1364,13 @@ type RealtimeExecutionEvidence struct {
 	TotalTokens        int64
 	TimeToFirstEventMS int64
 	DurationMS         int64
+	// G021 TTFT split. Pointers so an unobserved phase is NULL in the row,
+	// never zero and never an apportioned share of TimeToFirstEventMS.
+	// PrefillMS is reserved and stays nil under the OpenAI-compatible protocol.
+	QueueWaitMS          *int64
+	ProviderStartupMS    *int64
+	PrefillMS            *int64
+	EngineToFirstEventMS *int64
 }
 
 type RealtimeSettlement struct {
@@ -1897,12 +1913,16 @@ func (s *Store) FinalizeRealtimeSuccess(ctx context.Context, contractID uuid.UUI
 		 (id,contract_id,worker_id,supplier_id,upstream_request_id,http_status,
 		  stream_event_count,stream_root_sha256,output_commitment,prompt_tokens,
 		  completion_tokens,total_tokens,time_to_first_event_ms,duration_ms,
-		  verification_state)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'PASSED')`,
+		  verification_state,
+		  queue_wait_ms,provider_startup_ms,prefill_ms,engine_to_first_event_ms)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'PASSED',
+		        $15,$16,$17,$18)`,
 		evidence.ID, contractID, contract.WorkerID, contract.SupplierID, realtimeNullIfEmpty(evidence.UpstreamRequestID),
 		evidence.HTTPStatus, evidence.StreamEventCount, evidence.StreamRootSHA256,
 		evidence.OutputCommitment, evidence.PromptTokens, evidence.CompletionTokens,
-		evidence.TotalTokens, evidence.TimeToFirstEventMS, evidence.DurationMS)
+		evidence.TotalTokens, evidence.TimeToFirstEventMS, evidence.DurationMS,
+		nullableInt64(evidence.QueueWaitMS), nullableInt64(evidence.ProviderStartupMS),
+		nullableInt64(evidence.PrefillMS), nullableInt64(evidence.EngineToFirstEventMS))
 	if err != nil {
 		return RealtimeSettlement{}, err
 	}

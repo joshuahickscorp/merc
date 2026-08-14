@@ -8016,3 +8016,149 @@ END $$;
 CREATE UNIQUE INDEX IF NOT EXISTS suppliers_stripe_acct_uniq
     ON suppliers (stripe_acct)
     WHERE stripe_acct IS NOT NULL AND btrim(stripe_acct) <> '';
+
+-- =============================================================================
+-- G021/G053 — per-phase prediction surface for regret
+-- =============================================================================
+-- Realtime TTFT was a single wall (time_to_first_event_ms) that conflated three
+-- different costs: control-plane queue after authorize, provider connection/
+-- header wait, and engine prefill. Batch already decomposes from existing
+-- timestamps; realtime needs real columns. Prefill is NOT separable on the
+-- OpenAI-compatible streaming protocol (first SSE event is post-prefill first
+-- token with no intermediate boundary), so prefill_ms is reserved and stays
+-- NULL rather than an apportioned share of TTFT.
+--
+-- engine_to_first_event_ms is the honest residual after headers: prefill + first
+-- decode token, conflated. It is not labelled prefill.
+--
+-- time_to_first_event_ms is unchanged so nothing downstream breaks.
+
+ALTER TABLE realtime_executions
+    ADD COLUMN IF NOT EXISTS queue_wait_ms BIGINT;
+ALTER TABLE realtime_executions
+    ADD COLUMN IF NOT EXISTS provider_startup_ms BIGINT;
+ALTER TABLE realtime_executions
+    ADD COLUMN IF NOT EXISTS prefill_ms BIGINT;
+ALTER TABLE realtime_executions
+    ADD COLUMN IF NOT EXISTS engine_to_first_event_ms BIGINT;
+
+DO $$ BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+         WHERE conrelid='realtime_executions'::regclass
+           AND conname='realtime_executions_queue_wait_ms_nonneg'
+    ) THEN
+        ALTER TABLE realtime_executions
+            ADD CONSTRAINT realtime_executions_queue_wait_ms_nonneg
+            CHECK (queue_wait_ms IS NULL OR queue_wait_ms >= 0) NOT VALID;
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+         WHERE conrelid='realtime_executions'::regclass
+           AND conname='realtime_executions_provider_startup_ms_nonneg'
+    ) THEN
+        ALTER TABLE realtime_executions
+            ADD CONSTRAINT realtime_executions_provider_startup_ms_nonneg
+            CHECK (provider_startup_ms IS NULL OR provider_startup_ms >= 0) NOT VALID;
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+         WHERE conrelid='realtime_executions'::regclass
+           AND conname='realtime_executions_prefill_ms_nonneg'
+    ) THEN
+        ALTER TABLE realtime_executions
+            ADD CONSTRAINT realtime_executions_prefill_ms_nonneg
+            CHECK (prefill_ms IS NULL OR prefill_ms >= 0) NOT VALID;
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+         WHERE conrelid='realtime_executions'::regclass
+           AND conname='realtime_executions_engine_to_first_event_ms_nonneg'
+    ) THEN
+        ALTER TABLE realtime_executions
+            ADD CONSTRAINT realtime_executions_engine_to_first_event_ms_nonneg
+            CHECK (engine_to_first_event_ms IS NULL OR engine_to_first_event_ms >= 0) NOT VALID;
+    END IF;
+END $$;
+
+COMMENT ON COLUMN realtime_executions.queue_wait_ms IS
+  'G021: ms from post-authorize execution start to upstream dial start (arrival batch + pre_upstream). NULL when not observed.';
+COMMENT ON COLUMN realtime_executions.provider_startup_ms IS
+  'G021: ms from upstream dial start to response headers (TCP/TLS + engine accept). NULL when not observed.';
+COMMENT ON COLUMN realtime_executions.prefill_ms IS
+  'G021: reserved. Always NULL under OpenAI-compatible streaming — prefill cannot be separated from first-token on the wire protocol.';
+COMMENT ON COLUMN realtime_executions.engine_to_first_event_ms IS
+  'G021: ms from response headers to first upstream SSE/event body. Prefill+first-decode conflated; not labelled prefill.';
+
+-- eta_calibration is the single duration prediction surface. Extend it for
+-- per-phase rows rather than inventing a second learner. Existing total-duration
+-- rows keep phase='total'. ETABiasFactor (money-adjacent quote stretch) reads
+-- ONLY phase='total' so phase observations cannot influence live quotes.
+ALTER TABLE eta_calibration ADD COLUMN IF NOT EXISTS phase TEXT NOT NULL DEFAULT 'total';
+ALTER TABLE eta_calibration ADD COLUMN IF NOT EXISTS subject_kind TEXT;
+ALTER TABLE eta_calibration ADD COLUMN IF NOT EXISTS subject_id UUID;
+ALTER TABLE eta_calibration ADD COLUMN IF NOT EXISTS predicted_ms DOUBLE PRECISION;
+ALTER TABLE eta_calibration ADD COLUMN IF NOT EXISTS realized_ms DOUBLE PRECISION;
+
+DO $$ BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+         WHERE conrelid='eta_calibration'::regclass
+           AND conname='eta_calibration_phase_known'
+    ) THEN
+        ALTER TABLE eta_calibration
+            ADD CONSTRAINT eta_calibration_phase_known
+            CHECK (phase IN (
+                'total',
+                -- batch (DecomposeTaskPhases)
+                'backoff','queue','startup','runtime','verification',
+                -- realtime TTFT split
+                'queue_wait','provider_startup','prefill','engine_to_first_event',
+                -- lease (DecomposeLeasePhases)
+                'reservation','provisioning_to_ready','steady_serving',
+                'upgrade_drain','failover','termination'
+            )) NOT VALID;
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+         WHERE conrelid='eta_calibration'::regclass
+           AND conname='eta_calibration_subject_kind_known'
+    ) THEN
+        ALTER TABLE eta_calibration
+            ADD CONSTRAINT eta_calibration_subject_kind_known
+            CHECK (subject_kind IS NULL OR subject_kind IN (
+                'job','task','execution_contract','service_lease'
+            )) NOT VALID;
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+         WHERE conrelid='eta_calibration'::regclass
+           AND conname='eta_calibration_ms_nonneg'
+    ) THEN
+        ALTER TABLE eta_calibration
+            ADD CONSTRAINT eta_calibration_ms_nonneg
+            CHECK (
+                (predicted_ms IS NULL OR predicted_ms >= 0)
+                AND (realized_ms IS NULL OR realized_ms >= 0)
+            ) NOT VALID;
+    END IF;
+END $$;
+
+-- Replace job-only uniqueness so one job can carry many phase rows. Legacy
+-- total rows already have phase='total' via the DEFAULT.
+DROP INDEX IF EXISTS eta_calibration_job_uniq;
+CREATE UNIQUE INDEX IF NOT EXISTS eta_calibration_job_phase_uniq
+    ON eta_calibration (job_id, phase)
+    WHERE job_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS eta_calibration_subject_phase_uniq
+    ON eta_calibration (subject_kind, subject_id, phase)
+    WHERE subject_id IS NOT NULL AND subject_kind IS NOT NULL;
+CREATE INDEX IF NOT EXISTS eta_calibration_phase_scope_idx
+    ON eta_calibration (phase, job_type, tier, (COALESCE(model_ref,'')), created_at DESC);
+
+COMMENT ON COLUMN eta_calibration.phase IS
+  'G053: duration phase. total is the legacy whole-job ETA; other values are per-phase observations. Never invent a prediction for a phase with no estimator.';
+COMMENT ON COLUMN eta_calibration.predicted_ms IS
+  'G053: predicted phase duration in ms when an estimator existed at observation time. NULL means no prediction (not zero).';
+COMMENT ON COLUMN eta_calibration.realized_ms IS
+  'G053: realized phase duration in ms. NULL means the phase was not observed (not zero).';

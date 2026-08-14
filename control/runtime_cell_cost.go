@@ -1132,6 +1132,33 @@ type SelectorLiabilityRegret struct {
 	// LowestLiabilityCell is the cell with the lowest proxy in every scored
 	// decision, or "" when the scored decisions do not agree on one.
 	LowestLiabilityCell string `json:"lowest_measured_supplier_liability_cell"`
+
+	// G053: per-phase latency regret terms. Same decision corpus as the
+	// liability totals above — not a second learner. Each phase is scored only
+	// when both a predicted and a realized duration exist for that phase on
+	// the job/task; otherwise the decision is counted under
+	// PhaseUnmeasuredDecisions and contributes nothing to the totals.
+	//
+	// Phase names match eta_calibration.phase / DecomposeTaskPhases. Realtime
+	// and lease subjects are not yet joined into this batch-shadow query;
+	// their phase actuals live on eta_calibration with subject_kind set and
+	// are reportable via PhaseCalibrationRegret, not this struct.
+	PhaseLatencyRegretMS map[string]PhaseLatencyRegretTerm `json:"phase_latency_regret_ms,omitempty"`
+	// PhaseUnmeasuredDecisions counts decisions that had no per-phase
+	// predicted+realized pair for any requested phase. Parallel to
+	// UnmeasuredDecisions for liability.
+	PhaseUnmeasuredDecisions int `json:"phase_unmeasured_decisions,omitempty"`
+}
+
+// PhaseLatencyRegretTerm is one phase's aggregated latency regret over scored
+// decisions. Regret is realized_ms − predicted_ms (positive means slower than
+// predicted). Unknown stays out of the aggregate entirely.
+type PhaseLatencyRegretTerm struct {
+	Phase           string  `json:"phase"`
+	ScoredDecisions int     `json:"scored_decisions"`
+	TotalRegretMS   float64 `json:"total_regret_ms"`
+	MeanRegretMS    float64 `json:"mean_regret_ms"`
+	MaxRegretMS     float64 `json:"max_regret_ms"`
 }
 
 // shadowDecisionRow is the part of a recorded decision regret needs.
@@ -1189,7 +1216,8 @@ func (s *Store) SelectorLiabilityRegretForScope(
 	out := SelectorLiabilityRegret{
 		JobType: scope.JobType, ModelRef: scope.ModelRef,
 		HWClass: scope.HWClass, HardwareIdentity: scope.HardwareIdentity,
-		Currency: scope.Currency,
+		Currency:             scope.Currency,
+		PhaseLatencyRegretMS: map[string]PhaseLatencyRegretTerm{},
 	}
 	winners := map[string]int{}
 	for rows.Next() {
@@ -1252,7 +1280,97 @@ func (s *Store) SelectorLiabilityRegretForScope(
 			out.LowestLiabilityCell = cell
 		}
 	}
+	// Attach per-phase latency terms from eta_calibration for jobs in scope.
+	// A phase without both predicted_ms and realized_ms contributes nothing.
+	if err := s.attachPhaseLatencyRegret(ctx, scope, &out); err != nil {
+		return SelectorLiabilityRegret{}, nil, err
+	}
 	return out, liabilities, nil
+}
+
+// attachPhaseLatencyRegret fills PhaseLatencyRegretMS from eta_calibration
+// rows that have BOTH predicted_ms and realized_ms for non-total phases,
+// scoped the same way as the liability query. Missing prediction is counted
+// under PhaseUnmeasuredDecisions, never treated as zero predicted.
+func (s *Store) attachPhaseLatencyRegret(
+	ctx context.Context, scope supplierLiabilityScope, out *SelectorLiabilityRegret,
+) error {
+	rows, err := s.pool.Query(ctx, `
+		SELECT e.phase, e.predicted_ms, e.realized_ms
+		  FROM eta_calibration e
+		  JOIN jobs j ON j.id = e.job_id
+		  JOIN runtime_shadow_selections rs ON rs.job_id = j.id
+		 WHERE rs.job_type = $1 AND rs.model_ref = $2
+		   AND j.tier = $3 AND j.currency = $4
+		   AND j.pricing_decision #>> '{catalogue,schedule_sha256}' = $5
+		   AND j.workload_decision ->> 'model_revision' = $6
+		   AND j.workload_decision ->> 'latency_class' = $10
+		   AND rs.runtime_matrix_sha256 = $7
+		   AND rs.policy_revision = $8
+		   AND rs.selection_policy = $9
+		   AND rs.latency_class = $10
+		   AND rs.decided_at >= $11 AND rs.decided_at <= $12
+		   AND COALESCE(e.phase,'total') <> 'total'
+		   AND e.realized_ms IS NOT NULL`,
+		scope.JobType, scope.ModelRef, scope.Tier, scope.Currency,
+		scope.CatalogueScheduleSHA256, scope.ModelRevision,
+		scope.RuntimeMatrixSHA256, scope.PolicyRevision, scope.SelectionPolicy,
+		scope.LatencyClass, scope.ObservedAfter, scope.ObservedBefore)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	agg := map[string]*PhaseLatencyRegretTerm{}
+	seen := 0
+	unmeasured := 0
+	for rows.Next() {
+		var phase string
+		var predicted, realized *float64
+		if err := rows.Scan(&phase, &predicted, &realized); err != nil {
+			return err
+		}
+		seen++
+		if predicted == nil || realized == nil {
+			unmeasured++
+			continue
+		}
+		regret, ok := PhaseRegretMS(*predicted, *realized, true, true)
+		if !ok {
+			unmeasured++
+			continue
+		}
+		t := agg[phase]
+		if t == nil {
+			t = &PhaseLatencyRegretTerm{Phase: phase}
+			agg[phase] = t
+		}
+		t.ScoredDecisions++
+		t.TotalRegretMS += regret
+		if regret > t.MaxRegretMS {
+			t.MaxRegretMS = regret
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	out.PhaseUnmeasuredDecisions = unmeasured
+	if len(agg) == 0 {
+		// No phase pairs in scope — leave map empty (omitempty) so a reader
+		// does not mistake an empty object for measured zero regret.
+		if seen == 0 {
+			out.PhaseLatencyRegretMS = nil
+		}
+		return nil
+	}
+	out.PhaseLatencyRegretMS = make(map[string]PhaseLatencyRegretTerm, len(agg))
+	for phase, t := range agg {
+		if t.ScoredDecisions > 0 {
+			t.MeanRegretMS = t.TotalRegretMS / float64(t.ScoredDecisions)
+		}
+		out.PhaseLatencyRegretMS[phase] = *t
+	}
+	return nil
 }
 
 // scoreExactPairLiabilityRegret scores only the pair a promotion names. Other
