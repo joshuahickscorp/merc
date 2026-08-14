@@ -59,8 +59,13 @@ func TestNonRoutableProfilesDoNotWidenTheSellableSurface(t *testing.T) {
 				cap.Runtime, cap)
 		}
 	}
-	if n := len(advertisedRuntimeCapabilities()); n != 0 {
-		t.Fatalf("advertised projection has %d cells, want none until the superseded build is remeasured", n)
+	// G070: exactly one sellable cell (llama batch_infer). Non-routable
+	// profiles and non-bindable candle cells must not widen this surface.
+	advertised := advertisedRuntimeCapabilities()
+	if len(advertised) != 1 || advertised[0].ID != "candle-metal-llama1-infer" ||
+		advertised[0].Job != "batch_infer" {
+		t.Fatalf("advertised projection = %+v, want exactly candle-metal-llama1-infer/batch_infer",
+			advertised)
 	}
 }
 
@@ -820,18 +825,21 @@ func TestWireKindBelongsToTheRuntimeModelPair(t *testing.T) {
 }
 
 // The llama.cpp embed cell stays on a non-ACTIVE profile and must not reach the
-// advertised projection. The old Candle receipt is also SUPERSEDED because its
-// build identity omitted execution modules, so no checked-in cell is sellable.
+// advertised projection. G070 sells exactly candle-metal-llama1-infer; the
+// Candle MiniLM embed row remains parked (embeddings/s, not settlement geometry).
 func TestTheNewEmbedCellIsNotYetSellable(t *testing.T) {
-	for _, cap := range advertisedRuntimeCapabilities() {
-		if cap.ID == "llama-cpp-metal-minilm-embed" {
-			t.Fatal("a cell on a VALIDATED profile reached the advertised projection")
+	advertised := advertisedRuntimeCapabilities()
+	for _, cap := range advertised {
+		if cap.ID == "llama-cpp-metal-minilm-embed" || cap.ID == "candle-metal-minilm-embed" {
+			t.Fatalf("embed cell %s reached the advertised projection", cap.ID)
 		}
 		if cap.Runtime != "candle_metal" {
 			t.Errorf("non-routable runtime %q is advertised", cap.Runtime)
 		}
 	}
-	if n := len(advertisedRuntimeCapabilities()); n != 0 {
-		t.Fatalf("advertised projection has %d cells, want none until exact-build remeasurement", n)
+	if len(advertised) != 1 || advertised[0].ID != "candle-metal-llama1-infer" ||
+		advertised[0].Job != "batch_infer" {
+		t.Fatalf("advertised projection = %+v, want exactly candle-metal-llama1-infer/batch_infer",
+			advertised)
 	}
 }

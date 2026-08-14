@@ -269,12 +269,39 @@ func TestWorkerRegistrationConsumesProductionRuntimeProjection(t *testing.T) {
 	previous := activeRuntimeActivation.Load()
 	t.Cleanup(func() { activeRuntimeActivation.Store(previous) })
 	activeRuntimeActivation.Store(documentActivation())
+
+	// Local override only: productionMetalCapability still carries the shared
+	// TEST_ONLY/legacy identity used by sibling tests. G070's r5-bound llama
+	// cell requires the receipt's exact build/device; embed is parked so the
+	// projection is exactly one cell. Do not mutate the shared fixture.
 	valid := productionMetalCapability()
+	_, _, receipt, err := currentRuntimeCellBenchmarkIdentity("candle-metal-llama1-infer")
+	mustf(t, err, "resolve production r5 llama identity: %v")
+	valid.HWClass = receipt.HWClass
+	valid.BuildHash = receipt.EngineBuildHash
+	valid.BuildIdentityPolicy = receipt.EngineBuildIdentityPolicy
+	valid.HardwareIdentity = receipt.HardwareIdentity
+	// Only the bound llama lane is activated/advertised; drop embed claims so
+	// benchmark-count matches the single projected cell.
+	valid.SupportedJobs = []string{"batch_infer"}
+	valid.SupportedModels = []string{"llama-3.2-1b-instruct-q4"}
+	valid.Benchmarks = []BenchResult{
+		{JobType: "batch_infer", ModelID: "llama-3.2-1b-instruct-q4",
+			TPS:       float32(receipt.Throughput["candle_metal"].UnitsPerSecAtOperatingBatch),
+			ThermalOK: true,
+			Unit:      "tokens", UnitScope: performanceUnitScopeTokenLikeInputPlusOutputTokens,
+			MeasuredUnix: uint64(runtimeCellPerformanceNow().Unix())},
+	}
+
 	mustf(t, validateWorkerRuntimeProjection(valid), "valid production Metal worker rejected: %v")
 	projected, err := projectWorkerRuntimeCapabilities(valid)
 	mustf(t, err, "project valid production Metal worker: %v")
-	if len(projected) != 2 {
-		t.Fatalf("focused worker must project to 2 exact production cells, got %d", len(projected))
+	if len(projected) != 1 {
+		t.Fatalf("focused worker must project to 1 exact production cell (llama), got %d: %+v",
+			len(projected), projected)
+	}
+	if projected[0].ID != "candle-metal-llama1-infer" || projected[0].Job != "batch_infer" {
+		t.Fatalf("projected cell=%+v, want candle-metal-llama1-infer/batch_infer", projected[0])
 	}
 	seen := map[[2]string]bool{}
 	for _, cell := range projected {
@@ -293,6 +320,9 @@ func TestWorkerRegistrationConsumesProductionRuntimeProjection(t *testing.T) {
 		}
 	}
 
+	// Shape refusals use the same local r5-aligned base so identity match is
+	// not the first failure.
+	r5Base := valid
 	cases := []struct {
 		name    string
 		mutate  func(*WorkerCapability)
@@ -317,14 +347,22 @@ func TestWorkerRegistrationConsumesProductionRuntimeProjection(t *testing.T) {
 		{
 			name: "benchmark cross product",
 			mutate: func(c *WorkerCapability) {
-				c.Benchmarks[1] = BenchResult{JobType: "embed", ModelID: "llama-3.2-1b-instruct-q4", EPS: 1}
+				// Declare both capable model lanes so the cross-product tuple is
+				// advertisement-shaped, then prove the non-cell cartesian is
+				// refused. Embed remains directed/parked; only llama is sold.
+				c.SupportedJobs = []string{"embed", "batch_infer"}
+				c.SupportedModels = []string{"all-minilm-l6-v2", "llama-3.2-1b-instruct-q4"}
+				c.Benchmarks = []BenchResult{
+					c.Benchmarks[0],
+					{JobType: "embed", ModelID: "llama-3.2-1b-instruct-q4", EPS: 1},
+				}
 			},
 			pattern: "not an advertised production cell",
 		},
 		{
 			name: "duplicate model",
 			mutate: func(c *WorkerCapability) {
-				c.SupportedModels = append(c.SupportedModels, "all-minilm-l6-v2")
+				c.SupportedModels = append(c.SupportedModels, "llama-3.2-1b-instruct-q4")
 			},
 			pattern: "duplicate",
 		},
@@ -338,7 +376,10 @@ func TestWorkerRegistrationConsumesProductionRuntimeProjection(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			cap := productionMetalCapability()
+			cap := r5Base
+			cap.SupportedJobs = append([]string(nil), r5Base.SupportedJobs...)
+			cap.SupportedModels = append([]string(nil), r5Base.SupportedModels...)
+			cap.Benchmarks = append([]BenchResult(nil), r5Base.Benchmarks...)
 			tc.mutate(&cap)
 			err := validateWorkerRuntimeProjection(cap)
 			if err == nil || !strings.Contains(err.Error(), tc.pattern) {

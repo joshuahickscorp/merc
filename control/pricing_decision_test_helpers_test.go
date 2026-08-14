@@ -22,6 +22,34 @@ const (
 
 var testOnlyCombinedTokenAuthorityPath = "TEST_ONLY/uninstalled/combined-token-throughput"
 
+// installTestOnlyDecodeOutputTokenAuthority installs an ephemeral exact-build
+// authority for candle-metal-llama1-infer whose measured unit_scope is forced
+// to decode_output_tokens. Production r5 is settlement-compatible; this
+// fixture preserves the decode-only vs combined-token mismatch guard without
+// relabeling checked-in evidence.
+func installTestOnlyDecodeOutputTokenAuthority(t *testing.T) {
+	t.Helper()
+	const cellID = "candle-metal-llama1-infer"
+	installTestOnlyExactIdentityForLegacyBenchmark(t, cellID)
+	profile, cell := cellByID(t, cellID)
+	path := cell.benchmarkAuthorityFor(profile)
+	summary, ok := benchmarkAuthorityManifest[path]
+	if !ok {
+		t.Fatalf("TEST_ONLY decode-scope authority path %q is absent", path)
+	}
+	summary = cloneBenchmarkReceiptSummary(summary)
+	measurement, ok := summary.Throughput[profile.RuntimeID]
+	if !ok {
+		t.Fatalf("TEST_ONLY decode-scope authority has no %s rate", profile.RuntimeID)
+	}
+	measurement.Unit = "tokens"
+	measurement.UnitScope = performanceUnitScopeDecodeOutputTokens
+	measurement.Basis = "TEST_ONLY decode_output_tokens identity for settlement-mismatch guard; never production evidence"
+	summary.Throughput[profile.RuntimeID] = measurement
+	summary.Harness += "; TEST_ONLY decode_output_tokens scope"
+	benchmarkAuthorityManifest[path] = summary
+}
+
 // installTestOnlyExactIdentityForLegacyBenchmark gives unit/scope regression
 // tests an ephemeral exact-build authority while preserving the legacy
 // receipt's measured unit, scope and rate. It repoints only an in-memory copy

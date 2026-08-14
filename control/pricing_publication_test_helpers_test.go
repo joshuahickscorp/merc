@@ -61,6 +61,7 @@ func installBoundCataloguePublicationAuthorityWithMutationsForTest(
 	commit := strings.TrimSpace(string(commitRaw))
 
 	previousBenchmarks := append([]measuredThroughput(nil), repricingBenchmarks...)
+	previousUnpriced := append([]measuredThroughput(nil), unpricedThroughputUntilBound...)
 	previousWatts, hadPreviousWatts := sustainedWattsByHWClass["apple_silicon_pro"]
 	previousRuntimeAuthority := runtimeAuthority
 	previousActivation := activeRuntimeActivation.Load()
@@ -74,6 +75,7 @@ func installBoundCataloguePublicationAuthorityWithMutationsForTest(
 	var installedBenchmarkAuthorities []string
 	t.Cleanup(func() {
 		repricingBenchmarks = previousBenchmarks
+		unpricedThroughputUntilBound = previousUnpriced
 		runtimeAuthority = previousRuntimeAuthority
 		for _, path := range installedBenchmarkAuthorities {
 			delete(benchmarkAuthorityManifest, path)
@@ -119,6 +121,11 @@ func installBoundCataloguePublicationAuthorityWithMutationsForTest(
 		},
 	}
 	repricingBenchmarks = make([]measuredThroughput, 0, len(fixtures))
+	// Synthetic publication fixtures temporarily price models that production may
+	// honestly park in unpricedThroughputUntilBound (e.g. embed). Clear the
+	// quarantine for this install so the both-lists-forbidden invariant holds;
+	// cleanup restores the production parking list.
+	unpricedThroughputUntilBound = nil
 	for _, fixture := range fixtures {
 		profileIndex, cellIndex := -1, -1
 		for i := range editedRuntimeAuthority.Runtimes {

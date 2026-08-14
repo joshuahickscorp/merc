@@ -144,6 +144,69 @@ func historicalLegacyFrozenPerformanceForTest(
 	return &legacy
 }
 
+// historicalLegacyDecodeOnlyFrozenPerformanceForTest builds a self-contained
+// legacy freeze under decode_output_tokens so historical-replay tests keep
+// their "frozen decode receipt is not rewritten" guarantee after production
+// r5 moved the live cell onto settlement geometry.
+func historicalLegacyDecodeOnlyFrozenPerformanceForTest(
+	t *testing.T, performance RuntimeCellPerformance,
+) *FrozenRuntimeCellPerformance {
+	t.Helper()
+	decode := performance
+	decode.UnitScope = performanceUnitScopeDecodeOutputTokens
+	decode.Reason = "historical decode_output_tokens freeze; not current settlement authority"
+	decode.EngineBuildHash = ""
+	decode.EngineBuildIdentityPolicy = ""
+	decode.HardwareIdentity = ""
+
+	summary, ok := benchmarkAuthorityManifest[performance.BenchmarkAuthority]
+	if !ok {
+		t.Fatalf("benchmark authority %q is absent", performance.BenchmarkAuthority)
+	}
+	summary = cloneBenchmarkReceiptSummary(summary)
+	exactPins, err := exactWeightDigestsForCurrentPerformance(performance)
+	must(t, err)
+	summary = projectBenchmarkSummaryToExactCell(summary, exactPins)
+	canonicalCommit, err := canonicalFrozenMercSourceCommit(summary.MercSourceCommit)
+	must(t, err)
+	summary.MercSourceCommit = canonicalCommit
+	summary.EngineBuildHash = ""
+	summary.EngineBuildIdentityPolicy = ""
+	summary.HardwareIdentity = ""
+	measurement, ok := summary.Throughput[performance.RuntimeProfileID]
+	if !ok {
+		t.Fatalf("benchmark authority %q has no %s rate",
+			performance.BenchmarkAuthority, performance.RuntimeProfileID)
+	}
+	measurement.Unit = "tokens"
+	measurement.UnitScope = performanceUnitScopeDecodeOutputTokens
+	measurement.Basis = "historical decode_output_tokens freeze for replay-only tests"
+	// Keep rates consistent with the accepted performance projection.
+	measurement.UnitsPerSecAtOperatingBatch = decode.ObservedUnitsPerSec
+	measurement.BestObservedUnitsPerSec = decode.ObservedBestUnitsPerSec
+	measurement.OperatingBatch = decode.OperatingBatch
+	measurement.Precision = decode.Precision
+	summary.Throughput[performance.RuntimeProfileID] = measurement
+	decode.BenchmarkBasis = measurement.Basis
+
+	summarySHA, err := benchmarkReceiptSummarySHA256(summary)
+	must(t, err)
+	out := FrozenRuntimeCellPerformance{
+		Version:                 frozenRuntimeCellPerformanceLegacyVersion,
+		PolicyRevision:          runtimeCellPerformanceLegacyPolicyRevision,
+		Performance:             decode,
+		BenchmarkSnapshot:       summary,
+		BenchmarkSnapshotSHA256: summarySHA,
+		ModelArtifactWireKind:   decode.WireKind,
+		ModelArtifactPins:       append([]string(nil), exactPins...),
+	}
+	out.Digest, err = frozenRuntimeCellPerformanceDigest(out)
+	must(t, err)
+	mustf(t, validateFrozenRuntimeCellPerformance(&out),
+		"legacy decode-only frozen performance fixture was not self-contained: %v")
+	return &out
+}
+
 // The embed receipt measures completed embeddings/s, while ComputePlan settles
 // max(records, raw input bytes/4). Multiplying the first by the price of the
 // second silently treats one long input as both one unit and many units. New
@@ -223,18 +286,20 @@ func TestEmbedUnitMismatchRefusesNewQuoteButDoesNotRewriteHistoricalReplay(t *te
 	}
 }
 
-// The BOUND batch receipt is explicit about decode throughput. Pricing is
-// equally explicit about token-like input plus the maximum output allowance.
-// Equal `tokens` labels must therefore refuse new admission while the frozen
-// historical receipt remains replayable on its own terms.
-func TestBatchDecodeScopeRefusesNewQuoteButDoesNotRewriteHistoricalReplay(t *testing.T) {
-	installTestOnlyExactIdentityForLegacyBenchmark(t, "candle-metal-llama1-infer")
+// G070 r5 measures batch_infer under the settlement geometry directly
+// (tokens/token_like_input_plus_max_output_tokens). New quote/admission must
+// accept that current authority. A frozen historical decode-only snapshot still
+// replays on its own terms and must not be rewritten by current scope policy.
+func TestBatchSettlementScopeAdmitsNewQuoteAndDoesNotRewriteHistoricalReplay(t *testing.T) {
 	profile, cell := cellByID(t, "candle-metal-llama1-infer")
 	performance := resolveCellPerformance(profile, cell, benchmarkNow)
 	if performance.Status != cellThroughputMeasured || performance.Unit != "tokens" ||
-		performance.UnitScope != performanceUnitScopeDecodeOutputTokens {
+		performance.UnitScope != performanceUnitScopeTokenLikeInputPlusOutputTokens {
 		t.Fatalf("batch evidence premise changed: status=%s authority=%q/%q reason=%q",
 			performance.Status, performance.Unit, performance.UnitScope, performance.Reason)
+	}
+	if err := validateCurrentPerformanceSettlementAuthority(performance); err != nil {
+		t.Fatalf("current settlement-geometry batch performance refused: %v", err)
 	}
 
 	sub, herr := normalizeAndValidateJobSubmit(jobSubmit{
@@ -254,25 +319,23 @@ func TestBatchDecodeScopeRefusesNewQuoteButDoesNotRewriteHistoricalReplay(t *tes
 		t, workload, SettlementCurrencyCode(),
 		supplierShareForTest(t, workload.RuntimeJobType, workload.Binding.Model.Ref),
 	)
-	assertScopeMismatch := func(stage string, err error) {
-		t.Helper()
-		if err == nil || !strings.Contains(err.Error(), `"tokens"`) ||
-			!strings.Contains(err.Error(), performanceUnitScopeDecodeOutputTokens) ||
-			!strings.Contains(err.Error(), performanceUnitScopeTokenLikeInputPlusOutputTokens) ||
-			!strings.Contains(err.Error(), "unit/scope mismatch") {
-			t.Fatalf("%s did not refuse decode-only throughput against combined settlement: %v",
-				stage, err)
-		}
-	}
-	_, err = supplierAdmissionCeilingUSDHr(
+	if _, err = supplierAdmissionCeilingUSDHr(
 		authority, workload.RuntimeJobType, workload.Binding.Tier,
 		admissionCellsForWorkload(workload), workload.Binding.Constraints.HWClasses,
-	)
-	assertScopeMismatch("quote ceiling", err)
-	_, err = placementRequirementFor(sub, workload, 1)
-	assertScopeMismatch("placement admission", err)
+	); err != nil {
+		t.Fatalf("quote ceiling refused settlement-compatible batch performance: %v", err)
+	}
+	if _, err = placementRequirementFor(sub, workload, 1); err != nil {
+		t.Fatalf("placement admission refused settlement-compatible batch performance: %v", err)
+	}
 
-	frozen := historicalLegacyFrozenPerformanceForTest(t, performance)
+	// Historical decode-only freeze: build a self-contained legacy snapshot
+	// under decode_output_tokens (the r4 measured geometry) and prove replay
+	// still accepts that frozen block on its own terms without rewriting scope.
+	frozen := historicalLegacyDecodeOnlyFrozenPerformanceForTest(t, performance)
+	if frozen.Performance.UnitScope != performanceUnitScopeDecodeOutputTokens {
+		t.Fatalf("historical freeze rewrote decode scope to %q", frozen.Performance.UnitScope)
+	}
 	candidate := workload.RuntimeCandidates[0]
 	historical := PlacementRequirement{
 		Version:              2,
@@ -298,6 +361,13 @@ func TestBatchDecodeScopeRefusesNewQuoteButDoesNotRewriteHistoricalReplay(t *tes
 	if historical.PerformanceAuthority.Performance.UnitScope != performanceUnitScopeDecodeOutputTokens {
 		t.Fatalf("historical replay rewrote frozen batch scope to %q",
 			historical.PerformanceAuthority.Performance.UnitScope)
+	}
+	// Current admission must still refuse that decode-only block if presented as
+	// *current* authority (historical freeze remains the only allowed path).
+	if err := validateCurrentPerformanceSettlementAuthority(frozen.Performance); err == nil ||
+		!strings.Contains(err.Error(), performanceUnitScopeDecodeOutputTokens) ||
+		!strings.Contains(err.Error(), performanceUnitScopeTokenLikeInputPlusOutputTokens) {
+		t.Fatalf("decode-only historical performance was accepted as current settlement authority: %v", err)
 	}
 }
 
@@ -414,27 +484,43 @@ func TestFrozenMiniLMPerformanceCarriesOnlyTheSelectedCellArtifact(t *testing.T)
 	})
 }
 
-func TestProductionBoundPerformanceLanesHaveNoSettlementCompatibleAdmission(t *testing.T) {
-	checked := 0
+// G070: exactly candle-metal-llama1-infer admits under settlement geometry
+// tokens/token_like_input_plus_max_output_tokens. No other routable production
+// cell may admit (embed parked, media unbound). A wrong extra binding fails.
+func TestExactlyLlamaLaneHasSettlementCompatibleAdmission(t *testing.T) {
+	const wantCell = "candle-metal-llama1-infer"
+	admitted := map[string]RuntimeCellPerformance{}
+	routable := 0
 	for _, profile := range runtimeAuthority.Runtimes {
 		for _, cell := range profile.Cells {
 			if !cell.Routable(profile) {
 				continue
 			}
-			checked++
+			routable++
 			_, performance, err := admissionUnitsPerSec(
 				cell.Job, cell.Model, []string{cell.ID}, benchmarkNow)
-			if err == nil {
-				t.Fatalf("production cell %s admitted %q/%q against current settlement",
-					cell.ID, performance.Unit, performance.UnitScope)
+			if err != nil {
+				if cell.ID == wantCell {
+					t.Fatalf("production cell %s refused settlement-compatible admission: %v",
+						cell.ID, err)
+				}
+				continue
 			}
+			admitted[cell.ID] = performance
 		}
 	}
-	// The only checked-in measured build predates the complete executable
-	// identity root and is SUPERSEDED. Historical performance remains readable,
-	// but no production lane is current-admissible until it is remeasured.
-	if checked != 0 {
-		t.Fatalf("production BOUND routable cell count=%d, want none until exact-build remeasurement", checked)
+	if routable != 1 {
+		t.Fatalf("production routable cell count=%d, want exactly 1 (%s)", routable, wantCell)
+	}
+	performance, ok := admitted[wantCell]
+	if !ok || len(admitted) != 1 {
+		t.Fatalf("admitted cells=%v, want exactly [%s]", admitted, wantCell)
+	}
+	if performance.Unit != "tokens" ||
+		performance.UnitScope != performanceUnitScopeTokenLikeInputPlusOutputTokens {
+		t.Fatalf("llama admission unit/scope=%q/%q, want tokens/%s",
+			performance.Unit, performance.UnitScope,
+			performanceUnitScopeTokenLikeInputPlusOutputTokens)
 	}
 }
 
@@ -598,6 +684,9 @@ func TestNoAdmissibleRateReachesTheBestObservation(t *testing.T) {
 // A supplier that claims nothing must be able to read why. Every branch that
 // can exclude a cell has to name itself.
 func TestViabilityReportNamesTheReasonForIneligibility(t *testing.T) {
+	// Parked embed needs a TEST_ONLY exact identity to reach the viability
+	// surface at all; its refusal is then catalogue authority, not a missing
+	// build hash. Production llama is already routable under r5.
 	installTestOnlyExactIdentityForLegacyBenchmark(t, candleEmbedCell)
 	authority := boardCatalogueAuthority(t)
 
@@ -608,7 +697,8 @@ func TestViabilityReportNamesTheReasonForIneligibility(t *testing.T) {
 		t.Fatal("the report is empty; a supplier learns nothing from it")
 	}
 	eligible := 0
-	unitMismatch := 0
+	embedCatalogueRefusal := 0
+	llamaUnderwater := 0
 	for _, row := range rows {
 		if row.Reason == "" {
 			t.Errorf("cell %s reports eligible=%v with no reason",
@@ -624,7 +714,9 @@ func TestViabilityReportNamesTheReasonForIneligibility(t *testing.T) {
 		}
 		if !row.Eligible && row.ExpectedSupplierUSDHr >= row.MinimumPayoutUSDHr &&
 			!strings.Contains(row.Reason, "hardware class") &&
-			!strings.Contains(row.Reason, "no usable benchmark") {
+			!strings.Contains(row.Reason, "no usable benchmark") &&
+			!strings.Contains(row.Reason, "no catalogue price authority") &&
+			!strings.Contains(row.Reason, "no board authority") {
 			t.Errorf("cell %s is ineligible at $%.5f/hr against a $%.5f/hr floor for "+
 				"an unstated reason: %s", row.Performance.CellID,
 				row.ExpectedSupplierUSDHr, row.MinimumPayoutUSDHr, row.Reason)
@@ -632,17 +724,51 @@ func TestViabilityReportNamesTheReasonForIneligibility(t *testing.T) {
 		if row.Eligible {
 			eligible++
 		}
-		if strings.Contains(row.Reason, "token_like_input_units") {
-			unitMismatch++
+		if row.Performance.CellID == candleEmbedCell {
+			if row.Eligible {
+				t.Errorf("parked embed cell must not be eligible: %s", row.Reason)
+			}
+			if strings.Contains(row.Reason, "no catalogue price authority") ||
+				strings.Contains(row.Reason, "no board authority") {
+				embedCatalogueRefusal++
+			} else {
+				t.Errorf("embed refusal must name missing catalogue/board authority, got: %s",
+					row.Reason)
+			}
+		}
+		if row.Performance.CellID == "candle-metal-llama1-infer" {
+			// Honest underwater signal: measured lane earns below the install floor.
+			if row.Eligible {
+				t.Errorf("llama lane must remain underwater vs $%.5f/hr floor, got eligible: %s",
+					defaultInstallMinPayoutUSDHr, row.Reason)
+			}
+			if !strings.Contains(row.Reason, "minimum payout") ||
+				!strings.Contains(row.Reason, "below your minimum payout") {
+				t.Errorf("llama underwater refusal must name the payout floor comparison: %s",
+					row.Reason)
+			}
+			if row.ExpectedSupplierUSDHr <= 0 ||
+				row.ExpectedSupplierUSDHr >= row.MinimumPayoutUSDHr {
+				t.Errorf("llama expected $%.5f/hr vs floor $%.5f/hr; want positive underwater shortfall",
+					row.ExpectedSupplierUSDHr, row.MinimumPayoutUSDHr)
+			}
+			llamaUnderwater++
 		}
 		t.Logf("%-30s eligible=%-5v $%.5f/hr vs $%.5f/hr floor  %s",
 			row.Performance.CellID, row.Eligible, row.ExpectedSupplierUSDHr,
 			row.MinimumPayoutUSDHr, row.Reason)
 	}
-	if unitMismatch == 0 {
-		t.Fatal("viability report omitted the embed settlement-unit refusal")
+	if embedCatalogueRefusal == 0 {
+		t.Fatal("viability report omitted the parked-embed catalogue-authority refusal")
 	}
-	t.Logf("eligible current cells=%d; incompatible-unit cells=%d", eligible, unitMismatch)
+	if llamaUnderwater == 0 {
+		t.Fatal("viability report omitted the honest llama underwater (below min payout) signal")
+	}
+	if eligible != 0 {
+		t.Fatalf("eligible current cells=%d, want 0 (llama underwater, embed unpriced)", eligible)
+	}
+	t.Logf("eligible current cells=%d; embed catalogue refusals=%d; llama underwater=%d",
+		eligible, embedCatalogueRefusal, llamaUnderwater)
 
 	// A shortfall must quote both numbers, not just say no.
 	shortfall := SupplierAdmissionViability(
@@ -656,10 +782,12 @@ func TestViabilityReportNamesTheReasonForIneligibility(t *testing.T) {
 			row.Performance.CellID == "candle-metal-scene-render" {
 			continue
 		}
-		if strings.Contains(row.Reason, "no market") {
-			// A measured rate in a different unit is neither a low price nor a
-			// payout-floor shortfall. Admission correctly reports no market until
-			// the conversion is governed.
+		if strings.Contains(row.Reason, "no market") ||
+			strings.Contains(row.Reason, "no catalogue price authority") ||
+			strings.Contains(row.Reason, "no board authority") {
+			// Unpriced / unit-incompatible lanes are neither a low price nor a
+			// payout-floor shortfall. Admission correctly reports no market /
+			// no catalogue authority until the conversion or price binds.
 			continue
 		}
 		if row.Eligible {
@@ -675,11 +803,22 @@ func TestViabilityReportNamesTheReasonForIneligibility(t *testing.T) {
 	// be reported as an economics problem.
 	wrongHardware := SupplierAdmissionViability(
 		"nvidia_80gb", 0, "batch", benchmarkNow, authority)
+	hardwareNamed := 0
 	for _, row := range wrongHardware {
+		// Parked/unpriced models fail earlier on catalogue authority; that is
+		// not a hardware-class report and is checked above.
+		if strings.Contains(row.Reason, "no catalogue price authority") ||
+			strings.Contains(row.Reason, "no board authority") {
+			continue
+		}
 		if row.Eligible || !strings.Contains(row.Reason, "hardware class") {
 			t.Errorf("cell %s on hardware it does not serve: eligible=%v reason=%q",
 				row.Performance.CellID, row.Eligible, row.Reason)
 		}
+		hardwareNamed++
+	}
+	if hardwareNamed == 0 {
+		t.Fatal("wrong-hardware viability omitted the hardware-class refusal for priced lanes")
 	}
 }
 
@@ -703,6 +842,10 @@ func TestManifestThroughputIsDerivableFromTheReceipts(t *testing.T) {
 				PeakTokensPerSec   float64 `json:"peak_tokens_per_sec"`
 				PeakBatch          int     `json:"peak_batch"`
 			} `json:"physical_throughput"`
+			BatchInfer struct {
+				ThroughputUnitsPerSecond float64 `json:"throughput_units_per_second"`
+				UnitScope                string  `json:"unit_scope"`
+			} `json:"batch_infer"`
 			Measurements []struct {
 				Batch       int     `json:"batch"`
 				MaxWallS    float64 `json:"max_wall_s"`
@@ -743,6 +886,18 @@ func TestManifestThroughputIsDerivableFromTheReceipts(t *testing.T) {
 					t.Errorf("%s: %s publishes a median best observation without saying so: %q",
 						path, profileID, throughput.Basis)
 				}
+			} else if throughput.UnitScope == performanceUnitScopeTokenLikeInputPlusOutputTokens {
+				// Settlement-geometry receipts publish the BILLABLE rate under
+				// that scope (batch_infer.throughput_units_per_second), not the
+				// diagnostic physical serial decode rate. Manifest + scope are
+				// correct; derivation must learn the billable geometry.
+				want = receipt.BatchInfer.ThroughputUnitsPerSecond
+				best = receipt.PhysicalThroughput.PeakTokensPerSec
+				if want <= 0 {
+					t.Errorf("%s: settlement-geometry receipt lacks batch_infer.throughput_units_per_second",
+						path)
+					continue
+				}
 			} else {
 				// A single-profile sweep: the un-batched serial rate.
 				want = receipt.PhysicalThroughput.SerialTokensPerSec
@@ -768,6 +923,7 @@ func TestManifestThroughputIsDerivableFromTheReceipts(t *testing.T) {
 			}
 			switch throughput.UnitScope {
 			case performanceUnitScopeDecodeOutputTokens,
+				performanceUnitScopeTokenLikeInputPlusOutputTokens,
 				performanceUnitScopeCompletedEmbeddingRecords,
 				performanceUnitScopeSingleObjectInputByteQuarters,
 				performanceUnitScopeDeclaredOutputPixelsPerScene:

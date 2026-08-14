@@ -139,16 +139,15 @@ func TestReplayShadowRegretAgainstLifecycleLadderIsObservationOnly(t *testing.T)
 			report.CostRegret.TotalLiabilityRegretPerUnit)
 	}
 
-	// Write the evidence artifact under evidence/perf/ following neighbour conventions.
-	outDir := filepath.Join("..", "evidence", "perf")
-	if err := os.MkdirAll(outDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	// Stamp generated_at for stable-ish artifact; rebuild from live DB.
+	// Serialize the report to a temp path. The sealed LFS evidence body under
+	// evidence/perf/g021-g053-per-phase-prediction-regret.json is ledger-bound;
+	// rewriting it from the suite races TestLFSCorpusIntegrity (timestamp
+	// churn → resolved-payload mismatch). Operators regenerate the sealed
+	// artifact deliberately outside the suite.
 	report.GeneratedAt = time.Now().UTC().Format(time.RFC3339)
 	body, err := json.MarshalIndent(report, "", "  ")
 	must(t, err)
-	path := filepath.Join(outDir, "g021-g053-per-phase-prediction-regret.json")
+	path := filepath.Join(t.TempDir(), "g021-g053-per-phase-prediction-regret.json")
 	if err := os.WriteFile(path, body, 0o644); err != nil {
 		t.Fatal(err)
 	}

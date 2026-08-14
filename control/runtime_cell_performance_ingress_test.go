@@ -349,10 +349,10 @@ func TestFinalizeJobTxRefusesUnreadableModernPricingInsteadOfSkippingRiskReserve
 }
 
 func TestSubmitJobTxRefusesProductionBatchDecodeScopeWithoutWriting(t *testing.T) {
-	// Keep the legacy production decode-only unit/scope while minting a synthetic
-	// exact identity so the cell is reachable. The refusal under test is still
-	// the unit/scope mismatch against combined-token settlement.
-	installTestOnlyExactIdentityForLegacyBenchmark(t, "candle-metal-llama1-infer")
+	// G070 production r5 is settlement-compatible. Preserve the decode-only
+	// refusal guard with an explicit TEST_ONLY decode-scope identity so the
+	// unit/scope mismatch against combined-token settlement stays enforced.
+	installTestOnlyDecodeOutputTokenAuthority(t)
 	ctx, store, pool := openIsolatedTestStore(t)
 	// Refresh empty overlay after Migrate so the exact-identity cell stays
 	// advertised for normalize/build.
@@ -375,7 +375,7 @@ func TestSubmitJobTxRefusesProductionBatchDecodeScopeWithoutWriting(t *testing.T
 	profile, cell := cellByID(t, "candle-metal-llama1-infer")
 	performance := resolveCellPerformance(profile, cell, benchmarkNow)
 	if performance.Unit != "tokens" || performance.UnitScope != performanceUnitScopeDecodeOutputTokens {
-		t.Fatalf("production batch receipt authority=%q/%q, want tokens/decode-only",
+		t.Fatalf("TEST_ONLY decode-scope authority=%q/%q, want tokens/decode-only",
 			performance.Unit, performance.UnitScope)
 	}
 	// Prove the current settlement gate itself before durable ingress.
@@ -392,7 +392,7 @@ func TestSubmitJobTxRefusesProductionBatchDecodeScopeWithoutWriting(t *testing.T
 		ID: jobID, WorkloadDecision: workload,
 	}, nil)
 	if err == nil {
-		t.Fatal("durable ingress accepted production decode-only batch without placement authority")
+		t.Fatal("durable ingress accepted decode-only batch without placement authority")
 	}
 	if !strings.Contains(err.Error(), performanceUnitScopeDecodeOutputTokens) &&
 		!strings.Contains(err.Error(), "unit/scope mismatch") &&

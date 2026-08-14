@@ -319,5 +319,40 @@
       "be50c3628f2bf5bb5e3a7f17b1f74611b2561a3a27eeab05e5aa30f411572037",
       "53aa51172d142c89d9012cce15ae4d6cc0ca6895895114379cacb4fab128d9db"
     ]
+  },
+  "evidence/perf/runtime-benchmarks/candle-metal-llama1-q4-r5.json": {
+    "runtime_profile_ids": [
+      "candle_metal"
+    ],
+    "throughput_measured": true,
+    "byte_deterministic": true,
+    "model_ids": [
+      "llama-3.2-1b-instruct-q4"
+    ],
+    "measured_at": "2026-08-14T07:35:57Z",
+    "hw_class": "apple_silicon_ultra",
+    "throughput": {
+      "candle_metal": {
+        "unit": "tokens",
+        "unit_scope": "token_like_input_plus_max_output_tokens",
+        "precision": "Q4_K_M GGUF",
+        "operating_batch": 1,
+        "units_per_sec_at_operating_batch": 288.971,
+        "best_observed_units_per_sec": 665.3819,
+        "best_observed_batch": 64,
+        "basis": "settlement geometry token_like_input_plus_max_output_tokens: billable units/request = max(1, prompt_bytes/4)+max_tokens = 62.75 (prompt_bytes=59, max_tokens=48); rate at operating_batch=1 is batch_infer.throughput_units_per_second from merc-agent bench-batch re-expressed under the same wall samples. best_observed is peak at batch 64 (ceiling to refuse, not an offer rate)."
+      }
+    },
+    "merc_source_commit": "e351341fe2ff943c4c056d18e13c95fca648fb0d",
+    "profile_revision": "r9",
+    "harness": "merc-agent bench-batch (candle-metal-llama1-infer r5 settlement-geometry re-measure)",
+    "binding_status": "BOUND",
+    "engine_build_hash": "f4303a751ca2b2af",
+    "engine_build_identity_policy": "merc_agent_running_executable_sha256_v1",
+    "hardware_identity": "apple_silicon_v1|brand=Apple M3 Ultra|model=Mac15,14|memory_bytes=103079215104|cpu_cores=28|gpu_cores=60",
+    "model_artifact_sha256s": [
+      "3f5a22426976ab26cfe84dba63c1d08391717abb1af893e10f1b2968d862dcc1",
+      "6b9e4e7fb171f92fd137b777cc2714bf87d11576700a1dcd7a399e7bbe39537b"
+    ]
   }
 }

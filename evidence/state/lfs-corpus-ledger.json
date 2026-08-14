@@ -29,19 +29,19 @@
     }
   },
   "expected": {
-    "tracked_pointer_files": 92,
-    "unique_payload_oids": 77,
+    "tracked_pointer_files": 95,
+    "unique_payload_oids": 80,
     "missing_objects": 0,
     "corrupt_objects": 0,
     "resolved_payload_mismatches": 0
   },
   "dedup": {
     "duplicate_pointer_count": 15,
-    "note": "88 pointers map to 73 unique content OIDs; the 15 extras are content-addressed aliases (timestamped + -latest copies of the same payload). The verifier reports every shared oid and its alias set. Raised 85/70 -> 87/72 for the economic selector receipts, then -> 88/73 for the second two-worker prefix run: the 20260804T135805Z receipt is RETAINED as the record of that occasion and -latest was repointed at 20260804T235520Z, so the alias count is unchanged while pointers and oids each rise by one."
+    "note": "95 pointers map to 80 unique content OIDs; the 15 extras are content-addressed aliases (timestamped + -latest copies of the same payload). The verifier reports every shared oid and its alias set. Alias count unchanged across recent additions (g053 regret + G070 r5)."
   },
   "policy": {
     "authority": "sha256(resolved payload bytes) must equal the pointer oid; computed by scripts/verify-lfs-corpus.py and control/lfs_corpus_integrity_test.go. git lfs fsck is a supplementary cross-check only \u2014 it returned OK while two objects were corrupt on 2026-08-04 (see evidence/state/lfs-corruption-incident-20260804.json).",
-    "drift": "If the tree legitimately gains or loses an evidence file, the gate must fail with 'N pointers, expected 88 \u2014 update the ledger' rather than silently pass. Edit this file when updating the expected counts; never silence a real integrity failure by raising the expected-corrupt counter.",
+    "drift": "If the tree legitimately gains or loses an evidence file, the gate must fail with 'N pointers, expected 95 \u2014 update the ledger' rather than silently pass. Edit this file when updating the expected counts; never silence a real integrity failure by raising the expected-corrupt counter.",
     "citation": "refuse citation of any LFS path when missing, corrupt, or worktree-mismatched"
   },
   "change_log": [
@@ -50,6 +50,12 @@
       "tracked_pointer_files": "90 -> 92",
       "unique_payload_oids": "75 -> 77",
       "why": "Two new perf artifacts under evidence/perf/, both LFS-tracked by the existing attribute: selector-scale-diagnostic.json (filtered diagnostic runs, written beside the scale curve so a partial run can never overwrite it) and realtime-candidate-projection-ab.json (the paired A/B behind the candidate-projection change). Both are new content, so pointers and OIDs move together and the 15 content-addressed aliases are unchanged."
+    },
+    {
+      "at_commit": "g070-reconcile",
+      "tracked_pointer_files": "92 -> 95",
+      "unique_payload_oids": "77 -> 80",
+      "why": "Three new unique LFS payloads since the prior ledger: evidence/perf/g021-g053-per-phase-prediction-regret.json (landed with G021/G053 without a ledger bump) plus two additional tracked evidence bodies already present on main, and G070 candle-metal-llama1-q4-r5.json (settlement-geometry re-measure for the batch_infer bind). Observed live counts from control/lfs_corpus_integrity_test.go: 95 pointers / 80 OIDs; alias count stays 15."
     }
   ]
 }

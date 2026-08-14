@@ -1556,10 +1556,18 @@ async fn run_bench_batch(
     }
 
     let device = models::device_label();
+    // Exact execution identity of THIS agent binary. Catalogue pricing and cell
+    // routability refuse a receipt that does not carry the 16-lowerhex credential
+    // workers advertise at claim time. Distinct from producer_identity
+    // build_digest (64-hex of the binary file).
     let build_hash = hardware::engine_build_hash("candle", AGENT_VERSION);
+    let engine_build_identity_policy = hardware::ENGINE_BUILD_IDENTITY_POLICY;
+    let hardware_identity = hardware::detected_hardware_identity();
     eprintln!("== merc-agent bench-batch ==");
     eprintln!(
-        "device={device} model={model} max_tokens={max_tokens} mode={} build_hash={build_hash} backends={:?}",
+        "device={device} model={model} max_tokens={max_tokens} mode={} \
+         engine_build_hash={build_hash} policy={engine_build_identity_policy} \
+         hardware_identity={hardware_identity} backends={:?}",
         mode.label(),
         backend_kinds.iter().map(|b| b.as_str()).collect::<Vec<_>>(),
     );
@@ -1685,12 +1693,19 @@ async fn run_bench_batch(
     let record = serde_json::json!({
         "kind": kind_label,
         "device": device,
+        // Canonical names the control plane extracts (pricingReceiptEngineBuildHash /
+        // HardwareIdentity / evidence-manifest). Aliases kept for older parsers.
+        "engine_build_hash": build_hash.clone(),
+        "engine_build_identity_policy": engine_build_identity_policy,
+        "hardware_identity": hardware_identity.clone(),
         "build_hash": build_hash,
-        "build_identity_policy": hardware::ENGINE_BUILD_IDENTITY_POLICY,
-        "hardware_identity": hardware::detected_hardware_identity(),
+        "build_identity_policy": engine_build_identity_policy,
+        "hw_class": hardware::detected_hw_class_wire(),
         "model": model,
         "max_tokens": max_tokens,
         "mode": mode.label(),
+        "prompt": prompt,
+        "prompt_bytes": prompt.len(),
         "prompt_preview": prompt.chars().take(60).collect::<String>(),
         "batch_sizes": sizes,
         "backends": backend_records,
@@ -1707,7 +1722,8 @@ async fn run_bench_batch(
             // llama.cpp diverged from its own serial output everywhere. It is
             // an engine property, not a property of batching, and a hardcoded
             // claim here would have buried the one result that mattered.
-            "byte-determinism is measured per backend; see each backend's determinism field"
+            "byte-determinism is measured per backend; see each backend's determinism field",
+            "settlement geometry for batch_infer is token_like_input_plus_max_output_tokens: billable units per request = max(1, prompt_bytes/4) + max_tokens; rate = batch * units_per_request / wall_s from the same samples"
         ],
     });
     println!("{}", serde_json::to_string_pretty(&record)?);

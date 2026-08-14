@@ -10,23 +10,26 @@ import (
 	"testing"
 )
 
-// Scoreboard after exact execution identity became mandatory. The llama1 r4
-// receipt remains readable history, but its 16-hex credential was produced by
-// an agent content root that omitted execution modules and is therefore
-// SUPERSEDED. No checked-in receipt currently authorizes new work; mechanics
-// tests install an explicit TEST_ONLY authority without relabeling evidence.
+// Scoreboard after exact execution identity became mandatory. G070 bound
+// candle-metal-llama1-infer under settlement geometry
+// tokens/token_like_input_plus_max_output_tokens (r5). The prior llama1 r4
+// receipt remains readable history and is SUPERSEDED (incomplete agent content
+// root). Embed stays parked (embeddings/s receipt, not settlement geometry).
+// Media remains unbound. Mechanics tests still install explicit TEST_ONLY
+// authorities without relabeling evidence.
 
 func TestOnlyBindableAuthorityCellsAreRoutable(t *testing.T) {
 	// Reasons the audit named. Each demotion is a predicate result, not a
 	// hand-edited lifecycle field. Media cells still fail pre-BOUND checks;
-	// embed and generation now reach the BOUND bar on sealed receipts.
+	// the one BOUND generation cell is current-routable under r5.
 	wantDemoted := map[string]string{
 		"candle-metal-minilm-embed":     "engine_build_hash",
-		"candle-metal-llama1-infer":     authorityValiditySuperseded,
 		"candle-metal-ffmpeg-transcode": "not a git object",
 		"candle-metal-scene-render":     "merc_source_commit is missing",
 	}
-	wantRoutable := map[string]bool{}
+	wantRoutable := map[string]bool{
+		"candle-metal-llama1-infer": true,
+	}
 
 	var got []string
 	for _, profile := range runtimeAuthority.Runtimes {
@@ -96,15 +99,87 @@ func TestOnlyBindableAuthorityCellsAreRoutable(t *testing.T) {
 }
 
 func TestSupersededIncompleteAgentContentRootCannotAuthorizeCurrentAdmission(t *testing.T) {
+	// G070: the cell is current-bound under r5. The incomplete-content-root
+	// guard still holds: the superseded r4 credential (97acc / SUPERSEDED)
+	// cannot authorize current admission if a cell is temporarily repointed at
+	// it. The live cell remains advertised only via its current r5 authority.
 	const cellID = "candle-metal-llama1-infer"
-	_, _, _, err := currentRuntimeCellBenchmarkIdentity(cellID)
-	if err == nil || !strings.Contains(err.Error(), authorityValiditySuperseded) {
-		t.Fatalf("current benchmark lookup accepted the legacy 97acc credential: %v", err)
+	const supersededPath = "evidence/perf/runtime-benchmarks/candle-metal-llama1-q4-r4.json"
+
+	r4, ok := benchmarkAuthorityManifest[supersededPath]
+	if !ok {
+		t.Fatalf("historical r4 receipt missing from manifest: %s", supersededPath)
 	}
-	for _, cell := range advertisedRuntimeCapabilities() {
-		if cell.ID == cellID {
-			t.Fatalf("superseded legacy build credential remains buyer-advertised: %+v", cell)
+	if reason := authorityValidityRefusal(r4.Validity); reason != authorityValiditySuperseded {
+		t.Fatalf("r4 validity=%q, want SUPERSEDED incomplete-content-root credential", r4.Validity)
+	}
+	if r4.EngineBuildHash != "97acc6fe17daca56" {
+		t.Fatalf("r4 engine_build_hash=%q, want the incomplete-content-root 97acc credential",
+			r4.EngineBuildHash)
+	}
+
+	// Live cell must resolve under r5 and stay buyer-advertised.
+	_, _, current, err := currentRuntimeCellBenchmarkIdentity(cellID)
+	if err != nil {
+		t.Fatalf("current r5-bound cell must authorize: %v", err)
+	}
+	if current.EngineBuildHash == "97acc6fe17daca56" ||
+		strings.Contains(strings.ToLower(current.Harness), "r4") {
+		t.Fatalf("current identity still carries the superseded r4 credential: %+v", current)
+	}
+	if !advertisedRuntimeCell(cellID) {
+		t.Fatalf("BOUND cell %s is not advertised under its current r5 authority", cellID)
+	}
+
+	// Incomplete-content-root credential cannot authorize: repoint only this
+	// test's in-memory cell at the SUPERSEDED r4 path and prove routability
+	// collapses without touching disk evidence.
+	savedAuthority := runtimeAuthority
+	savedActivation := activeRuntimeActivation.Load()
+	edited := runtimeAuthority
+	edited.Runtimes = append([]authorityRuntimeProfile(nil), runtimeAuthority.Runtimes...)
+	found := false
+	for i := range edited.Runtimes {
+		edited.Runtimes[i].Cells = append([]authorityCell(nil), edited.Runtimes[i].Cells...)
+		for j := range edited.Runtimes[i].Cells {
+			if edited.Runtimes[i].Cells[j].ID != cellID {
+				continue
+			}
+			edited.Runtimes[i].Cells[j].BenchmarkAuthority = supersededPath
+			found = true
 		}
+	}
+	if !found {
+		t.Fatalf("cell %s missing from runtime authority", cellID)
+	}
+	runtimeAuthority = edited
+	activeRuntimeActivation.Store(newRuntimeActivation(
+		currentActivation().PolicyRevision, map[string]string{}, nil))
+	t.Cleanup(func() {
+		runtimeAuthority = savedAuthority
+		activeRuntimeActivation.Store(savedActivation)
+	})
+
+	var profile authorityRuntimeProfile
+	var cell authorityCell
+	for _, p := range runtimeAuthority.Runtimes {
+		for _, c := range p.Cells {
+			if c.ID == cellID {
+				profile, cell = p, c
+			}
+		}
+	}
+	if cell.Routable(profile) {
+		t.Fatal("cell stayed routable when repointed at the SUPERSEDED incomplete-content-root r4 credential")
+	}
+	okBind, reason := cellAuthorityBindable(profile, cell)
+	if okBind || !strings.Contains(reason, authorityValiditySuperseded) {
+		t.Fatalf("repointed r4 credential bindable ok=%v reason=%q, want SUPERSEDED refusal",
+			okBind, reason)
+	}
+	_, _, _, err = currentRuntimeCellBenchmarkIdentity(cellID)
+	if err == nil || !strings.Contains(err.Error(), authorityValiditySuperseded) {
+		t.Fatalf("current benchmark lookup accepted the legacy 97acc credential after repoint: %v", err)
 	}
 }
 
@@ -133,7 +208,9 @@ func TestNonGitMercSourceCommitIsRejected(t *testing.T) {
 // Automatic demotion: invalidate an authority and the dependent cell leaves the
 // routable set without any lifecycle field being edited.
 func TestInvalidatingAuthorityDemotesDependentCell(t *testing.T) {
-	const path = "evidence/perf/runtime-benchmarks/candle-metal-llama1-q4-r4.json"
+	// G070: the live cell cites r5. Invalidate that authority path so demotion
+	// targets the credential currently authorizing the cell, not historical r4.
+	const path = "evidence/perf/runtime-benchmarks/candle-metal-llama1-q4-r5.json"
 	const cellID = "candle-metal-llama1-infer"
 
 	profile, ok := runtimeProfileByID("candle_metal")
@@ -375,13 +452,19 @@ func TestBenchmarkManifestExactExecutionIdentityCannotDivergeFromReceipt(t *test
 }
 
 func TestAdvertisedSurfaceIsTheBindableSet(t *testing.T) {
-	// The prior llama1 r4 build credential is SUPERSEDED because its content
-	// root omitted execution modules. Production history remains readable, but
-	// no checked-in receipt currently authorizes ordinary admission.
-	want := map[string]string{}
+	// G070: exactly candle-metal-llama1-infer is current-bindable under r5
+	// settlement geometry. Prior r4 remains SUPERSEDED history; embed/media
+	// stay unadvertised. Reject any extra cell.
+	want := map[string]string{
+		"candle-metal-llama1-infer": "batch_infer",
+	}
 	caps := advertisedRuntimeCapabilities()
 	if len(caps) != len(want) {
-		t.Fatalf("advertised %d cells, want %d BOUND cells", len(caps), len(want))
+		ids := make([]string, 0, len(caps))
+		for _, cap := range caps {
+			ids = append(ids, cap.ID+"/"+cap.Job)
+		}
+		t.Fatalf("advertised %v, want exactly %v", ids, want)
 	}
 	for _, cap := range caps {
 		job, ok := want[cap.ID]
@@ -391,6 +474,11 @@ func TestAdvertisedSurfaceIsTheBindableSet(t *testing.T) {
 		}
 		if cap.Job != job {
 			t.Errorf("cell %s job=%s, want %s", cap.ID, cap.Job, job)
+		}
+	}
+	for id := range want {
+		if !advertisedRuntimeCell(id) {
+			t.Errorf("BOUND cell %s missing from advertised surface", id)
 		}
 	}
 }

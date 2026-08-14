@@ -124,9 +124,16 @@ func TestDirectedSetIsASupersetThatDoesNotWidenTheCatalogue(t *testing.T) {
 			t.Errorf("advertised cell %q is not reachable by directed routing", capability.ID)
 		}
 	}
-	if len(advertisedRuntimeCapabilities()) != 0 {
-		t.Fatalf("the production advertised catalogue has %d cells, want zero while every checked-in execution credential is historical-only",
-			len(advertisedRuntimeCapabilities()))
+	// G070: candle-metal-llama1-infer is the one current-bindable production
+	// cell under settlement geometry. Other cells stay directed-only or
+	// unadvertised until their receipts bind.
+	advertised := advertisedRuntimeCapabilities()
+	if len(advertised) != 1 || advertised[0].ID != "candle-metal-llama1-infer" {
+		ids := make([]string, 0, len(advertised))
+		for _, c := range advertised {
+			ids = append(ids, c.ID)
+		}
+		t.Fatalf("the production advertised catalogue has %v, want exactly [candle-metal-llama1-infer]", ids)
 	}
 	// The llama.cpp embed cell is nameable and NOT sellable, which is exactly the
 	// state a cell has to be in to be driven through the chain that proves it.

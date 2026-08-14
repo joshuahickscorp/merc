@@ -200,11 +200,12 @@ func TestArtifactReplacementMovesTheDigestThatGatesTheCell(t *testing.T) {
 	}
 }
 
-// Lifecycle alone never widens the advertised set. The formerly BOUND Candle
-// receipt is now honestly SUPERSEDED because its build root omitted executing
-// modules; media remains unbound. No checked-in cell is current authority.
+// Lifecycle alone never widens the advertised set beyond the bindable surface.
+// G070 bound exactly candle-metal-llama1-infer; embed stays parked and media
+// remains unbound. Any extra cell is a real surface widening.
 func TestCellLifecyclesDidNotWidenTheAdvertisedSurface(t *testing.T) {
-	if got := advertisedRuntimeCapabilities(); len(got) != 0 {
-		t.Fatalf("superseded/unbound cells reached the advertised projection: %+v", got)
+	got := advertisedRuntimeCapabilities()
+	if len(got) != 1 || got[0].ID != "candle-metal-llama1-infer" || got[0].Job != "batch_infer" {
+		t.Fatalf("advertised surface = %+v, want exactly candle-metal-llama1-infer/batch_infer", got)
 	}
 }

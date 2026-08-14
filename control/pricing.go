@@ -45,20 +45,49 @@ type measuredThroughput struct {
 // identity with a real source commit. A row that cites weaker evidence remains
 // useful to diagnostics below, but is refused rather than published.
 //
-// evidence/benchmarks/2026-07-01-m3-pro.json is binding_status=UNBOUND (missing
-// all producer-identity fields). Resolvable is not the same as BOUND: the
-// receipt ships for diagnostic comparison, but cannot mint a live schedule.
-// Consequently the checked-in production authority currently has zero
-// publishable catalogue lanes and BuildCataloguePriceSchedule fails closed.
+// G070 (2026-08-14): the only current-bindable production lane is
+// llama-3.2-1b-instruct-q4 / batch_infer on candle-metal-llama1-infer, measured
+// under settlement geometry tokens/token_like_input_plus_max_output_tokens on
+// this host (candle-metal-llama1-q4-r5.json). The embed MiniLM row was moved to
+// unpricedThroughputUntilBound: its receipts measure embeddings/completed_embedding_records
+// while embed settlement is token_like_input_units/token_like_input_geometry, and
+// no frozen conversion authority exists.
 //
-// Media rows (ffmpeg-transcode-v1, svg-scene-render-v1) were removed from this
-// set because their cited receipts cannot bind: the ffmpeg receipt names
-// merc_source_commit "working-tree-before-media-authority" (not a git object),
-// and the rendering receipt has no source commit at all. Cell routability was
-// already quarantined for the same reason (fdc8eec1); catalogue pricing now
-// refuses them until a bindable re-measure exists. See
-// unpricedThroughputUntilBound.
+// Media rows remain unpriced (ffmpeg names a non-git merc_source_commit;
+// rendering has no source commit). See unpricedThroughputUntilBound.
 var repricingBenchmarks = []measuredThroughput{
+	{
+		ModelID:                   "llama-3.2-1b-instruct-q4",
+		ModelArtifactDigest:       "3f5a22426976ab26cfe84dba63c1d08391717abb1af893e10f1b2968d862dcc1",
+		JobType:                   "batch_infer",
+		RuntimeCellID:             "candle-metal-llama1-infer",
+		RuntimeProfileID:          "candle_metal",
+		ProfileRevision:           "r9",
+		Engine:                    "candle",
+		EngineBuildHash:           "f4303a751ca2b2af",
+		EngineBuildIdentityPolicy: "merc_agent_running_executable_sha256_v1",
+		HardwareIdentity:          "apple_silicon_v1|brand=Apple M3 Ultra|model=Mac15,14|memory_bytes=103079215104|cpu_cores=28|gpu_cores=60",
+		Unit:                      "tokens",
+		UnitScope:                 performanceUnitScopeTokenLikeInputPlusOutputTokens,
+		// Conservative bound: equals measured operating-batch rate (288.971).
+		// Gate requires constant <= measured and not more than 1% below.
+		UnitsPerSec:    288.971,
+		HWClass:        "apple_silicon_ultra",
+		SourceCitation: "evidence/perf/runtime-benchmarks/candle-metal-llama1-q4-r5.json#batch_infer",
+	},
+}
+
+// unpricedThroughputUntilBound holds measured (model, job type) pairs that still
+// have throughput receipts in-tree but must not set a buyer price until the
+// cited artifact binds (or until a settlement-geometry match exists). They are
+// deliberately not in repricingBenchmarks so BuildCataloguePriceSchedule cannot
+// publish them. A pair may appear in exactly one of the two lists.
+//
+// Media citations remain unbound/unbindable. The MiniLM embed row is parked
+// because no receipt measures token_like_input_units/token_like_input_geometry
+// for that cell yet (embeddings/s cannot price that unit without a fabricated
+// conversion).
+var unpricedThroughputUntilBound = []measuredThroughput{
 	{
 		ModelID:             "all-minilm-l6-v2",
 		ModelArtifactDigest: "53aa51172d142c89d9012cce15ae4d6cc0ca6895895114379cacb4fab128d9db",
@@ -73,39 +102,11 @@ var repricingBenchmarks = []measuredThroughput{
 		UnitScope:           performanceUnitScopeCompletedEmbeddingRecords,
 		UnitsPerSec:         1967.3141,
 		HWClass:             "apple_silicon_pro",
-		// diagnostic only: UNBOUND receipt, so publication refuses this row
+		// Parked: measured embeddings/completed_embedding_records; embed settlement
+		// is token_like_input_units/token_like_input_geometry. No token-geometry
+		// embed receipt exists yet; no frozen conversion may invent one.
 		SourceCitation: "evidence/benchmarks/2026-07-01-m3-pro.json#embed",
 	},
-	{
-		ModelID:             "llama-3.2-1b-instruct-q4",
-		ModelArtifactDigest: "3f5a22426976ab26cfe84dba63c1d08391717abb1af893e10f1b2968d862dcc1",
-		JobType:             "batch_infer",
-		RuntimeCellID:       "candle-metal-llama1-infer",
-		RuntimeProfileID:    "candle_metal",
-		ProfileRevision:     "r9",
-		Engine:              "candle",
-		EngineBuildHash:     "408db133af3c3014",
-		HardwareIdentity:    "Apple M3 Pro",
-		Unit:                "tokens",
-		UnitScope:           performanceUnitScopeDecodeOutputTokens,
-		UnitsPerSec:         138.7,
-		HWClass:             "apple_silicon_pro",
-		// diagnostic only: UNBOUND receipt, so publication refuses this row
-		SourceCitation: "evidence/benchmarks/2026-07-01-m3-pro.json#batch_infer",
-	},
-}
-
-// unpricedThroughputUntilBound holds measured (model, job type) pairs that still
-// have throughput receipts in-tree but must not set a buyer price until the
-// cited artifact binds. They are deliberately not in repricingBenchmarks so
-// BuildCataloguePriceSchedule cannot publish them. Prefer a local re-measure
-// with a real merc_source_commit over inventing identity; until then refusal
-// is the honest state, not a soft skip.
-//
-// Both citations below are unbound and unbindable for pricing (ffmpeg names a
-// non-git merc_source_commit; rendering has no source commit). They are retained
-// only as the measured numbers that must not become catalogue prices.
-var unpricedThroughputUntilBound = []measuredThroughput{
 	{
 		ModelID:          "ffmpeg-transcode-v1",
 		JobType:          "media_transcode",

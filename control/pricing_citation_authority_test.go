@@ -90,26 +90,40 @@ func TestPersistedCatalogueRefusesDifferentValidPowerAuthority(t *testing.T) {
 	}
 }
 
-func TestProductionThroughputCitationsRemainDiagnosticUntilBound(t *testing.T) {
-	err := validateAllRepricingBenchmarkCitations()
-	if err == nil {
-		t.Fatal("production pricing accepted throughput evidence without current exact execution identity")
+func TestProductionThroughputCitationsBindCurrentSettlementGeometry(t *testing.T) {
+	// G070: production carries one BOUND batch_infer lane under
+	// tokens/token_like_input_plus_max_output_tokens. Media and embed remain
+	// unpriced, not in repricingBenchmarks.
+	if err := validateAllRepricingBenchmarkCitations(); err != nil {
+		t.Fatalf("production throughput citations must bind: %v", err)
 	}
-	if !strings.Contains(err.Error(), "engine_build_hash") ||
-		!strings.Contains(err.Error(), "exact 16-character") {
-		t.Fatalf("production refusal did not name the missing exact build authority: %v", err)
+	if len(repricingBenchmarks) != 1 {
+		t.Fatalf("want exactly one production priced lane, got %d", len(repricingBenchmarks))
+	}
+	b := repricingBenchmarks[0]
+	if b.ModelID != "llama-3.2-1b-instruct-q4" || b.JobType != "batch_infer" {
+		t.Fatalf("unexpected production priced lane %+v", b)
+	}
+	settlement, ok := currentSettlementAuthorityForJobType(b.JobType)
+	if !ok || b.Unit != settlement.Unit || b.UnitScope != settlement.Scope {
+		t.Fatalf("production lane unit/scope %q/%q != settlement %q/%q",
+			b.Unit, b.UnitScope, settlement.Unit, settlement.Scope)
 	}
 	for _, b := range repricingBenchmarks {
-		if b.ModelID == "ffmpeg-transcode-v1" || b.ModelID == "svg-scene-render-v1" {
-			t.Fatalf("%s must not set a catalogue price until its cited artifact binds", b.ModelID)
+		if b.ModelID == "ffmpeg-transcode-v1" || b.ModelID == "svg-scene-render-v1" ||
+			b.ModelID == "all-minilm-l6-v2" {
+			t.Fatalf("%s must not set a catalogue price until its cited artifact binds under settlement geometry", b.ModelID)
 		}
 	}
 }
 
-func TestProductionCatalogueScheduleRefusesUnboundThroughput(t *testing.T) {
+func TestProductionCatalogueScheduleRefusesAssumedPower(t *testing.T) {
+	// Throughput is BOUND; whole-package power for apple_silicon_ultra remains
+	// ASSUMED until an honest MEASURED receipt exists. Catalogue publication
+	// must still fail closed on that power gate — not invent watts.
 	_, err := BuildCataloguePriceSchedule()
-	if err == nil || !strings.Contains(err.Error(), "engine_build_hash") ||
-		!strings.Contains(err.Error(), "exact 16-character") {
+	if err == nil || !strings.Contains(err.Error(), "requires MEASURED sustained watts") ||
+		!strings.Contains(err.Error(), "apple_silicon_ultra") {
 		t.Fatalf("production catalogue publication error=%v", err)
 	}
 }
@@ -405,11 +419,8 @@ func TestUnpricedMediaThroughputIsRefusedUntilBound(t *testing.T) {
 }
 
 func TestCatalogueScheduleRefusesUnbindableCitation(t *testing.T) {
-	installBoundCataloguePublicationAuthorityForTest(t)
-	// Inject an unbindable row into the priced set only for this test.
-	saved := append([]measuredThroughput(nil), repricingBenchmarks...)
-	t.Cleanup(func() { repricingBenchmarks = saved })
-
+	// Capture the production ffmpeg quarantine row BEFORE the synthetic
+	// publication helper clears unpricedThroughputUntilBound for its install.
 	var unbindable measuredThroughput
 	for _, candidate := range unpricedThroughputUntilBound {
 		if candidate.ModelID == "ffmpeg-transcode-v1" && candidate.JobType == "media_transcode" {
@@ -420,11 +431,15 @@ func TestCatalogueScheduleRefusesUnbindableCitation(t *testing.T) {
 	if unbindable.RuntimeCellID == "" {
 		t.Fatal("missing quarantined ffmpeg throughput fixture")
 	}
+
+	installBoundCataloguePublicationAuthorityForTest(t)
+	// Inject an unbindable row into the priced set only for this test.
+	saved := append([]measuredThroughput(nil), repricingBenchmarks...)
+	t.Cleanup(func() { repricingBenchmarks = saved })
 	repricingBenchmarks = append(repricingBenchmarks, unbindable)
-	// Also clear the quarantine list so the dual-membership check does not fire
-	// first; we want the bind failure itself.
-	savedUnpriced := append([]measuredThroughput(nil), unpricedThroughputUntilBound...)
-	t.Cleanup(func() { unpricedThroughputUntilBound = savedUnpriced })
+	// Keep quarantine empty for this test so dual-membership does not fire
+	// first; we want the bind failure itself. The publication helper already
+	// nil'd unpriced and restores production quarantine on cleanup.
 	unpricedThroughputUntilBound = nil
 
 	pinBoardClockForPublication(t)

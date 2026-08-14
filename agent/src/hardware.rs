@@ -231,8 +231,13 @@ fn gpu_core_count() -> Option<u32> {
     String::from_utf8_lossy(&output.stdout)
         .lines()
         .find_map(|line| {
+            // ioreg -l tree lines look like: `  |   "gpu-core-count" = 60`
+            // The pipe is structural, not part of the key. Match the quoted
+            // property name anywhere on the left of '=' rather than requiring
+            // the whole left side to equal the quoted key after trim.
             let (key, value) = line.split_once('=')?;
-            if key.trim() != "\"gpu-core-count\"" {
+            let key = key.trim().trim_start_matches('|').trim();
+            if key != "\"gpu-core-count\"" {
                 return None;
             }
             value.trim().parse::<u32>().ok().filter(|count| *count > 0)
