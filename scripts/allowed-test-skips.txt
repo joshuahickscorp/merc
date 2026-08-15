@@ -117,6 +117,12 @@ TestSelectorScaleCurve
 # scripts/with-isolated-test-db.sh.
 TestHeartbeatIngestBench
 #
+# Opt-in in-process LiveDeviceIndex ceiling harness. Allocates up to 10M
+# synthetic slots and times Heartbeat / IsLive / LiveSlots / Tick plus
+# retained bytes/device. No PostgreSQL. Seconds-to-minutes of wall clock;
+# never part of make test / make ci. Set MERC_LIVENESS_INDEX_BENCH=1.
+TestLiveDeviceIndexBench
+#
 # Opt-in realtime selection cost decomposition. Seeds up to 100k offers and
 # times five statement variants (precount, full claim, no-book, top-N pick,
 # eligibility floor) under ROLLBACK to name the linear term. Minutes of wall
