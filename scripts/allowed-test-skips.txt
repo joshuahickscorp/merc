@@ -123,6 +123,14 @@ TestHeartbeatIngestBench
 # never part of make test / make ci. Set MERC_LIVENESS_INDEX_BENCH=1.
 TestLiveDeviceIndexBench
 #
+# Opt-in durable write-amplification harness for MERC_LIVENESS_INDEX_AUTHORITATIVE.
+# Seeds a synthetic fleet through HeartbeatRealtimeOffer, counts realtime_offer_samples
+# under the flag OFF vs ON, checks last_seen_at stays inside the 45s window, and
+# measures per-offer heap of offerSlotCache / offerPersistCache / slotOwner.
+# Minutes of wall clock and a live PostgreSQL; never part of make test / make ci.
+# Set MERC_WRITE_AMP_BENCH=1.
+TestLivenessWriteAmplificationBench
+#
 # Opt-in realtime selection cost decomposition. Seeds up to 100k offers and
 # times five statement variants (precount, full claim, no-book, top-N pick,
 # eligibility floor) under ROLLBACK to name the linear term. Minutes of wall

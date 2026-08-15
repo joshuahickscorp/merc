@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"testing"
 	"time"
 )
@@ -299,5 +300,87 @@ func TestDetachedHeartbeatWritesCommitInSubmissionOrder(t *testing.T) {
 	time.Sleep(300 * time.Millisecond)
 	if got := read(); got != "FAILED" {
 		t.Fatalf("durable status reverted to %q — an earlier write committed after the terminal FAILED", got)
+	}
+}
+
+// TestFlagDivergenceClassesAreEnumerated pins every way flag ON can disagree
+// with flag OFF at the one selection entry point the flag actually flips
+// (ServiceLeaseDataPlaneTarget). The migration contract is "no silent
+// divergence": each combination of durable-liveness and index-liveness must land
+// in a named class with a stated safety direction, and an unclassified outcome
+// is a failure rather than a curiosity.
+//
+// D1 index dead / SQL live  — ON refuses, OFF selects. ON is MORE RESTRICTIVE.
+//
+//	This is the fail-closed direction and the whole
+//	point of the flip.
+//
+// D2 index live / SQL stale — ON selects, OFF refuses. ON is MORE PERMISSIVE,
+//
+//	and this is the only such class. It is reachable
+//	ONLY when durable writes lag or fail while
+//	heartbeats keep arriving, so the worker is
+//	genuinely alive and the index is the more truthful
+//	authority. Safe, but it is a real divergence and
+//	must stay documented rather than discovered later.
+//
+// D3 both live              — identical.
+// D4 both dead              — identical.
+func TestFlagDivergenceClassesAreEnumerated(t *testing.T) {
+	type outcome struct{ selectable bool }
+	run := func(t *testing.T, flagOn bool, ageIndex, ageSQL bool) outcome {
+		t.Helper()
+		if flagOn {
+			t.Setenv("MERC_LIVENESS_INDEX_AUTHORITATIVE", "1")
+		} else {
+			t.Setenv("MERC_LIVENESS_INDEX_AUTHORITATIVE", "0")
+		}
+		ctx, store, pool, buyerID, lease, worker, profile := seedLeaseWithRealtimeOffer(t)
+		if err := store.HeartbeatRealtimeOffer(ctx, worker, RealtimeOfferHeartbeat{
+			RuntimeProfileID: profile.RuntimeProfileID, Warmth: "HOT",
+			AvailableSequences: 8, Status: "ACTIVE",
+		}); err != nil {
+			t.Fatalf("heartbeat: %v", err)
+		}
+		if ageIndex {
+			ageOfferIndexSlot(t, store, worker.WorkerID, profile.RuntimeProfileID)
+		}
+		if ageSQL {
+			if _, err := pool.Exec(ctx, `
+				UPDATE realtime_worker_offers
+				   SET last_seen_at = now() - interval '120 seconds'
+				 WHERE worker_id=$1 AND runtime_profile_id=$2`,
+				worker.WorkerID, profile.RuntimeProfileID); err != nil {
+				t.Fatal(err)
+			}
+		}
+		_, err := store.ServiceLeaseDataPlaneTarget(ctx, buyerID, lease.ID)
+		if err != nil && !errors.Is(err, errServiceLeaseDataPlaneUnavailable) {
+			t.Fatalf("unexpected error class: %v", err)
+		}
+		return outcome{selectable: err == nil}
+	}
+
+	for _, tc := range []struct {
+		class            string
+		ageIndex, ageSQL bool
+		wantOff, wantOn  bool
+		note             string
+	}{
+		{"D1_index_dead_sql_live", true, false, true, false, "ON must be more restrictive (fail closed)"},
+		{"D2_index_live_sql_stale", false, true, false, true, "ON more permissive: durable write lagged, worker is genuinely heartbeating"},
+		{"D3_both_live", false, false, true, true, "no divergence"},
+		{"D4_both_dead", true, true, false, false, "no divergence"},
+	} {
+		t.Run(tc.class, func(t *testing.T) {
+			off := run(t, false, tc.ageIndex, tc.ageSQL)
+			on := run(t, true, tc.ageIndex, tc.ageSQL)
+			if off.selectable != tc.wantOff {
+				t.Fatalf("%s: flag OFF selectable=%v want %v (%s)", tc.class, off.selectable, tc.wantOff, tc.note)
+			}
+			if on.selectable != tc.wantOn {
+				t.Fatalf("%s: flag ON selectable=%v want %v (%s)", tc.class, on.selectable, tc.wantOn, tc.note)
+			}
+		})
 	}
 }
