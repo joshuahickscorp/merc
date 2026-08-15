@@ -2,6 +2,14 @@
   "schema_version": 1,
   "kind": "heterogeneous_placement_readiness_contract",
   "purpose": "Offline identity and gate pins for a valid Metal-vs-CUDA embed placement measurement. Ready means only authorized spend remains. This file does not authorize spend, advertise a cell, or promote anything.",
+  "historical_lane_evidence": {
+    "power_analysis": "evidence/perf/heterogeneous-placement-power-analysis-latest.json",
+    "source_branch": "grok/hetero-runtime-20260810-131127",
+    "source_commit": "5e81181ab09d33ba40dee73dc3f4e9831a3daa41",
+    "source_base": "bff5fd33",
+    "not_restamped_on_head": true,
+    "note": "The power-analysis receipt is the hetero-runtime lane's historical DESIGN_AND_PRIOR_MEASUREMENT (spent_usd_this_receipt=0, UNBOUND). Figures are derived from the cited prior A40 receipts, not re-measured on this consume (90ff8869 / 9c5a9f25). No GPU spend. Do not treat as a current-HEAD measurement."
+  },
   "matched_model_identity": {
     "job_type": "embed",
     "model": "all-minilm-l6-v2",
@@ -105,6 +113,15 @@
   },
   "cell_surface_policy": {
     "cuda_embed_cell_id": "vllm-cuda-minilm-embed",
+    "parity_with_metal": {
+      "metal_cell_id": "candle-metal-minilm-embed",
+      "model": "all-minilm-l6-v2",
+      "artifact_sha256": "53aa51172d142c89d9012cce15ae4d6cc0ca6895895114379cacb4fab128d9db",
+      "verification": "cosine",
+      "workload_shape": "embed runner, max_batch 128",
+      "quality_contract_id": "embed-cosine-v2-all-minilm-l6-v2",
+      "note": "Comparable CUDA embed arm at parity with candle-metal-minilm-embed. Remains DRAFT until promotion clears both promotionMatchedPairAuthorityRefusal and the scope/global-lifecycle refusal. Never by editing lifecycle."
+    },
     "must_remain": [
       "non-routable",
       "not advertised",
@@ -112,5 +129,21 @@
       "DRAFT lifecycle under DRAFT vllm_cuda profile"
     ],
     "reason": "Identity for a future matched placement measurement. Not a capability offered to buyers."
+  },
+  "generation_quality_refusal": {
+    "contract_id": "batch-infer-metal-q4-vs-cuda-bf16-REFUSED",
+    "authority": "ops/acceptable-quality-contracts.json",
+    "note": "Metal catalogue generation is GGUF q4; CUDA vLLM profile is HF bf16. Not multi-family substitutable under byte_exact. Do not rank them on price."
+  },
+  "promotion_blockers": {
+    "touches": [
+      "promotionMatchedPairAuthorityRefusal (control/runtime_cell_promotion.go:78 refuse at :321) — no durable matched incumbent/challenger execution pair",
+      "activation_policy.go:1326-1333 — evidence covers one exact scope while cell lifecycle is global"
+    ],
+    "does_not_close": "Closing one refusal does not close the other. G024 does not force promotion; gate remains the product.",
+    "evidence_that_would_unblock": [
+      "Durable matched incumbent/challenger execution-pair authority binding both cells to the same input/cohort digest (not independently aggregated jobs)",
+      "A global-coverage promotion model (or scoped lifecycle) so narrow-scope evidence can authorize the lifecycle change the activation table currently treats as global"
+    ]
   }
 }

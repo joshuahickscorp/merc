@@ -15,12 +15,14 @@ import (
 // Shadow runtime selection: what a selector WOULD have chosen, recorded beside
 // what admission actually froze, changing nothing.
 //
-// Ordinary admission is a singleton today. Competing engines do not compete for
-// production traffic: runtimeCapabilityForBindingDirected freezes exactly one
-// advertised cell per (job type, model), and ClaimTasksTx requires
-// frozen->>'cell_id' = wac.cell_id. Multi-candidate selection is shadow-only —
-// this file. The engine tournament that would make multi-candidate production
-// routing real is a separate lane; do not read this scorer as if it already routes.
+// Ordinary admission freezes a multi-family eligible set only when an ACTIVE
+// AcceptableQualityContract covers multiple device families
+// (control/workload_classification.go:selectAdmissionCandidates). Absent that
+// contract — today's production surface, with only candle_metal advertised —
+// rankAndFreezeAdmissionCell still freezes one cell. ClaimTasksTx matches any
+// frozen runtime_candidates entry; multi-family placement v4 drops the single
+// hardware_identity pin so a second family can claim. This file remains
+// post-commit observational shadow scoring and must not become money authority.
 //
 // Two properties of this tree decide the shape:
 //

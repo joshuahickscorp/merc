@@ -29,7 +29,7 @@ func TestShadowSelectionConsidersTheProvenCellAdmissionCannotRoute(t *testing.T)
 	}, strings.Repeat("a", 64))
 	must(t, err)
 	if len(decision.RuntimeCandidates) != 1 {
-		t.Fatalf("admission froze %d candidates; it is documented to freeze exactly one",
+		t.Fatalf("admission froze %d candidates; production advertised surface is still a singleton until multi-family CUDA is promoted",
 			len(decision.RuntimeCandidates))
 	}
 	if decision.RuntimeCandidates[0].CellID != candleEmbedCell {

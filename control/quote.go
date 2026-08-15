@@ -12,6 +12,7 @@ import (
 	"math"
 	"net/http"
 	"slices"
+	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -354,6 +355,11 @@ type QuoteBudget struct {
 const (
 	claimableWorkerPredicateVersion = 3
 	placementRequirementVersion     = claimableWorkerPredicateVersion
+	// placementRequirementVersionMultiFamily freezes a multi-device eligible set
+	// under an AcceptableQualityContract. Preferred cell still supplies
+	// performance/build authority for pricing; claim does not pin a single
+	// hardware_identity so a second family can select.
+	placementRequirementVersionMultiFamily = 4
 )
 
 // PlacementRequirement is the immutable, buyer-visible worker eligibility
@@ -392,16 +398,24 @@ func placementRequirementFor(
 	workload WorkloadDecision,
 	offeredRateUsdHr float32,
 ) (PlacementRequirement, error) {
-	if len(workload.RuntimeCandidates) != 1 {
+	if len(workload.RuntimeCandidates) == 0 {
 		return PlacementRequirement{}, fmt.Errorf(
-			"placement authority requires exactly one runtime candidate, got %d",
-			len(workload.RuntimeCandidates),
+			"placement authority requires at least one runtime candidate, got 0",
 		)
 	}
+	// Preferred cell is always RuntimeCandidates[0]: lifecycle-ladder winner
+	// under ordinary admission, or the directed cell under directed routing.
+	// Pricing performance authority is always the preferred cell so an unproven
+	// multi-family peer cannot refuse a quote that the preferred cell can price.
 	candidate := workload.RuntimeCandidates[0]
+	multiFamily := len(workload.RuntimeCandidates) > 1 &&
+		strings.TrimSpace(workload.QualityContractID) != "" &&
+		workload.DirectedCellID == ""
+
+	pricingCells := []string{candidate.CellID}
 	_, performance, err := admissionUnitsPerSec(
 		workload.RuntimeJobType, workload.Binding.Model.Ref,
-		admissionCellsForWorkload(workload), time.Now(),
+		pricingCells, time.Now(),
 	)
 	if err != nil {
 		return PlacementRequirement{}, fmt.Errorf(
@@ -413,22 +427,36 @@ func placementRequirementFor(
 	if err != nil {
 		return PlacementRequirement{}, err
 	}
+	if multiFamily {
+		// Union of every eligible candidate's platforms, still filtered by the
+		// buyer's allowed set. Preferred measurement remains the pricing pin;
+		// claim uses the union so a second family can select.
+		boundHWClasses = multiFamilyHardwareClasses(workload, sub.Constraints.HWClasses)
+		if len(boundHWClasses) == 0 {
+			return PlacementRequirement{}, fmt.Errorf(
+				"%w: multi-family placement has no hardware classes after buyer filter",
+				errQuotePhysicalAuthorityUnavailable)
+		}
+	}
 	frozenPerformance, err := freezeRuntimeCellPerformance(performance)
 	if err != nil {
 		return PlacementRequirement{}, fmt.Errorf(
 			"%w: freezing current runtime performance authority: %v",
 			errQuotePhysicalAuthorityUnavailable, err)
 	}
-	// Placement model_kind is the frozen cell's artifact format, not the buyer's
-	// declaration. Claim matching already uses the cell's kind; capacity and
-	// worker filters must agree or a directed/multi-kind freeze would look for
-	// workers under the wrong wire kind.
+	// Placement model_kind is the preferred cell's artifact format, not the
+	// buyer's declaration. Multi-family peers may use a different kind; claim
+	// matches each candidate's own kind from runtime_candidates.
 	modelKind := candidate.ModelKind
 	if modelKind == "" {
 		modelKind = sub.Model.Kind
 	}
+	version := placementRequirementVersion
+	if multiFamily {
+		version = placementRequirementVersionMultiFamily
+	}
 	out := PlacementRequirement{
-		Version:                   placementRequirementVersion,
+		Version:                   version,
 		JobType:                   workload.RuntimeJobType,
 		ModelRef:                  sub.Model.Ref,
 		ModelKind:                 modelKind,
@@ -455,19 +483,72 @@ func placementRequirementFor(
 	return out, nil
 }
 
+// multiFamilyHardwareClasses is the sorted union of eligible candidates'
+// platforms, intersected with the buyer's requested set when non-empty.
+func multiFamilyHardwareClasses(workload WorkloadDecision, requested []string) []string {
+	seen := map[string]struct{}{}
+	var out []string
+	req := map[string]struct{}{}
+	for _, r := range requested {
+		req[r] = struct{}{}
+	}
+	for _, c := range workload.RuntimeCandidates {
+		for _, hw := range c.HardwareClasses {
+			if len(req) > 0 {
+				if _, ok := req[hw]; !ok {
+					continue
+				}
+			}
+			if _, ok := seen[hw]; ok {
+				continue
+			}
+			seen[hw] = struct{}{}
+			out = append(out, hw)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
 // validatePlacementRequirement validates the immutable placement against the
 // immutable workload it was accepted with. It is deliberately a historical
 // validator: a later capability-matrix release must not make an accepted quote
 // or job unreadable. New admission must use validateCurrentPlacementRequirement
 // as well, which additionally consults today's matrix and receipt authority.
 func validatePlacementRequirement(p PlacementRequirement, workload WorkloadDecision) error {
-	if p.Version != 1 && p.Version != 2 && p.Version != placementRequirementVersion {
+	if p.Version != 1 && p.Version != 2 && p.Version != placementRequirementVersion &&
+		p.Version != placementRequirementVersionMultiFamily {
 		return fmt.Errorf("unsupported placement requirement version %d", p.Version)
 	}
-	if len(workload.RuntimeCandidates) != 1 {
-		return errors.New("placement requirement needs one frozen runtime candidate")
+	if len(workload.RuntimeCandidates) == 0 {
+		return errors.New("placement requirement needs at least one frozen runtime candidate")
 	}
+	// Preferred candidate is always [0]. Multi-family freezes additional peers
+	// after it; placement identity still names the preferred cell for pricing.
 	candidate := workload.RuntimeCandidates[0]
+	if p.RuntimeCellID != candidate.CellID {
+		// Also accept when placement names any frozen eligible cell (claim-time
+		// rebinding is not yet stored on placement, but historical/self-check
+		// may name the preferred only).
+		found := false
+		for _, c := range workload.RuntimeCandidates {
+			if c.CellID == p.RuntimeCellID {
+				found = true
+				// Validate against the named candidate's identity fields when
+				// it is not the preferred pricing primary.
+				candidate = c
+				break
+			}
+		}
+		if !found {
+			return errors.New("placement requirement cell is not in the frozen runtime candidate set")
+		}
+	}
+	// Always validate preferred [0] as the pricing primary for multi-family.
+	// When placement names [0] (production write path), candidate is already [0].
+	if p.RuntimeCellID == workload.RuntimeCandidates[0].CellID {
+		candidate = workload.RuntimeCandidates[0]
+	}
 	binding := workload.Binding
 	// Prefer the frozen cell's kind; fall back to the binding only for decisions
 	// written before runtime candidates carried model_kind.
@@ -475,21 +556,37 @@ func validatePlacementRequirement(p PlacementRequirement, workload WorkloadDecis
 	if wantKind == "" {
 		wantKind = binding.Model.Kind
 	}
+	// For multi-family writes, placement model_kind is always the preferred
+	// cell's kind (pricing primary), even if RuntimeCellID were ever another.
+	if p.Version == placementRequirementVersionMultiFamily {
+		wantKind = workload.RuntimeCandidates[0].ModelKind
+		if wantKind == "" {
+			wantKind = binding.Model.Kind
+		}
+		candidate = workload.RuntimeCandidates[0]
+	}
 	hardwareMatches := sameStrings(p.HWClasses, binding.Constraints.HWClasses)
 	if p.Version >= 2 {
 		if err := validateFrozenRuntimeCellPerformance(p.PerformanceAuthority); err != nil {
 			return fmt.Errorf("placement performance authority: %w", err)
 		}
 		performance := p.PerformanceAuthority.Performance
-		hardwareMatches = sameStrings(p.HWClasses, []string{performance.MeasuredOnHWClass}) &&
-			(len(binding.Constraints.HWClasses) == 0 ||
-				slices.Contains(binding.Constraints.HWClasses, performance.MeasuredOnHWClass)) &&
-			performance.CellID == candidate.CellID &&
-			performance.RuntimeProfileID == candidate.RuntimeID &&
-			performance.JobType == workload.RuntimeJobType &&
-			performance.ModelID == binding.Model.Ref
-		if p.Version == placementRequirementVersion {
-			hardwareMatches = hardwareMatches &&
+		if p.Version == placementRequirementVersionMultiFamily {
+			// Multi-family: HW is the eligible union (not the single measured
+			// class). Performance authority still binds the preferred cell.
+			// A non-empty contract id is not enough: REFUSED/unknown ids must
+			// not open a Metal-vs-CUDA placement.
+			wantHW := multiFamilyHardwareClasses(workload, binding.Constraints.HWClasses)
+			cellIDs := make([]string, 0, len(workload.RuntimeCandidates))
+			for _, c := range workload.RuntimeCandidates {
+				cellIDs = append(cellIDs, c.CellID)
+			}
+			_, contractErr := qualityContractAuthorizingMultiFamily(workload.QualityContractID, cellIDs)
+			hardwareMatches = sameStrings(p.HWClasses, wantHW) &&
+				performance.CellID == candidate.CellID &&
+				performance.RuntimeProfileID == candidate.RuntimeID &&
+				performance.JobType == workload.RuntimeJobType &&
+				performance.ModelID == binding.Model.Ref &&
 				engineBuildHashPattern.MatchString(p.EngineBuildHash) &&
 				p.EngineBuildHash == performance.EngineBuildHash &&
 				historicalEngineBuildIdentityPolicyMatches(
@@ -498,11 +595,32 @@ func validatePlacementRequirement(p PlacementRequirement, workload WorkloadDecis
 				) &&
 				validCanonicalHardwareIdentity(p.HardwareIdentity) &&
 				p.HardwareIdentity == performance.HardwareIdentity &&
-				p.PerformanceAuthority.Version == frozenRuntimeCellPerformanceVersion
-		} else if p.EngineBuildHash != "" || p.EngineBuildIdentityPolicy != "" ||
-			p.HardwareIdentity != "" ||
-			p.PerformanceAuthority.Version != frozenRuntimeCellPerformanceLegacyVersion {
-			return errors.New("legacy placement requirement carries a future build/hardware authority")
+				p.PerformanceAuthority.Version == frozenRuntimeCellPerformanceVersion &&
+				contractErr == nil
+		} else {
+			hardwareMatches = sameStrings(p.HWClasses, []string{performance.MeasuredOnHWClass}) &&
+				(len(binding.Constraints.HWClasses) == 0 ||
+					slices.Contains(binding.Constraints.HWClasses, performance.MeasuredOnHWClass)) &&
+				performance.CellID == candidate.CellID &&
+				performance.RuntimeProfileID == candidate.RuntimeID &&
+				performance.JobType == workload.RuntimeJobType &&
+				performance.ModelID == binding.Model.Ref
+			if p.Version == placementRequirementVersion {
+				hardwareMatches = hardwareMatches &&
+					engineBuildHashPattern.MatchString(p.EngineBuildHash) &&
+					p.EngineBuildHash == performance.EngineBuildHash &&
+					historicalEngineBuildIdentityPolicyMatches(
+						p.EngineBuildIdentityPolicy,
+						performance.EngineBuildIdentityPolicy,
+					) &&
+					validCanonicalHardwareIdentity(p.HardwareIdentity) &&
+					p.HardwareIdentity == performance.HardwareIdentity &&
+					p.PerformanceAuthority.Version == frozenRuntimeCellPerformanceVersion
+			} else if p.EngineBuildHash != "" || p.EngineBuildIdentityPolicy != "" ||
+				p.HardwareIdentity != "" ||
+				p.PerformanceAuthority.Version != frozenRuntimeCellPerformanceLegacyVersion {
+				return errors.New("legacy placement requirement carries a future build/hardware authority")
+			}
 		}
 	} else if p.PerformanceAuthority != nil {
 		return errors.New("legacy placement requirement carries a future performance authority")
@@ -510,9 +628,9 @@ func validatePlacementRequirement(p PlacementRequirement, workload WorkloadDecis
 	if p.JobType != workload.RuntimeJobType ||
 		p.ModelRef != binding.Model.Ref ||
 		p.ModelKind != wantKind ||
-		p.RuntimeCellID != candidate.CellID ||
-		p.RuntimeID != candidate.RuntimeID ||
-		p.Engine != candidate.Engine ||
+		p.RuntimeCellID != workload.RuntimeCandidates[0].CellID ||
+		p.RuntimeID != workload.RuntimeCandidates[0].RuntimeID ||
+		p.Engine != workload.RuntimeCandidates[0].Engine ||
 		!validSHA256(p.RuntimeMatrixSHA256) ||
 		p.MinMemoryGB != float32(workload.MinimumMemoryGB) ||
 		!hardwareMatches ||

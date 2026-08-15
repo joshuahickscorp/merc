@@ -76,6 +76,11 @@ type WorkloadDecision struct {
 	RuntimeJobType    string                     `json:"runtime_job_type"`
 	ModelRevision     string                     `json:"model_revision"`
 	RuntimeCandidates []WorkloadRuntimeCandidate `json:"runtime_candidates"`
+	// QualityContractID cites the AcceptableQualityContract that authorized
+	// multi-family substitutability when len(RuntimeCandidates) > 1 across
+	// device families. Empty for ordinary single-cell freezes and for
+	// directed single-cell freezes.
+	QualityContractID string `json:"quality_contract_id,omitempty"`
 	// DirectedCellID names the cell an operator or a test forced this workload
 	// onto, or is empty for ordinary admission. Frozen into the decision so a
 	// receipt records that the choice was made by directed routing rather than by
@@ -197,28 +202,54 @@ func workloadDecisionDigest(decision WorkloadDecision) (string, error) {
 // runtimeCapabilityForBindingDirected resolves the cell that will execute a
 // workload, optionally forced to a named one.
 //
-// Ordinary admission freezes exactly one cell. When several advertised cells
-// serve the same (job type, model), they are ranked with the same lifecycle
-// ladder the shadow selector uses and the winner alone is frozen. Freezing N
-// would hand selection to the claim query's ORDER BY cell_id LIMIT 1, which
-// decides alphabetically rather than by governed ranking. Rank-and-freeze-1
-// keeps every downstream len(RuntimeCandidates) != 1 assertion intact.
+// Ordinary admission freezes the eligible runtime candidate set for a workload.
+//
+// Historical behaviour (pre multi-family): when several advertised cells served
+// the same (job type, model), rankAndFreezeAdmissionCell ranked them with the
+// shadow lifecycle ladder and froze exactly one winner
+// (control/workload_classification.go:rankAndFreezeAdmissionCell). Freezing N
+// without a quality contract would have handed selection to the claim query's
+// ORDER BY cell_id LIMIT 1, which decides alphabetically rather than by
+// governed ranking. That rank-and-freeze-1 is the named Metal-only singleton
+// mechanism: with only candle_metal cells advertised it always freezes one
+// Metal cell, and CUDA DRAFT cells never enter the pool.
+//
+// Multi-family behaviour (G024): when two or more *device families* (e.g.
+// metal and cuda) are advertised for the same (job, model) AND an ACTIVE
+// AcceptableQualityContract marks them multi-family substitutable, admission
+// freezes the full contract-covered set. RuntimeCandidates[0] is still the
+// lifecycle-ladder preferred cell (pricing primary). Claim already matches any
+// frozen candidate via jsonb_array_elements(runtime_candidates). Placement v4
+// opens the HW union and drops the single-device identity pin so a second
+// family can actually claim.
+//
+// Same-family competition (two Metal cells, no multi-family contract covering
+// both) still rank-and-freezes to one — that path is not a Metal-vs-CUDA choice.
 //
 // Artifact format is not a match key. A buyer names a model; each cell decides
-// which of that model's artifacts it loads. Matching on kind made the buyer's
-// kind a runtime selector and left a promoted second cell routable but
-// unaddressable (naming its kind 400'd; omitting kind collapsed to the first
-// advertised kind). The frozen candidate carries the cell's own ModelKind.
+// which of that model's artifacts it loads. The frozen candidate carries the
+// cell's own ModelKind.
 //
 // With a directed cell an operator or a test names the cell explicitly, and the
 // search widens to cells reachable by directed routing — a superset that
-// includes cells being proven. That widening is the only way a cell ever reaches
-// REAL_RUNTIME_PROVEN, since it gets there BY being driven through the complete
-// Merc chain. The directed name never comes from the buyer wire; see
-// buildWorkloadDecisionDirected.
+// includes cells being proven. The directed name never comes from the buyer
+// wire; see buildWorkloadDecisionDirected.
 func runtimeCapabilityForBindingDirected(
 	binding WorkloadBinding, directedCellID string,
 ) (generatedRuntimeCapability, error) {
+	caps, err := runtimeCapabilitiesForBindingDirected(binding, directedCellID)
+	if err != nil {
+		return generatedRuntimeCapability{}, err
+	}
+	return caps[0], nil
+}
+
+// runtimeCapabilitiesForBindingDirected is the multi-candidate admission entry.
+// Directed freezes exactly the named cell. Ordinary freezes one cell, or a
+// multi-family set under an AcceptableQualityContract.
+func runtimeCapabilitiesForBindingDirected(
+	binding WorkloadBinding, directedCellID string,
+) ([]generatedRuntimeCapability, error) {
 	pool := advertisedRuntimeCapabilities()
 	if directedCellID != "" {
 		pool = directedRuntimeCapabilities()
@@ -237,29 +268,89 @@ func runtimeCapabilityForBindingDirected(
 	}
 	if directedCellID != "" {
 		if len(matches) != 1 {
-			return generatedRuntimeCapability{}, fmt.Errorf(
+			return nil, fmt.Errorf(
 				"directed runtime cell %q does not serve job_type=%q model=%q kind=%q "+
 					"(matched %d reachable cells)",
 				directedCellID, binding.JobType.Type, binding.Model.Ref,
 				binding.Model.Kind, len(matches))
 		}
-		return matches[0], nil
+		return matches, nil
 	}
 	if len(matches) == 0 {
-		return generatedRuntimeCapability{}, fmt.Errorf(
+		return nil, fmt.Errorf(
 			"workload classification requires one runtime cell for job_type=%q model=%q; found 0",
 			binding.JobType.Type, binding.Model.Ref)
 	}
 	if len(matches) == 1 {
-		return matches[0], nil
+		return matches, nil
 	}
-	// Multiple advertised cells for one model: rank, then freeze exactly one.
-	return rankAndFreezeAdmissionCell(matches)
+	return selectAdmissionCandidates(matches)
 }
 
-// rankAndFreezeAdmissionCell promotes chooseShadowCell onto the freeze path.
-// It never returns more than one cell: the claim path is LIMIT 1 by cell_id, so
-// freezing N would make selection alphabetical-by-whoever-claims-first.
+// selectAdmissionCandidates is the load-bearing multi-family gate.
+//
+// When matches span more than one device family and an ACTIVE multi-family
+// AcceptableQualityContract covers them, freeze the full covered set with the
+// lifecycle-ladder winner first. Otherwise fall back to rank-and-freeze-1 so
+// same-family competition does not become alphabetical claim selection.
+func selectAdmissionCandidates(matches []generatedRuntimeCapability) ([]generatedRuntimeCapability, error) {
+	if len(matches) == 0 {
+		return nil, fmt.Errorf("selectAdmissionCandidates: empty match set")
+	}
+	if len(matches) == 1 {
+		return matches, nil
+	}
+	devices := devicesAmongCapabilities(matches)
+	cellIDs := make([]string, 0, len(matches))
+	byID := make(map[string]generatedRuntimeCapability, len(matches))
+	for _, m := range matches {
+		cellIDs = append(cellIDs, m.ID)
+		byID[m.ID] = m
+	}
+	contract, covered := activeQualityContractFor(matches[0].Job, matches[0].Model, cellIDs)
+	if len(devices) > 1 && covered && contract.MultiFamilySubstitutable {
+		// Multi-family under a quality contract: freeze every covered cell.
+		// Preferred (lifecycle winner) is index 0 for pricing/placement primary.
+		winner, err := rankAndFreezeAdmissionCell(matches)
+		if err != nil {
+			return nil, err
+		}
+		out := []generatedRuntimeCapability{winner}
+		var rest []string
+		for _, id := range cellIDs {
+			if id == winner.ID {
+				continue
+			}
+			// Only cells the contract names stay in the eligible set.
+			eligible := false
+			for _, e := range contract.EligibleCellIDs {
+				if e == id {
+					eligible = true
+					break
+				}
+			}
+			if eligible {
+				rest = append(rest, id)
+			}
+		}
+		sort.Strings(rest)
+		for _, id := range rest {
+			out = append(out, byID[id])
+		}
+		return out, nil
+	}
+	// Single family, or no multi-family quality contract covering the set:
+	// rank-and-freeze exactly one so claim does not become alphabetical.
+	winner, err := rankAndFreezeAdmissionCell(matches)
+	if err != nil {
+		return nil, err
+	}
+	return []generatedRuntimeCapability{winner}, nil
+}
+
+// rankAndFreezeAdmissionCell promotes chooseShadowCell onto the freeze path for
+// the *preferred* cell. Used as the sole freeze under single-family admission,
+// and as the pricing primary under multi-family admission.
 func rankAndFreezeAdmissionCell(matches []generatedRuntimeCapability) (generatedRuntimeCapability, error) {
 	byID := make(map[string]generatedRuntimeCapability, len(matches))
 	considered := make([]shadowCandidate, 0, len(matches))
@@ -336,10 +427,11 @@ func buildWorkloadDecisionFromBindingDirected(
 	if err != nil {
 		return WorkloadDecision{}, err
 	}
-	capability, err := runtimeCapabilityForBindingDirected(binding, directedCellID)
+	capabilities, err := runtimeCapabilitiesForBindingDirected(binding, directedCellID)
 	if err != nil {
 		return WorkloadDecision{}, err
 	}
+	capability := capabilities[0]
 
 	workloadClass := ""
 	switch {
@@ -358,6 +450,11 @@ func buildWorkloadDecisionFromBindingDirected(
 	}
 
 	minMemory := capability.MinMemoryGB
+	for _, c := range capabilities {
+		if c.MinMemoryGB > minMemory {
+			minMemory = c.MinMemoryGB
+		}
+	}
 	if requested := float64(binding.Constraints.MinMemoryGB); requested > minMemory {
 		minMemory = requested
 	}
@@ -374,22 +471,45 @@ func buildWorkloadDecisionFromBindingDirected(
 	}
 	prefixEligible := workloadClass == "batch_generation"
 
+	candidates := make([]WorkloadRuntimeCandidate, 0, len(capabilities))
+	cellIDs := make([]string, 0, len(capabilities))
+	for _, c := range capabilities {
+		candidates = append(candidates, WorkloadRuntimeCandidate{
+			CellID: c.ID, RuntimeID: c.Runtime, Engine: c.Engine,
+			ModelKind:       c.ModelKind,
+			Device:          c.Device,
+			HardwareClasses: append([]string(nil), c.HardwareClasses...),
+		})
+		cellIDs = append(cellIDs, c.ID)
+	}
+
+	qualityContractID := ""
+	evidence := []string{
+		"runtime cell resolved from the embedded, digest-addressed authority matrix",
+		"model revision and runtime job type are server-derived",
+		"request parameters, placement constraints, verification policy and input commitment are digest-bound",
+	}
+	if directedCellID == "" && len(candidates) > 1 {
+		if contract, ok := activeQualityContractFor(capability.Job, binding.Model.Ref, cellIDs); ok {
+			qualityContractID = contract.ID
+			evidence = append(evidence,
+				"multi-family eligible set frozen under acceptable quality contract "+contract.ID,
+				"RuntimeCandidates[0] is the lifecycle-ladder preferred cell; claim may select any eligible cell")
+		}
+	}
+
 	return WorkloadDecision{
-		Version:        workloadDecisionVersion,
-		BindingSHA256:  digest,
-		Binding:        binding,
-		WorkloadClass:  workloadClass,
-		RuntimeJobType: capability.Job,
-		ModelRevision:  modelRevisionFor(binding.Model.Ref),
-		DirectedCellID: directedCellID,
-		RuntimeCandidates: []WorkloadRuntimeCandidate{{
-			CellID: capability.ID, RuntimeID: capability.Runtime, Engine: capability.Engine,
-			ModelKind:       capability.ModelKind,
-			Device:          capability.Device,
-			HardwareClasses: append([]string(nil), capability.HardwareClasses...),
-		}},
-		MinimumMemoryGB: minMemory,
-		Deterministic:   true,
+		Version:           workloadDecisionVersion,
+		BindingSHA256:     digest,
+		Binding:           binding,
+		WorkloadClass:     workloadClass,
+		RuntimeJobType:    capability.Job,
+		ModelRevision:     modelRevisionFor(binding.Model.Ref),
+		DirectedCellID:    directedCellID,
+		QualityContractID: qualityContractID,
+		RuntimeCandidates: candidates,
+		MinimumMemoryGB:   minMemory,
+		Deterministic:     true,
 		// Batch exact-result reuse is intentionally disabled until its price
 		// authority can meter the full reused workload. The prior path stored
 		// merged record counts as cache "output_tokens" and then billed those
@@ -407,11 +527,7 @@ func buildWorkloadDecisionFromBindingDirected(
 			Mode: "independent_task_fanout", TensorParallelDegree: 1,
 		},
 		Confidence: 0.9,
-		Evidence: []string{
-			"runtime cell resolved from the embedded, digest-addressed authority matrix",
-			"model revision and runtime job type are server-derived",
-			"request parameters, placement constraints, verification policy and input commitment are digest-bound",
-		},
+		Evidence:   evidence,
 		Unknowns: []string{
 			"data rights are not expressible on the current batch API",
 			"power and provider-cost estimates are not part of workload classification v1",

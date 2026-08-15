@@ -54,10 +54,13 @@ from pathlib import Path
 
 root = Path(".").resolve()
 auth = json.loads((root / "control/runtime-authority.json").read_text())
-matrix_md = (root / "docs/RUNTIME_AND_PERF.md").read_text()
-shape = (root / "control/shape_routing.go").read_text()
-shadow = (root / "control/runtime_shadow_selection.go").read_text()
+qc_path = root / "control/acceptable-quality-contracts.json"
+if not qc_path.exists():
+    qc_path = root / "ops/acceptable-quality-contracts.json"
+qc = json.loads(qc_path.read_text()) if qc_path.exists() else {}
 workload = (root / "control/workload_classification.go").read_text()
+decision = (root / "control/runtime_decision.go").read_text()
+promo = (root / "control/runtime_cell_promotion.go").read_text()
 
 cells = []
 for rt in auth.get("runtimes", []):
@@ -68,200 +71,218 @@ for rt in auth.get("runtimes", []):
             "cell_id": c.get("id"),
             "job": c.get("job"),
             "model": c.get("model"),
-            "lifecycle": c.get("lifecycle"),
+            "lifecycle": c.get("lifecycle") or rt.get("lifecycle"),
             "cloud_backed": bool(c.get("cloud_backed")),
             "engine": rt.get("engine"),
             "device": rt.get("device"),
         })
 
-# Advertised surface is enforced by tests as exactly the two BOUND candle cells.
-# We restate the authority document facts here without re-implementing the
-# bindable predicate (which lives in Go and must not be weakened here).
 active_candle_jobs = {
     c["job"] for c in cells
     if c["runtime_id"] == "candle_metal" and c.get("lifecycle") == "ACTIVE"
 }
 vllm = [c for c in cells if c["runtime_id"] == "vllm_cuda"]
-media = [c for c in cells if c["job"] in ("media_transcode", "media_rendering")]
-cuda_embed = [c for c in cells if c["job"] == "embed" and "cuda" in (c["runtime_id"] or "")]
+cuda_embed = [c for c in cells if c["cell_id"] == "vllm-cuda-minilm-embed"]
 cuda_batch = [c for c in cells if c["job"] == "batch_infer" and c.get("cloud_backed")]
+routable_cuda = [
+    c for c in cells
+    if c.get("cloud_backed") and c.get("lifecycle") in ("ACTIVE", "CANARY")
+]
 
 blockers = []
+software_ready = []
 
-# 1. Ordinary admission is a singleton on the advertised set.
-if "Ordinary admission is a singleton today" not in workload and "singleton today" not in shadow:
+# 1. Multi-family admission path (G024 load-bearing change).
+if "selectAdmissionCandidates" not in workload:
     blockers.append({
-        "id": "singleton_admission_comment_missing",
-        "detail": "expected workload/shadow comments documenting singleton ordinary admission",
+        "id": "multi_family_admission_missing",
+        "detail": "selectAdmissionCandidates not present; Metal-only rank-and-freeze-1 still sole path",
+        "refs": ["control/workload_classification.go"],
     })
 else:
-    blockers.append({
-        "id": "ordinary_admission_is_singleton",
+    software_ready.append({
+        "id": "multi_family_admission_present",
         "detail": (
-            "runtimeCapabilityForBindingDirected freezes exactly one advertised cell "
-            "per (job type, model). Competing engines (including every CUDA batch_infer "
-            "cell) exist only as DRAFT or directed; the shadow selector scores them but "
-            "does not route ordinary buyer traffic. Multi-candidate production selection "
-            "requires the engine tournament and is not live on this tree."
+            "Named mechanism: rankAndFreezeAdmissionCell "
+            "(control/workload_classification.go) was the Metal-only singleton freeze. "
+            "selectAdmissionCandidates now freezes a multi-family eligible set when an "
+            "ACTIVE AcceptableQualityContract covers multiple device families; same-family "
+            "competition still rank-and-freezes to one. Placement v4 + claim identity pin "
+            "relaxation let a second family claim."
         ),
         "refs": [
-            "control/workload_classification.go:runtimeCapabilityForBindingDirected",
-            "control/runtime_shadow_selection.go",
-            "docs/RUNTIME_AND_PERF.md",
+            "control/workload_classification.go:selectAdmissionCandidates",
+            "control/workload_classification.go:rankAndFreezeAdmissionCell",
+            "control/quote.go:placementRequirementVersionMultiFamily",
+            "control/scheduler.go (placement version 4 identity pin skip)",
         ],
     })
 
-# 2. No routable CUDA cell for batch_infer or embed.
-if not any(c.get("lifecycle") in ("ACTIVE", "CANARY") and c.get("cloud_backed") for c in cells):
+# 2. Quality contracts.
+contracts = {c.get("id"): c for c in qc.get("contracts", [])}
+embed_c = contracts.get("embed-cosine-v2-all-minilm-l6-v2")
+refused_gen = contracts.get("batch-infer-metal-q4-vs-cuda-bf16-REFUSED")
+if not embed_c or not embed_c.get("multi_family_substitutable"):
+    blockers.append({"id": "embed_quality_contract_missing", "detail": "embed multi-family contract absent"})
+else:
+    software_ready.append({
+        "id": "embed_quality_contract",
+        "detail": "AcceptableQualityContract embed-cosine-v2-all-minilm-l6-v2: mean/row cosine 0.999",
+        "contract": embed_c.get("id"),
+    })
+if not refused_gen or refused_gen.get("status") != "REFUSED":
     blockers.append({
-        "id": "no_routable_cuda_batch_or_embed_cell",
-        "detail": (
-            "vllm_cuda profile is DRAFT; sglang/tensorrt/lmdeploy batch_infer cells are "
-            "DRAFT. A matched CUDA embed identity (vllm-cuda-minilm-embed) is declared "
-            "as DRAFT non-routable identity only — see ops/placement-readiness-contract.json "
-            "and scripts/validate-placement-readiness.py. Arm A still cannot serve the "
-            "catalogue embed or batch_infer contracts through ordinary Merc admission, "
-            "and Arm C cannot place those contracts on CUDA."
-        ),
-        "vllm_cuda_cells": vllm,
-        "cuda_batch_infer_cells": cuda_batch,
-        "cuda_embed_cells": cuda_embed,
+        "id": "generation_q4_bf16_refusal_missing",
+        "detail": "Metal q4 vs CUDA bf16 must be an explicit REFUSED quality contract",
+    })
+else:
+    software_ready.append({
+        "id": "generation_q4_bf16_honest_refusal",
+        "detail": refused_gen.get("refusal_reason") or refused_gen.get("how_routing_proves_met"),
+        "contract": refused_gen.get("id"),
     })
 
-# 3. Advertised jobs are Metal-only candle cells.
-if active_candle_jobs != {"embed", "batch_infer"} and active_candle_jobs != {"embed"}:
-    # Still record; after r3/r4 we expect embed+batch_infer ACTIVE on candle.
-    pass
+if "HETEROGENEOUS_ELIGIBLE_SET" not in decision:
+    blockers.append({
+        "id": "runtime_decision_multi_family_basis_missing",
+        "detail": "RuntimeDecision must seal HETEROGENEOUS_ELIGIBLE_SET and cite quality_contract_id",
+    })
+else:
+    software_ready.append({
+        "id": "runtime_decision_cites_quality_contract",
+        "detail": "RuntimeDecision SelectionBasis HETEROGENEOUS_ELIGIBLE_SET + QualityContractID",
+    })
+
+# 3. CUDA cells still DRAFT — legitimate promotion gate, not status edit.
+if not routable_cuda:
+    blockers.append({
+        "id": "no_routable_cuda_cell",
+        "detail": (
+            "vllm_cuda (and other CUDA profiles) remain DRAFT. Promotion is refused by "
+            "promotionMatchedPairAuthorityRefusal and activation_policy scope/global-lifecycle "
+            "(control/runtime_cell_promotion.go:78/:321; control/activation_policy.go:1326-1333). "
+            "G024 does not force promotion. CUDA embed identity vllm-cuda-minilm-embed exists at "
+            "parity (same model/artifact/cosine contract) but is non-routable."
+        ),
+        "vllm_cuda_cells": vllm,
+        "cuda_embed_cells": cuda_embed,
+        "cuda_batch_infer_cells": cuda_batch,
+        "promotion_touches": [
+            "promotionMatchedPairAuthorityRefusal — G024 reports, does not close",
+            "activation_policy.go:1326-1333 scope/global — G024 reports, does not close",
+        ],
+    })
+
+# 4. Advertised surface still Metal-only until promotion.
 blockers.append({
-    "id": "advertised_surface_is_metal_only",
+    "id": "advertised_surface_is_metal_only_until_promotion",
     "detail": (
-        "The advertised/bindable surface is candle_metal only (embed + batch_infer after "
-        "r3/r4 seal). Tests pin advertisedRuntimeCapabilities() == 2 and both on candle_metal. "
-        "No Metal+CUDA choice is available to ordinary placement for any batch job."
+        "Ordinary advertised surface remains candle_metal only. Multi-family freeze "
+        "activates when a second family is legitimately advertised under a quality "
+        "contract — not by editing DRAFT to ACTIVE."
     ),
     "active_candle_jobs": sorted(active_candle_jobs),
 })
 
-# 4. Media not available for the mix.
-blockers.append({
-    "id": "media_not_ordinary_routable",
-    "detail": (
-        "media_transcode and media_rendering cells are CANARY and fail the cell-authority "
-        "bindable predicate (source commit / harness identity). Constraint forbids promotion. "
-        "The optional media/render class of the mix is unavailable."
-    ),
-    "media_cells": media,
-})
-
-# 5. Shape-aware routing is off and is not matched-weight evidence.
-if "MERC_SHAPE_AWARE_ROUTING" not in shape:
-    blockers.append({"id": "shape_routing_file_unexpected", "detail": "shape_routing.go missing flag"})
-else:
+# 5. Arm C directed-routing ban is code-enforced in RuntimeDecision note + harness.
+if "must never be presented as selector proof for Arm C" not in decision:
     blockers.append({
-        "id": "shape_routing_off_and_unproven",
-        "detail": (
-            "MERC_SHAPE_AWARE_ROUTING defaults off. Comments state no bound matched-weight "
-            "Metal-versus-CUDA crossover exists; enabling it would redirect money on a "
-            "speculative heuristic. Even when on, shapeOrderSQL only reorders claim among "
-            "workers already authorized for the frozen cell — it cannot route a candle_metal "
-            "cell to a CUDA worker."
-        ),
-        "refs": ["control/shape_routing.go", "control/scheduler.go:ClaimTaskSQL"],
+        "id": "directed_arm_c_ban_missing",
+        "detail": "RuntimeDecision directed note must forbid Arm C selector-proof claims",
+    })
+else:
+    software_ready.append({
+        "id": "directed_arm_c_ban",
+        "detail": "Directed freeze explicitly forbidden as Arm C selector proof",
     })
 
-# 6. Realtime multi-offer clearing is cost/warmth, not shape-per-contract.
-blockers.append({
-    "id": "realtime_clearing_not_shape_aware",
-    "detail": (
-        "Realtime offer selection ranks verified-outcome cost first, then warmth as a "
-        "tiebreak inside a cost class (realtime_store.go). It does not map interactive vs "
-        "throughput request shape onto Metal vs CUDA. Dual realtime offers (local Metal "
-        "engine + RunPod vLLM) would still not implement 'select Metal/CUDA per contract' "
-        "for the stated mix, and Metal Q4 vs CUDA bf16 is a different quality contract."
-    ),
-    "refs": ["control/realtime_store.go (authorize select offer SQL)", "control/runtime-profiles/vllm-llama-3.2-1b-instruct-bf16.json"],
-})
+# Directed-routing check for any execute path: env must not force a cell for Arm C.
+directed_cell = ( __import__("os").environ.get("MERC_DIRECTED_CELL_ID")
+                  or __import__("os").environ.get("MERC_HETERO_ARM_C_CELL")
+                  or "" ).strip()
+if directed_cell:
+    blockers.append({
+        "id": "arm_c_directed_cell_refused",
+        "detail": (
+            f"Arm C was directed onto cell {directed_cell!r}. Manually directing one cell "
+            "and calling it selector proof is forbidden. Unset MERC_DIRECTED_CELL_ID / "
+            "MERC_HETERO_ARM_C_CELL and let ordinary multi-family admission select."
+        ),
+    })
 
-# 7. Quality contract mismatch if one tried to force engines anyway.
-blockers.append({
-    "id": "quality_contract_mismatch_metal_q4_vs_cuda_bf16",
-    "detail": (
-        "Catalogue Metal generation is llama-3.2-1b-instruct-q4 (GGUF Q4_K_M). Catalogue "
-        "vLLM realtime profile is unsloth/Llama-3.2-1B-Instruct bf16. Claim standard forbids "
-        "comparing across different quality contracts. historical routing-crossover.json is "
-        "UNBOUND and compared dissimilar models/precisions by its own caveat."
-    ),
-})
+# Runnable only when software multi-family path exists, quality contracts exist,
+# no directed Arm C, AND at least one CUDA cell is ordinary-routable under contract.
+runnable = (
+    "selectAdmissionCandidates" in workload
+    and bool(embed_c)
+    and bool(routable_cuda)
+    and not directed_cell
+    and "HETEROGENEOUS_ELIGIBLE_SET" in decision
+)
 
-# The experiment is runnable only when every class in the mix can be placed on
-# both fixed arms and selected by Merc. That is not true on this tree.
-runnable = False
 payload = {
-    "schema_version": 1,
+    "schema_version": 2,
     "kind": "heterogeneous_placement_principal",
-    "status": "REFUSED_STRUCTURAL",
-    "evidence_class": "REFUSAL",
+    "status": "READY_PENDING_ROUTABLE_CUDA" if (
+        "selectAdmissionCandidates" in workload and embed_c and not routable_cuda and not directed_cell
+    ) else ("REFUSED_STRUCTURAL" if not runnable else "PRECONDITIONS_PASS"),
+    "evidence_class": "REFUSAL" if not runnable else "PRECONDITION",
     "gate_passed": False,
     "comparable": False,
     "arms": {
-        "A": "fixed vLLM CUDA only — not runnable for catalogue embed/batch_infer on this tree",
-        "B": "fixed Metal only — catalogue embed+batch_infer only; no CUDA peer under same quality contract",
-        "C": "Merc Metal/CUDA per contract — ordinary admission has no multi-class choice to exercise",
+        "A": "FIXED_CUDA — blocked until a CUDA cell is legitimately routable under quality contract",
+        "B": "FIXED_METAL — catalogue candle embed/batch_infer",
+        "C": "MERC_CHOOSES — multi-family ordinary admission under AcceptableQualityContract; directed freezes refused",
     },
     "requested_mix": [
-        "latency-sensitive realtime",
-        "throughput batch inference",
-        "embeddings",
-        "one media/render workload if available",
+        "embeddings under embed-cosine-v2-all-minilm-l6-v2",
+        "batch_infer only if matched precision quality contract exists (q4-vs-bf16 REFUSED)",
     ],
     "intentional_duplicates": 0,
+    "software_ready": software_ready,
     "blockers": blockers,
     "measured_arms": None,
     "aggregate": None,
     "deadline_failures": None,
+    "power_analysis": "evidence/perf/heterogeneous-placement-power-analysis-latest.json",
     "verdict": {
         "c_beats_a_and_b_across_mix": None,
         "confidence": "n/a — experiment not run",
         "blunt": (
-            "The heterogeneous placement thesis cannot be measured on this tree. "
-            "Ordinary admission freezes a Metal-only singleton; CUDA generation is DRAFT; "
-            "CUDA embed identity (vllm-cuda-minilm-embed) exists but is DRAFT/non-routable; "
-            "media is not routable; realtime clearing is not shape-aware; "
-            "and Metal Q4 vs CUDA bf16 is not the same quality contract. This is a structural "
-            "negative for shippability of the thesis, not a measured win or loss on the mix. "
-            "Offline readiness is scripts/validate-placement-readiness.py."
+            "G024 software path: multi-family admission + quality contracts + RuntimeDecision "
+            "citation + Arm C directed ban are in tree. Production still cannot run Arm C on "
+            "CUDA because CUDA cells remain DRAFT and promotion is refused for missing matched "
+            "pair authority and global-lifecycle coverage — not because admission still freezes "
+            "a Metal-only singleton by design. Metal q4 vs CUDA bf16 generation remains REFUSED "
+            "as a quality contract. Only hardware + legitimate promotion remain for embed; "
+            "generation needs matched precision first. Authorise ~$3 A40 at $0.44/hr per power analysis."
         ),
     },
     "money": {
         "spent_usd_this_receipt": 0.0,
         "spend_receipts": [],
         "note": "No pod was created by this harness. Governed experiment was not entered.",
+        "authorisation_ask_usd": 3.0,
+        "instance": "RunPod NVIDIA A40 @ $0.44/hr",
     },
     "does_not_prove": [
-        "that Merc heterogeneous placement beats or loses to a fixed CUDA or fixed Metal deployment on a mixed workload",
-        "cost per verified outcome, throughput-inside-SLA, or energy per verified outcome for arms A/B/C",
-        "deadline failure rates under concurrent Metal+CUDA supply",
-        "that enabling MERC_SHAPE_AWARE_ROUTING would improve outcomes (flag remains off; no matched-weight authority)",
-        "anything about media/render placement (cells not ordinary-routable)",
-        "that the historical UNBOUND routing-crossover.json is a live placement authority",
+        "that Merc heterogeneous placement beats or loses to fixed CUDA or Metal on a mixed workload",
+        "that CUDA cells may be promoted (gate v4 still refuses)",
+        "cross-hardware cost ranking",
+        "that Metal q4 and CUDA bf16 generation are the same product",
     ],
     "limitations": [
-        "Refusal is derived from repository authority and code paths on this commit, not from a live multi-supply run.",
-        "A concurrent RunPod process owned by another lane may be billing; this receipt does not attribute that spend.",
-        "batch_infer is sellable on Metal after r3/r4, which is necessary but not sufficient for the three-arm mix.",
+        "Refusal/readiness is derived from repository authority and code paths on this commit.",
+        "PromotionMatchedPairAuthorityRefusal and activation scope/global-lifecycle are untouched.",
     ],
     "what_would_unblock": [
-        "A BOUND, ordinary-routable CUDA cell for the same quality contract as Metal generation (or a directed multi-candidate production path that is not shadow-only).",
-        "A CUDA (or shared-quality) embed path under the same contract as candle-metal-minilm-embed, or an explicit decision to drop embed from the mix with a revised claim.",
-        "Realtime or batch selection that maps contract shape (latency vs throughput) onto hw_class, measured under matched weights/precision.",
-        "Media cells that clear the cell-authority bindable predicate if media remains in the mix.",
-        "Only then: governed runpod-vllm.sh experiment with Metal agent + CUDA supply concurrent, zero intentional duplicates, deadline contracts identical across arms.",
+        "Legitimate promotion of vllm-cuda-minilm-embed under embed-cosine-v2 (matched-pair + global coverage) — not a status edit",
+        "For generation: CUDA cell loading the same Q4_K_M GGUF under byte_exact, or a new task-outcome contract",
+        "Then: governed runpod-vllm.sh experiment with Metal + CUDA concurrent, Arm C undirected, power-analysis sample plan",
     ],
 }
 print(json.dumps({"runnable": runnable, "payload": payload}))
-if runnable:
-    sys.exit(0)
-sys.exit(0)  # structural refusal is success of the check path; driver maps status
+sys.exit(0)
 PY
 }
 
@@ -306,13 +327,17 @@ case "$MODE" in
     if [[ -z "${MERC_RUNPOD_POD_ID:-}" || -z "${MERC_GPU_ENDPOINT:-}" ]]; then
       die "--execute requires parent scripts/runpod-vllm.sh experiment (MERC_RUNPOD_POD_ID / MERC_GPU_ENDPOINT)"
     fi
+    # Arm C must select, not be directed. Refuse before any burn.
+    if [[ -n "${MERC_DIRECTED_CELL_ID:-}" || -n "${MERC_HETERO_ARM_C_CELL:-}" ]]; then
+      die "refusing Arm C: MERC_DIRECTED_CELL_ID/MERC_HETERO_ARM_C_CELL is set — directed placement is not selector proof"
+    fi
     PROBE="$(probe_preconditions)"
     RUNNABLE="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["runnable"])' <<<"$PROBE")"
     if [[ "$RUNNABLE" != "True" && "$RUNNABLE" != "true" ]]; then
       write_refusal_receipt "$PROBE"
       die "refusing to burn pod time: structural preconditions still fail (see $RECEIPT_REL)"
     fi
-    die "execute path not implemented: preconditions currently never pass on this tree"
+    die "execute path not implemented on this tree: preconditions pass only when a CUDA cell is ordinary-routable under quality contract (promotion still blocked)"
     ;;
   *)
     die "unknown mode: $MODE (use check or --execute)"

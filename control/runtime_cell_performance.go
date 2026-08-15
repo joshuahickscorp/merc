@@ -475,10 +475,11 @@ func validateCurrentPlacementPerformanceAuthorityAt(
 	placement PlacementRequirement,
 	at time.Time,
 ) error {
-	if placement.Version != placementRequirementVersion {
+	if placement.Version != placementRequirementVersion &&
+		placement.Version != placementRequirementVersionMultiFamily {
 		return fmt.Errorf(
-			"new durable job admission requires placement version %d with frozen performance/build authority; version %d is historical-read-only",
-			placementRequirementVersion, placement.Version)
+			"new durable job admission requires placement version %d (or multi-family %d) with frozen performance/build authority; version %d is historical-read-only",
+			placementRequirementVersion, placementRequirementVersionMultiFamily, placement.Version)
 	}
 	if placement.PerformanceAuthority == nil {
 		return fmt.Errorf("current placement lacks frozen runtime-cell performance authority")

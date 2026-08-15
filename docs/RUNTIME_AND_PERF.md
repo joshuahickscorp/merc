@@ -32,11 +32,16 @@ cell is visible and comparable but is not admitted to ordinary buyer placement
 until the promotion ladder is cleared with measured evidence — a definition or
 standalone benchmark never confers routability.
 
-Ordinary buyer admission is a **singleton** today: exactly one advertised cell
-per (job type, model) is frozen at classification time. Competing engines exist
-as DRAFT or in the directed set; the shadow selector scores them but does not
-route production traffic. Multi-candidate production selection requires the
-engine tournament and is not this matrix's current behaviour.
+Ordinary buyer admission freezes a **multi-family eligible set** when an ACTIVE
+`AcceptableQualityContract` covers more than one device family for the same
+(job, model) (`control/workload_classification.go:selectAdmissionCandidates`).
+Absent that — today's production surface, with only `candle_metal` advertised —
+`rankAndFreezeAdmissionCell` still freezes exactly one cell (the historical
+Metal-only singleton mechanism). Competing CUDA engines remain DRAFT until
+promotion clears matched-pair and scope/global-lifecycle refusals; the shadow
+selector scores directed cells but does not route ordinary traffic. Metal q4
+versus CUDA bf16 generation is an explicit REFUSED quality contract
+(`ops/acceptable-quality-contracts.json`).
 
 A cell is routable only when its lifecycle is CANARY/ACTIVE **and** its
 benchmark authority binds (receipt resolves, applicable identity fields are

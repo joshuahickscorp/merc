@@ -9,9 +9,10 @@ import (
 const runtimeDecisionVersion = 1
 
 // RuntimeDecision statuses. ACCEPTED is the only batch-production status today:
-// ordinary admission always freezes a singleton cell (lifecycle ladder or
-// directed). There is no REFUSED runtime decision on the happy path — a missing
-// cell fails workload classification before accept.
+// ordinary admission freezes a singleton (lifecycle ladder or directed) or a
+// multi-family eligible set under an AcceptableQualityContract. There is no
+// REFUSED runtime decision on the happy path — a missing cell fails workload
+// classification before accept.
 const (
 	runtimeDecisionAccepted = "ACCEPTED"
 )
@@ -32,6 +33,11 @@ const (
 	// runtimeSelectionBasisDirectedCell is an operator/test force onto a named
 	// cell via buildWorkloadDecisionDirected. Still not a measured tournament.
 	runtimeSelectionBasisDirectedCell = "DIRECTED_CELL"
+	// runtimeSelectionBasisHeterogeneousEligibleSet freezes a multi-family
+	// eligible set under an AcceptableQualityContract. CellID is the lifecycle
+	// preferred pricing primary; claim may select any eligible cell. Not a
+	// measured tournament and not a directed force.
+	runtimeSelectionBasisHeterogeneousEligibleSet = "HETEROGENEOUS_ELIGIBLE_SET"
 )
 
 // runtimeDecisionDigestCheck verifies that a claimed digest matches a fresh
@@ -80,10 +86,16 @@ type RuntimeDecision struct {
 
 	// Precision/quality contract frozen from the performance authority and
 	// workload verification projection.
-	Precision            string `json:"precision,omitempty"`
-	QualityTier          string `json:"quality_tier,omitempty"`
-	VerificationStrategy string `json:"verification_strategy,omitempty"`
-	Lifecycle            string `json:"lifecycle,omitempty"`
+	Precision   string `json:"precision,omitempty"`
+	QualityTier string `json:"quality_tier,omitempty"`
+	// QualityContractID cites ops/control acceptable-quality-contracts.json
+	// when multi-family substitutability authorized the eligible set.
+	QualityContractID string `json:"quality_contract_id,omitempty"`
+	// EligibleCellIDs is the multi-family freeze when SelectionBasis is
+	// HETEROGENEOUS_ELIGIBLE_SET; otherwise empty/omitted (CellID alone).
+	EligibleCellIDs      []string `json:"eligible_cell_ids,omitempty"`
+	VerificationStrategy string   `json:"verification_strategy,omitempty"`
+	Lifecycle            string   `json:"lifecycle,omitempty"`
 
 	HardwareClasses  []string `json:"hardware_classes,omitempty"`
 	HardwareIdentity string   `json:"hardware_identity,omitempty"`
@@ -138,7 +150,9 @@ func isMeasuredShadowSelectionBasis(basis string) bool {
 // isAcceptedRuntimeSelectionBasis is the closed set RuntimeDecision may seal.
 func isAcceptedRuntimeSelectionBasis(basis string) bool {
 	switch basis {
-	case runtimeSelectionBasisLifecycleLadder, runtimeSelectionBasisDirectedCell:
+	case runtimeSelectionBasisLifecycleLadder,
+		runtimeSelectionBasisDirectedCell,
+		runtimeSelectionBasisHeterogeneousEligibleSet:
 		return true
 	default:
 		return false
@@ -220,6 +234,17 @@ func enforceRuntimeDecisionBasisHonesty(d RuntimeDecision) error {
 		return fmt.Errorf("runtime decision has unknown or disallowed selection_basis %q",
 			d.SelectionBasis)
 	}
+	if d.SelectionBasis == runtimeSelectionBasisHeterogeneousEligibleSet {
+		if strings.TrimSpace(d.QualityContractID) == "" {
+			return errors.New("heterogeneous eligible-set decision requires quality_contract_id")
+		}
+		if len(d.EligibleCellIDs) < 2 {
+			return errors.New("heterogeneous eligible-set decision requires at least two eligible cells")
+		}
+		if _, err := qualityContractAuthorizingMultiFamily(d.QualityContractID, d.EligibleCellIDs); err != nil {
+			return fmt.Errorf("heterogeneous eligible-set decision: %w", err)
+		}
+	}
 	// LIFECYCLE_LADDER must never be re-labelled as a measured basis by note
 	// abuse alone — the enum already forbids measured values. Defense in depth:
 	// if someone set basis to ladder but claimed shadow authority, refused above.
@@ -267,10 +292,9 @@ func buildBatchRuntimeDecision(
 	if err := validatePlacementRequirement(placement, workload); err != nil {
 		return RuntimeDecision{}, fmt.Errorf("runtime decision placement: %w", err)
 	}
-	if len(workload.RuntimeCandidates) != 1 {
+	if len(workload.RuntimeCandidates) == 0 {
 		return RuntimeDecision{}, fmt.Errorf(
-			"runtime decision requires exactly one frozen runtime candidate, got %d",
-			len(workload.RuntimeCandidates))
+			"runtime decision requires at least one frozen runtime candidate, got 0")
 	}
 	if placement.PerformanceAuthority == nil {
 		return RuntimeDecision{}, errors.New(
@@ -289,7 +313,7 @@ func buildBatchRuntimeDecision(
 		candidate.RuntimeID != placement.RuntimeID ||
 		candidate.Engine != placement.Engine {
 		return RuntimeDecision{}, fmt.Errorf(
-			"runtime decision: workload candidate (%s/%s/%s) disagrees with placement (%s/%s/%s)",
+			"runtime decision: workload preferred candidate (%s/%s/%s) disagrees with placement (%s/%s/%s)",
 			candidate.Engine, candidate.RuntimeID, candidate.CellID,
 			placement.Engine, placement.RuntimeID, placement.RuntimeCellID)
 	}
@@ -309,27 +333,72 @@ func buildBatchRuntimeDecision(
 		modelKind = placement.ModelKind
 	}
 
-	// Ordinary production freezes via runtimeCapabilityForBindingDirected, which
-	// either returns the sole advertised cell or rankAndFreezeAdmissionCell's
-	// lifecycle-ranked winner. Both are LIFECYCLE_LADDER — never a measured
-	// tournament. Directed freezes name DIRECTED_CELL instead.
+	// Ordinary production freezes via runtimeCapabilitiesForBindingDirected:
+	// singleton or multi-family under AcceptableQualityContract. Preferred cell
+	// is always [0]. Directed freezes name DIRECTED_CELL instead.
 	basis := runtimeSelectionBasisLifecycleLadder
-	authority := "control/workload_classification.go:runtimeCapabilityForBindingDirected/" +
-		"rankAndFreezeAdmissionCell"
-	note := "accepted cell is the lifecycle-ranked freeze from ordinary admission " +
-		"(singleton advertised cell, or chooseShadowCell ladder when multiple cells " +
-		"advertise the same model). Not a measured multi-engine tournament. " +
+	authority := "control/workload_classification.go:runtimeCapabilitiesForBindingDirected/" +
+		"selectAdmissionCandidates"
+	note := "accepted preferred cell is the lifecycle-ranked freeze from ordinary admission " +
+		"(singleton advertised cell, or chooseShadowCell ladder when multiple same-family " +
+		"cells advertise the same model). Not a measured multi-engine tournament. " +
 		"Shadow measured re-ranking is post-commit observational only."
+	var eligible []string
+	qualityContractID := strings.TrimSpace(workload.QualityContractID)
 	if strings.TrimSpace(workload.DirectedCellID) != "" {
 		basis = runtimeSelectionBasisDirectedCell
 		authority = "control/workload_classification.go:buildWorkloadDecisionDirected"
 		note = "accepted cell was forced by directed routing (operator/test); " +
-			"not a measured multi-engine tournament and not ordinary ladder selection."
+			"not a measured multi-engine tournament and not ordinary ladder selection. " +
+			"A directed freeze must never be presented as selector proof for Arm C."
 		if workload.DirectedCellID != candidate.CellID {
 			return RuntimeDecision{}, fmt.Errorf(
 				"runtime decision directed cell %q disagrees with frozen candidate %q",
 				workload.DirectedCellID, candidate.CellID)
 		}
+		if len(workload.RuntimeCandidates) != 1 {
+			return RuntimeDecision{}, fmt.Errorf(
+				"runtime decision directed freeze requires exactly one candidate, got %d",
+				len(workload.RuntimeCandidates))
+		}
+	} else if len(workload.RuntimeCandidates) > 1 {
+		if qualityContractID == "" {
+			return RuntimeDecision{}, errors.New(
+				"runtime decision multi-candidate freeze requires quality_contract_id")
+		}
+		cellIDs := make([]string, 0, len(workload.RuntimeCandidates))
+		for _, c := range workload.RuntimeCandidates {
+			cellIDs = append(cellIDs, c.CellID)
+		}
+		if _, err := qualityContractAuthorizingMultiFamily(qualityContractID, cellIDs); err != nil {
+			return RuntimeDecision{}, fmt.Errorf("runtime decision: %w", err)
+		}
+		basis = runtimeSelectionBasisHeterogeneousEligibleSet
+		authority = "control/workload_classification.go:selectAdmissionCandidates+" +
+			"ops/acceptable-quality-contracts.json:" + qualityContractID
+		note = "multi-family eligible set frozen under AcceptableQualityContract " +
+			qualityContractID + "; CellID is the lifecycle preferred pricing primary; " +
+			"claim may select any eligible cell. Not directed. Not a measured tournament."
+		for _, c := range workload.RuntimeCandidates {
+			eligible = append(eligible, c.CellID)
+		}
+	}
+
+	reason := "batch accept freezes the lifecycle-ranked (or directed) runtime " +
+		"singleton as immutable accepted authority"
+	evidence := []string{
+		"engine/cell identity cited from WorkloadDecision.RuntimeCandidates[0]",
+		"hardware/build/benchmark cited from PlacementRequirement.PerformanceAuthority",
+		"activation_policy_revision frozen from admit-guard context at SubmitJobTx",
+		"runtime_shadow_selections is not accept authority",
+	}
+	if basis == runtimeSelectionBasisHeterogeneousEligibleSet {
+		reason = "batch accept freezes a multi-family eligible set under quality contract " +
+			qualityContractID + "; preferred cell is pricing primary"
+		evidence = append(evidence,
+			"quality_contract_id="+qualityContractID,
+			"eligible set from WorkloadDecision.RuntimeCandidates",
+		)
 	}
 
 	out := RuntimeDecision{
@@ -347,6 +416,8 @@ func buildBatchRuntimeDecision(
 		ModelRevision:                firstNonEmpty(workload.ModelRevision, perf.ModelRevision),
 		Precision:                    perf.Precision,
 		QualityTier:                  perf.QualityTier,
+		QualityContractID:            qualityContractID,
+		EligibleCellIDs:              eligible,
 		VerificationStrategy:         workload.VerificationStrategy,
 		Lifecycle:                    perf.Lifecycle,
 		HardwareClasses:              append([]string(nil), placement.HWClasses...),
@@ -362,14 +433,8 @@ func buildBatchRuntimeDecision(
 		WorkloadDecisionSHA256:       workloadSHA,
 		PlacementRequirementSHA256:   placementSHA,
 		ShadowSelectionAuthoritative: false,
-		Reason: "batch accept freezes the lifecycle-ranked (or directed) runtime " +
-			"singleton as immutable accepted authority",
-		Evidence: []string{
-			"engine/cell identity cited from WorkloadDecision.RuntimeCandidates[0]",
-			"hardware/build/benchmark cited from PlacementRequirement.PerformanceAuthority",
-			"activation_policy_revision frozen from admit-guard context at SubmitJobTx",
-			"runtime_shadow_selections is not accept authority",
-		},
+		Reason:                       reason,
+		Evidence:                     evidence,
 	}
 	if err := ValidateRuntimeDecisionSnapshot(out); err != nil {
 		return RuntimeDecision{}, err

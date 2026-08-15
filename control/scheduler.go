@@ -588,7 +588,7 @@ func claimTaskSQL(claimedByPredicate, shapeOrderExpr string) string {
 	         )
 	         AND COALESCE(j.offered_rate_usd_hr,1e9) >= COALESCE(w2.min_payout_usd_hr,0)
 	         AND (
-	           COALESCE(j.placement_requirement->>'version','') IN ('','1','2')
+	           COALESCE(j.placement_requirement->>'version','') IN ('','1','2','4')
 	           OR (
 	             j.placement_requirement->>'version' = '3'
 	             AND j.placement_requirement->>'engine_build_hash' = COALESCE(w2.build_hash,'')
@@ -669,7 +669,7 @@ func claimTaskSQL(claimedByPredicate, shapeOrderExpr string) string {
 	         AND (j.data_residency IS NULL OR s3.data_country = ANY(j.data_residency))
 	         AND COALESCE(j.min_reputation,0) <= COALESCE(s3.reputation,0)
 	         AND (
-	           COALESCE(j.placement_requirement->>'version','') IN ('','1','2')
+	           COALESCE(j.placement_requirement->>'version','') IN ('','1','2','4')
 	           OR (
 	             j.placement_requirement->>'version' = '3'
 	             AND j.placement_requirement->>'engine_build_hash' = COALESCE(w3.build_hash,'')
@@ -902,8 +902,13 @@ func claimTaskSQL(claimedByPredicate, shapeOrderExpr string) string {
 	     -- measured execution build and device generation. A worker in the same
 	     -- coarse class is not interchangeable. Historical v1/v2 jobs retain
 	     -- their accepted pre-identity claim semantics.
+	     -- Placement v4 is multi-family under an AcceptableQualityContract: the
+	     -- eligible cell set is frozen on workload_decision.runtime_candidates
+	     -- and each worker's own capability registration carries its execution
+	     -- identity. Pinning placement.hardware_identity would freeze one
+	     -- family and re-create the Metal-only singleton at claim time.
 	     AND (
-	       COALESCE(j.placement_requirement->>'version','') IN ('','1','2')
+	       COALESCE(j.placement_requirement->>'version','') IN ('','1','2','4')
 	       OR (
 	         j.placement_requirement->>'version' = '3'
 	         AND j.placement_requirement->>'engine_build_hash' = me.build_hash

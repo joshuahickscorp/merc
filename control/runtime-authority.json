@@ -434,6 +434,8 @@
           "runner": "batch_infer",
           "min_memory_gb": 4,
           "verification": "byte_exact",
+          "lifecycle": "DRAFT",
+          "quality_tier": "UNPROVEN",
           "cloud_backed": true
         },
         {

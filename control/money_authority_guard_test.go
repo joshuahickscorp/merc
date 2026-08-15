@@ -591,8 +591,10 @@ var declaredMoneyAuthority = []string{
 	"runProjectSubmitStep",                                // dev_project_compile.go
 	"runWorkerLeader",                                     // worker_leader.go
 	"runtimeActivation.cellRoutable",                      // activation_policy.go
+	"runtimeCapabilitiesForBindingDirected",               // workload_classification.go
 	"runtimeCapabilityForBindingDirected",                 // workload_classification.go
 	"runtimeProfileByID",                                  // runtime_profile_admission.go
+	"selectAdmissionCandidates",                           // workload_classification.go
 	"settleFinalServiceLeaseTx",                           // service_leases.go
 	"settleLoRAExact",                                     // lora_settlement.go
 	"settleLoRARun",                                       // lora_settlement.go
