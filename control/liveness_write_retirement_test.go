@@ -2,8 +2,12 @@ package main
 
 import (
 	"errors"
+	"net/http"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // TestFlagOnHeartbeatDoesNotWaitForDurability is the P0A proof: with the live
@@ -382,5 +386,130 @@ func TestFlagDivergenceClassesAreEnumerated(t *testing.T) {
 				t.Fatalf("%s: flag ON selectable=%v want %v (%s)", tc.class, on.selectable, tc.wantOn, tc.note)
 			}
 		})
+	}
+}
+
+// TestSettlementUnchangedWhenOfferStateArrivesViaDetachedWrite closes a hole the
+// existing settle-parity test does not reach. That test never sends a heartbeat,
+// so it proves the flag does not change settlement arithmetic but never exercises
+// the path production would actually run: batching ON, flag ON, offer state
+// reaching PostgreSQL through the DETACHED write rather than a blocking one.
+//
+// Here the money path reads a row written asynchronously. The heartbeat is
+// awaited only to the extent of confirming it landed — that is the point, not a
+// workaround: authorize must see the same durable state either way.
+func TestSettlementUnchangedWhenOfferStateArrivesViaDetachedWrite(t *testing.T) {
+	shot := func(t *testing.T, authoritative bool) settledRealtimeShot {
+		t.Helper()
+		if authoritative {
+			t.Setenv("MERC_LIVENESS_INDEX_AUTHORITATIVE", "1")
+		} else {
+			t.Setenv("MERC_LIVENESS_INDEX_AUTHORITATIVE", "0")
+		}
+		ctx, store, pool := openIsolatedTestStore(t)
+		// The production shape: coalescer on. Under flag ON this makes the
+		// durable write detached; under flag OFF the caller still blocks on it.
+		store.SetLivenessBatchConfigForTest(livenessBatchConfig{
+			Enabled: true, MaxBatch: 1000, FlushInterval: 2 * time.Millisecond,
+		})
+		t.Setenv("MERC_TOKEN_KEY", "liveness-settle-detached-key-32bytes!")
+		installSettlementCurrencyForTest(t, "usd")
+		profile, supplierID, workerID := realtimeFundingFixture(t, ctx, store, pool)
+
+		worker := WorkerAuth{WorkerID: workerID, SupplierID: supplierID}
+		if err := store.HeartbeatRealtimeOffer(ctx, worker, RealtimeOfferHeartbeat{
+			RuntimeProfileID: profile.RuntimeProfileID, Warmth: "HOT",
+			AvailableSequences: 8, Status: "ACTIVE",
+		}); err != nil {
+			t.Fatalf("heartbeat: %v", err)
+		}
+		// Confirm the write actually reached PostgreSQL. Under flag ON the call
+		// above returned before the commit, so this is the observable that
+		// distinguishes "detached" from "lost".
+		deadline := time.Now().Add(10 * time.Second)
+		for {
+			var warmth string
+			if err := pool.QueryRow(ctx, `
+				SELECT warmth FROM realtime_worker_offers
+				 WHERE worker_id=$1 AND runtime_profile_id=$2`,
+				workerID, profile.RuntimeProfileID).Scan(&warmth); err != nil {
+				t.Fatal(err)
+			}
+			if warmth == "HOT" {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatal("detached heartbeat write never reached PostgreSQL")
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+
+		buyerID := uuid.New()
+		if _, err := pool.Exec(ctx, `INSERT INTO buyers (id,email,free_credit_usd) VALUES ($1,$2,0)`,
+			buyerID, buyerID.String()+"@liveness-detached.invalid"); err != nil {
+			t.Fatal(err)
+		}
+		must(t, store.SeedPrepaidBalance(ctx, buyerID, 5_000_000, "liveness-detached-"+buyerID.String()))
+
+		maxUSD, estUSD, maxPrompt, maxCompletion := realtimeAuthCeiling(t, profile, 7, 2)
+		contract, _, err := store.AuthorizeRealtimeContract(ctx, RealtimeContractAuthorization{
+			RequestID: "req-liv-detached-" + uuid.NewString(), BuyerID: buyerID, Profile: profile,
+			InputCommitment: strings.Repeat("c", 64), RequestSHA256: strings.Repeat("d", 64),
+			MaximumPriceUSD: maxUSD, EstimatedPriceUSD: estUSD, DeadlineAt: time.Now().Add(time.Minute),
+			MaximumPromptTokens: maxPrompt, MaximumCompletionTokens: maxCompletion,
+			EstimatedPromptTokens: 7, EstimatedCompletionTokens: 2,
+		})
+		mustf(t, err, "authorize: %v")
+
+		settlement, err := store.FinalizeRealtimeSuccess(ctx, contract.ID, RealtimeExecutionEvidence{
+			ID: uuid.New(), HTTPStatus: http.StatusOK, StreamRootSHA256: strings.Repeat("1", 64),
+			OutputCommitment: strings.Repeat("2", 64), PromptTokens: 7, CompletionTokens: 2, TotalTokens: 9,
+		})
+		mustf(t, err, "finalize: %v")
+
+		rows, err := pool.Query(ctx, `
+			SELECT kind, currency, (amount_usd*1000000)::bigint
+			  FROM ledger_entries
+			 WHERE execution_contract_id=$1
+			 ORDER BY kind, (amount_usd*1000000)::bigint, currency`, contract.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rows.Close()
+		var ledger []settledLedgerRow
+		for rows.Next() {
+			var r settledLedgerRow
+			if err := rows.Scan(&r.kind, &r.currency, &r.micros); err != nil {
+				t.Fatal(err)
+			}
+			ledger = append(ledger, r)
+		}
+		if err := rows.Err(); err != nil {
+			t.Fatal(err)
+		}
+		if len(ledger) == 0 {
+			t.Fatal("settlement produced no ledger rows")
+		}
+		return settledRealtimeShot{
+			buyerChargeNanos:     settlement.BuyerChargeNanos,
+			supplierPayableNanos: settlement.SupplierPayableNanos,
+			ledger:               ledger,
+		}
+	}
+
+	off := shot(t, false)
+	on := shot(t, true)
+
+	if off.buyerChargeNanos != on.buyerChargeNanos || off.supplierPayableNanos != on.supplierPayableNanos {
+		t.Fatalf("detached write changed settlement money: off charge=%d payable=%d; on charge=%d payable=%d",
+			off.buyerChargeNanos, off.supplierPayableNanos, on.buyerChargeNanos, on.supplierPayableNanos)
+	}
+	if len(off.ledger) != len(on.ledger) {
+		t.Fatalf("detached write changed ledger row count: off=%d on=%d", len(off.ledger), len(on.ledger))
+	}
+	for i := range off.ledger {
+		if off.ledger[i] != on.ledger[i] {
+			t.Fatalf("detached write changed ledger[%d]: off=%+v on=%+v", i, off.ledger[i], on.ledger[i])
+		}
 	}
 }
