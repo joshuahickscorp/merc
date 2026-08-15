@@ -248,7 +248,7 @@ func TestShadowLiveIndexFailClosedUntilHeartbeat(t *testing.T) {
 
 	profile := sortedVLLMProfiles()[0]
 	worker := seedOneRealtimeOffer(t, ctx, store, pool, profile)
-	slot, ok := store.lookupDeviceSlot(worker.WorkerID)
+	slot, ok := store.lookupOfferSlot(worker.WorkerID, profile.RuntimeProfileID)
 	if !ok {
 		t.Fatal("seeded worker has no device_slot")
 	}
@@ -312,7 +312,7 @@ func TestHeartbeatRealtimeOfferPopulatesShadowIndex(t *testing.T) {
 	installSettlementCurrencyForTest(t, "usd")
 	profile := sortedVLLMProfiles()[0]
 	worker := seedOneRealtimeOffer(t, ctx, store, pool, profile)
-	slot, ok := store.lookupDeviceSlot(worker.WorkerID)
+	slot, ok := store.lookupOfferSlot(worker.WorkerID, profile.RuntimeProfileID)
 	if !ok {
 		t.Fatal("seeded worker has no device_slot")
 	}
@@ -650,6 +650,72 @@ func TestShadowIndexNotConsultedForProductionSelection(t *testing.T) {
 	}
 }
 
+// TestShadowIndexPerOfferGrainNoSiblingRescue is the gate-D proof for the
+// offer-grain re-key. One worker with TWO offers (two runtime profiles) that age
+// independently. Heartbeat ONE profile; the OTHER offer must read DEAD in the
+// index — a live sibling offer must never rescue a stale offer. A worker-grained
+// index would (wrongly) mark both live off the single heartbeat; the per-offer
+// slot keying is exactly what prevents a stale offer from staying selectable.
+func TestShadowIndexPerOfferGrainNoSiblingRescue(t *testing.T) {
+	ctx, store, pool := openIsolatedTestStore(t)
+	store.SetLivenessBatchConfigForTest(livenessBatchConfig{Enabled: false})
+	t.Setenv("MERC_TOKEN_KEY", "shadow-pergrain-key-32-bytes-min!!!!")
+	installSettlementCurrencyForTest(t, "usd")
+
+	profiles := sortedVLLMProfiles()
+	if len(profiles) < 2 {
+		// Today the system advertises 1 runtime profile, so a worker has at most
+		// one offer and worker-grain == offer-grain (1:1). The sibling-rescue
+		// hazard this test guards is a MULTI-profile property (steer S001 §6
+		// heterogeneity): it activates automatically once a second profile exists.
+		t.Skipf("per-offer-grain sibling-rescue is a multi-profile property; only %d profile advertised (1:1 today)", len(profiles))
+	}
+	p1, p2 := profiles[0], profiles[1]
+
+	// Worker with an offer for p1 (seed helper), plus a second offer for p2 on
+	// the same worker via the same production entry point.
+	worker := seedOneRealtimeOffer(t, ctx, store, pool, p1)
+	reg2 := RealtimeOfferRegistration{
+		RuntimeProfileID: p2.RuntimeProfileID, RuntimeProfileSHA256: p2.ProfileSHA256,
+		HWClass: "nvidia_24gb", GPUCount: 1, MemoryGBPerGPU: 24,
+		UpstreamBaseURL: "http://127.0.0.1:8811/v1", UpstreamToken: "cx_vllm_liveness_test_token_123456",
+		Warmth: "HOT", MaxActiveSequences: 16, AvailableSequences: 8,
+		SupplierInputUSDPerMillionTokens: 0.08, SupplierOutputUSDPerMillionTokens: 0.30,
+	}
+	if err := store.UpsertRealtimeOffer(ctx, worker, reg2); err != nil {
+		t.Fatalf("UpsertRealtimeOffer p2: %v", err)
+	}
+
+	slot1, ok := store.lookupOfferSlot(worker.WorkerID, p1.RuntimeProfileID)
+	if !ok {
+		t.Fatal("offer p1 has no offer_slot")
+	}
+	slot2, ok := store.lookupOfferSlot(worker.WorkerID, p2.RuntimeProfileID)
+	if !ok {
+		t.Fatal("offer p2 has no offer_slot")
+	}
+	if slot1 == slot2 {
+		t.Fatalf("two offers on one worker share offer_slot %d — grain is worker not offer", slot1)
+	}
+
+	// Heartbeat ONLY p1.
+	if err := store.HeartbeatRealtimeOffer(ctx, worker, RealtimeOfferHeartbeat{
+		RuntimeProfileID: p1.RuntimeProfileID, Warmth: "HOT",
+		AvailableSequences: 8, Status: "ACTIVE",
+	}); err != nil {
+		t.Fatalf("heartbeat p1: %v", err)
+	}
+
+	nowEpoch := uint32(time.Now().Unix())
+	live := slotSet(store.shadowSelectLiveSlots(nowEpoch))
+	if _, ok := live[slot1]; !ok {
+		t.Fatalf("offer p1 slot %d not live after its own heartbeat", slot1)
+	}
+	if _, ok := live[slot2]; ok {
+		t.Fatalf("offer p2 slot %d is LIVE without its own heartbeat — a live sibling rescued a stale offer (gate D violation)", slot2)
+	}
+}
+
 func TestShadowIndexConcurrentHeartbeatPopulate(t *testing.T) {
 	ctx, store, pool := openIsolatedTestStore(t)
 	store.SetLivenessBatchConfigForTest(livenessBatchConfig{Enabled: false})
@@ -662,9 +728,9 @@ func TestShadowIndexConcurrentHeartbeatPopulate(t *testing.T) {
 	slots := make([]uint32, n)
 	for i := 0; i < n; i++ {
 		workers[i] = seedOneRealtimeOffer(t, ctx, store, pool, profile)
-		slot, ok := store.lookupDeviceSlot(workers[i].WorkerID)
+		slot, ok := store.lookupOfferSlot(workers[i].WorkerID, profile.RuntimeProfileID)
 		if !ok {
-			t.Fatalf("worker %d has no device_slot", i)
+			t.Fatalf("worker %d has no offer_slot", i)
 		}
 		slots[i] = slot
 	}

@@ -8221,3 +8221,66 @@ COMMENT ON COLUMN workers.device_slot IS
   'G082: internal dense slot for the in-process live-device index. Never a credential. Never an eligibility, trust, or money input. Losing or reassigning it may only affect index bookkeeping.';
 COMMENT ON SEQUENCE workers_device_slot_seq IS
   'G082: monotonic allocator for workers.device_slot. Internal bookkeeping only.';
+
+-- =============================================================================
+-- G082 flip foundation — dense realtime_worker_offers.offer_slot (per-OFFER)
+-- =============================================================================
+-- The money-selection liveness plane is per-OFFER: realtime_worker_offers PK is
+-- (worker_id, runtime_profile_id) and each offer's last_seen_at ages
+-- independently (one heartbeat carries one runtime_profile_id). A worker-grained
+-- slot is therefore the WRONG grain for offer liveness — a live sibling offer
+-- would keep a stale offer selectable. offer_slot is the dense uint32-range id
+-- the in-process live index keys on so index.IsLive(offer_slot) can mirror
+-- realtime_worker_offers.last_seen_at exactly. Same discipline as device_slot:
+-- NOT a credential, NOT an eligibility/trust/money input, MUST NOT appear on
+-- authorize/claim/lease/pricing paths. Losing/reassigning a slot may only affect
+-- index bookkeeping; identity remains (worker_id, runtime_profile_id).
+-- Apply-twice safe: ADD IF NOT EXISTS, backfill NULL only, setval never rewinds.
+
+ALTER TABLE realtime_worker_offers ADD COLUMN IF NOT EXISTS offer_slot BIGINT;
+
+-- Deterministic backfill for rows predating the column. Stable order is the PK
+-- (worker_id, runtime_profile_id). Existing non-NULL slots are never rewritten.
+UPDATE realtime_worker_offers o
+   SET offer_slot = s.slot
+  FROM (
+    SELECT worker_id, runtime_profile_id,
+           (COALESCE((SELECT MAX(offer_slot) FROM realtime_worker_offers), -1)
+            + row_number() OVER (ORDER BY worker_id, runtime_profile_id))::bigint AS slot
+      FROM realtime_worker_offers
+     WHERE offer_slot IS NULL
+  ) s
+ WHERE o.worker_id = s.worker_id AND o.runtime_profile_id = s.runtime_profile_id;
+
+CREATE UNIQUE INDEX IF NOT EXISTS realtime_worker_offers_offer_slot_uidx
+    ON realtime_worker_offers (offer_slot);
+
+CREATE SEQUENCE IF NOT EXISTS realtime_worker_offers_offer_slot_seq AS BIGINT MINVALUE 0 START 0;
+ALTER SEQUENCE realtime_worker_offers_offer_slot_seq OWNED BY realtime_worker_offers.offer_slot;
+
+-- Bump the sequence to at least max(slot)+1 without ever lowering it.
+DO $$
+DECLARE
+  next_slot BIGINT;
+  cur_next  BIGINT;
+BEGIN
+  SELECT COALESCE(MAX(offer_slot), -1) + 1 INTO next_slot FROM realtime_worker_offers;
+  SELECT last_value + CASE WHEN is_called THEN 1 ELSE 0 END
+    INTO cur_next FROM realtime_worker_offers_offer_slot_seq;
+  IF next_slot > cur_next THEN
+    PERFORM setval('realtime_worker_offers_offer_slot_seq', next_slot, false);
+  END IF;
+END $$;
+
+ALTER TABLE realtime_worker_offers
+    ALTER COLUMN offer_slot SET DEFAULT nextval('realtime_worker_offers_offer_slot_seq');
+ALTER TABLE realtime_worker_offers ALTER COLUMN offer_slot SET NOT NULL;
+
+ALTER TABLE realtime_worker_offers DROP CONSTRAINT IF EXISTS realtime_worker_offers_offer_slot_range;
+ALTER TABLE realtime_worker_offers ADD CONSTRAINT realtime_worker_offers_offer_slot_range
+    CHECK (offer_slot >= 0 AND offer_slot <= 4294967295);
+
+COMMENT ON COLUMN realtime_worker_offers.offer_slot IS
+  'G082: internal dense per-offer slot for the in-process live index (mirrors this offer''s last_seen_at liveness). Never a credential, eligibility, trust, or money input.';
+COMMENT ON SEQUENCE realtime_worker_offers_offer_slot_seq IS
+  'G082: monotonic allocator for realtime_worker_offers.offer_slot. Internal bookkeeping only.';

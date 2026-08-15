@@ -431,7 +431,7 @@ func (s *Store) HeartbeatRealtimeOffer(ctx context.Context, worker WorkerAuth, h
 	// when the durable write succeeded, so index-live can match SQL-live.
 	// This is not a selection input.
 	if writeErr == nil {
-		s.shadowIndexHeartbeat(worker, observedAt, serverNow)
+		s.shadowIndexHeartbeat(worker, hb.RuntimeProfileID, observedAt, serverNow)
 	}
 	return writeErr
 }

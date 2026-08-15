@@ -46,7 +46,10 @@ type Store struct {
 	// headroom. See liveness_shadow.go.
 	liveIndexOnce sync.Once
 	liveIndex     *LiveDeviceIndex
-	slotCache     sync.Map // uuid.UUID → uint32 device_slot
+	slotCache     sync.Map // vestigial worker device_slot cache (uuid.UUID → uint32); no longer read by the shadow after the offer-grain re-key. See liveness_shadow.go.
+	// offerSlotCache keys the live index by OFFER, not worker: the money-selection
+	// liveness plane is per-(worker_id, runtime_profile_id). offerSlotKey → uint32.
+	offerSlotCache sync.Map
 }
 
 func NewStore(pool *pgxpool.Pool) *Store {

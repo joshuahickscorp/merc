@@ -51,7 +51,7 @@ func (s *Store) ensureLiveDeviceIndex() {
 			var maxSlot *int64
 			var count int64
 			err := s.pool.QueryRow(ctx, `
-				SELECT MAX(device_slot), COUNT(*) FROM workers`).Scan(&maxSlot, &count)
+				SELECT MAX(offer_slot), COUNT(*) FROM realtime_worker_offers`).Scan(&maxSlot, &count)
 			if err == nil {
 				var need uint64
 				if maxSlot != nil && *maxSlot >= 0 {
@@ -69,33 +69,23 @@ func (s *Store) ensureLiveDeviceIndex() {
 				}
 				n = liveIndexCapacity(uint32(need), uint32(countU))
 			}
-			s.preloadDeviceSlots(ctx)
+			s.preloadOfferSlots(ctx)
 		}
 		s.liveIndex = NewLiveDeviceIndex(n)
 	})
 }
 
-func (s *Store) preloadDeviceSlots(ctx context.Context) {
-	if s == nil || s.pool == nil {
-		return
-	}
-	rows, err := s.pool.Query(ctx, `SELECT id, device_slot FROM workers`)
-	if err != nil {
-		return
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var id uuid.UUID
-		var slot int64
-		if err := rows.Scan(&id, &slot); err != nil {
-			return
-		}
-		if slot >= 0 && slot <= int64(math.MaxUint32) {
-			s.slotCache.Store(id, uint32(slot))
-		}
-	}
+// offerSlotKey identifies one realtime offer (the per-(worker_id,
+// runtime_profile_id) money-selection liveness unit) for the offer-grain index.
+type offerSlotKey struct {
+	worker  uuid.UUID
+	profile string
 }
 
+// rememberDeviceSlot is retained for the worker-enrolment callers; the shadow no
+// longer reads workers.device_slot after the offer-grain re-key (the slotCache is
+// vestigial). Kept to avoid editing money-path enrolment; a later cleanup can
+// drop it with workers.device_slot.
 func (s *Store) rememberDeviceSlot(workerID uuid.UUID, slot uint32) {
 	if s == nil {
 		return
@@ -103,11 +93,35 @@ func (s *Store) rememberDeviceSlot(workerID uuid.UUID, slot uint32) {
 	s.slotCache.Store(workerID, slot)
 }
 
-func (s *Store) lookupDeviceSlot(workerID uuid.UUID) (uint32, bool) {
+func (s *Store) preloadOfferSlots(ctx context.Context) {
+	if s == nil || s.pool == nil {
+		return
+	}
+	rows, err := s.pool.Query(ctx,
+		`SELECT worker_id, runtime_profile_id, offer_slot FROM realtime_worker_offers`)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var wid uuid.UUID
+		var profile string
+		var slot int64
+		if err := rows.Scan(&wid, &profile, &slot); err != nil {
+			return
+		}
+		if slot >= 0 && slot <= int64(math.MaxUint32) {
+			s.offerSlotCache.Store(offerSlotKey{wid, profile}, uint32(slot))
+		}
+	}
+}
+
+func (s *Store) lookupOfferSlot(workerID uuid.UUID, profileID string) (uint32, bool) {
 	if s == nil {
 		return 0, false
 	}
-	if v, ok := s.slotCache.Load(workerID); ok {
+	key := offerSlotKey{workerID, profileID}
+	if v, ok := s.offerSlotCache.Load(key); ok {
 		slot, ok := v.(uint32)
 		return slot, ok
 	}
@@ -117,18 +131,20 @@ func (s *Store) lookupDeviceSlot(workerID uuid.UUID) (uint32, bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	var slot int64
-	err := s.pool.QueryRow(ctx, `SELECT device_slot FROM workers WHERE id=$1`, workerID).Scan(&slot)
+	err := s.pool.QueryRow(ctx,
+		`SELECT offer_slot FROM realtime_worker_offers WHERE worker_id=$1 AND runtime_profile_id=$2`,
+		workerID, profileID).Scan(&slot)
 	if err != nil || slot < 0 || slot > math.MaxUint32 {
 		return 0, false
 	}
 	u := uint32(slot)
-	s.slotCache.Store(workerID, u)
+	s.offerSlotCache.Store(key, u)
 	return u, true
 }
 
 // shadowIndexHeartbeat records presence after a durable heartbeat write.
 // Fail-closed on any lookup/capacity error: skip, never invent a live slot.
-func (s *Store) shadowIndexHeartbeat(worker WorkerAuth, observedAt, serverNow time.Time) {
+func (s *Store) shadowIndexHeartbeat(worker WorkerAuth, profileID string, observedAt, serverNow time.Time) {
 	if s == nil {
 		return
 	}
@@ -136,7 +152,7 @@ func (s *Store) shadowIndexHeartbeat(worker WorkerAuth, observedAt, serverNow ti
 	if s.liveIndex == nil {
 		return
 	}
-	slot, ok := s.lookupDeviceSlot(worker.WorkerID)
+	slot, ok := s.lookupOfferSlot(worker.WorkerID, profileID)
 	if !ok {
 		return
 	}
