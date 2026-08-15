@@ -40,6 +40,13 @@ type Store struct {
 	livenessCoalescer   *livenessCoalescer
 	livenessCfg         livenessBatchConfig
 	livenessCfgOverride *livenessBatchConfig
+	// Process-wide live-device index. Shadow only: populated from the
+	// heartbeat path, never consulted for authorize/claim/lease/pricing.
+	// Starts empty (fail-closed) and is sized to the worker count plus
+	// headroom. See liveness_shadow.go.
+	liveIndexOnce sync.Once
+	liveIndex     *LiveDeviceIndex
+	slotCache     sync.Map // uuid.UUID → uint32 device_slot
 }
 
 func NewStore(pool *pgxpool.Pool) *Store {
@@ -168,6 +175,9 @@ func (s *Store) migrate(ctx context.Context, applyCanonicalSchema bool) error {
 	if _, err := s.ReconcileLegacyVerifyingTasks(ctx); err != nil {
 		return fmt.Errorf("reconcile legacy verification: %w", err)
 	}
+	// Empty fail-closed index, sized to current workers. Devices reconstruct
+	// by heartbeating inside 45s. Not a selection input.
+	s.ensureLiveDeviceIndex()
 	return nil
 }
 

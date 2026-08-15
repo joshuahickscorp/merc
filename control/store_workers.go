@@ -93,6 +93,31 @@ var errWorkerTokenExpired = errors.New("WORKER_TOKEN_EXPIRED: worker token has e
 
 var errWorkerIdentityPinned = errors.New("worker execution identity is pinned by a live dynamic task")
 
+// insertWorkerWithDeviceSlotTx inserts a worker row and assigns the next
+// dense device_slot. The slot is internal bookkeeping for the live-device
+// index — never a credential, never returned to the caller, never an
+// eligibility input. ON CONFLICT leaves an existing slot untouched.
+func insertWorkerWithDeviceSlotTx(ctx context.Context, tx pgx.Tx, s *Store, workerID, supplierID uuid.UUID) error {
+	var slot int64
+	err := tx.QueryRow(ctx, `
+		INSERT INTO workers (id, supplier_id, hw_class, device_slot)
+		VALUES ($1, $2, 'cpu', nextval('workers_device_slot_seq'))
+		ON CONFLICT (id) DO NOTHING
+		RETURNING device_slot`,
+		workerID, supplierID,
+	).Scan(&slot)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if slot >= 0 && slot <= int64(^uint32(0)) && s != nil {
+		s.rememberDeviceSlot(workerID, uint32(slot))
+	}
+	return nil
+}
+
 func (s *Store) LookupWorkerToken(ctx context.Context, token string) (WorkerAuth, error) {
 	var w WorkerAuth
 	var expiresAt *time.Time
@@ -149,11 +174,7 @@ func (s *Store) CreateWorkerToken(ctx context.Context, workerID, supplierID uuid
 		return "", err
 	}
 	defer tx.Rollback(ctx)
-	if _, err := tx.Exec(ctx,
-		`INSERT INTO workers (id, supplier_id, hw_class) VALUES ($1, $2, 'cpu')
-		 ON CONFLICT (id) DO NOTHING`,
-		workerID, supplierID,
-	); err != nil {
+	if err := insertWorkerWithDeviceSlotTx(ctx, tx, s, workerID, supplierID); err != nil {
 		return "", err
 	}
 	if _, err := tx.Exec(ctx,
@@ -195,11 +216,7 @@ func (s *Store) CreateWorkerTokenWithExpiry(ctx context.Context, workerID, suppl
 		return "", time.Time{}, err
 	}
 	defer tx.Rollback(ctx)
-	if _, err := tx.Exec(ctx,
-		`INSERT INTO workers (id, supplier_id, hw_class) VALUES ($1, $2, 'cpu')
-		 ON CONFLICT (id) DO NOTHING`,
-		workerID, supplierID,
-	); err != nil {
+	if err := insertWorkerWithDeviceSlotTx(ctx, tx, s, workerID, supplierID); err != nil {
 		return "", time.Time{}, err
 	}
 	if _, err := tx.Exec(ctx,
@@ -246,11 +263,7 @@ func (s *Store) IssueDeviceBoundWorkerToken(ctx context.Context, workerID, suppl
 		return "", err
 	}
 	defer tx.Rollback(ctx)
-	if _, err := tx.Exec(ctx,
-		`INSERT INTO workers (id, supplier_id, hw_class) VALUES ($1, $2, 'cpu')
-		 ON CONFLICT (id) DO NOTHING`,
-		workerID, supplierID,
-	); err != nil {
+	if err := insertWorkerWithDeviceSlotTx(ctx, tx, s, workerID, supplierID); err != nil {
 		return "", err
 	}
 	if _, err := tx.Exec(ctx, `

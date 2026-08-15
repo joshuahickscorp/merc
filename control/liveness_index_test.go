@@ -158,9 +158,10 @@ func TestLiveDeviceIndexFutureEpochDead(t *testing.T) {
 }
 
 func TestLiveDeviceIndexEviction45sIndependentOfTick(t *testing.T) {
-	// A device that stops heartbeating at T0 is DEAD by T0+46s (age 46 > 45)
-	// regardless of tick timing or wheel bucketing. Live at T0+45 (window
-	// edge, matching Heartbeat's accept of age==45).
+	// A device that stops heartbeating at T0 is DEAD at T0+45s (age 45 is
+	// not < 45), matching SQL last_seen_at > now()-45s. Live at T0+44.
+	// Heartbeat still accepts an observation of age==45; that stamp is not
+	// live. Independent of tick timing or wheel bucketing.
 	t0 := liveIdxTestNow
 	schedules := []struct {
 		name string
@@ -200,10 +201,10 @@ func TestLiveDeviceIndexEviction45sIndependentOfTick(t *testing.T) {
 				sc.tick(idx, at)
 				live := idx.IsLive(3, at)
 				switch {
-				case at <= t0+liveDeviceWindowEpochs && !live:
-					t.Fatalf("at T0+%d (age %d) slot is DEAD; window is 45s", at-t0, at-t0)
-				case at > t0+liveDeviceWindowEpochs && live:
-					t.Fatalf("at T0+%d (age %d) slot is still LIVE; 45s eviction broken (schedule %s)", at-t0, at-t0, sc.name)
+				case at < t0+liveDeviceWindowEpochs && !live:
+					t.Fatalf("at T0+%d (age %d) slot is DEAD; SQL-aligned window is age<45", at-t0, at-t0)
+				case at >= t0+liveDeviceWindowEpochs && live:
+					t.Fatalf("at T0+%d (age %d) slot is still LIVE; SQL is dead at exactly 45s (schedule %s)", at-t0, at-t0, sc.name)
 				}
 			}
 		})
@@ -223,6 +224,10 @@ func TestLiveDeviceIndexClampFutureObservation(t *testing.T) {
 		t.Fatal("clamped-to-now observation must be live at now")
 	}
 	// Clamping must not extend liveness past a now-stamped heartbeat.
+	// SQL is dead at exactly 45s; so is the index.
+	if idx.IsLive(0, now+liveDeviceWindowEpochs) {
+		t.Fatal("clamped observation live at T0+45; SQL last_seen_at > now()-45s is dead at the edge")
+	}
 	if idx.IsLive(0, now+liveDeviceWindowEpochs+1) {
 		t.Fatal("clamped future observation extended liveness past the window")
 	}
@@ -246,6 +251,9 @@ func TestLiveDeviceIndexRejectsStaleNotFloorStamp(t *testing.T) {
 	}
 	if got := atomic.LoadUint32(&idx.epochs[1]); got != now {
 		t.Fatalf("edge epoch=%d want %d", got, now)
+	}
+	if idx.IsLive(1, edge) {
+		t.Fatal("accepted age-45 write must not read live (SQL dead at exactly 45s)")
 	}
 
 	// Older than the window is rejected — not floor-stamped to now (that
@@ -344,8 +352,13 @@ func TestLiveDeviceIndexPresenceOperations(t *testing.T) {
 	if err := idx.Heartbeat(2, now-liveDeviceWindowEpochs, now); err != nil {
 		t.Fatal(err)
 	}
-	if !idx.IsLive(0, now) || !idx.IsLive(1, now) || !idx.IsLive(2, now) {
-		t.Fatal("expected slots 0,1,2 live")
+	// Age 45 is accepted as a write (same as resolveHeartbeatObservation)
+	// but is not live — SQL last_seen_at = now()-45s is dead.
+	if !idx.IsLive(0, now) || !idx.IsLive(1, now) {
+		t.Fatal("expected slots 0,1 live")
+	}
+	if idx.IsLive(2, now) {
+		t.Fatal("slot 2 at age 45 must be DEAD (SQL last_seen_at > now()-45s)")
 	}
 	if err := idx.Heartbeat(99, now, now); !errors.Is(err, errInvalidDeviceSlot) {
 		t.Fatalf("out-of-range: %v", err)
@@ -355,8 +368,8 @@ func TestLiveDeviceIndexPresenceOperations(t *testing.T) {
 	}
 
 	got := idx.LiveSlots(now)
-	if len(got) != 3 {
-		t.Fatalf("LiveSlots=%v want 3 slots", got)
+	if len(got) != 2 {
+		t.Fatalf("LiveSlots=%v want 2 slots (0,1); age-45 slot 2 is SQL-dead", got)
 	}
 	seen := map[uint32]bool{}
 	for _, s := range got {
@@ -365,10 +378,13 @@ func TestLiveDeviceIndexPresenceOperations(t *testing.T) {
 			t.Fatalf("LiveSlots returned dead %d", s)
 		}
 	}
-	for _, s := range []uint32{0, 1, 2} {
+	for _, s := range []uint32{0, 1} {
 		if !seen[s] {
 			t.Fatalf("LiveSlots missing %d", s)
 		}
+	}
+	if seen[2] {
+		t.Fatal("LiveSlots included age-45 slot 2; SQL boundary broken")
 	}
 
 	idx.Tick(now)

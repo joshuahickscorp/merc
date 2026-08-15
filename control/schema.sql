@@ -8162,3 +8162,62 @@ COMMENT ON COLUMN eta_calibration.predicted_ms IS
   'G053: predicted phase duration in ms when an estimator existed at observation time. NULL means no prediction (not zero).';
 COMMENT ON COLUMN eta_calibration.realized_ms IS
   'G053: realized phase duration in ms. NULL means the phase was not observed (not zero).';
+
+-- =============================================================================
+-- G082 shadow-wire — dense workers.device_slot (internal bookkeeping only)
+-- =============================================================================
+-- A monotonic uint32-range id assigned at enrolment so the in-process
+-- LiveDeviceIndex can address a worker without parsing a UUID. It is NOT a
+-- credential, NOT an eligibility/trust/money input, and MUST NOT appear on
+-- authorize/claim/lease/pricing paths. Losing or reassigning a slot may only
+-- affect index bookkeeping; identity remains workers.id + worker_tokens.
+--
+-- Apply-twice: ADD COLUMN IF NOT EXISTS, backfill only NULL rows, unique
+-- index IF NOT EXISTS, sequence IF NOT EXISTS, setval never rewinds.
+
+ALTER TABLE workers ADD COLUMN IF NOT EXISTS device_slot BIGINT;
+
+-- Deterministic backfill for rows that predate the column. Stable order is
+-- created_at, id. Existing non-NULL slots are never rewritten.
+UPDATE workers w
+   SET device_slot = s.slot
+  FROM (
+    SELECT id,
+           (COALESCE((SELECT MAX(device_slot) FROM workers), -1)
+            + row_number() OVER (ORDER BY created_at NULLS FIRST, id))::bigint AS slot
+      FROM workers
+     WHERE device_slot IS NULL
+  ) s
+ WHERE w.id = s.id;
+
+CREATE UNIQUE INDEX IF NOT EXISTS workers_device_slot_uidx ON workers (device_slot);
+
+CREATE SEQUENCE IF NOT EXISTS workers_device_slot_seq AS BIGINT MINVALUE 0 START 0;
+ALTER SEQUENCE workers_device_slot_seq OWNED BY workers.device_slot;
+
+-- Bump the sequence to at least max(slot)+1 without ever lowering it
+-- (deleted workers must not recycle a slot this process still tracks).
+DO $$
+DECLARE
+  next_slot BIGINT;
+  cur_next  BIGINT;
+BEGIN
+  SELECT COALESCE(MAX(device_slot), -1) + 1 INTO next_slot FROM workers;
+  SELECT last_value + CASE WHEN is_called THEN 1 ELSE 0 END
+    INTO cur_next FROM workers_device_slot_seq;
+  IF next_slot > cur_next THEN
+    PERFORM setval('workers_device_slot_seq', next_slot, false);
+  END IF;
+END $$;
+
+ALTER TABLE workers ALTER COLUMN device_slot SET DEFAULT nextval('workers_device_slot_seq');
+ALTER TABLE workers ALTER COLUMN device_slot SET NOT NULL;
+
+ALTER TABLE workers DROP CONSTRAINT IF EXISTS workers_device_slot_range;
+ALTER TABLE workers ADD CONSTRAINT workers_device_slot_range
+    CHECK (device_slot >= 0 AND device_slot <= 4294967295);
+
+COMMENT ON COLUMN workers.device_slot IS
+  'G082: internal dense slot for the in-process live-device index. Never a credential. Never an eligibility, trust, or money input. Losing or reassigning it may only affect index bookkeeping.';
+COMMENT ON SEQUENCE workers_device_slot_seq IS
+  'G082: monotonic allocator for workers.device_slot. Internal bookkeeping only.';

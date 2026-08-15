@@ -415,15 +415,25 @@ func (s *Store) HeartbeatRealtimeOffer(ctx context.Context, worker WorkerAuth, h
 	// Receipt time is captured after the caller has authenticated (HTTP:
 	// authWorker). Device-supplied ObservedAtUnixMs is clamped/rejected here;
 	// flush delay cannot extend last_seen_at past this observation.
-	observedAt, err := resolveHeartbeatObservation(hb.ObservedAtUnixMs, time.Now())
+	serverNow := time.Now()
+	observedAt, err := resolveHeartbeatObservation(hb.ObservedAtUnixMs, serverNow)
 	if err != nil {
 		return err
 	}
 	coalescer := s.ensureLivenessCoalescer()
+	var writeErr error
 	if coalescer != nil {
-		return coalescer.submit(ctx, worker, hb, observedAt)
+		writeErr = coalescer.submit(ctx, worker, hb, observedAt)
+	} else {
+		writeErr = s.heartbeatRealtimeOfferOne(ctx, worker, hb, observedAt)
 	}
-	return s.heartbeatRealtimeOfferOne(ctx, worker, hb, observedAt)
+	// Shadow only: populate the in-process index AFTER resolve+auth and only
+	// when the durable write succeeded, so index-live can match SQL-live.
+	// This is not a selection input.
+	if writeErr == nil {
+		s.shadowIndexHeartbeat(worker, observedAt, serverNow)
+	}
+	return writeErr
 }
 
 func scanRealtimeContract(row pgx.Row) (RealtimeContract, error) {

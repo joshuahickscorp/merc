@@ -16,10 +16,10 @@ import (
 // no API here that can grant any of those. A later reviewed lane may
 // intersect LiveSlots with the durable selector; this type does not.
 //
-// AUTHENTICATION happens BEFORE Heartbeat is called. The caller must already
-// hold a verified device-bound WorkerAuth and map it to a dense slot. This
-// index trusts the slot it is given; it must never be fed an unauthenticated
-// slot. Wiring that check is a later lane.
+// AUTHENTICATION happens BEFORE Heartbeat is called. HeartbeatRealtimeOffer
+// already holds a verified WorkerAuth and maps it to workers.device_slot
+// (internal bookkeeping, never a credential). This index trusts the slot it
+// is given; it must never be fed an unauthenticated slot.
 //
 // There is NO persistence. A fresh index is all-DEAD. Devices reconstruct
 // liveness by heartbeating inside the 45s window.
@@ -63,7 +63,8 @@ type liveWheelShard struct {
 
 // NewLiveDeviceIndex allocates an empty, all-DEAD index of the given
 // dense-slot capacity. Slots are 0 .. slots-1. There is no persistence
-// and no enrolment side effect — callers synthesize slots for this lane.
+// and no enrolment side effect — workers.device_slot is assigned at
+// enrolment; this type only sees the dense id.
 func NewLiveDeviceIndex(slots uint32) *LiveDeviceIndex {
 	idx := &LiveDeviceIndex{n: slots}
 	if slots > 0 {
@@ -107,11 +108,17 @@ func (idx *LiveDeviceIndex) Heartbeat(slot, observedEpoch, nowEpoch uint32) erro
 }
 
 // IsLive reports presence. true iff epoch[slot] <= nowEpoch AND
-// nowEpoch-epoch[slot] <= 45. The epoch<=now half is the fail-closed
-// guard: a corrupted/garbage FUTURE epoch reads DEAD, never live.
+// nowEpoch-epoch[slot] < 45. The exclusive upper bound matches production
+// SQL `last_seen_at > now() - interval '45 seconds'` (dead at exactly 45s).
+// The epoch<=now half is the fail-closed guard: a corrupted/garbage
+// FUTURE epoch reads DEAD, never live.
+//
+// Heartbeat still *accepts* an observation of age==45 (same as
+// resolveHeartbeatObservation); writing that stamp does not make the
+// slot live, just as SQL would not treat last_seen_at = now()-45s as live.
 //
 // A never-heartbeated slot has epoch 0. With a real unix now that is
-// stale (now-0 > 45) and so DEAD. Out-of-range slots are DEAD.
+// stale (now-0 >= 45) and so DEAD. Out-of-range slots are DEAD.
 //
 // Lock-free: a single atomic load of the epoch word.
 func (idx *LiveDeviceIndex) IsLive(slot, nowEpoch uint32) bool {
@@ -119,13 +126,14 @@ func (idx *LiveDeviceIndex) IsLive(slot, nowEpoch uint32) bool {
 		return false
 	}
 	epoch := atomic.LoadUint32(&idx.epochs[slot])
-	return epoch <= nowEpoch && nowEpoch-epoch <= liveDeviceWindowEpochs
+	return epoch <= nowEpoch && nowEpoch-epoch < liveDeviceWindowEpochs
 }
 
 // Tick expires the oldest wheel bucket(s) at nowEpoch. Cost is O(devices
 // actually sitting in those buckets), which after a regular 1s tick is
 // the cohort that just aged out. IsLive does not depend on Tick: a device
-// that stops at T0 is DEAD by T0+46s (age 46 > 45) even if Tick never ran.
+// that stops at T0 is DEAD by T0+45s (age 45 is not < 45, matching SQL)
+// even if Tick never ran.
 //
 // Clock going backwards is ignored (fail closed — do not resurrect).
 func (idx *LiveDeviceIndex) Tick(nowEpoch uint32) {
@@ -147,9 +155,10 @@ func (idx *LiveDeviceIndex) Tick(nowEpoch uint32) {
 		}
 	}
 	for t := start; ; t++ {
-		if t > liveDeviceWindowEpochs {
-			// The second that just left the 45s window.
-			idx.expireBucket((t-liveDeviceWindowEpochs-1)%liveDeviceWheelBuckets, nowEpoch)
+		if t >= liveDeviceWindowEpochs {
+			// The second that just left the exclusive 45s window
+			// (age 45 is dead, matching SQL last_seen_at > now()-45s).
+			idx.expireBucket((t-liveDeviceWindowEpochs)%liveDeviceWheelBuckets, nowEpoch)
 		}
 		// Wheel wrap: drop the generation that would collide with t+1.
 		idx.expireBucket((t+1)%liveDeviceWheelBuckets, nowEpoch)
@@ -161,7 +170,8 @@ func (idx *LiveDeviceIndex) Tick(nowEpoch uint32) {
 }
 
 // LiveSlots returns a compact list of slots that are live at nowEpoch,
-// by walking the 46 in-window wheel buckets and filtering with IsLive.
+// by walking the 45 in-window wheel buckets (ages 0..44) and filtering
+// with IsLive.
 // Dead occupants left by a late Tick are dropped (fail closed). Under
 // concurrent Heartbeat a live slot may be omitted if it moves mid-walk
 // — that is a reduction in availability, never a false live.
@@ -175,7 +185,7 @@ func (idx *LiveDeviceIndex) LiveSlots(nowEpoch uint32) []uint32 {
 	var tmp []uint32
 	// Newest first so a concurrent Heartbeat (old bucket → observed
 	// bucket) cannot be appended twice; a miss is fail-closed.
-	for age := uint32(0); age <= liveDeviceWindowEpochs; age++ {
+	for age := uint32(0); age < liveDeviceWindowEpochs; age++ {
 		if age > nowEpoch {
 			break
 		}
