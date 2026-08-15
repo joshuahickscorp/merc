@@ -48,8 +48,15 @@ type Store struct {
 	liveIndex     *LiveDeviceIndex
 	slotCache     sync.Map // vestigial worker device_slot cache (uuid.UUID → uint32); no longer read by the shadow after the offer-grain re-key. See liveness_shadow.go.
 	// offerSlotCache keys the live index by OFFER, not worker: the money-selection
-	// liveness plane is per-(worker_id, runtime_profile_id). offerSlotKey → uint32.
+	// liveness plane is per-(worker_id, runtime_profile_id).
+	// offerSlotKey → offerBinding (slot + the supplier and capacity the durable
+	// UPDATE's WHERE clause would have checked). Invalidated on re-registration.
 	offerSlotCache sync.Map
+	// offerPersistCache records what the last SUCCESSFUL durable heartbeat write
+	// actually persisted per offer (offerSlotKey → offerPersistState). It exists
+	// so the flag-ON path can skip a durable transaction for a heartbeat that
+	// would change nothing. Never consulted while the flag is off.
+	offerPersistCache sync.Map
 }
 
 func NewStore(pool *pgxpool.Pool) *Store {

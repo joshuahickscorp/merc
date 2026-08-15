@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -140,10 +141,28 @@ type livenessCoalescer struct {
 
 	flushCount atomic.Int64
 	itemCount  atomic.Int64
+
+	// flushSem bounds concurrent detached flushes. It is used only by the
+	// fire-and-forget path (flag ON), where no caller is blocked on durability
+	// and a stalled PostgreSQL would otherwise grow flushers without limit.
+	// Blocking submitters keep their original inline flush and are unaffected.
+	flushSem chan struct{}
 }
 
+// maxDetachedLivenessFlushes bounds in-flight detached flushes. Acquiring a slot
+// BLOCKS rather than dropping the batch: the durable row still carries offer
+// state that authorize reads (status, warmth, capacity — see the write
+// classification), so a dropped batch could strand a DRAINING offer as ACTIVE.
+// Blocking degrades to the pre-existing backpressure under a stalled
+// PostgreSQL, which is the behaviour callers already had.
+const maxDetachedLivenessFlushes = 4
+
 func newLivenessCoalescer(store *Store, cfg livenessBatchConfig) *livenessCoalescer {
-	return &livenessCoalescer{store: store, cfg: cfg}
+	return &livenessCoalescer{
+		store:    store,
+		cfg:      cfg,
+		flushSem: make(chan struct{}, maxDetachedLivenessFlushes),
+	}
 }
 
 func (c *livenessCoalescer) close() {
@@ -166,11 +185,29 @@ func (c *livenessCoalescer) close() {
 
 // submit enqueues one heartbeat and waits until it is durable or ctx ends.
 func (c *livenessCoalescer) submit(ctx context.Context, worker WorkerAuth, hb RealtimeOfferHeartbeat, observedAt time.Time) error {
+	return c.enqueue(ctx, worker, hb, observedAt, true)
+}
+
+// submitDetached enqueues one heartbeat for monitoring persistence WITHOUT
+// waiting for durability. Used only when the live index is the liveness
+// authority (flag ON): the answer to "is this offer alive?" has already been
+// recorded in-process, so the durable write is history, not the fast path.
+func (c *livenessCoalescer) submitDetached(worker WorkerAuth, hb RealtimeOfferHeartbeat, observedAt time.Time) {
+	_ = c.enqueue(context.Background(), worker, hb, observedAt, false)
+}
+
+// enqueue is the shared body. wait=true is the original blocking contract,
+// byte-identical in behaviour to what callers had before; wait=false returns as
+// soon as the row is queued and dispatches flushes onto bounded background
+// goroutines instead of the caller's stack.
+func (c *livenessCoalescer) enqueue(ctx context.Context, worker WorkerAuth, hb RealtimeOfferHeartbeat, observedAt time.Time, wait bool) error {
 	item := &livenessHeartbeatItem{
 		worker:     worker,
 		hb:         hb,
 		observedAt: observedAt,
-		done:       make(chan error, 1),
+	}
+	if wait {
+		item.done = make(chan error, 1)
 	}
 	c.mu.Lock()
 	if c.closed {
@@ -191,7 +228,7 @@ func (c *livenessCoalescer) submit(ctx context.Context, worker WorkerAuth, hb Re
 			c.timer = nil
 		}
 		c.mu.Unlock()
-		c.flush(batch)
+		c.dispatch(batch, wait)
 	} else {
 		if c.timer == nil {
 			interval := c.cfg.FlushInterval
@@ -205,7 +242,7 @@ func (c *livenessCoalescer) submit(ctx context.Context, worker WorkerAuth, hb Re
 				batch := c.pending
 				c.pending = nil
 				c.mu.Unlock()
-				c.flush(batch)
+				c.dispatch(batch, wait)
 			} else {
 				c.timer = time.AfterFunc(interval, c.timerFlush)
 				c.mu.Unlock()
@@ -215,12 +252,34 @@ func (c *livenessCoalescer) submit(ctx context.Context, worker WorkerAuth, hb Re
 		}
 	}
 
+	if !wait {
+		return nil
+	}
 	select {
 	case err := <-item.done:
 		return err
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+}
+
+// dispatch runs a batch inline for blocking submitters (unchanged behaviour) or
+// on a bounded background goroutine for detached ones. No batch is ever dropped:
+// it carries offer state (status, warmth, capacity) that authorize reads, not
+// just a liveness stamp.
+func (c *livenessCoalescer) dispatch(batch []*livenessHeartbeatItem, inline bool) {
+	if len(batch) == 0 {
+		return
+	}
+	if inline {
+		c.flush(batch)
+		return
+	}
+	c.flushSem <- struct{}{}
+	go func() {
+		defer func() { <-c.flushSem }()
+		c.flush(batch)
+	}()
 }
 
 func (c *livenessCoalescer) timerFlush() {
@@ -233,7 +292,19 @@ func (c *livenessCoalescer) timerFlush() {
 	batch := c.pending
 	c.pending = nil
 	c.mu.Unlock()
-	c.flush(batch)
+	// Blocking submitters are waiting on this batch, so flush it on the timer
+	// goroutine exactly as before. A batch with no waiters is detached work and
+	// must not stall the runtime timer on a slow PostgreSQL.
+	c.dispatch(batch, batchHasWaiter(batch))
+}
+
+func batchHasWaiter(batch []*livenessHeartbeatItem) bool {
+	for _, item := range batch {
+		if item.done != nil {
+			return true
+		}
+	}
+	return false
 }
 
 func (c *livenessCoalescer) flush(batch []*livenessHeartbeatItem) {
@@ -269,24 +340,50 @@ func (s *Store) flushLivenessHeartbeatBatch(ctx context.Context, batch []*livene
 	// a lone heartbeat arrives.
 	if len(batch) == 1 {
 		errs[0] = s.heartbeatRealtimeOfferOne(ctx, batch[0].worker, batch[0].hb, batch[0].observedAt)
+		if errs[0] == nil {
+			s.recordDurableHeartbeat(batch[0].worker, batch[0].hb, time.Now())
+		}
 		return errs
 	}
 
-	workerIDs := make([]uuid.UUID, len(batch))
-	supplierIDs := make([]uuid.UUID, len(batch))
-	profileIDs := make([]string, len(batch))
-	warmths := make([]string, len(batch))
-	availables := make([]int32, len(batch))
-	statuses := make([]string, len(batch))
-	observeds := make([]time.Time, len(batch))
+	// Collapse repeats of the same offer to the LATEST observation before they
+	// reach unnest. `UPDATE … FROM unnest(...)` with two source rows for one
+	// target picks an unspecified row, so without this an ACTIVE heartbeat could
+	// overwrite the FAILED one that followed it — a dead worker left routable.
+	// Ties fall back to arrival order, which is receipt order for a given agent.
+	// The key matches the UPDATE's WHERE clause, supplier included: keying on
+	// (worker, profile) alone would let a wrong-supplier item evict the
+	// legitimate one for the same offer and fail them both.
+	winner := make(map[string]int, len(batch))
 	for i, item := range batch {
-		workerIDs[i] = item.worker.WorkerID
-		supplierIDs[i] = item.worker.SupplierID
-		profileIDs[i] = item.hb.RuntimeProfileID
-		warmths[i] = item.hb.Warmth
-		availables[i] = int32(item.hb.AvailableSequences)
-		statuses[i] = item.hb.Status
-		observeds[i] = item.observedAt.UTC()
+		key := updatedRowKey(item.worker.WorkerID, item.worker.SupplierID, item.hb.RuntimeProfileID)
+		if prev, ok := winner[key]; ok && batch[prev].observedAt.After(item.observedAt) {
+			continue
+		}
+		winner[key] = i
+	}
+	order := make([]int, 0, len(winner))
+	for _, i := range winner {
+		order = append(order, i)
+	}
+	sort.Ints(order)
+
+	workerIDs := make([]uuid.UUID, len(order))
+	supplierIDs := make([]uuid.UUID, len(order))
+	profileIDs := make([]string, len(order))
+	warmths := make([]string, len(order))
+	availables := make([]int32, len(order))
+	statuses := make([]string, len(order))
+	observeds := make([]time.Time, len(order))
+	for n, i := range order {
+		item := batch[i]
+		workerIDs[n] = item.worker.WorkerID
+		supplierIDs[n] = item.worker.SupplierID
+		profileIDs[n] = item.hb.RuntimeProfileID
+		warmths[n] = item.hb.Warmth
+		availables[n] = int32(item.hb.AvailableSequences)
+		statuses[n] = item.hb.Status
+		observeds[n] = item.observedAt.UTC()
 	}
 
 	tx, err := s.pool.Begin(ctx)
@@ -357,8 +454,7 @@ func (s *Store) flushLivenessHeartbeatBatch(ctx context.Context, batch []*livene
 			}
 			return errs
 		}
-		key := u.workerID.String() + "|" + u.profileID
-		updated[key] = u
+		updated[updatedRowKey(u.workerID, u.supplierID, u.profileID)] = u
 	}
 	if err := rows.Err(); err != nil {
 		for i := range errs {
@@ -418,12 +514,28 @@ func (s *Store) flushLivenessHeartbeatBatch(ctx context.Context, batch []*livene
 	}
 
 	for i, item := range batch {
-		key := item.worker.WorkerID.String() + "|" + item.hb.RuntimeProfileID
-		if _, ok := updated[key]; !ok {
+		if _, ok := updated[updatedRowKey(item.worker.WorkerID, item.worker.SupplierID, item.hb.RuntimeProfileID)]; !ok {
 			errs[i] = errNotFound
 		}
 	}
+	// Record only the rows that actually reached the statement. A superseded
+	// repeat did not persist its own payload, and claiming it did would let the
+	// change-gate skip the write that carries the newer state.
+	persistedAt := time.Now()
+	for _, i := range order {
+		if errs[i] == nil {
+			s.recordDurableHeartbeat(batch[i].worker, batch[i].hb, persistedAt)
+		}
+	}
 	return errs
+}
+
+// updatedRowKey identifies a successfully updated offer. supplier_id is part of
+// the key because the UPDATE matches on it: without it, a batch containing a
+// correct-supplier and a wrong-supplier heartbeat for the same
+// (worker, profile) would report success to both.
+func updatedRowKey(workerID, supplierID uuid.UUID, profileID string) string {
+	return workerID.String() + "|" + supplierID.String() + "|" + profileID
 }
 
 // heartbeatRealtimeOfferOne is the single-device durable write. last_seen_at is

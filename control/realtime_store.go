@@ -418,6 +418,10 @@ func (s *Store) UpsertRealtimeOffer(ctx context.Context, worker WorkerAuth, regi
 	// under the flag-ON index. Shadow-only: ignored while the flag is off; lost on
 	// restart (fail-closed) and reconstructed by the next heartbeat.
 	serverNow := time.Now().UTC()
+	// Registration may have changed max_active_sequences (or, for a re-bound
+	// offer, the supplier). Drop the cached binding so the flag-ON admission gate
+	// re-reads the capacity it validates heartbeats against.
+	s.forgetOfferBinding(worker.WorkerID, registration.RuntimeProfileID)
 	s.shadowIndexHeartbeat(worker, registration.RuntimeProfileID, serverNow, serverNow)
 	return nil
 }
@@ -432,6 +436,36 @@ func (s *Store) HeartbeatRealtimeOffer(ctx context.Context, worker WorkerAuth, h
 		return err
 	}
 	coalescer := s.ensureLivenessCoalescer()
+	if livenessIndexAuthoritative() {
+		// The live index is the liveness authority, so the durable row is no
+		// longer the thing that answers "is this offer alive?". Admit the
+		// heartbeat against the same conditions the durable UPDATE's WHERE
+		// clause checks, record presence in-process, and let PostgreSQL catch
+		// up on its own schedule as monitoring/history.
+		binding, err := s.admitIndexHeartbeat(worker, hb)
+		if err != nil {
+			return err
+		}
+		s.indexHeartbeatSlot(binding.slot, observedAt, serverNow)
+		if !s.durableHeartbeatNeeded(worker, hb, serverNow) {
+			// Identical repeat inside the refresh interval: liveness is already
+			// recorded in-process and nothing durable would change. This is the
+			// write that gets retired.
+			return nil
+		}
+		if coalescer != nil {
+			coalescer.submitDetached(worker, hb, observedAt)
+			return nil
+		}
+		// Batching disabled (test configuration): there is no queue to detach
+		// onto, so persist inline. Presence is already recorded, so a durable
+		// failure here costs history, not liveness.
+		if err := s.heartbeatRealtimeOfferOne(ctx, worker, hb, observedAt); err != nil {
+			return err
+		}
+		s.recordDurableHeartbeat(worker, hb, time.Now())
+		return nil
+	}
 	var writeErr error
 	if coalescer != nil {
 		writeErr = coalescer.submit(ctx, worker, hb, observedAt)
