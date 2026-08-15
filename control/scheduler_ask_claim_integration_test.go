@@ -16,6 +16,7 @@ import (
 // previously asserted by string-matching the generated SQL rather than by
 // running it.
 func TestClaimTasksTxDefersToACheaperAskingWorker(t *testing.T) {
+	t.Parallel()
 	// Isolated DB: a shared queue with older jobs lets the dear worker claim
 	// unrelated work and masks the ask-deferral assertion.
 	ctx, store, pool := openIsolatedTestStore(t)

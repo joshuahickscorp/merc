@@ -203,6 +203,7 @@ func seedBatchFeeFixture(
 }
 
 func TestBatchFeeAllocationIsDurableConcurrentAndFailClosed(t *testing.T) {
+	t.Parallel()
 	ctx, store, pool := openIsolatedTestStore(t)
 	pi := "pi_batch_fee_" + strings.ReplaceAll(uuid.NewString(), "-", "")
 	buyerID, batchID, jobIDs := seedBatchFeeFixture(t, ctx, pool, pi, []int64{100, 1, 1}, 2)
@@ -460,6 +461,7 @@ func TestBatchFeeAllocationIsDurableConcurrentAndFailClosed(t *testing.T) {
 }
 
 func TestBatchFeeAllocationSchemaUpgradeLabelsAndPreservesLegacyFacts(t *testing.T) {
+	t.Parallel()
 	ctx, store, pool := openIsolatedTestStore(t)
 	pi := "pi_upgrade_fee_" + strings.ReplaceAll(uuid.NewString(), "-", "")
 	_, batchID, jobIDs := seedBatchFeeFixture(

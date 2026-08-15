@@ -118,6 +118,7 @@ func TestPerTaskClassesCannotBeClaimedJobWide(t *testing.T) {
 // in the database as well as in Go — a caller that bypasses the Go path cannot
 // make a primary task claim to be a probe.
 func TestTaskVerificationClassCannotContradictItsFlags(t *testing.T) {
+	t.Parallel()
 	if err := validateTaskVerificationClass(VerificationClassHoneypot, false, false); err == nil {
 		t.Error("a primary task was labelled HONEYPOT")
 	}

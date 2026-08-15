@@ -334,6 +334,7 @@ func TestCreateWorkerTokenCannotProduceOrdinaryWorkEligibleWorker(t *testing.T) 
 // TestStripeAcctUniquenessAtEnrolmentAndConstraint: named refusal at enrolment
 // and UNIQUE holds if the check is bypassed.
 func TestStripeAcctUniquenessAtEnrolmentAndConstraint(t *testing.T) {
+	t.Parallel()
 	ctx, store, pool := openIsolatedTestStore(t)
 	suffix := uuid.NewString()
 	acct := "acct_shared_" + suffix[:8]

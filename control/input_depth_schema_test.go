@@ -12,6 +12,7 @@ import (
 // TestInputDepthSchemaAppliesTwice proves the depth-band migration is
 // apply-twice-safe (IF NOT EXISTS plus idempotent constraint validation).
 func TestInputDepthSchemaAppliesTwice(t *testing.T) {
+	t.Parallel()
 	ctx, store, _ := openIsolatedTestStore(t)
 	// openIsolatedTestStore already migrated once; migrate again must be a no-op.
 	second, cancel := context.WithTimeout(ctx, 60*time.Second)

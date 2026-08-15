@@ -205,6 +205,7 @@ func TestLegacyPrepaidBalanceMigrationLabelsFromCADOperationsHistory(t *testing.
 }
 
 func TestLegacyPrepaidBalanceMigrationFailsWithoutDeterminableCurrency(t *testing.T) {
+	t.Parallel()
 	// Non-zero unlabeled cash with no operations history must fail Migrate()
 	// loudly — never default to usd.
 	ctx, store, pool := openIsolatedTestStore(t)
@@ -224,6 +225,7 @@ func TestLegacyPrepaidBalanceMigrationFailsWithoutDeterminableCurrency(t *testin
 }
 
 func TestLegacyPrepaidZeroBalanceMigrationAcceptsPlaceholderLabel(t *testing.T) {
+	t.Parallel()
 	// Zero balances hold no cash; a placeholder label is safe when history is empty.
 	ctx, store, pool := openIsolatedTestStore(t)
 	buyerID := uuid.New()

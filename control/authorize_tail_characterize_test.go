@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"math"
-	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -15,7 +14,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // TestAuthorizeTailCharacterize separates authorize / LookupAPIKey tails into
@@ -616,48 +614,6 @@ func TestAuthorizeTailCharacterize(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Logf("wrote %s", path)
-}
-
-func openIsolatedTestStoreWithMaxConns(t *testing.T, maxConns int32) (*Store, *pgxpool.Pool) {
-	t.Helper()
-	base := requireTestDatabase(t)
-	parsed, err := url.Parse(base)
-	mustf(t, err, "parse MERC_TEST_DATABASE_URL: %v")
-	name := "cx_iso_" + strings.ReplaceAll(uuid.NewString(), "-", "")[:24]
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
-	t.Cleanup(cancel)
-
-	admin := *parsed
-	admin.Path = "/postgres"
-	adminPool, err := pgxpool.New(ctx, admin.String())
-	mustf(t, err, "connect to postgres for database creation: %v")
-	if _, err := adminPool.Exec(ctx, `CREATE DATABASE `+name); err != nil {
-		adminPool.Close()
-		t.Fatalf("create isolated database: %v", err)
-	}
-	adminPool.Close()
-	t.Cleanup(func() {
-		c, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		p, err := pgxpool.New(c, admin.String())
-		if err != nil {
-			return
-		}
-		defer p.Close()
-		_, _ = p.Exec(c, `DROP DATABASE IF EXISTS `+name+` WITH (FORCE)`)
-	})
-
-	own := *parsed
-	own.Path = "/" + name
-	cfg, err := pgxpool.ParseConfig(own.String())
-	must(t, err)
-	cfg.MaxConns = maxConns
-	pool, err := pgxpool.NewWithConfig(ctx, cfg)
-	mustf(t, err, "connect isolated database: %v")
-	t.Cleanup(pool.Close)
-	store := NewStore(pool)
-	mustf(t, store.Migrate(ctx), "apply canonical schema: %v")
-	return store, pool
 }
 
 func measureConcurrentTail(t *testing.T, concurrency, samples int, fn func() time.Duration) []time.Duration {

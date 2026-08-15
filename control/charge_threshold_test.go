@@ -31,6 +31,7 @@ func TestStripeMinimumIsNotAnEconomicThreshold(t *testing.T) {
 // The regression: a buyer sitting on a small balance must NOT be charged when
 // the batch merely gets old.
 func TestAgedSubThresholdBalanceIsNotCharged(t *testing.T) {
+	t.Parallel()
 	ctx, store, pool := openIsolatedTestStore(t)
 
 	buyer := uuid.New()
@@ -62,6 +63,7 @@ func TestAgedSubThresholdBalanceIsNotCharged(t *testing.T) {
 // The threshold must not become a black hole either: once the balance is worth
 // collecting, ageing still selects it.
 func TestBalanceAtThresholdIsCharged(t *testing.T) {
+	t.Parallel()
 	ctx, store, pool := openIsolatedTestStore(t)
 
 	buyer := uuid.New()

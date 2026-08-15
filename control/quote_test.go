@@ -11,6 +11,7 @@ import (
 )
 
 func TestQuoteWithoutHoneypotReportsVerificationUnavailableBeforePricing(t *testing.T) {
+	t.Parallel()
 	ctx, store, _ := openIsolatedTestStore(t)
 	server := &Server{store: store}
 	sub := jobSubmit{

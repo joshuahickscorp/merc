@@ -97,6 +97,7 @@ func intPtr(v int) *int { return &v }
 // 1. SLA-bound task is not deferred.
 // elapsed(~0) + askDeferralWindow(20) + eta(10) = 30 > guarantee(15) → wait does not fit → claim now.
 func TestClaimTasksTxSLABoundTaskIsNotDeferred(t *testing.T) {
+	t.Parallel()
 	ctx, store, pool := openIsolatedTestStore(t)
 	cheap, dear, _, taskID := setupSLADeferFixture(t, ctx, store, pool, intPtr(15), intPtr(10))
 	_ = cheap
@@ -110,6 +111,7 @@ func TestClaimTasksTxSLABoundTaskIsNotDeferred(t *testing.T) {
 // 2. Generous SLA still defers — cost saving is not lost when the wait fits.
 // elapsed(~0) + 20 + eta(10) = 30 <= guarantee(3600) → defer as today.
 func TestClaimTasksTxGenerousSLAStillDefers(t *testing.T) {
+	t.Parallel()
 	ctx, store, pool := openIsolatedTestStore(t)
 	cheap, dear, _, taskID := setupSLADeferFixture(t, ctx, store, pool, intPtr(3600), intPtr(10))
 
@@ -127,6 +129,7 @@ func TestClaimTasksTxGenerousSLAStillDefers(t *testing.T) {
 // 3. Unknown prediction does not defer (fail closed).
 // Guarantee set, eta_secs NULL → cannot show the wait fits → do not defer.
 func TestClaimTasksTxUnknownETADoesNotDefer(t *testing.T) {
+	t.Parallel()
 	ctx, store, pool := openIsolatedTestStore(t)
 	cheap, dear, _, taskID := setupSLADeferFixture(t, ctx, store, pool, intPtr(3600), nil)
 	_ = cheap
@@ -139,6 +142,7 @@ func TestClaimTasksTxUnknownETADoesNotDefer(t *testing.T) {
 
 // 4. No guarantee behaves exactly as today — expensive worker is held; cheap takes it.
 func TestClaimTasksTxNoSLAGuaranteeDefersAsToday(t *testing.T) {
+	t.Parallel()
 	ctx, store, pool := openIsolatedTestStore(t)
 	// Both NULL: no SLA columns set. Also covers sla_guarantee_secs=0.
 	cheap, dear, _, taskID := setupSLADeferFixture(t, ctx, store, pool, nil, nil)
@@ -156,6 +160,7 @@ func TestClaimTasksTxNoSLAGuaranteeDefersAsToday(t *testing.T) {
 
 // 5. The bound still holds: after askDeferralWindow an SLA-less task is claimable by anyone.
 func TestClaimTasksTxAskDeferralBoundStillHoldsWithoutSLA(t *testing.T) {
+	t.Parallel()
 	ctx, store, pool := openIsolatedTestStore(t)
 	cheap, dear, _, taskID := setupSLADeferFixture(t, ctx, store, pool, nil, nil)
 

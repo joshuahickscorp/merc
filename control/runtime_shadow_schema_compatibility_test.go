@@ -16,6 +16,7 @@ import (
 // The two schema generations retain their own columns. Neither migration is
 // allowed to rewrite an immutable decision into the other generation's terms.
 func TestRuntimeShadowSchemaSurvivesApplicationRollbackRoundTrip(t *testing.T) {
+	t.Parallel()
 	ctx, store, pool := openIsolatedTestStore(t)
 	matrix := strings.Repeat("a", 64)
 	currentID := uuid.New()

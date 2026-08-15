@@ -103,6 +103,18 @@ func (s *Store) acquireSchemaMigrationLock(ctx context.Context) (*pgxpool.Conn, 
 }
 
 func (s *Store) Migrate(ctx context.Context) error {
+	return s.migrate(ctx, true)
+}
+
+// adoptMigratedSchema runs the post-DDL half of Migrate against a database
+// that already has control/schema.sql (a template clone). Catalog/profile
+// sync and activation load still run so a test that installed in-memory
+// authority before opening the store gets the same seed a fresh apply would.
+func (s *Store) adoptMigratedSchema(ctx context.Context) error {
+	return s.migrate(ctx, false)
+}
+
+func (s *Store) migrate(ctx context.Context, applyCanonicalSchema bool) error {
 	conn, release, err := s.acquireSchemaMigrationLock(ctx)
 	if err != nil {
 		return err
@@ -122,9 +134,11 @@ func (s *Store) Migrate(ctx context.Context) error {
 			return fmt.Errorf("set prepaid legacy currency override: %w", err)
 		}
 	}
-	_, err = conn.Conn().PgConn().Exec(ctx, canonicalSchema).ReadAll()
-	if err != nil {
-		return fmt.Errorf("apply canonical schema: %w", err)
+	if applyCanonicalSchema {
+		_, err = conn.Conn().PgConn().Exec(ctx, canonicalSchema).ReadAll()
+		if err != nil {
+			return fmt.Errorf("apply canonical schema: %w", err)
+		}
 	}
 	if err := syncRuntimeCatalog(ctx, conn); err != nil {
 		return err

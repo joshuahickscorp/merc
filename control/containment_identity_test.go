@@ -330,6 +330,7 @@ func TestLinkedSupplierCannotClaimVerificationTasks(t *testing.T) {
 // ── Test 6: job with no independent supplier is refused, not settled ─────────
 
 func TestNoIndependentSupplierIsRefusedNotSettled(t *testing.T) {
+	t.Parallel()
 	// Platform-wide online-supplier count must not be polluted by sibling tests.
 	ctx, store, pool := openIsolatedTestStore(t)
 	suffix := uuid.NewString()

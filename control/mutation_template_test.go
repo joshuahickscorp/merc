@@ -24,4 +24,7 @@ func TestMutationTemplateSchema(t *testing.T) {
 	mustf(t, err, "connect mutation template database: %v")
 	defer pool.Close()
 	mustf(t, NewStore(pool).Migrate(ctx), "migrate mutation template database: %v")
+	if os.Getenv("MERC_SCHEMA_TEMPLATE_APPLY_TWICE") == "1" {
+		mustf(t, NewStore(pool).Migrate(ctx), "re-apply canonical schema for template stamp: %v")
+	}
 }

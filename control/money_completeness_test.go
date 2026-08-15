@@ -333,6 +333,7 @@ func TestLedgerAmountDomainWideIntegration(t *testing.T) {
 }
 
 func TestReversalCASTerminalIntegration(t *testing.T) {
+	t.Parallel()
 	// Own database: processReversals claims platform-wide, so a sibling test's
 	// pending row would be swept by this test and vice versa.
 	ctx, store, pool := openIsolatedTestStore(t)

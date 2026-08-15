@@ -346,6 +346,8 @@ var declaredMoneyAuthority = []string{
 	"Store.MeasuredSupplierLiabilityProxies",              // runtime_cell_cost.go
 	"Store.MeasuredSupplierLiabilityProxiesByHardware",    // runtime_cell_cost.go
 	"Store.Migrate",                                       // store.go
+	"Store.adoptMigratedSchema",                           // store.go
+	"Store.migrate",                                       // store.go
 	"Store.ReconcileBuyerChargeOperation",                 // buyer_charge_operations.go
 	"Store.RecoverOrphanEnvelopeSpends",                   // execution_envelope.go
 	"Store.RecoverStaleRealtimeContracts",                 // realtime_store.go

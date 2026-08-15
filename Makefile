@@ -1,6 +1,6 @@
 DATABASE_URL ?= postgres://cx:cx@localhost:5432/cx?sslmode=disable
 
-.PHONY: credentials credentials-check droplet-deploy private-canary realtime-sdk-conformance up down dev-up dev-down test-unit license-register release-gates alert-delivery-test backup-age-metric-test migrate seed control agent-run agent-bench agent-characterize prove-local metrics build fmt test ci audit loc docker-build install uninstall backup restore-drill backup-envelope-test local-independent-restore local-production-tls local-rollback restart-storm-local technical-exercises alert-check alert-page render-staging validate-staging soak-15m soak-2h soak-24h soak-24h-persistent soak-24h-status release-doctor stripe-simulate stripe-check stripe-matrix secret-audit approvals-check mutation-test mutation-test-parallel mutation-fast mutation-authority mutation-full mutation-deep
+.PHONY: credentials credentials-check droplet-deploy private-canary realtime-sdk-conformance up down dev-up dev-down test-unit license-register release-gates alert-delivery-test backup-age-metric-test migrate seed control agent-run agent-bench agent-characterize prove-local metrics build fmt test test-integration ci audit loc docker-build install uninstall backup restore-drill backup-envelope-test local-independent-restore local-production-tls local-rollback restart-storm-local technical-exercises alert-check alert-page render-staging validate-staging soak-15m soak-2h soak-24h soak-24h-persistent soak-24h-status release-doctor stripe-simulate stripe-check stripe-matrix secret-audit approvals-check mutation-test mutation-test-parallel mutation-fast mutation-authority mutation-full mutation-deep
 
 up:
 	docker compose up -d --build
@@ -64,15 +64,31 @@ CI_TEST_ENV = MERC_TEST_DATABASE_URL="$(MERC_TEST_DATABASE_URL)" \
   MERC_TEST_S3_SECRET_KEY="$(MERC_TEST_S3_SECRET_KEY)" \
   MERC_LLAMA_EMBED_URL="$(MERC_LLAMA_EMBED_URL)"
 
+# Isolated databases clone a schema-stamped template (CREATE DATABASE TEMPLATE)
+# instead of applying control/schema.sql per test. ensure-schema-template.sh
+# rebuilds merc_schema_ddl_<sha16> when schema.sql changes; a stale name is refused.
+# -parallel 16 matches the mutation-gate worker default.
+#
 # -timeout 45m, not the 10m default. The suite grew agent-PROCESS tests: two
 # merc-agent binaries cold-load and benchmark both retained models before they
 # register, so it runs about fourteen minutes on a host that has object storage
 # and a local engine. The default killed `make ci` mid-run with a ten-minute
 # panic, which read as a hung test rather than as a budget.
+#
+# `test` is the fast control loop: no agent-subprocess integration tag.
+# `test-integration` is TestFirstCompleteLoopThroughThePublicAPI (real merc-agent).
+# `ci` runs both tiers together (fast + integration overlapping).
 test:
-	cd control && $(CI_TEST_ENV) bash ../scripts/with-isolated-test-storage.sh bash ../scripts/with-isolated-test-db.sh go test -timeout 45m ./...
+	@template="$$(MERC_TEST_DATABASE_URL="$(MERC_TEST_DATABASE_URL)" bash scripts/ensure-schema-template.sh)"; \
+	cd control && $(CI_TEST_ENV) MERC_ISOLATED_TEST_DB_TEMPLATE="$$template" bash ../scripts/with-isolated-test-storage.sh bash ../scripts/with-isolated-test-db.sh go test -timeout 45m -parallel 16 ./...
 	cd agent && cargo test
 	bash scripts/verify-python-sdk-package.sh
+
+# Agent-subprocess public-API loop. Requires `cargo build --release` in agent/
+# so merc-agent exists; object storage comes from with-isolated-test-storage.sh.
+test-integration:
+	@template="$$(MERC_TEST_DATABASE_URL="$(MERC_TEST_DATABASE_URL)" bash scripts/ensure-schema-template.sh)"; \
+	cd control && $(CI_TEST_ENV) MERC_ISOLATED_TEST_DB_TEMPLATE="$$template" bash ../scripts/with-isolated-test-storage.sh bash ../scripts/with-isolated-test-db.sh go test -timeout 45m -tags=integration -parallel 16 -run '^TestFirstCompleteLoopThroughThePublicAPI$$' ./...
 
 # The fast loop: unit tests only, database suite explicitly opted out.  CI never
 # sets MERC_ALLOW_SKIPPING_DB_TESTS, so the money and scheduling tests cannot stop
@@ -95,7 +111,7 @@ ci:
 	# cannot enroll against one capability digest and dispatch another.
 	cd agent && cargo build --release
 	cd control && test -z "$$(gofmt -l .)" && go vet ./...
-	cd control && $(CI_TEST_ENV) bash ../scripts/with-isolated-test-storage.sh bash ../scripts/with-isolated-test-db.sh go test -timeout 45m -json ./... > "$(CI_TEST_JSON)"; \
+	$(CI_TEST_ENV) bash "$(CURDIR)/scripts/run-ci-control-tests.sh" "$(CI_TEST_JSON)"; \
 	  status=$$?; python3 "$(CURDIR)/scripts/summarize-go-test-json.py" "$(CI_TEST_JSON)"; \
 	  exit $$status
 	@bash scripts/assert-no-test-skips.sh "$(CI_TEST_JSON)"
@@ -135,6 +151,7 @@ ci:
 	python3 scripts/test-mutation-preflight-cache.py
 	python3 scripts/test-mutation-manifest.py
 	bash scripts/test-with-isolated-test-db.sh
+	MERC_TEST_DATABASE_URL="$(MERC_TEST_DATABASE_URL)" bash scripts/test-schema-template.sh
 	bash scripts/test-mutation-gate.sh
 	bash scripts/test-mutation-oracle-strategy.sh
 	bash scripts/test-readiness-gaming.sh

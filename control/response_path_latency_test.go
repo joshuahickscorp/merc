@@ -121,6 +121,7 @@ func TestAdmissionTelemetryFullQueueFallsBackSync(t *testing.T) {
 // TestLookupAPIKeyCacheRevokeIsImmediate proves same-process revoke is not
 // delayed by the cache: after RevokeAPIKey the next lookup must miss.
 func TestLookupAPIKeyCacheRevokeIsImmediate(t *testing.T) {
+	t.Parallel()
 	ctx, store, _ := openIsolatedTestStore(t)
 	buyerID, err := store.CreateBuyerAccount(ctx,
 		"key-cache-"+uuid.NewString()+"@example.test", "integration-password", 1)
@@ -149,6 +150,7 @@ func TestLookupAPIKeyCacheRevokeIsImmediate(t *testing.T) {
 // TestLookupAPIKeyCacheTTLBoundsStaleness proves a positive entry expires by
 // the documented multi-instance lag bound without an explicit invalidate.
 func TestLookupAPIKeyCacheTTLBoundsStaleness(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("TTL sleep")
 	}

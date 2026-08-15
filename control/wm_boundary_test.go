@@ -47,6 +47,7 @@ func mustAllow(t *testing.T, err error, label string) {
 // World Model V2.2 separation law: the world-model runtime roles cannot touch
 // authority. If this ever passes for a forbidden write, the separation is a lie.
 func TestWorldModelBoundaryFailsClosedAtTheDatabase(t *testing.T) {
+	t.Parallel()
 	ctx, _, pool := openIsolatedTestStore(t)
 	if err := BootstrapWorldModel(ctx, pool); err != nil {
 		t.Fatalf("bootstrap world model: %v", err)
@@ -89,6 +90,7 @@ func TestWorldModelBoundaryFailsClosedAtTheDatabase(t *testing.T) {
 // class (a WORKER_CLAIM cannot become CONTROL_PLANE_MEASURED). trust_state may
 // still escalate.
 func TestWorldModelEpistemicInvariants(t *testing.T) {
+	t.Parallel()
 	ctx, _, pool := openIsolatedTestStore(t)
 	if err := BootstrapWorldModel(ctx, pool); err != nil {
 		t.Fatalf("bootstrap world model: %v", err)

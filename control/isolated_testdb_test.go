@@ -2,7 +2,12 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
 	"net/url"
+	"os"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -10,6 +15,24 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// isolatedTestDBTemplateEnv is the same opt-in the suite wrapper already
+// understands (scripts/with-isolated-test-db.sh). When set to a schema-stamped
+// template, every isolated database is a PostgreSQL clone instead of an
+// 8164-line schema apply.
+const isolatedTestDBTemplateEnv = "MERC_ISOLATED_TEST_DB_TEMPLATE"
+
+// schemaTemplateNamePrefix is the Makefile/ensure-schema-template cache.
+// Names are merc_schema_<first 16 hex chars of sha256(schema.sql)>. A stale
+// cache from an older schema.sql cannot silently satisfy current tests.
+const schemaTemplateNamePrefix = "merc_schema_"
+
+var isolatedTemplateNameRe = regexp.MustCompile(`^[a-z][a-z0-9_]{2,60}$`)
+
+// defaultIsolatedTestMaxConns keeps 16 parallel isolated tests inside a
+// default PostgreSQL max_connections=100 budget while leaving enough
+// connections for one verification process (3) plus headroom (2).
+const defaultIsolatedTestMaxConns int32 = 5
 
 // openIsolatedTestStore gives one test its own database.
 //
@@ -24,11 +47,27 @@ import (
 // its subject actually requires.
 func openIsolatedTestStore(t *testing.T) (context.Context, *Store, *pgxpool.Pool) {
 	t.Helper()
+	return openIsolatedDatabase(t, 0)
+}
+
+func openIsolatedTestStoreWithMaxConns(t *testing.T, maxConns int32) (*Store, *pgxpool.Pool) {
+	t.Helper()
+	_, store, pool := openIsolatedDatabase(t, maxConns)
+	return store, pool
+}
+
+func openIsolatedDatabase(t *testing.T, maxConns int32) (context.Context, *Store, *pgxpool.Pool) {
+	t.Helper()
+	template := strings.TrimSpace(os.Getenv(isolatedTestDBTemplateEnv))
+	if err := validateIsolatedTestDBTemplate(template); err != nil {
+		t.Fatal(err)
+	}
 	// Migrate/loadActivationAtStartup adopts a process-wide activation snapshot.
 	// Restore the caller's snapshot so one DB test cannot quarantine later pure
 	// unit tests that read currentActivation().
 	previousActivation := activeRuntimeActivation.Load()
 	t.Cleanup(func() { activeRuntimeActivation.Store(previousActivation) })
+
 	base := requireTestDatabase(t)
 
 	parsed, err := url.Parse(base)
@@ -42,7 +81,11 @@ func openIsolatedTestStore(t *testing.T) (context.Context, *Store, *pgxpool.Pool
 	admin.Path = "/postgres"
 	adminPool, err := pgxpool.New(ctx, admin.String())
 	mustf(t, err, "connect to postgres for database creation: %v")
-	if _, err := adminPool.Exec(ctx, `CREATE DATABASE `+name); err != nil {
+	createSQL := `CREATE DATABASE ` + name
+	if template != "" {
+		createSQL += ` TEMPLATE ` + template
+	}
+	if _, err := adminPool.Exec(ctx, createSQL); err != nil {
 		adminPool.Close()
 		t.Fatalf("create isolated database: %v", err)
 	}
@@ -61,11 +104,53 @@ func openIsolatedTestStore(t *testing.T) (context.Context, *Store, *pgxpool.Pool
 
 	own := *parsed
 	own.Path = "/" + name
-	pool, err := pgxpool.New(ctx, own.String())
+	cfg, err := pgxpool.ParseConfig(own.String())
+	mustf(t, err, "parse isolated database config: %v")
+	if maxConns <= 0 {
+		maxConns = defaultIsolatedTestMaxConns
+	}
+	cfg.MaxConns = maxConns
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	mustf(t, err, "connect isolated database: %v")
 	t.Cleanup(pool.Close)
 
 	store := NewStore(pool)
-	mustf(t, store.Migrate(ctx), "apply canonical schema to isolated database: %v")
+	if template == "" {
+		mustf(t, store.Migrate(ctx), "apply canonical schema to isolated database: %v")
+	} else {
+		// Template clone already has schema.sql. Re-apply only catalog/profile
+		// sync and activation load so in-memory TEST_ONLY authority installed
+		// before this helper still seeds the isolated database.
+		mustf(t, store.adoptMigratedSchema(ctx), "adopt template clone: %v")
+	}
 	return ctx, store, pool
+}
+
+func canonicalSchemaSHA256() string {
+	sum := sha256.Sum256([]byte(canonicalSchema))
+	return hex.EncodeToString(sum[:])
+}
+
+func schemaTemplateDatabaseName(sha256hex string) string {
+	if len(sha256hex) < 16 {
+		return ""
+	}
+	return schemaTemplateNamePrefix + "ddl_" + sha256hex[:16]
+}
+
+func validateIsolatedTestDBTemplate(name string) error {
+	if name == "" {
+		return nil
+	}
+	if !isolatedTemplateNameRe.MatchString(name) {
+		return fmt.Errorf("%s: invalid template database name %q", isolatedTestDBTemplateEnv, name)
+	}
+	if strings.HasPrefix(name, schemaTemplateNamePrefix) {
+		want := schemaTemplateDatabaseName(canonicalSchemaSHA256())
+		if name != want {
+			return fmt.Errorf("%s=%q is stale for the embedded control/schema.sql (want %s); refusing to clone an old schema",
+				isolatedTestDBTemplateEnv, name, want)
+		}
+	}
+	return nil
 }

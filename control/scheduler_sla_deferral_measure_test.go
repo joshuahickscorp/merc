@@ -18,6 +18,7 @@ import (
 // /tmp/g054-claim-measure.txt). Not a correctness gate.
 
 func TestMeasureClaimPathSLADeferral(t *testing.T) {
+	t.Parallel()
 	ctx, store, pool := openIsolatedTestStore(t)
 	// Fixture matches the no-SLA regression case: cheaper_ask online, young task.
 	// EXPLAIN uses a non-mutating SELECT of the claim CTE so the plan is the
