@@ -778,3 +778,78 @@ func TestShadowIndexConcurrentHeartbeatPopulate(t *testing.T) {
 		}
 	}
 }
+
+// TestOfferIndexLiveGatesFailClosed exercises the G082 flip's per-offer liveness
+// decision (offerIndexLive) directly: it must return true only for a mapped,
+// heartbeating offer and fail closed (false) for unmapped, un-heartbeated, and
+// fresh-restart states — so the flag-ON selection path can never route to a stale
+// or unknown offer.
+func TestOfferIndexLiveGatesFailClosed(t *testing.T) {
+	ctx, store, pool := openIsolatedTestStore(t)
+	store.SetLivenessBatchConfigForTest(livenessBatchConfig{Enabled: false})
+	t.Setenv("MERC_TOKEN_KEY", "offerindexlive-key-32-bytes-min!!!!!")
+	installSettlementCurrencyForTest(t, "usd")
+	profile := sortedVLLMProfiles()[0]
+	now := time.Now().UTC()
+
+	// Unknown offer before any seed: fail closed.
+	if store.offerIndexLive(uuid.New(), profile.RuntimeProfileID, now) {
+		t.Fatal("offerIndexLive true for an unmapped offer — must fail closed")
+	}
+
+	worker := seedOneRealtimeOffer(t, ctx, store, pool, profile)
+
+	// Registration is a liveness assertion (last_seen_at=now()) and populates the
+	// index, so a just-registered offer is live under flag ON — parity with the SQL
+	// last_seen_at predicate, not a heartbeat requirement.
+	if !store.offerIndexLive(worker.WorkerID, profile.RuntimeProfileID, time.Now().UTC()) {
+		t.Fatal("offerIndexLive false right after registration — must match SQL last_seen_at=now()")
+	}
+
+	if err := store.HeartbeatRealtimeOffer(ctx, worker, RealtimeOfferHeartbeat{
+		RuntimeProfileID: profile.RuntimeProfileID, Warmth: "HOT",
+		AvailableSequences: 8, Status: "ACTIVE",
+	}); err != nil {
+		t.Fatalf("heartbeat: %v", err)
+	}
+	if !store.offerIndexLive(worker.WorkerID, profile.RuntimeProfileID, time.Now().UTC()) {
+		t.Fatal("offerIndexLive false right after its own heartbeat — must be live")
+	}
+	// A different profile on the same worker is a different (unmapped) offer: dead.
+	if store.offerIndexLive(worker.WorkerID, profile.RuntimeProfileID+"-absent", time.Now().UTC()) {
+		t.Fatal("offerIndexLive true for a sibling/unknown profile — must fail closed")
+	}
+	// Past the 45s window (query far-future now): dead, matching the SQL predicate.
+	future := time.Now().UTC().Add(90 * time.Second)
+	if store.offerIndexLive(worker.WorkerID, profile.RuntimeProfileID, future) {
+		t.Fatal("offerIndexLive true 90s after heartbeat — 45s window not enforced")
+	}
+
+	// Fresh store on the same DB (restart): index empty, offer reads dead until
+	// it re-heartbeats — no selection off a stale durable last_seen_at.
+	restarted := NewStore(pool)
+	if err := restarted.adoptMigratedSchema(ctx); err != nil {
+		t.Fatalf("restart adopt: %v", err)
+	}
+	if restarted.offerIndexLive(worker.WorkerID, profile.RuntimeProfileID, time.Now().UTC()) {
+		t.Fatal("offerIndexLive true on a fresh restart before re-heartbeat — must fail closed")
+	}
+}
+
+func TestLivenessIndexAuthoritativeFlagDefaultsOff(t *testing.T) {
+	if livenessIndexAuthoritative() {
+		t.Fatal("MERC_LIVENESS_INDEX_AUTHORITATIVE must default OFF")
+	}
+	t.Setenv("MERC_LIVENESS_INDEX_AUTHORITATIVE", "true")
+	if !livenessIndexAuthoritative() {
+		t.Fatal("flag not read as true")
+	}
+	t.Setenv("MERC_LIVENESS_INDEX_AUTHORITATIVE", "false")
+	if livenessIndexAuthoritative() {
+		t.Fatal("flag not read as false")
+	}
+	t.Setenv("MERC_LIVENESS_INDEX_AUTHORITATIVE", "garbage")
+	if livenessIndexAuthoritative() {
+		t.Fatal("unparseable flag must be OFF (fail safe)")
+	}
+}

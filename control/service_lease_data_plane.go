@@ -22,6 +22,24 @@ import (
 // ownership failure.
 var errServiceLeaseDataPlaneUnavailable = errors.New("reserved service data plane is unavailable")
 
+// The offer-resolution query in two forms for the G082 flip. SQLLiveness (the
+// default) gates on the durable last_seen_at>now()-45s predicate. IndexLiveness
+// drops that predicate; when the flag is on, offerIndexLive makes the per-offer
+// liveness decision in-process instead. Both return the same columns so the scan
+// is identical; the only difference is who decides liveness.
+const (
+	serviceLeaseOfferQuerySQLLiveness = `
+		SELECT upstream_base_url,upstream_token_sealed,status,runtime_profile_sha256,last_seen_at
+		  FROM realtime_worker_offers
+		 WHERE worker_id=$1 AND supplier_id=$2 AND runtime_profile_id=$3
+		   AND status='ACTIVE' AND last_seen_at > now()-interval '45 seconds'`
+	serviceLeaseOfferQueryIndexLiveness = `
+		SELECT upstream_base_url,upstream_token_sealed,status,runtime_profile_sha256,last_seen_at
+		  FROM realtime_worker_offers
+		 WHERE worker_id=$1 AND supplier_id=$2 AND runtime_profile_id=$3
+		   AND status='ACTIVE'`
+)
+
 // serviceLeaseDataPlaneTarget is an internal, buyer-authorized projection.
 // The upstream credential never leaves this process and this type is never
 // serialized into a buyer response.
@@ -80,11 +98,16 @@ func (s *Store) ServiceLeaseDataPlaneTarget(ctx context.Context, buyerID, leaseI
 	}
 	target.ModelAlias = profile.ModelAlias
 	var sealed, status, profileSHA string
-	err = s.pool.QueryRow(ctx, `
-		SELECT upstream_base_url,upstream_token_sealed,status,runtime_profile_sha256,last_seen_at
-		  FROM realtime_worker_offers
-		 WHERE worker_id=$1 AND supplier_id=$2 AND runtime_profile_id=$3
-		   AND status='ACTIVE' AND last_seen_at > now()-interval '45 seconds'`,
+	// G082 flip (flag-gated, default OFF): when the in-process offer-grain live
+	// index is authoritative, the durable last_seen_at>now()-45s predicate is
+	// dropped from this selection query and the liveness decision is made in-process
+	// per offer (offerIndexLive), fail-closed. Flag OFF keeps the exact SQL predicate.
+	indexAuthoritative := livenessIndexAuthoritative()
+	offerQuery := serviceLeaseOfferQuerySQLLiveness
+	if indexAuthoritative {
+		offerQuery = serviceLeaseOfferQueryIndexLiveness
+	}
+	err = s.pool.QueryRow(ctx, offerQuery,
 		target.WorkerID, target.SupplierID, target.RuntimeProfileID).Scan(
 		&target.UpstreamBaseURL, &sealed, &status, &profileSHA, &target.LastOfferSeenAt)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -92,6 +115,11 @@ func (s *Store) ServiceLeaseDataPlaneTarget(ctx context.Context, buyerID, leaseI
 	}
 	if err != nil {
 		return serviceLeaseDataPlaneTarget{}, err
+	}
+	if indexAuthoritative && !s.offerIndexLive(target.WorkerID, target.RuntimeProfileID, now) {
+		// The offer row exists and is ACTIVE, but the in-process index says this
+		// specific offer is not live (stale, unmapped, or post-restart) — fail closed.
+		return serviceLeaseDataPlaneTarget{}, errServiceLeaseDataPlaneUnavailable
 	}
 	if status != "ACTIVE" || profileSHA != target.RuntimeProfileSHA256 ||
 		!validStoredRealtimeUpstreamURL(target.UpstreamBaseURL) {

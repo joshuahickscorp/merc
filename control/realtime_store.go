@@ -408,7 +408,18 @@ func (s *Store) UpsertRealtimeOffer(ctx context.Context, worker WorkerAuth, regi
 		registration.SupplierOutputUSDPerMillionTokens); err != nil {
 		return err
 	}
-	return tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	// Registration is a liveness assertion (the offer's last_seen_at is set to
+	// now()), so populate the offer-grain live index at registration time too.
+	// Without this, a just-registered offer that has not yet sent an explicit
+	// heartbeat would read live under the durable last_seen_at predicate but dead
+	// under the flag-ON index. Shadow-only: ignored while the flag is off; lost on
+	// restart (fail-closed) and reconstructed by the next heartbeat.
+	serverNow := time.Now().UTC()
+	s.shadowIndexHeartbeat(worker, registration.RuntimeProfileID, serverNow, serverNow)
+	return nil
 }
 
 func (s *Store) HeartbeatRealtimeOffer(ctx context.Context, worker WorkerAuth, hb RealtimeOfferHeartbeat) error {

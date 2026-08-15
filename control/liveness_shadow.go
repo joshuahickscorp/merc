@@ -3,10 +3,49 @@ package main
 import (
 	"context"
 	"math"
+	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 )
+
+// livenessIndexAuthoritative reports whether the in-process offer-grain live
+// index is the authority for realtime money-selection liveness (the G082 flip),
+// instead of the durable realtime_worker_offers.last_seen_at SQL predicate.
+// Default OFF: production is byte-identical to the SQL predicate. Flipping it ON
+// is a deliberate, operationally-gated step (fail-closed on restart until offers
+// re-heartbeat).
+func livenessIndexAuthoritative() bool {
+	v, err := strconv.ParseBool(strings.TrimSpace(os.Getenv("MERC_LIVENESS_INDEX_AUTHORITATIVE")))
+	return err == nil && v
+}
+
+// offerIndexLive is the flag-ON liveness decision for one offer. Fail-closed:
+// an unmapped offer_slot, a nil index, or an out-of-range epoch all read DEAD, so
+// a missing/corrupt mapping can never make a stale offer selectable (gate D/E).
+// It mirrors realtime_worker_offers.last_seen_at > now()-45s exactly for a mapped,
+// heartbeating offer (proven by the shadow parity), but keyed per-offer so a live
+// sibling offer of the same worker never rescues a stale one.
+func (s *Store) offerIndexLive(workerID uuid.UUID, profileID string, now time.Time) bool {
+	if s == nil {
+		return false
+	}
+	s.ensureLiveDeviceIndex()
+	if s.liveIndex == nil {
+		return false
+	}
+	slot, ok := s.lookupOfferSlot(workerID, profileID)
+	if !ok {
+		return false
+	}
+	nowUnix := now.Unix()
+	if nowUnix < 0 || nowUnix > math.MaxUint32 {
+		return false
+	}
+	return s.liveIndex.IsLive(slot, uint32(nowUnix))
+}
 
 // Shadow-wire for LiveDeviceIndex.
 //
