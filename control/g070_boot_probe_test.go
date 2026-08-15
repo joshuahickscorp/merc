@@ -1,14 +1,13 @@
 package main
 
 import (
-	"strings"
 	"testing"
 )
 
-// G070 probes: throughput citation binds; full catalogue publication still
-// refuses ASSUMED whole-package power for apple_silicon_ultra until a MEASURED
-// power receipt exists (powermetrics requires root; IOReport CPU energy is
-// frozen on this host; only GPU Energy moves).
+// G070 probes: throughput citation binds; catalogue publication uses the
+// conservative Apple wall-power VENDOR_WALL_UPPER_BOUND (270 W) as the
+// ECONOMIC_POWER_ENVELOPE so the llama lane can boot. Local GPU-only
+// telemetry remains refused and does not satisfy ENERGY_MEASUREMENT.
 func TestG070ThroughputCitationBinds(t *testing.T) {
 	if len(repricingBenchmarks) != 1 {
 		t.Fatalf("want exactly 1 repricing row, got %d", len(repricingBenchmarks))
@@ -27,13 +26,6 @@ func TestG070ThroughputCitationBinds(t *testing.T) {
 func TestG070BootProbeBuildCataloguePriceSchedule(t *testing.T) {
 	schedule, err := BuildCataloguePriceSchedule()
 	if err != nil {
-		// Exact known remaining gate after G070 throughput bind.
-		if strings.Contains(err.Error(), "requires MEASURED sustained watts") &&
-			strings.Contains(err.Error(), "apple_silicon_ultra") {
-			t.Logf("BLOCKED (honest): %v", err)
-			t.Log("whole-package power MEASURED receipt is required; see G070 report")
-			return
-		}
 		t.Fatalf("BuildCataloguePriceSchedule unexpected error: %v", err)
 	}
 	if len(schedule.Results) < 1 {
@@ -41,6 +33,18 @@ func TestG070BootProbeBuildCataloguePriceSchedule(t *testing.T) {
 	}
 	t.Logf("OK lanes=%d", len(schedule.Results))
 	for _, r := range schedule.Results {
-		t.Logf("lane %s/%s price_per_1k=%.6f", r.ModelID, r.JobType, r.PricePer1K)
+		t.Logf("lane %s/%s price_per_1k=%.6f source_class=%s watts=%.0f",
+			r.ModelID, r.JobType, r.PricePer1K,
+			r.PhysicalAuthority.Power.SourceClass, r.PhysicalAuthority.Power.Watts)
+		if r.PhysicalAuthority.Power.SourceClass != string(wattKindVendorWallUpperBound) {
+			t.Fatalf("production llama power source_class=%q, want VENDOR_WALL_UPPER_BOUND",
+				r.PhysicalAuthority.Power.SourceClass)
+		}
+		if r.PhysicalAuthority.Power.Watts != appleMacStudio2025M3UltraWallMaxWatts {
+			t.Fatalf("production llama watts=%.0f, want 270", r.PhysicalAuthority.Power.Watts)
+		}
+		if r.PhysicalAuthority.Power.SourceClass == string(wattKindMeasured) {
+			t.Fatal("VENDOR_WALL_UPPER_BOUND must never be stored as MEASURED")
+		}
 	}
 }

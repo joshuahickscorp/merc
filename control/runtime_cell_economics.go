@@ -653,7 +653,7 @@ func projectEnergyPartialTerm(
 			catalogue.FXRevision, catalogue.ScheduleSHA256)
 	}
 	knowledge := CategoryDefaulted
-	if entry.Kind() == wattKindAssumed {
+	if entry.Kind() != wattKindMeasured {
 		knowledge = CategoryAssumed
 	}
 	term.Knowledge = knowledge

@@ -73,8 +73,10 @@ func TestCellEntitlementResolutionIsWrittenOnNewAdmission(t *testing.T) {
 		t.Fatalf("named cost stack status=%q, want partial while reliability and other terms are unknown",
 			f.ExpectedVOCostStatus)
 	}
-	if f.EnergyKnowledge == string(wattKindAssumed) && f.EnergyPartial.Status != pricingCostUnknown {
-		t.Fatalf("assumed watts entered canonical platform money: %+v", f.EnergyPartial)
+	if (f.EnergyKnowledge == string(wattKindAssumed) ||
+		f.EnergyKnowledge == string(wattKindVendorWallUpperBound)) &&
+		f.EnergyPartial.Status != pricingCostUnknown {
+		t.Fatalf("non-MEASURED watts entered canonical platform money: %+v", f.EnergyPartial)
 	}
 	if f.EnergyKnowledge == string(wattKindAssumed) && f.EnergyJoules <= 0 {
 		t.Fatalf("assumed energy lost its non-authoritative diagnostic geometry: %+v", f)

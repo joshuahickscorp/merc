@@ -545,6 +545,7 @@ var declaredMoneyAuthority = []string{
 	"planShadowSelection",                                 // runtime_shadow_selection.go
 	"pricingRepoRootCandidates",                           // pricing_citation_authority.go
 	"pricingPowerAuthoritySnapshot",                       // pricing_citation_authority.go
+	"measuredPowerAuthoritySnapshot",                      // pricing_citation_authority.go
 	"pricingThroughputAuthoritySnapshot",                  // pricing_citation_authority.go
 	"projectActivationPolicyIntoRegistry",                 // activation_policy.go
 	"projectWorkerRuntimeCapabilities",                    // runtime_matrix.go

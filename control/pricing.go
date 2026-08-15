@@ -137,42 +137,170 @@ var unpricedThroughputUntilBound = []measuredThroughput{
 	},
 }
 
-// wattAuthorityKind is whether a sustained-power figure is MEASURED from a
-// receipt or ASSUMED by a named author with a stated reason. An assumption
-// honestly labelled is acceptable; an assumption presented as physics is not.
+// wattAuthorityKind is the source class of a sustained-power figure.
+//
+// Two authorities consume this table and must not be collapsed:
+//
+//   - ECONOMIC_POWER_ENVELOPE: supplier-floor / admission economics and the
+//     catalogue boot gate. Must never materially understate electricity cost.
+//     MEASURED and a conservative VENDOR_WALL_UPPER_BOUND are both allowed.
+//   - ENERGY_MEASUREMENT: joules / verified-outcome-per-joule science. Requires
+//     genuine complete local or attested MEASURED energy. VENDOR_WALL_UPPER_BOUND
+//     does not satisfy it. ASSUMED does not satisfy it.
+//
+// An assumption honestly labelled is acceptable as a diagnostic; an assumption
+// presented as physics is not.
 type wattAuthorityKind string
 
 const (
-	wattKindMeasured wattAuthorityKind = "MEASURED"
-	wattKindAssumed  wattAuthorityKind = "ASSUMED"
+	wattKindMeasured             wattAuthorityKind = "MEASURED"
+	wattKindAssumed              wattAuthorityKind = "ASSUMED"
+	wattKindVendorWallUpperBound wattAuthorityKind = "VENDOR_WALL_UPPER_BOUND"
 )
+
+// Economic / energy authority names. These are not wattAuthorityKind values:
+// they name which question a caller is asking of the same table row.
+const (
+	economicPowerEnvelopeAuthority = "ECONOMIC_POWER_ENVELOPE"
+	energyMeasurementAuthority     = "ENERGY_MEASUREMENT"
+	measuredEnergyEvidenceKind     = "MEASURED_ENERGY"
+)
+
+// Apple Mac Studio (2025) M3 Ultra wall-power figures, verified 2026-08-14
+// against the live Apple pages. Live pages matched the expected numbers.
+const (
+	appleMacStudio2025M3UltraIdleWatts    = 9
+	appleMacStudio2025M3UltraWallMaxWatts = 270
+	appleMacStudio2025PSUCeilingWatts     = 480
+	appleMacStudio2025PowerSupportURL     = "https://support.apple.com/en-us/102027"
+	appleMacStudio2025SpecsURL            = "https://www.apple.com/mac-studio/specs/"
+	appleMacStudio2025PowerPublishedDate  = "2025-03-12"
+	appleMacStudio2025MeasuredConfig      = "32CPU/80GPU"
+	appleMacStudio2025LocalConfig         = "28CPU/60GPU"
+	appleVendorName                       = "apple"
+	appleMacStudio2025ProductFamily       = "mac_studio_2025"
+	appleM3UltraSOCFamily                 = "m3_ultra"
+	acWallMeasurementScope                = "AC_WALL"
+	localFailureCPUPowerSensorZero        = "cpu_power_sensor_zero"
+	localFailureANEPowerSensorZero        = "ane_power_sensor_zero"
+	catalogueVendorWallFreshnessPolicy    = "vendor-wall-upper-bound-v1/pinned-citation-digest"
+	catalogueVendorWallAuthorityScope     = "vendor_family_chassis_conservative_upper_bound"
+	catalogueVendorWallAggregation        = "vendor_published_max"
+	catalogueVendorWallOperatingProtocol  = "apple-support-102027-wall-max"
+	catalogueVendorWallWorkloadClass      = "not_workload_specific"
+	catalogueVendorWallPublishedAt        = "2025-03-12T00:00:00Z"
+)
+
+// appleMacStudio2025WallPowerCitation is the pinned authority text whose
+// sha256 is appleMacStudio2025WallPowerCitationDigest. It is the fetched
+// Apple support/specs figures plus their URLs, not a local measurement.
+const appleMacStudio2025WallPowerCitation = `APPLE MAC STUDIO (2025) M3 ULTRA WALL-POWER AUTHORITY
+URL: https://support.apple.com/en-us/102027
+PUBLISHED: 2025-03-12
+
+Mac Studio (2025) M3 Ultra 32-Core CPU & 80-Core GPU, 512GB unified memory, 16TB SSD
+Idle: 9 W
+Max: 270 W
+
+Notes:
+1. Power consumption data (Watts) is measured from the wall power source and includes all power supply and system losses. Additional correction is not needed.
+2. "Max" is defined as running a compute-intensive test application that maximizes processor usage and therefore power consumption. No external peripherals are attached during testing.
+3. "Idle" reflects the power used with only Finder open, using the default power management settings.
+4. These numbers reflect a 20.2°C (68.4° F) ambient running environment. Increased ambient temperatures require faster fan speeds which increases power consumption.
+
+PSU CEILING (last resort; not the economic envelope):
+URL: https://www.apple.com/mac-studio/specs/
+Maximum continuous power: 480W
+Line voltage: 100-240V AC
+`
+
+// appleMacStudio2025WallPowerCitationDigest is sha256 of
+// appleMacStudio2025WallPowerCitation (UTF-8). Init verifies the pin.
+const appleMacStudio2025WallPowerCitationDigest = "45b1b48412e8e24a41acf597e63ffbe66f371d3b4893231854c70eba9d6aa492"
+
+// vendorWallProvenance is the typed source record for a VENDOR_WALL_UPPER_BOUND
+// row. It is never a MEASURED receipt and is never stored as measured_watts.
+type vendorWallProvenance struct {
+	vendor                    string
+	productFamily             string
+	socFamily                 string
+	wattsUpperBound           float64
+	measurementScope          string
+	includesPSULosses         bool
+	workloadSpecific          bool
+	localMeasurementAvailable bool
+	localFailureReason        []string
+	measuredConfig            string
+	localConfig               string
+	citationURL               string
+	citationDigest            string
+}
+
+// vendorWallUpperBoundSpec is the required constructor input for
+// wattsVendorWallUpperBound. Every field must be populated with the
+// conservative-safe values; zero values are refused.
+type vendorWallUpperBoundSpec struct {
+	WattsUpperBound           float64
+	Vendor                    string
+	ProductFamily             string
+	SOCFamily                 string
+	MeasurementScope          string
+	IncludesPSULosses         bool
+	WorkloadSpecific          bool
+	LocalMeasurementAvailable bool
+	LocalFailureReason        []string
+	MeasuredConfig            string
+	LocalConfig               string
+	CitationURL               string
+	CitationDigest            string
+}
 
 // governedSustainedWatts is one hardware class's sustained whole-package draw
 // under inference-shaped load. Fields are unexported so a bare float cannot be
-// inserted into the table: construction goes through wattsMeasured / wattsAssumed,
-// both of which require non-empty provenance. Startup rejects any entry that
-// somehow lacks kind or provenance.
+// inserted into the table: construction goes through wattsMeasured /
+// wattsAssumed / wattsVendorWallUpperBound, all of which require non-empty
+// provenance. Startup rejects any entry that somehow lacks kind or provenance.
+//
+// There is no measured_watts field. MEASURED rows use watts + kind=MEASURED.
+// VENDOR_WALL_UPPER_BOUND rows use watts as the conservative upper bound and
+// kind=VENDOR_WALL_UPPER_BOUND.
 type governedSustainedWatts struct {
 	watts         float64
 	kind          wattAuthorityKind
 	provenance    string
 	receiptSHA256 string
+	vendorWall    *vendorWallProvenance
 }
 
 // Watts is the sustained draw in watts used by contribution margins and the
-// diagnostic cost floor.
+// diagnostic cost floor. For VENDOR_WALL_UPPER_BOUND this is the conservative
+// upper bound, never a local measurement.
 func (g governedSustainedWatts) Watts() float64 { return g.watts }
 
-// Kind is MEASURED or ASSUMED.
+// Kind is MEASURED, ASSUMED, or VENDOR_WALL_UPPER_BOUND.
 func (g governedSustainedWatts) Kind() wattAuthorityKind { return g.kind }
 
-// Provenance names the receipt (MEASURED) or who assumed the figure and why
-// (ASSUMED). Required for every entry.
+// Provenance names the receipt (MEASURED), who assumed the figure and why
+// (ASSUMED), or the vendor-wall citation (VENDOR_WALL_UPPER_BOUND). Required
+// for every entry.
 func (g governedSustainedWatts) Provenance() string { return g.provenance }
 
-// ReceiptSHA256 pins the exact cited receipt bytes for weight-bearing
-// publication. ASSUMED diagnostic rows intentionally carry no digest.
+// ReceiptSHA256 pins the exact cited receipt bytes for MEASURED publication,
+// or the vendor citation digest for VENDOR_WALL_UPPER_BOUND. ASSUMED
+// diagnostic rows intentionally carry no digest.
 func (g governedSustainedWatts) ReceiptSHA256() string { return g.receiptSHA256 }
+
+// VendorWall returns a copy of the vendor-wall provenance, or nil.
+func (g governedSustainedWatts) VendorWall() *vendorWallProvenance {
+	if g.vendorWall == nil {
+		return nil
+	}
+	cp := *g.vendorWall
+	if len(g.vendorWall.localFailureReason) > 0 {
+		cp.localFailureReason = append([]string(nil), g.vendorWall.localFailureReason...)
+	}
+	return &cp
+}
 
 // wattsMeasured constructs a MEASURED sustained-power figure. provenance must
 // name the receipt that measured it. Panics on empty inputs so an unlabelled
@@ -203,19 +331,144 @@ func wattsAssumed(watts float64, provenance string) governedSustainedWatts {
 	return governedSustainedWatts{watts: watts, kind: wattKindAssumed, provenance: provenance}
 }
 
+// wattsVendorWallUpperBound constructs a conservative vendor whole-wall upper
+// bound. Every provenance field is required. The result is never MEASURED and
+// never stored as measured_watts. Panics on missing or inconsistent fields so
+// an incomplete bound cannot enter the table.
+func wattsVendorWallUpperBound(spec vendorWallUpperBoundSpec) governedSustainedWatts {
+	if err := validateVendorWallUpperBoundSpec(spec); err != nil {
+		panic("wattsVendorWallUpperBound: " + err.Error())
+	}
+	reasons := append([]string(nil), spec.LocalFailureReason...)
+	return governedSustainedWatts{
+		watts:         spec.WattsUpperBound,
+		kind:          wattKindVendorWallUpperBound,
+		provenance:    vendorWallProvenanceLine(spec),
+		receiptSHA256: strings.TrimSpace(spec.CitationDigest),
+		vendorWall: &vendorWallProvenance{
+			vendor:                    strings.TrimSpace(spec.Vendor),
+			productFamily:             strings.TrimSpace(spec.ProductFamily),
+			socFamily:                 strings.TrimSpace(spec.SOCFamily),
+			wattsUpperBound:           spec.WattsUpperBound,
+			measurementScope:          strings.TrimSpace(spec.MeasurementScope),
+			includesPSULosses:         spec.IncludesPSULosses,
+			workloadSpecific:          spec.WorkloadSpecific,
+			localMeasurementAvailable: spec.LocalMeasurementAvailable,
+			localFailureReason:        reasons,
+			measuredConfig:            strings.TrimSpace(spec.MeasuredConfig),
+			localConfig:               strings.TrimSpace(spec.LocalConfig),
+			citationURL:               strings.TrimSpace(spec.CitationURL),
+			citationDigest:            strings.TrimSpace(spec.CitationDigest),
+		},
+	}
+}
+
+func vendorWallProvenanceLine(spec vendorWallUpperBoundSpec) string {
+	return fmt.Sprintf(
+		"VENDOR_WALL_UPPER_BOUND vendor=%s product_family=%s soc_family=%s watts_upper_bound=%.0f measurement_scope=%s includes_psu_losses=%t workload_specific=%t measured_config=%s local_config=%s citation=%s digest=%s (conservative family/chassis upper bound; not this config's measurement)",
+		strings.TrimSpace(spec.Vendor), strings.TrimSpace(spec.ProductFamily),
+		strings.TrimSpace(spec.SOCFamily), spec.WattsUpperBound,
+		strings.TrimSpace(spec.MeasurementScope), spec.IncludesPSULosses, spec.WorkloadSpecific,
+		strings.TrimSpace(spec.MeasuredConfig), strings.TrimSpace(spec.LocalConfig),
+		strings.TrimSpace(spec.CitationURL), strings.TrimSpace(spec.CitationDigest),
+	)
+}
+
+func validateVendorWallUpperBoundSpec(spec vendorWallUpperBoundSpec) error {
+	if spec.WattsUpperBound <= 0 {
+		return fmt.Errorf("watts_upper_bound must be positive, got %v", spec.WattsUpperBound)
+	}
+	if strings.TrimSpace(spec.Vendor) == "" {
+		return fmt.Errorf("vendor is required")
+	}
+	if strings.TrimSpace(spec.ProductFamily) == "" {
+		return fmt.Errorf("product_family is required")
+	}
+	if strings.TrimSpace(spec.SOCFamily) == "" {
+		return fmt.Errorf("soc_family is required")
+	}
+	if strings.TrimSpace(spec.MeasurementScope) == "" {
+		return fmt.Errorf("measurement_scope is required")
+	}
+	if strings.TrimSpace(spec.MeasuredConfig) == "" {
+		return fmt.Errorf("measured_config is required")
+	}
+	if strings.TrimSpace(spec.LocalConfig) == "" {
+		return fmt.Errorf("local_config is required")
+	}
+	if strings.TrimSpace(spec.CitationURL) == "" {
+		return fmt.Errorf("citation URL is required")
+	}
+	if !digestPattern.MatchString(strings.TrimSpace(spec.CitationDigest)) {
+		return fmt.Errorf("citation_digest must be a lowercase sha256")
+	}
+	if len(spec.LocalFailureReason) == 0 {
+		return fmt.Errorf("local_failure_reason is required when local measurement is unavailable")
+	}
+	for i, reason := range spec.LocalFailureReason {
+		if strings.TrimSpace(reason) == "" {
+			return fmt.Errorf("local_failure_reason[%d] is empty", i)
+		}
+	}
+	// Bool fields cannot be "missing" in Go; the conservative-safe values are
+	// part of the contract for this source class.
+	if !spec.IncludesPSULosses {
+		return fmt.Errorf("includes_psu_losses must be true for an AC_WALL vendor bound")
+	}
+	if spec.WorkloadSpecific {
+		return fmt.Errorf("workload_specific must be false for a family/chassis vendor bound")
+	}
+	if spec.LocalMeasurementAvailable {
+		return fmt.Errorf("local_measurement_available must be false when recording a vendor-wall fallback")
+	}
+	if strings.TrimSpace(spec.MeasurementScope) != acWallMeasurementScope {
+		return fmt.Errorf("measurement_scope must be %s, got %q", acWallMeasurementScope, spec.MeasurementScope)
+	}
+	wantDigest := fmt.Sprintf("%x", sha256.Sum256([]byte(appleMacStudio2025WallPowerCitation)))
+	if strings.TrimSpace(spec.CitationDigest) != wantDigest {
+		return fmt.Errorf("citation_digest does not match pinned Apple authority text: got %s want %s",
+			spec.CitationDigest, wantDigest)
+	}
+	if wantDigest != appleMacStudio2025WallPowerCitationDigest {
+		return fmt.Errorf("pinned Apple citation digest constant drifted from hashed authority text")
+	}
+	return nil
+}
+
+func appleSiliconUltraVendorWallSpec() vendorWallUpperBoundSpec {
+	return vendorWallUpperBoundSpec{
+		WattsUpperBound:           appleMacStudio2025M3UltraWallMaxWatts,
+		Vendor:                    appleVendorName,
+		ProductFamily:             appleMacStudio2025ProductFamily,
+		SOCFamily:                 appleM3UltraSOCFamily,
+		MeasurementScope:          acWallMeasurementScope,
+		IncludesPSULosses:         true,
+		WorkloadSpecific:          false,
+		LocalMeasurementAvailable: false,
+		LocalFailureReason:        []string{localFailureCPUPowerSensorZero, localFailureANEPowerSensorZero},
+		MeasuredConfig:            appleMacStudio2025MeasuredConfig,
+		LocalConfig:               appleMacStudio2025LocalConfig,
+		CitationURL:               appleMacStudio2025PowerSupportURL,
+		CitationDigest:            appleMacStudio2025WallPowerCitationDigest,
+	}
+}
+
 // sustainedWattsByHWClass is the closed power table for contribution margins
 // and supplier-viability arithmetic. Every admitted hardware class must appear
-// here with MEASURED or ASSUMED provenance; validateSustainedWattsTable panics
-// at init if any entry is incomplete or any admitted class is missing.
+// here with MEASURED, ASSUMED, or VENDOR_WALL_UPPER_BOUND provenance;
+// validateSustainedWattsTable panics at init if any entry is incomplete or any
+// admitted class is missing.
 //
-// None of these values are currently MEASURED against a bound receipt. They
-// remain ASSUMED until a host-side power receipt exists. In particular
-// apple_silicon_ultra's 65 W whole-package assumption understates GPU-alone
-// prefill-shaped draw observed on this host (~131.69 W); that observation is
-// not yet a bound MEASURED receipt, so the constant stays ASSUMED and the
-// understatement is named in provenance rather than silently "corrected".
-// CUDA figures are board-power order-of-magnitude assumptions only — there is
-// no NVIDIA device on this host to measure.
+// apple_silicon_ultra is a CONSERVATIVE FAMILY/CHASSIS VENDOR_WALL_UPPER_BOUND
+// of 270 W: Apple measured Mac Studio (2025) M3 Ultra 32-core CPU / 80-core GPU
+// at the wall (including PSU/system losses). This host is 28-core CPU / 60-core
+// GPU, so 270 W is an upper bound (28/60 draws ≤ 32/80), not this config's
+// measurement. Local package telemetry is incomplete (CPU and ANE sensors read
+// zero; only GPU moves) and is refused, not promoted to MEASURED.
+//
+// CUDA figures remain board-power order-of-magnitude ASSUMED values — there is
+// no NVIDIA device on this host to measure. An Apple vendor bound cannot cover
+// a CUDA class.
 var sustainedWattsByHWClass = map[string]governedSustainedWatts{
 	"apple_silicon_base": wattsAssumed(20.0,
 		"ASSUMED by control/pricing.go: whole-package sustained draw for apple_silicon_base under inference-shaped load; no bound host power receipt"),
@@ -223,10 +476,7 @@ var sustainedWattsByHWClass = map[string]governedSustainedWatts{
 		"ASSUMED by control/pricing.go: whole-package sustained draw for apple_silicon_pro under inference-shaped load; no bound host power receipt"),
 	"apple_silicon_max": wattsAssumed(45.0,
 		"ASSUMED by control/pricing.go: whole-package sustained draw for apple_silicon_max under inference-shaped load; no bound host power receipt"),
-	"apple_silicon_ultra": wattsAssumed(65.0,
-		"ASSUMED by control/pricing.go: whole-package sustained draw for apple_silicon_ultra under inference-shaped load. "+
-			"GPU-alone prefill-shaped work on this host was observed near 131.69 W (more than twice this constant) "+
-			"but is not a bound MEASURED receipt; the constant remains ASSUMED and known understated until remeasured"),
+	"apple_silicon_ultra": wattsVendorWallUpperBound(appleSiliconUltraVendorWallSpec()),
 	// CUDA: board-power order of magnitude under inference. Not measured here.
 	"nvidia_24gb": wattsAssumed(350.0,
 		"ASSUMED by control/pricing.go: ~350 W board-power class for 24GB CUDA cards under inference; no NVIDIA device on this host to measure"),
@@ -245,25 +495,77 @@ var sustainedWattsByHWClass = map[string]governedSustainedWatts{
 // and non-empty provenance, and every admitted hardware class must have an
 // entry. Called from init.
 func validateSustainedWattsTable() error {
+	wantDigest := fmt.Sprintf("%x", sha256.Sum256([]byte(appleMacStudio2025WallPowerCitation)))
+	if wantDigest != appleMacStudio2025WallPowerCitationDigest {
+		return fmt.Errorf("apple Mac Studio wall-power citation digest drifted: hashed=%s pinned=%s",
+			wantDigest, appleMacStudio2025WallPowerCitationDigest)
+	}
 	for class, entry := range sustainedWattsByHWClass {
 		if entry.Watts() <= 0 {
 			return fmt.Errorf("sustainedWattsByHWClass[%q]: watts must be positive, got %v", class, entry.Watts())
 		}
 		switch entry.Kind() {
-		case wattKindMeasured, wattKindAssumed:
+		case wattKindMeasured, wattKindAssumed, wattKindVendorWallUpperBound:
 		default:
-			return fmt.Errorf("sustainedWattsByHWClass[%q]: Kind must be MEASURED or ASSUMED, got %q",
+			return fmt.Errorf("sustainedWattsByHWClass[%q]: Kind must be MEASURED, ASSUMED, or VENDOR_WALL_UPPER_BOUND, got %q",
 				class, entry.Kind())
 		}
 		if strings.TrimSpace(entry.Provenance()) == "" {
 			return fmt.Errorf("sustainedWattsByHWClass[%q]: Provenance is required (uncited watt constants are not production truth)",
 				class)
 		}
+		if entry.Kind() == wattKindVendorWallUpperBound {
+			if err := validateVendorWallTableEntry(class, entry); err != nil {
+				return fmt.Errorf("sustainedWattsByHWClass[%q]: %w", class, err)
+			}
+		}
+		if entry.Kind() == wattKindMeasured && entry.vendorWall != nil {
+			return fmt.Errorf("sustainedWattsByHWClass[%q]: MEASURED row must not carry vendor-wall provenance", class)
+		}
 	}
 	for class := range validHWClasses {
 		if _, ok := sustainedWattsByHWClass[class]; !ok {
 			return fmt.Errorf("admitted hardware class %q has no sustainedWattsByHWClass entry", class)
 		}
+	}
+	return nil
+}
+
+func validateVendorWallTableEntry(hwClass string, entry governedSustainedWatts) error {
+	if entry.Kind() != wattKindVendorWallUpperBound {
+		return fmt.Errorf("kind is %s, not VENDOR_WALL_UPPER_BOUND", entry.Kind())
+	}
+	if entry.vendorWall == nil {
+		return fmt.Errorf("VENDOR_WALL_UPPER_BOUND requires typed provenance fields")
+	}
+	p := entry.vendorWall
+	spec := vendorWallUpperBoundSpec{
+		WattsUpperBound:           p.wattsUpperBound,
+		Vendor:                    p.vendor,
+		ProductFamily:             p.productFamily,
+		SOCFamily:                 p.socFamily,
+		MeasurementScope:          p.measurementScope,
+		IncludesPSULosses:         p.includesPSULosses,
+		WorkloadSpecific:          p.workloadSpecific,
+		LocalMeasurementAvailable: p.localMeasurementAvailable,
+		LocalFailureReason:        p.localFailureReason,
+		MeasuredConfig:            p.measuredConfig,
+		LocalConfig:               p.localConfig,
+		CitationURL:               p.citationURL,
+		CitationDigest:            p.citationDigest,
+	}
+	if err := validateVendorWallUpperBoundSpec(spec); err != nil {
+		return err
+	}
+	if entry.Watts() != p.wattsUpperBound {
+		return fmt.Errorf("watts %v != watts_upper_bound %v (VENDOR_WALL must not be stored as a separate measured_watts)",
+			entry.Watts(), p.wattsUpperBound)
+	}
+	if strings.TrimSpace(entry.ReceiptSHA256()) != strings.TrimSpace(p.citationDigest) {
+		return fmt.Errorf("receipt/citation digest mismatch")
+	}
+	if err := vendorWallCoversHardware(p, hwClass, ""); err != nil {
+		return err
 	}
 	return nil
 }
@@ -279,11 +581,11 @@ func sustainedWattsForClass(hwClass string) float64 {
 	return 30.0
 }
 
-// sustainedWattsForPublication returns the exact MEASURED power authority for
-// one benchmark hardware class. An ASSUMED row is useful for diagnostic
-// sensitivity analysis, but it cannot prove that a public price covers the
-// supply side. Unknown classes are refused rather than inheriting another
-// class's default.
+// sustainedWattsForPublication returns the ECONOMIC_POWER_ENVELOPE for one
+// benchmark hardware class. MEASURED whole-package receipts and a conservative
+// VENDOR_WALL_UPPER_BOUND are both acceptable. ASSUMED rows remain diagnostic
+// only. Unknown classes are refused rather than inheriting another class's
+// default.
 func sustainedWattsForPublication(b measuredThroughput) (governedSustainedWatts, error) {
 	entry, err := sustainedWattsEntryForPublication(b.HWClass)
 	if err != nil {
@@ -306,12 +608,206 @@ func sustainedWattsEntryForPublication(hwClass string) (governedSustainedWatts, 
 		return governedSustainedWatts{}, fmt.Errorf(
 			"catalogue publication sustained-watts authority for hardware class %q is incomplete", hwClass)
 	}
-	if entry.Kind() != wattKindMeasured {
-		return governedSustainedWatts{}, fmt.Errorf(
-			"catalogue publication requires MEASURED sustained watts for hardware class %q; got %s",
-			hwClass, entry.Kind())
+	if err := acceptEconomicPowerEnvelope(entry, hwClass, ""); err != nil {
+		return governedSustainedWatts{}, err
 	}
 	return entry, nil
+}
+
+// acceptEconomicPowerEnvelope is the ECONOMIC_POWER_ENVELOPE gate: MEASURED or
+// VENDOR_WALL_UPPER_BOUND. ASSUMED, GPU-only, and incomplete rows are refused.
+func acceptEconomicPowerEnvelope(entry governedSustainedWatts, hwClass, hardwareIdentity string) error {
+	switch entry.Kind() {
+	case wattKindMeasured:
+		if entry.vendorWall != nil {
+			return fmt.Errorf("ECONOMIC_POWER_ENVELOPE refuses a MEASURED row that also carries vendor-wall provenance")
+		}
+		return nil
+	case wattKindVendorWallUpperBound:
+		if err := validateVendorWallTableEntry(hwClass, entry); err != nil {
+			return fmt.Errorf("catalogue publication VENDOR_WALL_UPPER_BOUND for hardware class %q: %w", hwClass, err)
+		}
+		if err := vendorWallCoversHardware(entry.vendorWall, hwClass, hardwareIdentity); err != nil {
+			return err
+		}
+		if vendorWallFamilyIsAppleStudioM3Ultra(entry.vendorWall) &&
+			entry.Watts() != appleMacStudio2025M3UltraWallMaxWatts {
+			return fmt.Errorf(
+				"480W PSU ceiling must not replace applicable 270W VENDOR_WALL_UPPER_BOUND (got %.0fW)",
+				entry.Watts())
+		}
+		return nil
+	case wattKindAssumed:
+		return fmt.Errorf(
+			"catalogue publication requires MEASURED or VENDOR_WALL_UPPER_BOUND sustained watts for hardware class %q; got %s",
+			hwClass, entry.Kind())
+	default:
+		return fmt.Errorf(
+			"catalogue publication requires MEASURED or VENDOR_WALL_UPPER_BOUND sustained watts for hardware class %q; got %s",
+			hwClass, entry.Kind())
+	}
+}
+
+// acceptEnergyMeasurement is the ENERGY_MEASUREMENT / MEASURED_ENERGY gate.
+// Only genuine complete MEASURED energy satisfies joules science.
+// VENDOR_WALL_UPPER_BOUND, ASSUMED, and GPU-only telemetry are refused.
+func acceptEnergyMeasurement(entry governedSustainedWatts) error {
+	if entry.Kind() != wattKindMeasured || entry.vendorWall != nil {
+		return fmt.Errorf(
+			"%s / %s requires MEASURED energy; %s does not satisfy it",
+			energyMeasurementAuthority, measuredEnergyEvidenceKind, entry.Kind())
+	}
+	return nil
+}
+
+func vendorWallCoversHardware(p *vendorWallProvenance, hwClass, hardwareIdentity string) error {
+	if p == nil {
+		return fmt.Errorf("VENDOR_WALL_UPPER_BOUND provenance is missing")
+	}
+	hwClass = strings.TrimSpace(hwClass)
+	if strings.HasPrefix(hwClass, "nvidia_") || hwClass == "cpu" {
+		return fmt.Errorf(
+			"VENDOR_WALL_UPPER_BOUND vendor=%s product_family=%s soc_family=%s cannot cover hardware class %q",
+			p.vendor, p.productFamily, p.socFamily, hwClass)
+	}
+	id := strings.ToLower(hardwareIdentity)
+	if strings.Contains(id, "nvidia") || strings.Contains(id, "cuda") {
+		return fmt.Errorf(
+			"VENDOR_WALL_UPPER_BOUND vendor=%s soc_family=%s cannot cover hardware identity %q",
+			p.vendor, p.socFamily, hardwareIdentity)
+	}
+	if p.vendor != appleVendorName ||
+		p.productFamily != appleMacStudio2025ProductFamily ||
+		p.socFamily != appleM3UltraSOCFamily {
+		return fmt.Errorf(
+			"VENDOR_WALL_UPPER_BOUND vendor=%s product_family=%s soc_family=%s is not the Apple Mac Studio 2025 M3 Ultra bound",
+			p.vendor, p.productFamily, p.socFamily)
+	}
+	if hwClass != "" && hwClass != "apple_silicon_ultra" {
+		return fmt.Errorf(
+			"VENDOR_WALL_UPPER_BOUND vendor=apple product_family=mac_studio_2025 soc_family=m3_ultra cannot cover hardware class %q",
+			hwClass)
+	}
+	if hardwareIdentity != "" &&
+		!strings.Contains(hardwareIdentity, "M3 Ultra") &&
+		!strings.Contains(hardwareIdentity, "Mac15,14") &&
+		!strings.Contains(hardwareIdentity, "apple_silicon_ultra") {
+		return fmt.Errorf(
+			"VENDOR_WALL_UPPER_BOUND soc_family=m3_ultra does not match hardware identity %q",
+			hardwareIdentity)
+	}
+	return nil
+}
+
+func vendorWallFamilyIsAppleStudioM3Ultra(p *vendorWallProvenance) bool {
+	if p == nil {
+		return false
+	}
+	return p.vendor == appleVendorName &&
+		p.productFamily == appleMacStudio2025ProductFamily &&
+		p.socFamily == appleM3UltraSOCFamily
+}
+
+func vendorWall270Applicable(p *vendorWallProvenance, hwClass string) bool {
+	return vendorWallFamilyIsAppleStudioM3Ultra(p) &&
+		p.wattsUpperBound == appleMacStudio2025M3UltraWallMaxWatts &&
+		(hwClass == "" || hwClass == "apple_silicon_ultra")
+}
+
+// economicPowerSourceRank is the fallback hierarchy. Higher values supersede.
+// GPU-only is invalid and must never be selected.
+type economicPowerSourceRank int
+
+const (
+	economicPowerRankInvalid                      economicPowerSourceRank = 0
+	economicPowerRankGPUOnly                      economicPowerSourceRank = 1 // INVALID
+	economicPowerRankPSUCeiling                   economicPowerSourceRank = 2 // LAST RESORT 480W
+	economicPowerRankVendorWallUpperBound         economicPowerSourceRank = 3 // SAFE FALLBACK 270W
+	economicPowerRankMatchedExternalWallMeasured  economicPowerSourceRank = 4
+	economicPowerRankCompleteLocalPackageMeasured economicPowerSourceRank = 5
+	economicPowerRankLocalWallMeasured            economicPowerSourceRank = 6 // BEST
+)
+
+// economicPowerCandidate is one candidate for selectEconomicPowerEnvelope.
+type economicPowerCandidate struct {
+	Name       string
+	Rank       economicPowerSourceRank
+	Watts      float64
+	Applicable bool
+	Entry      governedSustainedWatts
+}
+
+// selectEconomicPowerEnvelope picks the highest-quality applicable source.
+// GPU-only is never selected. The 480W PSU ceiling is used only when the 270W
+// vendor-wall bound is inapplicable.
+func selectEconomicPowerEnvelope(candidates []economicPowerCandidate) (economicPowerCandidate, error) {
+	var best economicPowerCandidate
+	bestRank := economicPowerRankInvalid
+	vendorWallApplicable := false
+	for _, c := range candidates {
+		if !c.Applicable {
+			continue
+		}
+		if c.Rank == economicPowerRankGPUOnly || c.Rank == economicPowerRankInvalid {
+			continue
+		}
+		if c.Rank == economicPowerRankVendorWallUpperBound &&
+			c.Watts == appleMacStudio2025M3UltraWallMaxWatts {
+			vendorWallApplicable = true
+		}
+		if c.Rank > bestRank {
+			best = c
+			bestRank = c.Rank
+		}
+	}
+	if bestRank == economicPowerRankInvalid {
+		return economicPowerCandidate{}, fmt.Errorf("no applicable economic power envelope (GPU-only is invalid)")
+	}
+	if best.Rank == economicPowerRankPSUCeiling && vendorWallApplicable {
+		return economicPowerCandidate{}, fmt.Errorf(
+			"480W PSU ceiling must not replace applicable 270W VENDOR_WALL_UPPER_BOUND")
+	}
+	if best.Watts == appleMacStudio2025PSUCeilingWatts && vendorWallApplicable {
+		return economicPowerCandidate{}, fmt.Errorf(
+			"480W PSU ceiling must not replace applicable 270W VENDOR_WALL_UPPER_BOUND")
+	}
+	return best, nil
+}
+
+// localPackagePowerTelemetry is a local package-power probe result. GPU-only
+// (CPU and/or ANE sensors at zero while GPU moves) is incomplete and refused.
+type localPackagePowerTelemetry struct {
+	CPUWatts float64
+	ANEWatts float64
+	GPUWatts float64
+}
+
+// classifyLocalPackagePowerTelemetry refuses GPU-only / incomplete local
+// package telemetry. This is the Go-side counterpart of the seal script's
+// CPU-package refusal; it is not weakened.
+func classifyLocalPackagePowerTelemetry(t localPackagePowerTelemetry) error {
+	if t.GPUWatts > 0 && t.CPUWatts <= 0 {
+		return fmt.Errorf(
+			"CPU package component is %v; refusing GPU-only envelope (ANE=%v GPU=%v); local_failure_reason=[%s, %s]",
+			t.CPUWatts, t.ANEWatts, t.GPUWatts, localFailureCPUPowerSensorZero, localFailureANEPowerSensorZero)
+	}
+	if t.CPUWatts <= 0 && t.ANEWatts <= 0 {
+		return fmt.Errorf(
+			"incomplete local package telemetry: %s, %s; refusing GPU-only / incomplete envelope",
+			localFailureCPUPowerSensorZero, localFailureANEPowerSensorZero)
+	}
+	return nil
+}
+
+func localFailureReasonsFromTelemetry(t localPackagePowerTelemetry) []string {
+	var reasons []string
+	if t.CPUWatts <= 0 {
+		reasons = append(reasons, localFailureCPUPowerSensorZero)
+	}
+	if t.ANEWatts <= 0 {
+		reasons = append(reasons, localFailureANEPowerSensorZero)
+	}
+	return reasons
 }
 
 func init() {
@@ -384,8 +880,10 @@ type CataloguePowerCoveredWorkload struct {
 }
 
 // CataloguePowerAuthoritySnapshot freezes a whole-package,
-// inference-shaped watts measurement. GPU-domain or idle measurements are not
-// interchangeable with this supply-side cost boundary.
+// inference-shaped watts measurement or a conservative vendor-wall upper bound.
+// GPU-domain or idle measurements are not interchangeable with this
+// supply-side cost boundary. SourceClass distinguishes MEASURED receipts from
+// VENDOR_WALL_UPPER_BOUND; the latter is never stored as MEASURED.
 type CataloguePowerAuthoritySnapshot struct {
 	Citation                  string                          `json:"citation"`
 	ReceiptSHA256             string                          `json:"receipt_sha256"`
@@ -407,6 +905,21 @@ type CataloguePowerAuthoritySnapshot struct {
 	Watts                     float64                         `json:"watts"`
 	MeasuredAt                string                          `json:"measured_at"`
 	ValidUntil                string                          `json:"valid_until"`
+	// Vendor-wall provenance. Omitempty keeps MEASURED snapshots compact.
+	// There is no measured_watts field.
+	SourceClass               string   `json:"source_class,omitempty"`
+	Vendor                    string   `json:"vendor,omitempty"`
+	ProductFamily             string   `json:"product_family,omitempty"`
+	SOCFamily                 string   `json:"soc_family,omitempty"`
+	WattsUpperBound           float64  `json:"watts_upper_bound,omitempty"`
+	MeasurementScope          string   `json:"measurement_scope,omitempty"`
+	IncludesPSULosses         *bool    `json:"includes_psu_losses,omitempty"`
+	WorkloadSpecific          *bool    `json:"workload_specific,omitempty"`
+	LocalMeasurementAvailable *bool    `json:"local_measurement_available,omitempty"`
+	LocalFailureReason        []string `json:"local_failure_reason,omitempty"`
+	MeasuredConfig            string   `json:"measured_config,omitempty"`
+	LocalConfig               string   `json:"local_config,omitempty"`
+	CitationDigest            string   `json:"citation_digest,omitempty"`
 }
 
 // CatalogueResultPhysicalAuthority is the self-contained physical basis for
@@ -792,6 +1305,23 @@ func validateCatalogueResultPhysicalAuthority(
 			catalogueThroughputFreshnessPolicy)
 	}
 	power := physical.Power
+	if power.SourceClass == string(wattKindVendorWallUpperBound) {
+		if err := validateVendorWallCataloguePower(result, physical, power); err != nil {
+			return time.Time{}, err
+		}
+		// Vendor-wall citations are pinned by digest, not a 30-day measurement
+		// clock. Physical current-use is gated by throughput freshness only.
+		physicalUntil, err := canonicalCatalogueTimestamp("physical authority valid_until", physical.ValidUntil)
+		if err != nil {
+			return time.Time{}, err
+		}
+		if !physicalUntil.Equal(throughputUntil) {
+			return time.Time{}, fmt.Errorf(
+				"catalogue result %s/%s physical valid_until is not the throughput boundary under VENDOR_WALL_UPPER_BOUND",
+				result.ModelID, result.JobType)
+		}
+		return physicalUntil, nil
+	}
 	if physical.Version == catalogueResultPhysicalAuthorityVersion {
 		if power.RuntimeCellID != physical.RuntimeCellID ||
 			power.RuntimeProfileID != physical.RuntimeProfileID ||
@@ -899,6 +1429,111 @@ func validateCatalogueResultPhysicalAuthority(
 			result.ModelID, result.JobType)
 	}
 	return physicalUntil, nil
+}
+
+func validateVendorWallCataloguePower(
+	result RepriceResult,
+	physical CatalogueResultPhysicalAuthority,
+	power CataloguePowerAuthoritySnapshot,
+) error {
+	if power.SourceClass != string(wattKindVendorWallUpperBound) {
+		return fmt.Errorf("catalogue vendor-wall power for %s/%s has source_class %q",
+			result.ModelID, result.JobType, power.SourceClass)
+	}
+	if strings.EqualFold(power.SourceClass, string(wattKindMeasured)) {
+		return fmt.Errorf("VENDOR_WALL_UPPER_BOUND must never be stored as MEASURED")
+	}
+	if physical.Version == catalogueResultPhysicalAuthorityVersion {
+		if power.RuntimeCellID != physical.RuntimeCellID ||
+			power.RuntimeProfileID != physical.RuntimeProfileID ||
+			power.Engine != physical.Engine ||
+			power.EngineBuildHash != physical.EngineBuildHash ||
+			!historicalEngineBuildIdentityPolicyMatches(
+				physical.EngineBuildIdentityPolicy,
+				power.EngineBuildIdentityPolicy,
+			) ||
+			power.HWClass != physical.HWClass ||
+			power.HardwareIdentity != physical.HardwareIdentity {
+			return fmt.Errorf(
+				"catalogue result %s/%s vendor-wall power authority does not bind exact runtime/build/device identity",
+				result.ModelID, result.JobType)
+		}
+	}
+	trueVal, falseVal := true, false
+	if strings.TrimSpace(power.Citation) == "" ||
+		!digestPattern.MatchString(power.ReceiptSHA256) ||
+		power.FreshnessPolicy != catalogueVendorWallFreshnessPolicy ||
+		power.MeasurementBoundary != acWallMeasurementScope ||
+		power.MeasurementScope != acWallMeasurementScope ||
+		power.WorkloadClass != catalogueVendorWallWorkloadClass ||
+		power.Unit != "watts" ||
+		power.AuthorityScope != catalogueVendorWallAuthorityScope ||
+		power.Aggregation != catalogueVendorWallAggregation ||
+		power.OperatingProtocol != catalogueVendorWallOperatingProtocol ||
+		len(power.CoveredWorkloads) != 0 ||
+		!finiteNonNegative(power.Watts) || power.Watts <= 0 ||
+		power.Watts != appleMacStudio2025M3UltraWallMaxWatts ||
+		power.WattsUpperBound != appleMacStudio2025M3UltraWallMaxWatts ||
+		power.Watts == appleMacStudio2025PSUCeilingWatts ||
+		strings.TrimSpace(power.Vendor) == "" ||
+		strings.TrimSpace(power.ProductFamily) == "" ||
+		strings.TrimSpace(power.SOCFamily) == "" ||
+		strings.TrimSpace(power.MeasuredConfig) == "" ||
+		strings.TrimSpace(power.LocalConfig) == "" ||
+		!digestPattern.MatchString(power.CitationDigest) ||
+		power.CitationDigest != power.ReceiptSHA256 ||
+		power.IncludesPSULosses == nil || *power.IncludesPSULosses != trueVal ||
+		power.WorkloadSpecific == nil || *power.WorkloadSpecific != falseVal ||
+		power.LocalMeasurementAvailable == nil || *power.LocalMeasurementAvailable != falseVal ||
+		len(power.LocalFailureReason) == 0 {
+		return fmt.Errorf(
+			"catalogue result %s/%s lacks complete VENDOR_WALL_UPPER_BOUND provenance",
+			result.ModelID, result.JobType)
+	}
+	wantDigest := fmt.Sprintf("%x", sha256.Sum256([]byte(appleMacStudio2025WallPowerCitation)))
+	if power.CitationDigest != wantDigest || power.ReceiptSHA256 != wantDigest {
+		return fmt.Errorf(
+			"catalogue result %s/%s vendor-wall citation digest mismatch: pinned=%s want=%s",
+			result.ModelID, result.JobType, power.CitationDigest, wantDigest)
+	}
+	p := &vendorWallProvenance{
+		vendor:                    power.Vendor,
+		productFamily:             power.ProductFamily,
+		socFamily:                 power.SOCFamily,
+		wattsUpperBound:           power.WattsUpperBound,
+		measurementScope:          power.MeasurementScope,
+		includesPSULosses:         *power.IncludesPSULosses,
+		workloadSpecific:          *power.WorkloadSpecific,
+		localMeasurementAvailable: *power.LocalMeasurementAvailable,
+		localFailureReason:        power.LocalFailureReason,
+		measuredConfig:            power.MeasuredConfig,
+		localConfig:               power.LocalConfig,
+		citationURL:               power.Citation,
+		citationDigest:            power.CitationDigest,
+	}
+	if err := vendorWallCoversHardware(p, physical.HWClass, physical.HardwareIdentity); err != nil {
+		return err
+	}
+	hasCPU, hasANE := false, false
+	for _, reason := range power.LocalFailureReason {
+		switch reason {
+		case localFailureCPUPowerSensorZero:
+			hasCPU = true
+		case localFailureANEPowerSensorZero:
+			hasANE = true
+		}
+	}
+	if !hasCPU || !hasANE {
+		return fmt.Errorf(
+			"catalogue result %s/%s vendor-wall local_failure_reason must record cpu and ane sensor zeros",
+			result.ModelID, result.JobType)
+	}
+	if power.MeasuredAt != catalogueVendorWallPublishedAt {
+		return fmt.Errorf(
+			"catalogue result %s/%s vendor-wall published-at must be Apple's %s, got %q",
+			result.ModelID, result.JobType, catalogueVendorWallPublishedAt, power.MeasuredAt)
+	}
+	return nil
 }
 
 func validateCataloguePriceSchedule(schedule CataloguePriceSchedule) error {
@@ -1021,10 +1656,13 @@ func validateCataloguePriceSchedule(schedule CataloguePriceSchedule) error {
 }
 
 // BuildCataloguePriceSchedule derives one complete, canonical schedule from the
-// exact governed board bytes. Any unpriced or underwater measured model blocks
-// the entire schedule; boot never applies a profitable subset and leaves the
-// rest on stale terms. Each result receives its own reviewed physical-workload
-// share; there is intentionally no process-wide take-rate input.
+// exact governed board bytes. Unpriced measured models still block the entire
+// schedule. A conservative VENDOR_WALL_UPPER_BOUND that makes a market price
+// look underwater is a viability WARNING (see SupplierViabilityReport / main
+// boot), not a publication veto — the bound errs high by design. MEASURED
+// power still refuses a negative-contribution price. Each result receives its
+// own reviewed physical-workload share; there is intentionally no process-wide
+// take-rate input.
 //
 // Every repricingBenchmark citation is re-validated here so a price row that
 // cites an unbindable artifact cannot reach buyers even if a future edit
@@ -1078,8 +1716,9 @@ func BuildCataloguePriceSchedule() (CataloguePriceSchedule, error) {
 		if perr != nil {
 			return CataloguePriceSchedule{}, perr
 		}
-		if gerr := governPublishedPriceAtWatts(
+		if gerr := governPublishedPriceAtWattsKind(
 			b, referencePrice, supplierShare, physical.Power.Watts,
+			wattAuthorityKind(physical.Power.SourceClass),
 		); gerr != nil {
 			return CataloguePriceSchedule{}, gerr
 		}

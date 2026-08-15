@@ -55,7 +55,10 @@ func TestCostTieNamesTheAuthorityAndTheMargin(t *testing.T) {
 	if got.LargestAnyShare <= 0 {
 		t.Fatal("no differentiating term was quantified at all; the margin is unstated")
 	}
-	if got.LargestAnyShare > 1e-3 {
+	// 270 W VENDOR_WALL_UPPER_BOUND enlarges the blocked energy term vs the
+	// retired 65 W understatement (~4x). It must stay a small blocked margin,
+	// not a term large enough to treat as settled money.
+	if got.LargestAnyShare > 5e-3 {
 		t.Fatalf("a blocked term is %g of entitlement — large enough that measuring it "+
 			"proplerly could change the answer, which the receipt must not treat as settled",
 			got.LargestAnyShare)
@@ -230,8 +233,8 @@ func TestCostTieReportsBlockedTermsWithTheirReason(t *testing.T) {
 			energy.Knowledge)
 	}
 	if energy.Knowledge != CategoryAssumed {
-		t.Fatalf("energy knowledge = %s; apple_silicon_ultra watts are ASSUMED in "+
-			"control/pricing.go and this must not silently upgrade", energy.Knowledge)
+		t.Fatalf("energy knowledge = %s; apple_silicon_ultra watts are VENDOR_WALL_UPPER_BOUND in "+
+			"control/pricing.go and this must not silently upgrade to MEASURED energy", energy.Knowledge)
 	}
 	// The faster cell really does use less energy, so the delta has a sign and
 	// is not merely a rounding artefact.

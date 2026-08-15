@@ -24,9 +24,9 @@ type pricingPowerReceiptMutation func(receipt map[string]any)
 
 // installBoundCataloguePublicationAuthorityForTest is the single test-only
 // seam for tests that exercise fresh schedule mechanics. Production evidence
-// remains UNBOUND and production watts remain ASSUMED; this helper writes
-// ephemeral, explicitly synthetic BOUND throughput and power receipts. It
-// never edits or relabels checked-in evidence.
+// remains UNBOUND and production ultra watts remain a VENDOR_WALL_UPPER_BOUND;
+// this helper writes ephemeral, explicitly synthetic BOUND throughput and
+// MEASURED power receipts. It never edits or relabels checked-in evidence.
 func installBoundCataloguePublicationAuthorityForTest(t *testing.T) {
 	installBoundCataloguePublicationAuthorityWithMutationsForTest(t, nil, nil)
 }

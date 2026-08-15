@@ -883,6 +883,7 @@ func powerPolicyAssumed(hwClass string) CapabilityFact {
 	knowledge := capabilityKnowledgeAssumed
 	if entry.Kind() == wattKindMeasured {
 		// Preserve MEASURED if a class ever earns it; do not invent MEASURED.
+		// VENDOR_WALL_UPPER_BOUND is a conservative envelope, not a measurement.
 		knowledge = capabilityKnowledgeMeasured
 	}
 	return CapabilityFact{

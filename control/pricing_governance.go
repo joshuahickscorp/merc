@@ -325,8 +325,23 @@ func governPublishedPriceAtWatts(
 	b measuredThroughput,
 	pricePer1K, supplierShare, watts float64,
 ) error {
+	return governPublishedPriceAtWattsKind(b, pricePer1K, supplierShare, watts, wattKindMeasured)
+}
+
+func governPublishedPriceAtWattsKind(
+	b measuredThroughput,
+	pricePer1K, supplierShare, watts float64,
+	kind wattAuthorityKind,
+) error {
 	m := marginsForPriceAtWatts(b, pricePer1K, supplierShare, watts)
 	if !m.supplierNegative() && !m.cxNegative() {
+		return nil
+	}
+	// A conservative vendor-wall upper bound may make a market price look
+	// underwater because it errs high. That is the viability WARNING, not a
+	// publication veto: refusing would hide the catalogue behind a bound that
+	// is designed to overstate electricity. MEASURED power still refuses.
+	if kind == wattKindVendorWallUpperBound {
 		return nil
 	}
 	return errNegativeContribution{ModelID: b.ModelID, Price: pricePer1K, Margins: m}

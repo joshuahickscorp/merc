@@ -40,8 +40,9 @@ func TestEveryAdmittedClassHasAPowerFigure(t *testing.T) {
 			t.Fatalf("hardware class %q is admitted but has no sustained-power figure; "+
 				"supplier break-even for it would be computed from a default", class)
 		}
-		if w.Kind() != wattKindMeasured && w.Kind() != wattKindAssumed {
-			t.Fatalf("hardware class %q power figure has no MEASURED/ASSUMED kind: %q", class, w.Kind())
+		if w.Kind() != wattKindMeasured && w.Kind() != wattKindAssumed &&
+			w.Kind() != wattKindVendorWallUpperBound {
+			t.Fatalf("hardware class %q power figure has no MEASURED/ASSUMED/VENDOR_WALL_UPPER_BOUND kind: %q", class, w.Kind())
 		}
 		if strings.TrimSpace(w.Provenance()) == "" {
 			t.Fatalf("hardware class %q power figure has empty provenance", class)

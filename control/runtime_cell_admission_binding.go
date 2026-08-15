@@ -911,11 +911,11 @@ func frozenEnergyComponent(hwClass string, msPerUnit, billableUnits float64) Pri
 	if math.IsNaN(usd) || math.IsInf(usd, 0) {
 		return unknownCost("energy model produced a non-finite figure")
 	}
-	if entry.Kind() == wattKindAssumed {
+	if err := acceptEnergyMeasurement(entry); err != nil {
 		return unknownCost(fmt.Sprintf(
-			"%.1f W is ASSUMED, not measured (%s); over %.6fs it would imply %.6f J and $%.9f at the default $%.2f/kWh, but assumed power cannot enter canonical platform cost or true net",
-			entry.Watts(), entry.Provenance(), seconds, joules, usd,
-			defaultElectricityUSDPerKWh))
+			"%.1f W is %s, not MEASURED energy (%s); over %.6fs it would imply %.6f J and $%.9f at the default $%.2f/kWh, but %s / %s cannot enter canonical platform cost or true net: %v",
+			entry.Watts(), entry.Kind(), entry.Provenance(), seconds, joules, usd,
+			defaultElectricityUSDPerKWh, energyMeasurementAuthority, measuredEnergyEvidenceKind, err))
 	}
 	return modeledCost(roundEconomicUSD(usd), fmt.Sprintf(
 		"%.1f W (%s) × %.6fs accepted duration × $%.2f/kWh = %.6f J; "+
@@ -944,6 +944,15 @@ func frozenEnergyComponentFromCatalogue(
 		return PricingCostComponent{}, 0, "", "", err
 	}
 	power := physical.Power
+	if power.SourceClass == string(wattKindVendorWallUpperBound) ||
+		power.SourceClass == string(wattKindAssumed) {
+		source := fmt.Sprintf("%s@sha256:%s", power.Citation, power.ReceiptSHA256)
+		return unknownCost(fmt.Sprintf(
+				"%.1f W is %s, not MEASURED energy (%s); %s / %s requires MEASURED energy and this envelope cannot enter canonical platform cost or true net",
+				power.Watts, power.SourceClass, source,
+				energyMeasurementAuthority, measuredEnergyEvidenceKind)),
+			0, power.SourceClass, source, nil
+	}
 	if expectedSeconds <= 0 || math.IsNaN(expectedSeconds) || math.IsInf(expectedSeconds, 0) {
 		return PricingCostComponent{}, 0, "", "", errors.New(
 			"accepted duration is not positive for frozen catalogue power")

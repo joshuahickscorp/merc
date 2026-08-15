@@ -587,10 +587,11 @@ func pricingThroughputValidUntil(receipt map[string]any, now time.Time) (time.Ti
 	return validUntil, nil
 }
 
-// validatePricingPowerCitation turns a MEASURED table row into weight-bearing
-// publication authority only when the exact receipt bytes are pinned and the
-// BOUND receipt says exactly what the row says. Free-form provenance remains
-// useful for diagnostics but cannot authorize a buyer price.
+// validatePricingPowerCitation turns a MEASURED receipt row or a
+// VENDOR_WALL_UPPER_BOUND provenance record into weight-bearing publication
+// authority. MEASURED still requires pinned receipt bytes. Vendor-wall rows
+// require complete provenance and a matching citation digest. Free-form
+// ASSUMED provenance cannot authorize a buyer price.
 func validatePricingPowerCitation(
 	b measuredThroughput,
 	entry governedSustainedWatts,
@@ -601,6 +602,101 @@ func validatePricingPowerCitation(
 }
 
 func pricingPowerAuthoritySnapshot(
+	b measuredThroughput,
+	entry governedSustainedWatts,
+	now time.Time,
+) (CataloguePowerAuthoritySnapshot, error) {
+	switch entry.Kind() {
+	case wattKindVendorWallUpperBound:
+		return vendorWallPowerAuthoritySnapshot(b, entry)
+	case wattKindMeasured:
+		return measuredPowerAuthoritySnapshot(b, entry, now)
+	default:
+		return CataloguePowerAuthoritySnapshot{}, fmt.Errorf(
+			"catalogue publication requires MEASURED or VENDOR_WALL_UPPER_BOUND sustained watts for hardware class %q; got %s",
+			b.HWClass, entry.Kind())
+	}
+}
+
+func vendorWallPowerAuthoritySnapshot(
+	b measuredThroughput,
+	entry governedSustainedWatts,
+) (CataloguePowerAuthoritySnapshot, error) {
+	if err := acceptEconomicPowerEnvelope(entry, b.HWClass, b.HardwareIdentity); err != nil {
+		return CataloguePowerAuthoritySnapshot{}, err
+	}
+	p := entry.vendorWall
+	if p == nil {
+		return CataloguePowerAuthoritySnapshot{}, fmt.Errorf(
+			"catalogue publication VENDOR_WALL_UPPER_BOUND for %q is missing provenance fields", b.HWClass)
+	}
+	includes, workloadSpecific, localAvail := p.includesPSULosses, p.workloadSpecific, p.localMeasurementAvailable
+	return CataloguePowerAuthoritySnapshot{
+		Citation:                  p.citationURL,
+		ReceiptSHA256:             p.citationDigest,
+		RuntimeCellID:             b.RuntimeCellID,
+		RuntimeProfileID:          b.RuntimeProfileID,
+		Engine:                    b.Engine,
+		EngineBuildHash:           b.EngineBuildHash,
+		EngineBuildIdentityPolicy: b.EngineBuildIdentityPolicy,
+		HWClass:                   b.HWClass,
+		HardwareIdentity:          b.HardwareIdentity,
+		FreshnessPolicy:           catalogueVendorWallFreshnessPolicy,
+		MeasurementBoundary:       acWallMeasurementScope,
+		WorkloadClass:             catalogueVendorWallWorkloadClass,
+		Unit:                      "watts",
+		AuthorityScope:            catalogueVendorWallAuthorityScope,
+		Aggregation:               catalogueVendorWallAggregation,
+		OperatingProtocol:         catalogueVendorWallOperatingProtocol,
+		CoveredWorkloads:          nil,
+		Watts:                     p.wattsUpperBound,
+		MeasuredAt:                catalogueVendorWallPublishedAt,
+		ValidUntil:                "", // combined with throughput in buildCatalogueResultPhysicalAuthority
+		SourceClass:               string(wattKindVendorWallUpperBound),
+		Vendor:                    p.vendor,
+		ProductFamily:             p.productFamily,
+		SOCFamily:                 p.socFamily,
+		WattsUpperBound:           p.wattsUpperBound,
+		MeasurementScope:          p.measurementScope,
+		IncludesPSULosses:         &includes,
+		WorkloadSpecific:          &workloadSpecific,
+		LocalMeasurementAvailable: &localAvail,
+		LocalFailureReason:        append([]string(nil), p.localFailureReason...),
+		MeasuredConfig:            p.measuredConfig,
+		LocalConfig:               p.localConfig,
+		CitationDigest:            p.citationDigest,
+	}, nil
+}
+
+func vendorWallEntryFromSnapshot(power CataloguePowerAuthoritySnapshot) (governedSustainedWatts, error) {
+	if power.SourceClass != string(wattKindVendorWallUpperBound) {
+		return governedSustainedWatts{}, fmt.Errorf("power snapshot source_class %q is not VENDOR_WALL_UPPER_BOUND", power.SourceClass)
+	}
+	if power.IncludesPSULosses == nil || power.WorkloadSpecific == nil || power.LocalMeasurementAvailable == nil {
+		return governedSustainedWatts{}, fmt.Errorf("vendor-wall snapshot is missing required boolean provenance fields")
+	}
+	spec := vendorWallUpperBoundSpec{
+		WattsUpperBound:           power.WattsUpperBound,
+		Vendor:                    power.Vendor,
+		ProductFamily:             power.ProductFamily,
+		SOCFamily:                 power.SOCFamily,
+		MeasurementScope:          power.MeasurementScope,
+		IncludesPSULosses:         *power.IncludesPSULosses,
+		WorkloadSpecific:          *power.WorkloadSpecific,
+		LocalMeasurementAvailable: *power.LocalMeasurementAvailable,
+		LocalFailureReason:        power.LocalFailureReason,
+		MeasuredConfig:            power.MeasuredConfig,
+		LocalConfig:               power.LocalConfig,
+		CitationURL:               power.Citation,
+		CitationDigest:            power.CitationDigest,
+	}
+	if err := validateVendorWallUpperBoundSpec(spec); err != nil {
+		return governedSustainedWatts{}, err
+	}
+	return wattsVendorWallUpperBound(spec), nil
+}
+
+func measuredPowerAuthoritySnapshot(
 	b measuredThroughput,
 	entry governedSustainedWatts,
 	now time.Time,
@@ -870,6 +966,7 @@ func pricingPowerAuthoritySnapshot(
 		Watts:                     measuredWatts,
 		MeasuredAt:                measuredAt.Format(time.RFC3339),
 		ValidUntil:                validUntil.UTC().Format(time.RFC3339),
+		SourceClass:               string(wattKindMeasured),
 	}, nil
 }
 
@@ -906,10 +1003,15 @@ func buildCatalogueResultPhysicalAuthority(b measuredThroughput) (CatalogueResul
 		return CatalogueResultPhysicalAuthority{}, err
 	}
 	throughputUntil, _ := time.Parse(time.RFC3339, throughput.ValidUntil)
-	powerUntil, _ := time.Parse(time.RFC3339, power.ValidUntil)
 	validUntil := throughputUntil
-	if powerUntil.Before(validUntil) {
-		validUntil = powerUntil
+	if power.SourceClass != string(wattKindVendorWallUpperBound) {
+		powerUntil, _ := time.Parse(time.RFC3339, power.ValidUntil)
+		if !powerUntil.IsZero() && powerUntil.Before(validUntil) {
+			validUntil = powerUntil
+		}
+	} else {
+		// Vendor-wall power does not expire independently of throughput.
+		power.ValidUntil = throughputUntil.UTC().Format(time.RFC3339)
 	}
 	return CatalogueResultPhysicalAuthority{
 		Version:                   catalogueResultPhysicalAuthorityVersion,
@@ -1014,15 +1116,30 @@ func revalidateCatalogueResultPhysicalCurrent(result RepriceResult) error {
 			"catalogue throughput authority for %s/%s no longer equals its exact cited bytes",
 			result.ModelID, result.JobType)
 	}
-	powerEntry := wattsMeasured(
-		physical.Power.Watts,
-		physical.Power.Citation,
-		physical.Power.ReceiptSHA256,
-	)
+	var powerEntry governedSustainedWatts
+	if physical.Power.SourceClass == string(wattKindVendorWallUpperBound) {
+		var verr error
+		powerEntry, verr = vendorWallEntryFromSnapshot(physical.Power)
+		if verr != nil {
+			return fmt.Errorf("catalogue power authority for %s/%s: %w",
+				result.ModelID, result.JobType, verr)
+		}
+	} else {
+		powerEntry = wattsMeasured(
+			physical.Power.Watts,
+			physical.Power.Citation,
+			physical.Power.ReceiptSHA256,
+		)
+	}
 	power, err := pricingPowerAuthoritySnapshot(benchmark, powerEntry, cataloguePowerNow())
 	if err != nil {
 		return fmt.Errorf("catalogue power authority for %s/%s: %w",
 			result.ModelID, result.JobType, err)
+	}
+	if physical.Power.SourceClass == string(wattKindVendorWallUpperBound) {
+		// Rebuild stamps ValidUntil from current throughput; compare on the
+		// combined physical snapshot the schedule actually froze.
+		power.ValidUntil = physical.Power.ValidUntil
 	}
 	if !reflect.DeepEqual(power, physical.Power) {
 		return fmt.Errorf(

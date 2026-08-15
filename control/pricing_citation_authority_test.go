@@ -117,12 +117,37 @@ func TestProductionThroughputCitationsBindCurrentSettlementGeometry(t *testing.T
 	}
 }
 
+func TestProductionCatalogueScheduleAcceptsVendorWallUpperBound(t *testing.T) {
+	// Throughput is BOUND; apple_silicon_ultra power is a conservative
+	// VENDOR_WALL_UPPER_BOUND (270 W), which satisfies ECONOMIC_POWER_ENVELOPE
+	// and unblocks catalogue publication. It is not MEASURED.
+	schedule, err := BuildCataloguePriceSchedule()
+	if err != nil {
+		t.Fatalf("production catalogue publication error=%v", err)
+	}
+	if len(schedule.Results) < 1 {
+		t.Fatal("production catalogue published no lanes")
+	}
+	power := schedule.Results[0].PhysicalAuthority.Power
+	if power.SourceClass != string(wattKindVendorWallUpperBound) {
+		t.Fatalf("source_class=%q, want VENDOR_WALL_UPPER_BOUND", power.SourceClass)
+	}
+	if power.Watts != appleMacStudio2025M3UltraWallMaxWatts || power.WattsUpperBound != appleMacStudio2025M3UltraWallMaxWatts {
+		t.Fatalf("vendor-wall watts=%v upper=%v, want 270", power.Watts, power.WattsUpperBound)
+	}
+}
+
 func TestProductionCatalogueScheduleRefusesAssumedPower(t *testing.T) {
-	// Throughput is BOUND; whole-package power for apple_silicon_ultra remains
-	// ASSUMED until an honest MEASURED receipt exists. Catalogue publication
-	// must still fail closed on that power gate — not invent watts.
+	// The production ultra row is a vendor-wall bound. Overwrite it with
+	// ASSUMED: catalogue publication must still fail closed.
+	previous := sustainedWattsByHWClass["apple_silicon_ultra"]
+	t.Cleanup(func() { sustainedWattsByHWClass["apple_silicon_ultra"] = previous })
+	sustainedWattsByHWClass["apple_silicon_ultra"] = wattsAssumed(
+		65,
+		"ASSUMED only to prove that catalogue publication refuses it",
+	)
 	_, err := BuildCataloguePriceSchedule()
-	if err == nil || !strings.Contains(err.Error(), "requires MEASURED sustained watts") ||
+	if err == nil || !strings.Contains(err.Error(), "requires MEASURED or VENDOR_WALL_UPPER_BOUND sustained watts") ||
 		!strings.Contains(err.Error(), "apple_silicon_ultra") {
 		t.Fatalf("production catalogue publication error=%v", err)
 	}
@@ -460,7 +485,7 @@ func TestCataloguePublicationRefusesAssumedWatts(t *testing.T) {
 	)
 	pinBoardClockForPublication(t)
 	_, err := BuildCataloguePriceSchedule()
-	if err == nil || !strings.Contains(err.Error(), "requires MEASURED sustained watts") {
+	if err == nil || !strings.Contains(err.Error(), "requires MEASURED or VENDOR_WALL_UPPER_BOUND sustained watts") {
 		t.Fatalf("catalogue publication with ASSUMED watts error=%v", err)
 	}
 }
@@ -745,8 +770,9 @@ func TestCataloguePublicationRefusesUnknownWattsClass(t *testing.T) {
 func TestEveryWattConstantDeclaresProvenance(t *testing.T) {
 	must(t, validateSustainedWattsTable())
 	for class, entry := range sustainedWattsByHWClass {
-		if entry.Kind() != wattKindMeasured && entry.Kind() != wattKindAssumed {
-			t.Fatalf("%s: kind %q is not MEASURED or ASSUMED", class, entry.Kind())
+		if entry.Kind() != wattKindMeasured && entry.Kind() != wattKindAssumed &&
+			entry.Kind() != wattKindVendorWallUpperBound {
+			t.Fatalf("%s: kind %q is not MEASURED, ASSUMED, or VENDOR_WALL_UPPER_BOUND", class, entry.Kind())
 		}
 		if strings.TrimSpace(entry.Provenance()) == "" {
 			t.Fatalf("%s: empty provenance", class)
