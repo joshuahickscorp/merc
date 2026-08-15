@@ -513,3 +513,145 @@ func TestSettlementUnchangedWhenOfferStateArrivesViaDetachedWrite(t *testing.T) 
 		}
 	}
 }
+
+// TestLivenessStructuresCannotAlterCapabilityOrTrust pins P0 invariants 11 and
+// 12 behaviourally. Existing coverage only scanned LiveDeviceIndex's METHOD
+// NAMES for "capabilit"/"trust"/"grant", which proves the API surface does not
+// advertise such a thing but not that exercising it changes nothing.
+//
+// Here the liveness machinery is driven hard — heartbeats under both flag
+// settings, index mutation, an admission refusal, and a corrupt-mapping plant —
+// and the capability and trust/quarantine surfaces are snapshotted before and
+// after. Liveness may only ever answer "is this offer alive"; if it can move a
+// capability grant or a supplier's trust standing, the corruption boundary is
+// not where the design claims it is.
+func TestLivenessStructuresCannotAlterCapabilityOrTrust(t *testing.T) {
+	t.Setenv("MERC_LIVENESS_INDEX_AUTHORITATIVE", "1")
+	ctx, store, pool := openIsolatedTestStore(t)
+	store.SetLivenessBatchConfigForTest(livenessBatchConfig{Enabled: false})
+	t.Setenv("MERC_TOKEN_KEY", "liveness-capability-key-32-bytes-min!!")
+	installSettlementCurrencyForTest(t, "usd")
+	profile := sortedVLLMProfiles()[0]
+	worker := seedOneRealtimeOffer(t, ctx, store, pool, profile)
+
+	snapshot := func() (caps, trust, quarantine string) {
+		t.Helper()
+		if err := pool.QueryRow(ctx, `
+			SELECT COALESCE(string_agg(t::text, '|' ORDER BY t::text), '')
+			  FROM worker_authorized_capabilities t`).Scan(&caps); err != nil {
+			t.Fatal(err)
+		}
+		if err := pool.QueryRow(ctx, `
+			SELECT COALESCE(string_agg(t::text, '|' ORDER BY t::text), '')
+			  FROM realtime_supplier_outcome_stats t`).Scan(&trust); err != nil {
+			t.Fatal(err)
+		}
+		if err := pool.QueryRow(ctx, `
+			SELECT COALESCE(string_agg(s.id::text || ':' || COALESCE(s.quarantined_at::text,'-')
+			       || ':' || s.status, '|' ORDER BY s.id::text), '')
+			  FROM suppliers s`).Scan(&quarantine); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+
+	beforeCaps, beforeTrust, beforeQuar := snapshot()
+
+	// Every liveness lever we have.
+	for _, status := range []string{"ACTIVE", "DRAINING", "ACTIVE"} {
+		if err := store.HeartbeatRealtimeOffer(ctx, worker, RealtimeOfferHeartbeat{
+			RuntimeProfileID: profile.RuntimeProfileID, Warmth: "HOT",
+			AvailableSequences: 8, Status: status,
+		}); err != nil {
+			t.Fatalf("heartbeat %s: %v", status, err)
+		}
+	}
+	// A refused admission.
+	impostor := worker
+	impostor.SupplierID = uuid.New()
+	_ = store.HeartbeatRealtimeOffer(ctx, impostor, RealtimeOfferHeartbeat{
+		RuntimeProfileID: profile.RuntimeProfileID, Warmth: "HOT",
+		AvailableSequences: 8, Status: "ACTIVE",
+	})
+	// A corrupt mapping plant, and direct index mutation.
+	if slot, ok := store.lookupOfferSlot(worker.WorkerID, profile.RuntimeProfileID); ok {
+		store.indexHeartbeatSlot(slot, worker.WorkerID, profile.RuntimeProfileID, time.Now().UTC(), time.Now().UTC())
+	}
+	ageOfferIndexSlot(t, store, worker.WorkerID, profile.RuntimeProfileID)
+	_ = store.offerIndexLive(worker.WorkerID, profile.RuntimeProfileID, time.Now().UTC())
+
+	afterCaps, afterTrust, afterQuar := snapshot()
+
+	if beforeCaps != afterCaps {
+		t.Fatalf("liveness activity changed worker_authorized_capabilities:\n before=%s\n after=%s", beforeCaps, afterCaps)
+	}
+	if beforeTrust != afterTrust {
+		t.Fatalf("liveness activity changed realtime_supplier_outcome_stats (trust):\n before=%s\n after=%s", beforeTrust, afterTrust)
+	}
+	if beforeQuar != afterQuar {
+		t.Fatalf("liveness activity changed supplier status/quarantine:\n before=%s\n after=%s", beforeQuar, afterQuar)
+	}
+}
+
+// TestReplayedHeartbeatCannotResurrectDeadOfferBeyondWindow pins P0 invariant 6
+// at OFFER grain. Existing replay coverage was index-primitive only.
+//
+// A captured heartbeat replayed after its observation has aged past the window
+// must be REFUSED outright, so it cannot restart liveness for an offer that has
+// gone quiet. A replay still inside the window is accepted — correctly, since it
+// attests presence within the contract — and that is exactly why the durable
+// stamp is the clamped observation and not receipt time: the replay can never
+// extend liveness further than the original observation would have.
+func TestReplayedHeartbeatCannotResurrectDeadOfferBeyondWindow(t *testing.T) {
+	t.Setenv("MERC_LIVENESS_INDEX_AUTHORITATIVE", "1")
+	ctx, store, pool := openIsolatedTestStore(t)
+	store.SetLivenessBatchConfigForTest(livenessBatchConfig{Enabled: false})
+	t.Setenv("MERC_TOKEN_KEY", "liveness-replay-key-32-bytes-minimum!")
+	installSettlementCurrencyForTest(t, "usd")
+	profile := sortedVLLMProfiles()[0]
+	worker := seedOneRealtimeOffer(t, ctx, store, pool, profile)
+
+	// Restart onto a fresh index: the offer is dead-for-routing (fail-closed).
+	store = NewStore(pool)
+	if err := store.adoptMigratedSchema(ctx); err != nil {
+		t.Fatalf("restart adopt: %v", err)
+	}
+	if store.offerIndexLive(worker.WorkerID, profile.RuntimeProfileID, time.Now().UTC()) {
+		t.Fatal("fresh store must read dead")
+	}
+
+	// Replay a captured observation from beyond the window.
+	stale := time.Now().UTC().Add(-realtimeOfferLivenessWindow - 5*time.Second).UnixMilli()
+	err := store.HeartbeatRealtimeOffer(ctx, worker, RealtimeOfferHeartbeat{
+		RuntimeProfileID: profile.RuntimeProfileID, Warmth: "HOT",
+		AvailableSequences: 8, Status: "ACTIVE", ObservedAtUnixMs: &stale,
+	})
+	if !errors.Is(err, errStaleHeartbeatObservation) {
+		t.Fatalf("replayed out-of-window heartbeat: got %v want errStaleHeartbeatObservation", err)
+	}
+	if store.offerIndexLive(worker.WorkerID, profile.RuntimeProfileID, time.Now().UTC()) {
+		t.Fatal("a replayed out-of-window heartbeat resurrected a dead offer")
+	}
+
+	// A replay from inside the window is accepted, but only ever carries the
+	// original observation — it cannot buy more liveness than the original had.
+	inside := time.Now().UTC().Add(-realtimeOfferLivenessWindow + 10*time.Second)
+	insideMs := inside.UnixMilli()
+	if err := store.HeartbeatRealtimeOffer(ctx, worker, RealtimeOfferHeartbeat{
+		RuntimeProfileID: profile.RuntimeProfileID, Warmth: "HOT",
+		AvailableSequences: 8, Status: "ACTIVE", ObservedAtUnixMs: &insideMs,
+	}); err != nil {
+		t.Fatalf("in-window replay: %v", err)
+	}
+	var lastSeen time.Time
+	if err := pool.QueryRow(ctx, `
+		SELECT last_seen_at FROM realtime_worker_offers
+		 WHERE worker_id=$1 AND runtime_profile_id=$2`,
+		worker.WorkerID, profile.RuntimeProfileID).Scan(&lastSeen); err != nil {
+		t.Fatal(err)
+	}
+	if lastSeen.UTC().After(inside.Add(time.Second)) {
+		t.Fatalf("last_seen_at=%v is later than the replayed observation %v; a replay must not "+
+			"buy liveness the original observation did not have", lastSeen.UTC(), inside)
+	}
+}
