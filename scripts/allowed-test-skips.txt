@@ -109,6 +109,14 @@ TestRealtimeAuthLatencyProbe
 # Set MERC_SELECTOR_SCALE_CURVE=1 and use scripts/with-isolated-test-db.sh.
 TestSelectorScaleCurve
 #
+# Opt-in heartbeat-ingest ceiling harness. Drives production
+# HeartbeatRealtimeOffer (baseline one-statement vs coalesced multi-row) against
+# a synthetic fleet and writes evidence/perf/heartbeat-ingest-ceiling.json.
+# Minutes of wall clock and multi-GB of disposable PostgreSQL; never part of
+# make test / make ci. Set MERC_HEARTBEAT_INGEST_BENCH=1 and use
+# scripts/with-isolated-test-db.sh.
+TestHeartbeatIngestBench
+#
 # Opt-in realtime selection cost decomposition. Seeds up to 100k offers and
 # times five statement variants (precount, full claim, no-book, top-N pick,
 # eligibility floor) under ROLLBACK to name the linear term. Minutes of wall

@@ -187,6 +187,14 @@ type RealtimeOfferHeartbeat struct {
 	Warmth             string `json:"warmth"`
 	AvailableSequences int    `json:"available_sequences"`
 	Status             string `json:"status"`
+	// ObservedAtUnixMs is the device's own wall-clock observation of its
+	// liveness, in Unix milliseconds. Optional for backward compatibility:
+	// when absent the control plane stamps the authenticated receipt time
+	// (still earlier than flush). The value is always clamped to server now
+	// and rejected when older than the 45s eligibility window — never written
+	// as last_seen_at without those guards, and never accepted without a
+	// verified WorkerAuth on the calling path.
+	ObservedAtUnixMs *int64 `json:"observed_at_unix_ms,omitempty"`
 }
 
 type RealtimeContract struct {
@@ -404,55 +412,18 @@ func (s *Store) UpsertRealtimeOffer(ctx context.Context, worker WorkerAuth, regi
 }
 
 func (s *Store) HeartbeatRealtimeOffer(ctx context.Context, worker WorkerAuth, hb RealtimeOfferHeartbeat) error {
-	tx, err := s.pool.Begin(ctx)
+	// Receipt time is captured after the caller has authenticated (HTTP:
+	// authWorker). Device-supplied ObservedAtUnixMs is clamped/rejected here;
+	// flush delay cannot extend last_seen_at past this observation.
+	observedAt, err := resolveHeartbeatObservation(hb.ObservedAtUnixMs, time.Now())
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx)
-	var (
-		profileSHA string
-		hwClass    string
-		maxActive  int
-		available  int
-		inputRate  float64
-		outputRate float64
-	)
-	err = tx.QueryRow(ctx, `
-		UPDATE realtime_worker_offers AS o
-		   SET warmth=$4,
-		       available_sequences=GREATEST(0,LEAST($5,o.max_active_sequences-(
-		           SELECT count(*)::int FROM execution_contracts c
-		            WHERE c.worker_id=$1 AND c.runtime_profile_id=$3
-		              AND c.state='EXECUTING'))),
-		       status=$6,last_seen_at=now(),updated_at=now()
-		  FROM workers AS w
-		 WHERE o.worker_id=$1 AND o.supplier_id=$2 AND o.runtime_profile_id=$3
-		   AND w.id=o.worker_id
-		   AND $5 BETWEEN 0 AND o.max_active_sequences
-		RETURNING o.runtime_profile_sha256,
-	          COALESCE(NULLIF(o.placement_plan->>'hw_class',''),w.hw_class),o.max_active_sequences,
-	          o.available_sequences,o.supplier_input_usd_per_million_tokens,
-	          o.supplier_output_usd_per_million_tokens`,
-		worker.WorkerID, worker.SupplierID, hb.RuntimeProfileID, hb.Warmth,
-		hb.AvailableSequences, hb.Status).Scan(&profileSHA, &hwClass, &maxActive,
-		&available, &inputRate, &outputRate)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return errNotFound
+	coalescer := s.ensureLivenessCoalescer()
+	if coalescer != nil {
+		return coalescer.submit(ctx, worker, hb, observedAt)
 	}
-	if err != nil {
-		return err
-	}
-	if _, err := tx.Exec(ctx, `
-		INSERT INTO realtime_offer_samples
-		  (worker_id,supplier_id,runtime_profile_id,runtime_profile_sha256,hw_class,
-		   status,max_active_sequences,available_sequences,
-		   supplier_input_usd_per_million_tokens,supplier_output_usd_per_million_tokens)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-		worker.WorkerID, worker.SupplierID, hb.RuntimeProfileID, profileSHA, hwClass,
-		hb.Status, maxActive, available, inputRate, outputRate); err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
+	return s.heartbeatRealtimeOfferOne(ctx, worker, hb, observedAt)
 }
 
 func scanRealtimeContract(row pgx.Row) (RealtimeContract, error) {

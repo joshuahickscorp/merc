@@ -204,6 +204,8 @@ func (s *Server) handleRealtimeWorkerRegister(w http.ResponseWriter, r *http.Req
 }
 
 func (s *Server) handleRealtimeWorkerHeartbeat(w http.ResponseWriter, r *http.Request) {
+	// authWorker middleware has already verified X-Worker-Token into ctxWorker.
+	// There is no unauthenticated path onto HeartbeatRealtimeOffer from HTTP.
 	auth := r.Context().Value(ctxWorker).(*WorkerAuth)
 	var hb RealtimeOfferHeartbeat
 	raw, err := io.ReadAll(io.LimitReader(r.Body, 32<<10+1))
@@ -233,6 +235,9 @@ func (s *Server) handleRealtimeWorkerHeartbeat(w http.ResponseWriter, r *http.Re
 	}
 	if err := s.store.HeartbeatRealtimeOffer(r.Context(), *auth, hb); errors.Is(err, errNotFound) {
 		writeErr(w, http.StatusNotFound, "realtime offer not registered")
+		return
+	} else if errors.Is(err, errStaleHeartbeatObservation) {
+		writeErr(w, http.StatusBadRequest, "stale heartbeat observation")
 		return
 	} else if err != nil {
 		writeErr(w, http.StatusInternalServerError, "realtime heartbeat failed")

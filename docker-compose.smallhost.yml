@@ -1,0 +1,390 @@
+# =============================================================================
+# merc small-host production profile — 1 vCPU / 961 MB RAM / 2 GB swap / 24 GB
+# =============================================================================
+#
+# Target host: a DigitalOcean-class droplet with 1 vCPU, 961 MB RAM, 2 GB swap,
+# 24 GB disk. This file is the honest production profile for that box — not a
+# "lite mode" and not a reduced API. Real PostgreSQL, full control binary, TLS
+# via Caddy, on-box alerting.
+#
+# ## Measured baseline (local, idle + light HTTP/DB/object load, HEAD-era stack)
+#
+# | service        | prod declared | measured peak RSS | smallhost limit |
+# |----------------|---------------|-------------------|-----------------|
+# | postgres       | 1024 MiB      |  75 MiB           | 192 MiB         |
+# | minio          | 1024 MiB      | 113 MiB           | 160 MiB         |
+# | control        | 1024 MiB      |  58 MiB           | 192 MiB         |
+# | caddy          |  256 MiB      |  36 MiB           |  64 MiB         |
+# | prometheus     |  512 MiB      |  58 MiB           |  96 MiB         |
+# | alertmanager   |  256 MiB      |  35 MiB           |  48 MiB         |
+# | grafana        |  384 MiB      | 147 MiB           | DROPPED         |
+# | node-exporter  |  128 MiB      |   7 MiB           | DROPPED         |
+# | createbuckets  |  128 MiB      | ephemeral         |  64 MiB         |
+#
+# Declared container budget (steady services): 192+160+192+64+96+48 = 752 MiB.
+# That leaves ~209 MiB of the 961 MiB for kernel, containerd/dockerd, page
+# cache and brief spikes — intentional headroom, not slack in the limits.
+# Steady-service CPU shares sum to 1.0 vCPU.
+#
+# Full-stack measured peak with grafana+node-exporter still running was
+# ~528 MiB; without them ~375 MiB. Limits above are measured peak × ~1.5–3
+# with postgres/control given more room for cache and Go heap growth.
+#
+# ## What was dropped (explicitly), and how to get it back
+#
+# 1. Second control replica / HA pair.
+#    Why: on one vCPU two replicas contend for the same CPU and DB pool; they
+#    do not protect availability, they double the memory and connection cost.
+#    Recovery on this host is process restart (restart: unless-stopped), not
+#    multi-replica failover.
+#    Restore: run the standard prod compose on a host with ≥2 vCPU and scale
+#    `control` (or put a second host behind an external load balancer). The
+#    Caddyfile already reverse-proxies the `control` service name.
+#
+# 2. Grafana.
+#    Why: a dashboard is not a production requirement; alerting is. Grafana
+#    alone measured ~147 MiB peak under light load — the largest single
+#    non-serving consumer.
+#    Restore: `docker compose -f docker-compose.smallhost.yml \
+#      -f docker-compose.observability.yml --profile full up -d grafana`
+#    on a host with the spare RAM, or point an off-box Grafana at this
+#    Prometheus (127.0.0.1:9090 is bound on loopback).
+#
+# 3. node-exporter.
+#    Why: host metrics are useful but not required for money-correct serving;
+#    ~7 MiB and a host mount. The control plane still exposes /metrics.
+#    Restore: compose with docker-compose.observability.yml `--profile full`,
+#    or scrape node metrics from an off-box exporter.
+#
+# 4. Long Prometheus retention / 15s scrape.
+#    Why: 30d retention and 15s scrapes are the biggest TSDB growth levers.
+#    Smallhost keeps Prometheus (so Alertmanager still evaluates rules and
+#    pages) but with 6h retention, a 128 MB TSDB cap, and 30s scrape.
+#    Restore: use docker-compose.observability.yml defaults on a larger host,
+#    or scrape `control:8080/metrics` from an off-box Prometheus with full
+#    retention. Alerting still fires on-box via Alertmanager →
+#    MERC_ALERT_RECEIVER_URL_FILE (required; fail-closed).
+#
+# 5. Nothing about the money path.
+#    Real PostgreSQL 17, full control binary, NUMERIC/SKIP LOCKED/advisory
+#    locks unchanged. No SQLite, no D1, no reduced API surface.
+#
+# ## MinIO stays on-box
+#
+# Artifact storage remains a local MinIO with the same bucket bootstrap.
+# Alternative: point S3_* at an external object store and omit minio +
+# createbuckets; that moves the ~160 MiB off-box at the cost of a network
+# dependency and egress. Do not delete artifact configuration.
+#
+# ## Usage
+#
+#   # requires the same .env as prod (see scripts/bootstrap-prod.sh required list)
+#   # plus MERC_ALERT_RECEIVER_URL_FILE pointing at an https webhook URL file
+#   docker compose -f docker-compose.smallhost.yml config -q
+#   docker compose -f docker-compose.smallhost.yml up -d --build
+#
+# To re-add dashboards/node metrics on a larger box, layer the observability
+# compose (see drops above). Do not layer it on a 961 MB host.
+# =============================================================================
+
+x-logging: &logs
+  driver: json-file
+  options: {max-size: "10m", max-file: "3"}
+
+x-control-env: &control-env
+  MERC_ENV: production
+  MERC_TRUSTED_PROXY_CIDRS: ${MERC_TRUSTED_PROXY_CIDRS:-172.16.0.0/12}
+  DATABASE_URL: postgres://cx:${POSTGRES_PASSWORD}@postgres:5432/cx?sslmode=disable
+  LISTEN_ADDR: ":8080"
+  # 10 connections: minimum for verification (1 leader + 3 verifier + 2 headroom
+  # = 6) plus API/background margin. Matches max_connections=40 in
+  # ops/smallhost/postgresql.conf. Trade: less concurrent DB work than the
+  # prod default of 20; under claim storms the pool waits rather than
+  # multiplying backends on one CPU.
+  DB_MAX_CONNS: ${DB_MAX_CONNS:-10}
+  MERC_PUBLIC_CONTROL_ORIGIN: ${MERC_PUBLIC_CONTROL_ORIGIN:?required}
+  MERC_PAYMENT_MODE: ${MERC_PAYMENT_MODE:-sealed}
+  MERC_PAYMENT_PROVIDER: ${MERC_PAYMENT_PROVIDER:-}
+  STRIPE_SECRET_KEY_FILE: ${STRIPE_SECRET_KEY_CONTAINER_FILE:-}
+  STRIPE_PUBLISHABLE_KEY: ${STRIPE_PUBLISHABLE_KEY:-}
+  STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+  MERC_CONNECT_WEBHOOK_SECRET: ${MERC_CONNECT_WEBHOOK_SECRET:-}
+  MERC_CONNECT_CLIENT_ID: ${MERC_CONNECT_CLIENT_ID:-}
+  MERC_CONNECT_RETURN_URL: ${MERC_CONNECT_RETURN_URL:-}
+  MERC_CONNECT_REFRESH_URL: ${MERC_CONNECT_REFRESH_URL:-}
+  MERC_SUPPORT_EMAIL: ${MERC_SUPPORT_EMAIL:-}
+  MERC_SECURITY_EMAIL: ${MERC_SECURITY_EMAIL:-}
+  MERC_STATUS_URL: ${MERC_STATUS_URL:-}
+  MERC_TERMS_URL: ${MERC_TERMS_URL:-}
+  MERC_PRIVACY_URL: ${MERC_PRIVACY_URL:-}
+  MERC_ADMIN_CIDRS: ${MERC_ADMIN_CIDRS:?required in production (comma-separated operator management CIDRs)}
+  MERC_PRICE_BOARD: ${MERC_PRICE_BOARD:-/etc/merc/pricing/board.json}
+  MERC_PRICE_BOARD_SHA256: ${MERC_PRICE_BOARD_SHA256:-}
+  MERC_SETTLEMENT_CURRENCY: ${MERC_SETTLEMENT_CURRENCY:?required}
+  MERC_PRICE_REFERENCE_TO_SETTLEMENT_RATE: ${MERC_PRICE_REFERENCE_TO_SETTLEMENT_RATE:?required for the USD reference board}
+  MERC_PRICE_FX_REVISION: ${MERC_PRICE_FX_REVISION:?required for the USD reference board}
+  MERC_LIVE_PAYMENT_ACTIVATION_FILE: ${MERC_LIVE_PAYMENT_ACTIVATION_CONTAINER_FILE:-}
+  MERC_LIVE_PAYMENT_ACTIVATION_SHA256: ${MERC_LIVE_PAYMENT_ACTIVATION_SHA256:-}
+  MERC_LIVE_PAYMENT_ACTIVATION_HMAC_KEY_FILE: ${MERC_LIVE_PAYMENT_ACTIVATION_HMAC_KEY_CONTAINER_FILE:-}
+  MERC_TOKEN_KEY: ${MERC_TOKEN_KEY:?required}
+  MERC_VERIFICATION_SAMPLE_SECRET: ${MERC_VERIFICATION_SAMPLE_SECRET:?required}
+  MERC_ECON_SCHEDULE_VERSION: ${MERC_ECON_SCHEDULE_VERSION:?required}
+  MERC_PROCESSOR_PERCENT_BPS: ${MERC_PROCESSOR_PERCENT_BPS:?required}
+  MERC_PROCESSOR_FIXED_USD: ${MERC_PROCESSOR_FIXED_USD:?required}
+  MERC_CONTROL_PLANE_PER_BATCH_USD: ${MERC_CONTROL_PLANE_PER_BATCH_USD:?required}
+  MERC_MIN_CONTRIBUTION_PER_BATCH_USD: ${MERC_MIN_CONTRIBUTION_PER_BATCH_USD:?required}
+  MERC_TARGET_MARGIN_BPS: ${MERC_TARGET_MARGIN_BPS:?required}
+  MERC_CANARY_MODE: ${MERC_CANARY_MODE:-false}
+  MERC_CANARY_DISABLE_DECISION_REF: ${MERC_CANARY_DISABLE_DECISION_CONTAINER_FILE:-}
+  MERC_CANARY_DISABLE_DECISION_SHA256: ${MERC_CANARY_DISABLE_DECISION_SHA256:-}
+  MERC_CANARY_APPROVED_BUYER_EMAILS: ${MERC_CANARY_APPROVED_BUYER_EMAILS:-}
+  MERC_CANARY_APPROVED_WORKER_IDS: ${MERC_CANARY_APPROVED_WORKER_IDS:-}
+  MERC_CANARY_APPROVED_AGENT_VERSIONS: ${MERC_CANARY_APPROVED_AGENT_VERSIONS:-}
+  MERC_CANARY_APPROVED_BUILD_HASHES: ${MERC_CANARY_APPROVED_BUILD_HASHES:-}
+  MERC_CANARY_MAX_ACTIVE_BUYERS: ${MERC_CANARY_MAX_ACTIVE_BUYERS:-}
+  MERC_CANARY_MAX_ACTIVE_WORKERS: ${MERC_CANARY_MAX_ACTIVE_WORKERS:-}
+  MERC_CANARY_MAX_QUEUED_JOBS: ${MERC_CANARY_MAX_QUEUED_JOBS:-}
+  MERC_CANARY_MAX_TASKS_PER_JOB: ${MERC_CANARY_MAX_TASKS_PER_JOB:-}
+  MERC_CANARY_MAX_ARTIFACT_BYTES: ${MERC_CANARY_MAX_ARTIFACT_BYTES:-}
+  MERC_CANARY_MAX_INPUT_BYTES: ${MERC_CANARY_MAX_INPUT_BYTES:-}
+  MERC_CANARY_MAX_OUTPUT_TOKENS: ${MERC_CANARY_MAX_OUTPUT_TOKENS:-}
+  MERC_CANARY_MAX_JOB_DURATION_SECS: ${MERC_CANARY_MAX_JOB_DURATION_SECS:-}
+  MERC_CANARY_MAX_RETRIES: ${MERC_CANARY_MAX_RETRIES:-}
+  MERC_CANARY_MAX_DAILY_JOBS: ${MERC_CANARY_MAX_DAILY_JOBS:-}
+  MERC_CANARY_MAX_SHADOW_VALUE_USD: ${MERC_CANARY_MAX_SHADOW_VALUE_USD:-}
+  MERC_CANARY_MAX_HELD_SHADOW_PAYOUT_USD: ${MERC_CANARY_MAX_HELD_SHADOW_PAYOUT_USD:-}
+  MERC_BACKUP_STATUS_FILE: /run/cx-health/last-successful-offsite-backup.unixtime
+  # GOMEMLIMIT must sit below mem_limit so the Go runtime sheds heap before the
+  # kernel OOM-kills the cgroup. 144 MiB soft limit inside a 192 MiB cgroup.
+  # Trade: more frequent GC under load than an untuned process; peak RSS stays
+  # inside the cgroup instead of fighting it (the old 768MiB GOMEMLIMIT inside
+  # a 1g cgroup was coherent; 768MiB inside 192m would not be).
+  GOMEMLIMIT: 144MiB
+  # Lower GOGC → GC more often, smaller live heap, more CPU. On one vCPU this
+  # is the right side of the trade for a memory-bound host.
+  # Trade: a few percent more CPU in GC vs default GOGC=100.
+  GOGC: "50"
+  S3_ENDPOINT: http://minio:9000
+  S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:?required}
+  S3_REGION: ${S3_REGION:-us-east-1}
+  S3_BUCKET: ${S3_BUCKET:-cx-jobs}
+  S3_ACCESS_KEY: ${MINIO_ROOT_USER}
+  S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+
+services:
+  postgres:
+    image: postgres:17@sha256:a426e44bac0b759c95894d68e1a0ac03ecc20b619f498a91aae373bf06d8508d
+    environment:
+      POSTGRES_USER: cx
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?required}
+      POSTGRES_DB: cx
+    # Custom config: every value justified in ops/smallhost/postgresql.conf.
+    command:
+      - postgres
+      - -c
+      - config_file=/etc/merc/postgresql.conf
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./ops/smallhost/postgresql.conf:/etc/merc/postgresql.conf:ro
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U cx -d cx]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+    # 192m ≈ 2.5× measured peak (75 MiB) under light load with room for the
+    # 32 MB shared_buffers + backends. Trade: heavy analytical queries that
+    # need large work_mem will spill or fail rather than grow without bound.
+    mem_limit: 192m
+    # 0.35 of one CPU. Trade: vacuum and queries share a minority share with
+    # control; peak throughput lower than an uncapped postgres.
+    cpus: "0.35"
+    pids_limit: 128
+    # shm for parallel query / temp; kept small with work_mem=2MB.
+    # Trade: less headroom for large in-memory sorts than the prod 128m.
+    shm_size: 32m
+    stop_grace_period: 60s
+    logging: *logs
+
+  minio:
+    image: minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+    command: server /data
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?required}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?required}
+    ports: ["127.0.0.1:9000:9000"]
+    volumes: [miniodata:/data]
+    healthcheck:
+      test: [CMD-SHELL, curl -fsS http://localhost:9000/minio/health/live]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+    # 160m ≈ 1.4× measured peak (113 MiB). Artifact store stays on-box.
+    # Trade: large concurrent multi-part uploads may queue; move to external
+    # S3 (S3_* env, omit this service) if the working set outgrows the cgroup.
+    mem_limit: 160m
+    cpus: "0.15"
+    pids_limit: 128
+    stop_grace_period: 60s
+    logging: *logs
+
+  createbuckets:
+    image: minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+    depends_on:
+      minio: {condition: service_healthy}
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    entrypoint: >-
+      /bin/sh -c 'mc alias set local http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}" &&
+      mc mb --ignore-existing local/cx-jobs && mc anonymous set none local/cx-jobs'
+    restart: "no"
+    mem_limit: 64m
+    cpus: "0.10"
+    pids_limit: 64
+
+  control:
+    build:
+      context: .
+      dockerfile: Dockerfile.control
+      args:
+        MERC_BUILD_VERSION: ${MERC_BUILD_VERSION:-dev}
+        MERC_BUILD_COMMIT: ${MERC_BUILD_COMMIT:-unknown}
+        MERC_BUILD_DATE: ${MERC_BUILD_DATE:-unknown}
+    image: computexchange/control:${MERC_BUILD_COMMIT:-dev}
+    depends_on:
+      postgres: {condition: service_healthy}
+      minio: {condition: service_healthy}
+      createbuckets: {condition: service_completed_successfully}
+    # Default matches prod (.env in the project root). Local proof sets
+    # MERC_ENV_FILE to a throwaway path so the worktree stays clean.
+    env_file:
+      - path: ${MERC_ENV_FILE:-.env}
+        required: true
+    environment: *control-env
+    expose: ["8080"]
+    volumes:
+      - ${MERC_BACKUP_HEALTH_DIR:-./.artifacts/backup-health}:/run/cx-health:ro
+      - ${MERC_LIVE_PAYMENT_ACTIVATION_SOURCE:-/dev/null}:/run/secrets/merc-live-payment-activation.json:ro
+      - ${MERC_LIVE_PAYMENT_ACTIVATION_HMAC_KEY_SOURCE:-/dev/null}:/run/secrets/merc-live-payment-activation-hmac-key:ro
+      - ${STRIPE_SECRET_KEY_SOURCE:-/dev/null}:/run/secrets/merc-stripe-secret-key:ro
+      - ${MERC_CANARY_DISABLE_DECISION_SOURCE:-/dev/null}:/run/secrets/merc-canary-disable-decision.json:ro
+    healthcheck:
+      test: [CMD, /merc-healthcheck]
+      interval: 10s
+      timeout: 4s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+    read_only: true
+    # Quoted: YAML flow-sequence commas split mounts (see prod comment).
+    tmpfs: ["/tmp:size=32m,mode=1777"]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    # Single replica only — see header. 192m with GOMEMLIMIT=144MiB.
+    mem_limit: 192m
+    cpus: "0.30"
+    pids_limit: 96
+    stop_grace_period: 60s
+    logging: *logs
+
+  caddy:
+    image: caddy:2@sha256:844f60b64e4724a5aa8245e019dace0d3f199f7433ce6c57676cb30a920dbad9
+    depends_on:
+      control: {condition: service_healthy}
+      minio: {condition: service_healthy}
+    environment:
+      ACME_EMAIL: ${ACME_EMAIL:?required}
+      SITE_HOST: ${SITE_HOST:-mercmerc.net}
+      STORAGE_HOST: ${STORAGE_HOST:-storage.mercmerc.net}
+    volumes:
+      # Production: ACME TLS via the root Caddyfile. Local proof may bind-mount
+      # ops/smallhost/Caddyfile.local over this path for tls internal.
+      - ${MERC_CADDYFILE:-./Caddyfile}:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    ports: ["80:80", "443:443", "443:443/udp"]
+    restart: unless-stopped
+    # 64m ≈ 1.8× measured peak (36 MiB). TLS termination stays on-box.
+    mem_limit: 64m
+    cpus: "0.10"
+    pids_limit: 64
+    stop_grace_period: 30s
+    logging: *logs
+
+  # Alerting stays on-box. MERC_ALERT_RECEIVER_URL_FILE is required (fail-closed).
+  prometheus:
+    image: ${CX_PROMETHEUS_IMAGE:-quay.io/prometheus/prometheus@sha256:63805ebb8d2b3920190daf1cb14a60871b16fd38bed42b857a3182bc621f4996}
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      # 6h retention + 128MB cap: enough for paging, not for long forensics.
+      # Trade: no multi-day graphs on-box; scrape off-box for history.
+      - --storage.tsdb.retention.time=6h
+      - --storage.tsdb.retention.size=128MB
+      - --web.enable-lifecycle
+    volumes:
+      - ./ops/smallhost/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./ops/monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "127.0.0.1:9090:9090"
+    depends_on:
+      alertmanager:
+        condition: service_healthy
+      control:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, wget, --spider, --quiet, "http://localhost:9090/-/ready"]
+      interval: 10s
+      timeout: 4s
+      retries: 12
+    restart: unless-stopped
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    mem_limit: 96m
+    cpus: "0.05"
+    pids_limit: 64
+    logging: *logs
+
+  alertmanager:
+    image: ${CX_ALERTMANAGER_IMAGE:-quay.io/prometheus/alertmanager@sha256:27c475db5fb156cab31d5c18a4251ac7ed567746a2483ff264516437a39b15ba}
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+    volumes:
+      - ./ops/monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager_data:/alertmanager
+    secrets:
+      - source: alert_receiver_url
+        target: cx_alert_receiver_url
+        mode: 0400
+    ports:
+      - "127.0.0.1:9093:9093"
+    healthcheck:
+      test: [CMD, wget, --spider, --quiet, "http://localhost:9093/-/ready"]
+      interval: 10s
+      timeout: 4s
+      retries: 12
+    restart: unless-stopped
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    # 48m ≈ 1.4× measured peak (35 MiB). Paging path stays on-box.
+    mem_limit: 48m
+    cpus: "0.05"
+    pids_limit: 64
+    logging: *logs
+
+secrets:
+  alert_receiver_url:
+    # Fail-closed: compose refuses to start without a webhook URL file.
+    file: ${MERC_ALERT_RECEIVER_URL_FILE:-${CX_ALERT_RECEIVER_URL_FILE:?required — absolute path to file containing the alert receiver webhook URL; set MERC_ALERT_RECEIVER_URL_FILE}}
+
+volumes:
+  pgdata:
+  miniodata:
+  caddy_data:
+  caddy_config:
+  prometheus_data:
+  alertmanager_data:

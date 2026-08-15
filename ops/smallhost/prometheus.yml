@@ -1,0 +1,33 @@
+# Prometheus scrape config for the small-host profile.
+# Paired with docker-compose.smallhost.yml retention flags (6h, 128MB).
+#
+# Intentionally omits node-exporter and grafana. Host/node metrics and the
+# dashboard UI are recovered by composing the full observability file on a
+# larger host, or by scraping control:8080/metrics from off-box.
+
+global:
+  # 30s instead of 15s: halves series write rate and TSDB churn on one CPU.
+  # Trade: alert evaluation and graph resolution are coarser by one scrape.
+  scrape_interval: 30s
+  evaluation_interval: 30s
+  external_labels:
+    environment: smallhost
+    service: merc
+
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: [alertmanager:9093]
+
+scrape_configs:
+  - job_name: merc-control
+    metrics_path: /metrics
+    static_configs:
+      - targets: [control:8080]
+
+  - job_name: alertmanager
+    static_configs:
+      - targets: [alertmanager:9093]

@@ -84,7 +84,10 @@ x-control-env: &control-env
   MERC_CANARY_MAX_SHADOW_VALUE_USD: ${MERC_CANARY_MAX_SHADOW_VALUE_USD:-}
   MERC_CANARY_MAX_HELD_SHADOW_PAYOUT_USD: ${MERC_CANARY_MAX_HELD_SHADOW_PAYOUT_USD:-}
   MERC_BACKUP_STATUS_FILE: /run/cx-health/last-successful-offsite-backup.unixtime
-  GOMEMLIMIT: 768MiB
+  # Soft heap target must sit below mem_limit (384m). Previously 768MiB inside
+  # a 1g cgroup — coherent then; re-sized with the measured-RSS limit cut.
+  # Trade: more GC under load than an untuned process; avoids cgroup OOM.
+  GOMEMLIMIT: 288MiB
   S3_ENDPOINT: http://minio:9000
   S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:?required}
   S3_REGION: ${S3_REGION:-us-east-1}
@@ -106,8 +109,14 @@ services:
       timeout: 3s
       retries: 10
     restart: unless-stopped
-    mem_limit: 1g
-    cpus: 1.5
+    # Measured peak RSS under light load ~75 MiB; 1g was not a safety margin.
+    # 384m leaves room for shared_buffers growth and admin sessions.
+    # Trade: a pathological working set larger than the cgroup will be OOM-killed
+    # rather than quietly pushing the host into swap — prefer that signal.
+    mem_limit: 384m
+    # 1.5 CPUs is refused on a 1-vCPU host and was never approached. 1.0 is the
+    # host ceiling; real utilisation under light load was <5%.
+    cpus: "1.0"
     pids_limit: 256
     shm_size: 128m
     stop_grace_period: 60s
@@ -127,8 +136,10 @@ services:
       timeout: 3s
       retries: 10
     restart: unless-stopped
-    mem_limit: 1g
-    cpus: 1.5
+    # Measured peak RSS under light object put/get ~113 MiB; 1g was empty headroom.
+    mem_limit: 256m
+    # 1.5 CPUs refused on 1-vCPU hosts and unused. Artifact I/O is not CPU-bound here.
+    cpus: "0.50"
     pids_limit: 256
     stop_grace_period: 60s
     logging: *logs
@@ -144,8 +155,9 @@ services:
       /bin/sh -c 'mc alias set local http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}" &&
       mc mb --ignore-existing local/cx-jobs && mc anonymous set none local/cx-jobs'
     restart: "no"
-    mem_limit: 128m
-    cpus: 0.25
+    # One-shot mc; measured well under 64m.
+    mem_limit: 64m
+    cpus: "0.25"
     pids_limit: 64
 
   control:
@@ -194,8 +206,10 @@ services:
     tmpfs: ["/tmp:size=64m,mode=1777"]
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]
-    mem_limit: 1g
-    cpus: 1.0
+    # Measured peak RSS under light API load ~58 MiB. 384m with GOMEMLIMIT=288MiB
+    # is a real margin for heap growth, not a 1g fiction.
+    mem_limit: 384m
+    cpus: "1.0"
     pids_limit: 128
     stop_grace_period: 60s
     logging: *logs
@@ -215,8 +229,9 @@ services:
       - caddy_config:/config
     ports: ["80:80", "443:443", "443:443/udp"]
     restart: unless-stopped
-    mem_limit: 256m
-    cpus: 0.5
+    # Measured peak RSS ~36 MiB under light reverse-proxy load.
+    mem_limit: 96m
+    cpus: "0.50"
     pids_limit: 128
     stop_grace_period: 30s
     logging: *logs

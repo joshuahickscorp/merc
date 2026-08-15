@@ -48,8 +48,10 @@ services:
     restart: unless-stopped
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]
-    mem_limit: 512m
-    cpus: 0.5
+    # Measured peak RSS under light scrape load ~58 MiB; 512m was empty headroom.
+    # 192m still leaves room for multi-day retention growth on a larger host.
+    mem_limit: 192m
+    cpus: "0.50"
     pids_limit: 128
     logging: *logs
 
@@ -77,8 +79,9 @@ services:
     restart: unless-stopped
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]
-    mem_limit: 256m
-    cpus: 0.5
+    # Measured peak RSS ~35 MiB.
+    mem_limit: 96m
+    cpus: "0.50"
     pids_limit: 128
     logging: *logs
 
@@ -104,8 +107,9 @@ services:
     restart: unless-stopped
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]
-    mem_limit: 384m
-    cpus: 0.5
+    # Measured peak RSS ~147 MiB under light dashboard load.
+    mem_limit: 256m
+    cpus: "0.50"
     pids_limit: 128
     logging: *logs
 
@@ -122,8 +126,9 @@ services:
     read_only: true
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]
-    mem_limit: 128m
-    cpus: 0.25
+    # Measured peak RSS ~7 MiB.
+    mem_limit: 32m
+    cpus: "0.25"
     pids_limit: 64
     logging: *logs
 

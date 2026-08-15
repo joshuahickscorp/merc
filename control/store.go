@@ -33,6 +33,13 @@ type Store struct {
 	// key_hash so a TTL-expiry stampede is one DB round-trip, not N. Negatives
 	// are still never cached (singleflight only shares the in-flight result).
 	apiKeyLookups singleflight.Group
+	// Coalesced liveness ingest: many authenticated heartbeats fold into few
+	// multi-row statements. See liveness_ingest.go. Lazily initialised so
+	// tests can override config before the first heartbeat.
+	livenessOnce        sync.Once
+	livenessCoalescer   *livenessCoalescer
+	livenessCfg         livenessBatchConfig
+	livenessCfgOverride *livenessBatchConfig
 }
 
 func NewStore(pool *pgxpool.Pool) *Store {

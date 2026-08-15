@@ -1,0 +1,51 @@
+# Local-proof Caddyfile for the small-host profile.
+# Uses internal TLS so the stack can terminate HTTPS without ACME/public DNS.
+# Production deploys keep the root Caddyfile (ACME). Bind over the caddy
+# config with MERC_CADDYFILE=./ops/smallhost/Caddyfile.local.
+
+{
+	admin 127.0.0.1:2019
+	metrics
+	# Local proof only — do not use auto_https off; we want real TLS bytes on the wire.
+	local_certs
+}
+
+{$SITE_HOST:merc.localhost} {
+	tls internal
+	encode zstd gzip
+
+	@metrics path /metrics
+	respond @metrics 404
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		-Server
+	}
+
+	reverse_proxy control:8080 {
+		health_uri /readyz
+		health_interval 10s
+		health_timeout 4s
+	}
+	log { output stdout }
+}
+
+{$STORAGE_HOST:storage.merc.localhost} {
+	tls internal
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		-Server
+	}
+	reverse_proxy minio:9000 {
+		health_uri /minio/health/live
+		health_interval 10s
+		health_timeout 4s
+	}
+	log { output stdout }
+}
