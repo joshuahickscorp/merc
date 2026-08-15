@@ -43,6 +43,11 @@ COPY pricing/board.json /etc/merc/pricing/board.json
 # cites or it cannot boot. 16K, and shipping them keeps that check live in
 # production rather than only in a dev tree with git.
 COPY evidence/benchmarks/ /etc/merc/evidence/benchmarks/
+# Runtime-cell binding receipts (the g070 llama batch_infer r5 receipt and its
+# siblings). BuildCataloguePriceSchedule cites these at startup to bind the
+# published lane; without them the catalogue is empty and the control plane
+# cannot boot. 232K, all real (LFS-smudged) content.
+COPY evidence/perf/runtime-benchmarks/ /etc/merc/evidence/perf/runtime-benchmarks/
 
 # The whole web surface, not the three pages that happened to be listed. The
 # router serves /prices, /supplier, /assets/site/{path...} and
