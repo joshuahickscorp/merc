@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "kind": "alpha_boot_green",
+  "status": "PASS",
+  "binding_status": "BOUND",
+  "lane": "VENDOR_WALL_UPPER_BOUND",
+  "commit": "1d85dbf16dcc4f37a290080d9f61868cda3f321d",
+  "finished_at": "2026-08-15T03:04:58Z",
+  "probe": {
+    "test": "TestG070BootProbeBuildCataloguePriceSchedule",
+    "build_catalogue_price_schedule": "OK",
+    "published_lanes": 1,
+    "published_lane": "llama-3.2-1b-instruct-q4/batch_infer",
+    "price_per_1k": 0.000036,
+    "power_source_class": "VENDOR_WALL_UPPER_BOUND",
+    "power_watts": 270,
+    "power_note": "Apple Mac Studio 2025 M3 Ultra whole-wall conservative family upper bound (support.apple.com 102027); stored kind=VENDOR_WALL_UPPER_BOUND, never measured_watts; joules stay UNKNOWN (ENERGY_MEASUREMENT unsatisfied)"
+  },
+  "note": "Boot green: BuildCataloguePriceSchedule returns a valid schedule on this commit via the ECONOMIC_POWER_ENVELOPE gate. Produced by running the boot probe on a clean tree at this exact commit; fail-closed (no receipt unless the probe passes with VENDOR_WALL_UPPER_BOUND)."
+}
