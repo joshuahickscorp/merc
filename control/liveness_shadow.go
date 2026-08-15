@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"hash/fnv"
 	"math"
 	"os"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -23,8 +25,9 @@ func livenessIndexAuthoritative() bool {
 }
 
 // offerIndexLive is the flag-ON liveness decision for one offer. Fail-closed:
-// an unmapped offer_slot, a nil index, or an out-of-range epoch all read DEAD, so
-// a missing/corrupt mapping can never make a stale offer selectable (gate D/E).
+// an unmapped offer_slot, a nil index, an out-of-range epoch, or a slot whose
+// in-process owner fingerprint is not this offer all read DEAD, so a
+// missing/corrupt mapping can never make a stale offer selectable (gate D/E).
 // It mirrors realtime_worker_offers.last_seen_at > now()-45s exactly for a mapped,
 // heartbeating offer (proven by the shadow parity), but keyed per-offer so a live
 // sibling offer of the same worker never rescues a stale one.
@@ -38,6 +41,9 @@ func (s *Store) offerIndexLive(workerID uuid.UUID, profileID string, now time.Ti
 	}
 	slot, ok := s.lookupOfferSlot(workerID, profileID)
 	if !ok {
+		return false
+	}
+	if !s.slotOwnedBy(slot, workerID, profileID) {
 		return false
 	}
 	nowUnix := now.Unix()
@@ -108,7 +114,10 @@ func (s *Store) ensureLiveDeviceIndex() {
 				}
 				n = liveIndexCapacity(uint32(need), uint32(countU))
 			}
+			s.slotOwner = make([]uint64, n)
 			s.preloadOfferSlots(ctx)
+		} else {
+			s.slotOwner = make([]uint64, n)
 		}
 		s.liveIndex = NewLiveDeviceIndex(n)
 	})
@@ -133,6 +142,90 @@ type offerBinding struct {
 	slot      uint32
 	supplier  uuid.UUID
 	maxActive int32
+}
+
+// slotOwner reserved values. 0 is unclaimed so a never-resolved slot cannot
+// match any offer. 1 is the conflict poison: a second distinct offer tried to
+// claim an already-claimed slot. Neither claimant's fingerprint equals 1, so
+// both read dead. The newcomer must never overwrite the original fingerprint
+// — that steal is the false-positive live this table exists to prevent.
+const (
+	offerSlotOwnerUnclaimed uint64 = 0
+	offerSlotOwnerConflict  uint64 = 1
+	// offerSlotOwnerRemap replaces a hash that landed on a reserved value.
+	// Golden-ratio 64-bit constant: non-zero, not the conflict sentinel.
+	offerSlotOwnerRemap uint64 = 0x9e3779b97f4a7c15
+)
+
+// offerFingerprint is an FNV-1a 64-bit hash of (worker_id bytes || profile).
+// worker_id is a fixed 16-byte UUID so the concatenation is unambiguous.
+//
+// Collision probability among n distinct (worker, profile) pairs is the
+// birthday bound n(n-1)/2^65. At 10^6 offers that is ~2.7e-8; at 10^4,
+// ~7e-13. A collision would let one offer's heartbeat keep the other's slot
+// live — the same class of bug this table exists to stop — so the bound is
+// documented, not ignored. Hashes that land on a reserved value are remapped.
+func offerFingerprint(workerID uuid.UUID, profileID string) uint64 {
+	h := fnv.New64a()
+	_, _ = h.Write(workerID[:])
+	_, _ = h.Write([]byte(profileID))
+	return foldOfferFingerprint(h.Sum64())
+}
+
+func foldOfferFingerprint(sum uint64) uint64 {
+	if sum == offerSlotOwnerUnclaimed || sum == offerSlotOwnerConflict {
+		return offerSlotOwnerRemap
+	}
+	return sum
+}
+
+// claimSlotOwner records that fingerprint fp owns slot. First claim wins.
+// A later different fingerprint poisons the slot so every claimant reads
+// dead. Never stores the newcomer's fingerprint over a live claim (steal
+// would be a false-positive live). Returns whether fp now owns the slot.
+//
+// slotOwner is allocated once under liveIndexOnce to the same capacity as
+// liveIndex; there is no realloc. Overflow (slot >= len) is fail-closed,
+// matching LiveDeviceIndex.Heartbeat. Elements are atomic uint64, matching
+// LiveDeviceIndex.epochs.
+func (s *Store) claimSlotOwner(slot uint32, fp uint64) bool {
+	if s == nil || fp == offerSlotOwnerUnclaimed || fp == offerSlotOwnerConflict {
+		return false
+	}
+	owners := s.slotOwner
+	if slot >= uint32(len(owners)) {
+		return false
+	}
+	for {
+		cur := atomic.LoadUint64(&owners[slot])
+		switch cur {
+		case offerSlotOwnerUnclaimed:
+			if atomic.CompareAndSwapUint64(&owners[slot], offerSlotOwnerUnclaimed, fp) {
+				return true
+			}
+		case fp:
+			return true
+		default:
+			// Conflict (another owner, or already poisoned). Do not steal.
+			if cur != offerSlotOwnerConflict {
+				atomic.CompareAndSwapUint64(&owners[slot], cur, offerSlotOwnerConflict)
+			}
+			return false
+		}
+	}
+}
+
+// slotOwnedBy reports whether slot's claimed fingerprint is this offer.
+// Out of range, unclaimed, conflict-poisoned, or a different owner: false.
+func (s *Store) slotOwnedBy(slot uint32, workerID uuid.UUID, profileID string) bool {
+	if s == nil {
+		return false
+	}
+	owners := s.slotOwner
+	if slot >= uint32(len(owners)) {
+		return false
+	}
+	return atomic.LoadUint64(&owners[slot]) == offerFingerprint(workerID, profileID)
 }
 
 // rememberDeviceSlot is retained for the worker-enrolment callers; the shadow no
@@ -166,8 +259,10 @@ func (s *Store) preloadOfferSlots(ctx context.Context) {
 			return
 		}
 		if slot >= 0 && slot <= int64(math.MaxUint32) {
+			u := uint32(slot)
+			s.claimSlotOwner(u, offerFingerprint(wid, profile))
 			s.offerSlotCache.Store(offerSlotKey{wid, profile},
-				offerBinding{slot: uint32(slot), supplier: supplier, maxActive: maxActive})
+				offerBinding{slot: u, supplier: supplier, maxActive: maxActive})
 		}
 	}
 }
@@ -213,6 +308,8 @@ func (s *Store) lookupOfferBinding(workerID uuid.UUID, profileID string) (offerB
 		return offerBinding{}, false
 	}
 	b.slot = uint32(slot)
+	s.ensureLiveDeviceIndex()
+	s.claimSlotOwner(b.slot, offerFingerprint(workerID, profileID))
 	s.offerSlotCache.Store(key, b)
 	return b, true
 }
@@ -236,18 +333,23 @@ func (s *Store) shadowIndexHeartbeat(worker WorkerAuth, profileID string, observ
 	if !ok {
 		return
 	}
-	s.indexHeartbeatSlot(slot, observedAt, serverNow)
+	s.indexHeartbeatSlot(slot, worker.WorkerID, profileID, observedAt, serverNow)
 }
 
 // indexHeartbeatSlot records presence for an already-resolved offer slot.
-// Fail-closed on any range error: skip, never invent a live slot. The caller is
-// responsible for having proven the binding (see admitIndexHeartbeat).
-func (s *Store) indexHeartbeatSlot(slot uint32, observedAt, serverNow time.Time) {
+// Fail-closed on any range error or owner-fingerprint mismatch: skip, never
+// invent a live slot. A heartbeat must be unable to mark any slot but its
+// own live — that is the invariant that actually protects routing. The caller
+// is responsible for having proven the binding (see admitIndexHeartbeat).
+func (s *Store) indexHeartbeatSlot(slot uint32, workerID uuid.UUID, profileID string, observedAt, serverNow time.Time) {
 	if s == nil {
 		return
 	}
 	s.ensureLiveDeviceIndex()
 	if s.liveIndex == nil {
+		return
+	}
+	if !s.slotOwnedBy(slot, workerID, profileID) {
 		return
 	}
 	obsUnix := observedAt.Unix()
@@ -340,6 +442,9 @@ func (s *Store) recordDurableHeartbeat(worker WorkerAuth, hb RealtimeOfferHeartb
 // reachable by a heartbeat the SQL predicate would have refused, or the ephemeral
 // structure would be a weaker authority than the durable one it replaces.
 func (s *Store) admitIndexHeartbeat(worker WorkerAuth, hb RealtimeOfferHeartbeat) (offerBinding, error) {
+	if s != nil {
+		s.ensureLiveDeviceIndex()
+	}
 	binding, ok := s.lookupOfferBinding(worker.WorkerID, hb.RuntimeProfileID)
 	if !ok {
 		return offerBinding{}, errNotFound
@@ -354,6 +459,13 @@ func (s *Store) admitIndexHeartbeat(worker WorkerAuth, hb RealtimeOfferHeartbeat
 	// otherwise a DRAINING/FAILED status update could be silently dropped while
 	// the offer stayed index-live and therefore routable.
 	if hb.AvailableSequences < 0 || int64(hb.AvailableSequences) > int64(binding.maxActive) {
+		return offerBinding{}, errNotFound
+	}
+	// The cache can be planted onto another offer's slot (see
+	// TestOfferIndexLiveCorruptMappingToLiveSlotIsIneligible). A heartbeat
+	// whose resolved slot is not this offer's claimed fingerprint must not
+	// be admitted — otherwise we would stamp a victim slot live.
+	if !s.slotOwnedBy(binding.slot, worker.WorkerID, hb.RuntimeProfileID) {
 		return offerBinding{}, errNotFound
 	}
 	return binding, nil

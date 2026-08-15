@@ -446,7 +446,7 @@ func (s *Store) HeartbeatRealtimeOffer(ctx context.Context, worker WorkerAuth, h
 		if err != nil {
 			return err
 		}
-		s.indexHeartbeatSlot(binding.slot, observedAt, serverNow)
+		s.indexHeartbeatSlot(binding.slot, worker.WorkerID, hb.RuntimeProfileID, observedAt, serverNow)
 		if !s.durableHeartbeatNeeded(worker, hb, serverNow) {
 			// Identical repeat inside the refresh interval: liveness is already
 			// recorded in-process and nothing durable would change. This is the

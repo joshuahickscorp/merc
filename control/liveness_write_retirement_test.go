@@ -240,3 +240,64 @@ func TestChangeGateNeverDelaysEviction(t *testing.T) {
 		})
 	}
 }
+
+// TestDetachedHeartbeatWritesCommitInSubmissionOrder guards the ordering the
+// detached path had to restore. Detaching the caller removed the merc-agent's
+// implicit serialization: it used to await each heartbeat's commit before
+// sending the next, so an ACTIVE was always durable before the DRAINING/FAILED
+// that followed it. With concurrent flushers that earlier ACTIVE could commit
+// LAST and strand a dead worker as selectable — and the terminal report is
+// single-shot (agent/src/vllm.rs report_terminal_state sends one heartbeat, then
+// the container dies), so nothing would ever heal the row.
+//
+// MaxBatch 1 makes every heartbeat its own batch, so this drives the queue
+// directly. The structural guarantee is single-consumer FIFO enqueued under the
+// same lock that takes the batch; this test is the regression guard on it, not a
+// proof — a reordering pool might still pass by luck on a quiet host.
+func TestDetachedHeartbeatWritesCommitInSubmissionOrder(t *testing.T) {
+	t.Setenv("MERC_LIVENESS_INDEX_AUTHORITATIVE", "1")
+	ctx, store, pool := openIsolatedTestStore(t)
+	store.SetLivenessBatchConfigForTest(livenessBatchConfig{
+		Enabled: true, MaxBatch: 1, FlushInterval: time.Hour,
+	})
+	t.Setenv("MERC_TOKEN_KEY", "liveness-order-test-key-32-bytes-min!")
+	installSettlementCurrencyForTest(t, "usd")
+	profile := sortedVLLMProfiles()[0]
+	worker := seedOneRealtimeOffer(t, ctx, store, pool, profile)
+
+	// Distinct statuses so the durable row reveals which write landed last.
+	// FAILED is the terminal report the agent sends exactly once.
+	for _, status := range []string{"ACTIVE", "DRAINING", "FAILED"} {
+		if err := store.HeartbeatRealtimeOffer(ctx, worker, RealtimeOfferHeartbeat{
+			RuntimeProfileID: profile.RuntimeProfileID, Warmth: "HOT",
+			AvailableSequences: 8, Status: status,
+		}); err != nil {
+			t.Fatalf("heartbeat %s: %v", status, err)
+		}
+	}
+
+	read := func() string {
+		t.Helper()
+		var s string
+		if err := pool.QueryRow(ctx, `
+			SELECT status FROM realtime_worker_offers
+			 WHERE worker_id=$1 AND runtime_profile_id=$2`,
+			worker.WorkerID, profile.RuntimeProfileID).Scan(&s); err != nil {
+			t.Fatal(err)
+		}
+		return s
+	}
+
+	deadline := time.Now().Add(10 * time.Second)
+	for read() != "FAILED" && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if got := read(); got != "FAILED" {
+		t.Fatalf("durable status=%q after draining detached writes; want FAILED (the last submitted)", got)
+	}
+	// A late-committing earlier write would surface as a revert.
+	time.Sleep(300 * time.Millisecond)
+	if got := read(); got != "FAILED" {
+		t.Fatalf("durable status reverted to %q — an earlier write committed after the terminal FAILED", got)
+	}
+}

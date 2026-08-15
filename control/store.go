@@ -46,7 +46,12 @@ type Store struct {
 	// headroom. See liveness_shadow.go.
 	liveIndexOnce sync.Once
 	liveIndex     *LiveDeviceIndex
-	slotCache     sync.Map // vestigial worker device_slot cache (uuid.UUID → uint32); no longer read by the shadow after the offer-grain re-key. See liveness_shadow.go.
+	// slotOwner is a dense fingerprint table indexed by offer_slot (8 B/slot),
+	// allocated to the same capacity as liveIndex under liveIndexOnce. 0 means
+	// unclaimed. Elements are accessed with atomic.Load/StoreUint64 — same
+	// concurrency model as LiveDeviceIndex.epochs. See liveness_shadow.go.
+	slotOwner []uint64
+	slotCache sync.Map // vestigial worker device_slot cache (uuid.UUID → uint32); no longer read by the shadow after the offer-grain re-key. See liveness_shadow.go.
 	// offerSlotCache keys the live index by OFFER, not worker: the money-selection
 	// liveness plane is per-(worker_id, runtime_profile_id).
 	// offerSlotKey → offerBinding (slot + the supplier and capacity the durable

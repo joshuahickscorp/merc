@@ -142,27 +142,48 @@ type livenessCoalescer struct {
 	flushCount atomic.Int64
 	itemCount  atomic.Int64
 
-	// flushSem bounds concurrent detached flushes. It is used only by the
-	// fire-and-forget path (flag ON), where no caller is blocked on durability
-	// and a stalled PostgreSQL would otherwise grow flushers without limit.
-	// Blocking submitters keep their original inline flush and are unaffected.
-	flushSem chan struct{}
+	// detachedQ carries fire-and-forget batches (flag ON) to ONE serialized
+	// flusher. Blocking submitters keep their original inline flush and never
+	// touch it.
+	detachedQ    chan []*livenessHeartbeatItem
+	detachedOnce sync.Once
 }
 
-// maxDetachedLivenessFlushes bounds in-flight detached flushes. Acquiring a slot
-// BLOCKS rather than dropping the batch: the durable row still carries offer
-// state that authorize reads (status, warmth, capacity — see the write
-// classification), so a dropped batch could strand a DRAINING offer as ACTIVE.
-// Blocking degrades to the pre-existing backpressure under a stalled
-// PostgreSQL, which is the behaviour callers already had.
-const maxDetachedLivenessFlushes = 4
+// detachedLivenessQueueDepth bounds queued detached batches. A full queue BLOCKS
+// the submitter rather than dropping: the durable row carries offer state that
+// authorize reads (status, warmth, capacity — see the write classification), so
+// a dropped batch could strand a DRAINING offer as ACTIVE. Blocking degrades to
+// the backpressure callers already had before the write was detached.
+const detachedLivenessQueueDepth = 64
 
+// One flusher, not a pool. Detaching the caller removed the merc-agent's
+// implicit write serialization: it used to await each heartbeat's durable commit
+// before sending the next, so an ACTIVE was always durable before the
+// DRAINING/FAILED that followed it. Concurrent flushers would let that earlier
+// ACTIVE commit LAST and strand a dead worker as selectable — and the terminal
+// report is single-shot (agent/src/vllm.rs report_terminal_state sends one
+// heartbeat, then the container dies), so nothing would ever heal the row.
+//
+// A single FIFO consumer restores the ordering guarantee structurally. It is not
+// a throughput concern: each queue entry is a whole coalesced batch of up to
+// MaxBatch rows, so one in-flight statement still absorbs a large fleet.
 func newLivenessCoalescer(store *Store, cfg livenessBatchConfig) *livenessCoalescer {
 	return &livenessCoalescer{
-		store:    store,
-		cfg:      cfg,
-		flushSem: make(chan struct{}, maxDetachedLivenessFlushes),
+		store:     store,
+		cfg:       cfg,
+		detachedQ: make(chan []*livenessHeartbeatItem, detachedLivenessQueueDepth),
 	}
+}
+
+// startDetachedFlusher launches the single consumer on first detached use.
+func (c *livenessCoalescer) startDetachedFlusher() {
+	c.detachedOnce.Do(func() {
+		go func() {
+			for batch := range c.detachedQ {
+				c.flush(batch)
+			}
+		}()
+	})
 }
 
 func (c *livenessCoalescer) close() {
@@ -227,8 +248,7 @@ func (c *livenessCoalescer) enqueue(ctx context.Context, worker WorkerAuth, hb R
 			c.timer.Stop()
 			c.timer = nil
 		}
-		c.mu.Unlock()
-		c.dispatch(batch, wait)
+		c.dispatchLocked(batch, wait)
 	} else {
 		if c.timer == nil {
 			interval := c.cfg.FlushInterval
@@ -241,8 +261,7 @@ func (c *livenessCoalescer) enqueue(ctx context.Context, worker WorkerAuth, hb R
 				// into pending before we re-lock will ride along.
 				batch := c.pending
 				c.pending = nil
-				c.mu.Unlock()
-				c.dispatch(batch, wait)
+				c.dispatchLocked(batch, wait)
 			} else {
 				c.timer = time.AfterFunc(interval, c.timerFlush)
 				c.mu.Unlock()
@@ -263,23 +282,31 @@ func (c *livenessCoalescer) enqueue(ctx context.Context, worker WorkerAuth, hb R
 	}
 }
 
-// dispatch runs a batch inline for blocking submitters (unchanged behaviour) or
-// on a bounded background goroutine for detached ones. No batch is ever dropped:
-// it carries offer state (status, warmth, capacity) that authorize reads, not
-// just a liveness stamp.
-func (c *livenessCoalescer) dispatch(batch []*livenessHeartbeatItem, inline bool) {
+// dispatch runs a batch inline for blocking submitters (unchanged behaviour), or
+// hands it to the single FIFO flusher for detached ones. Batches reach the queue
+// in the order they were taken from pending, and one consumer commits them in
+// that order, so a later heartbeat's status can never be overwritten by an
+// earlier one. No batch is ever dropped: it carries offer state (status, warmth,
+// capacity) that authorize reads, not just a liveness stamp.
+// It MUST be called with c.mu held, and it releases the lock. Enqueueing under
+// the same lock that took the batch out of pending is what makes the order
+// total: otherwise two goroutines could take batch N and N+1 and then race to
+// the channel, delivering them inverted and reintroducing exactly the overwrite
+// this design exists to prevent. Blocking on a full queue while holding the lock
+// is deliberate backpressure and cannot deadlock — the flusher never takes c.mu.
+func (c *livenessCoalescer) dispatchLocked(batch []*livenessHeartbeatItem, inline bool) {
 	if len(batch) == 0 {
+		c.mu.Unlock()
 		return
 	}
 	if inline {
+		c.mu.Unlock()
 		c.flush(batch)
 		return
 	}
-	c.flushSem <- struct{}{}
-	go func() {
-		defer func() { <-c.flushSem }()
-		c.flush(batch)
-	}()
+	c.startDetachedFlusher()
+	c.detachedQ <- batch
+	c.mu.Unlock()
 }
 
 func (c *livenessCoalescer) timerFlush() {
@@ -291,11 +318,10 @@ func (c *livenessCoalescer) timerFlush() {
 	}
 	batch := c.pending
 	c.pending = nil
-	c.mu.Unlock()
 	// Blocking submitters are waiting on this batch, so flush it on the timer
 	// goroutine exactly as before. A batch with no waiters is detached work and
 	// must not stall the runtime timer on a slow PostgreSQL.
-	c.dispatch(batch, batchHasWaiter(batch))
+	c.dispatchLocked(batch, batchHasWaiter(batch))
 }
 
 func batchHasWaiter(batch []*livenessHeartbeatItem) bool {
