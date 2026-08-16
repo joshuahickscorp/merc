@@ -28,6 +28,21 @@ var validHWClasses = map[string]bool{
 
 var validTiers = map[string]bool{"batch": true, "priority": true, "trusted": true}
 
+// Buyer optimization objective. These three names are the directive set;
+// nothing prices or places on them yet. Empty is omitted (historical rows and
+// requests that do not name one). Anything else is unknown and refused.
+const (
+	workloadObjectiveCheapest = "CHEAPEST"
+	workloadObjectiveBalanced = "BALANCED"
+	workloadObjectiveFastest  = "FASTEST"
+)
+
+var validWorkloadObjectives = map[string]bool{
+	workloadObjectiveCheapest: true,
+	workloadObjectiveBalanced: true,
+	workloadObjectiveFastest:  true,
+}
+
 // Engines the control plane will accept from a worker registration.
 //
 // `candle` is the in-process Apple Silicon path. `vllm` fronts a pinned,

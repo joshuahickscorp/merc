@@ -1,9 +1,15 @@
 package main
 
 import (
+	"bytes"
+	"context"
 	"math"
 	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
+
+	"github.com/google/uuid"
 )
 
 // The validation matrix is the part of job submission most likely to be edited
@@ -58,6 +64,8 @@ func TestNormalizeAndValidateJobSubmit(t *testing.T) {
 		"empty job type":      {func(s *jobSubmit) { s.JobType.Type = "" }, http.StatusBadRequest},
 		"unknown job type":    {func(s *jobSubmit) { s.JobType.Type = "mine_bitcoin" }, http.StatusBadRequest},
 		"unknown tier":        {func(s *jobSubmit) { s.Tier = "platinum" }, http.StatusBadRequest},
+		"unknown objective":   {func(s *jobSubmit) { s.Objective = "CHEAPISH" }, http.StatusBadRequest},
+		"lowercase objective": {func(s *jobSubmit) { s.Objective = "cheapest" }, http.StatusBadRequest},
 		"unknown hw class":    {func(s *jobSubmit) { s.Constraints.HWClasses = []string{"nvidia_h100"} }, http.StatusBadRequest},
 		"nonzero temperature": {func(s *jobSubmit) { s.JobType.Temperature = 0.7 }, http.StatusBadRequest},
 		"NaN max usd":         {func(s *jobSubmit) { s.MaxUSD = math.NaN() }, http.StatusBadRequest},
@@ -76,6 +84,34 @@ func TestNormalizeAndValidateJobSubmit(t *testing.T) {
 		})
 	}
 
+	t.Run("accepts the three directive objectives", func(t *testing.T) {
+		for _, objective := range []string{
+			workloadObjectiveCheapest,
+			workloadObjectiveBalanced,
+			workloadObjectiveFastest,
+		} {
+			in := valid()
+			in.Objective = objective
+			out, herr := normalize(in)
+			if herr != nil {
+				t.Fatalf("objective %q rejected: %s", objective, herr.msg)
+			}
+			if out.Objective != objective {
+				t.Fatalf("objective = %q, want %q", out.Objective, objective)
+			}
+		}
+	})
+
+	t.Run("omitted objective stays empty", func(t *testing.T) {
+		out, herr := normalize(valid())
+		if herr != nil {
+			t.Fatalf("omitted objective rejected: %s", herr.msg)
+		}
+		if out.Objective != "" {
+			t.Fatalf("omitted objective defaulted to %q", out.Objective)
+		}
+	})
+
 	t.Run("accepts the documented deadline sentinels", func(t *testing.T) {
 		for _, secs := range []int{0, -1, 60, 604800} {
 			in := valid()
@@ -85,4 +121,42 @@ func TestNormalizeAndValidateJobSubmit(t *testing.T) {
 			}
 		}
 	})
+}
+
+// Quote and submit share normalizeWorkloadRequest. An unknown objective must
+// 400 at both doors before any store access, including lowercase near-misses.
+func TestQuoteAndSubmitRejectUnknownObjective(t *testing.T) {
+	const unknown = "CHEAPISH"
+	body := `{
+		"job_type":{"type":"embed"},
+		"model":{"ref":"all-minilm-l6-v2"},
+		"input":"{\"text\":\"hello\"}\n",
+		"objective":"` + unknown + `"
+	}`
+	server := &Server{}
+	auth := &AuthResult{BuyerID: uuid.New()}
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/quote", bytes.NewBufferString(body))
+	req = req.WithContext(context.WithValue(req.Context(), ctxBuyer, auth))
+	rec := httptest.NewRecorder()
+	server.handleQuote(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("quote status=%d body=%s, want 400", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "invalid objective") {
+		t.Fatalf("quote error did not name the unknown objective: %s", rec.Body.String())
+	}
+
+	sub := jobSubmit{
+		JobType:   JobType{Type: "embed"},
+		Model:     ModelRef{Ref: "all-minilm-l6-v2"},
+		Objective: unknown,
+	}
+	_, herr := server.createJob(context.Background(), auth.BuyerID, sub)
+	if herr == nil || herr.status != http.StatusBadRequest {
+		t.Fatalf("submit result=%v, want 400", herr)
+	}
+	if !strings.Contains(herr.msg, "invalid objective") {
+		t.Fatalf("submit error did not name the unknown objective: %s", herr.msg)
+	}
 }

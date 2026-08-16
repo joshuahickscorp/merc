@@ -33,7 +33,10 @@ type WorkloadBinding struct {
 	Tier          string             `json:"tier"`
 	MinReputation float32            `json:"min_reputation"`
 	DeadlineSecs  int                `json:"deadline_secs"`
-	InputSHA256   string             `json:"input_sha256"`
+	// Objective is what the buyer asked to optimize for. Empty on historical
+	// bindings and on requests that omit it. Changing it changes the digest.
+	Objective   string `json:"objective,omitempty"`
+	InputSHA256 string `json:"input_sha256"`
 }
 
 type WorkloadRuntimeCandidate struct {
@@ -161,6 +164,10 @@ func canonicalWorkloadBinding(sub jobSubmit, inputSHA256 string) (WorkloadBindin
 	if _, err := hex.DecodeString(inputSHA256); err != nil {
 		return WorkloadBinding{}, errors.New("workload binding input commitment is not hexadecimal")
 	}
+	objective, err := canonicalWorkloadObjective(sub.Objective)
+	if err != nil {
+		return WorkloadBinding{}, err
+	}
 	return WorkloadBinding{
 		Version:       workloadBindingVersion,
 		JobType:       sub.JobType,
@@ -171,8 +178,21 @@ func canonicalWorkloadBinding(sub jobSubmit, inputSHA256 string) (WorkloadBindin
 		Tier:          sub.Tier,
 		MinReputation: sub.MinReputation,
 		DeadlineSecs:  sub.DeadlineSecs,
+		Objective:     objective,
 		InputSHA256:   inputSHA256,
 	}, nil
+}
+
+// canonicalWorkloadObjective accepts the empty (omitted) value and the three
+// directive names. Anything else is unknown.
+func canonicalWorkloadObjective(value string) (string, error) {
+	if value == "" {
+		return "", nil
+	}
+	if !validWorkloadObjectives[value] {
+		return "", fmt.Errorf("invalid objective: %s", value)
+	}
+	return value, nil
 }
 
 func workloadBindingDigest(binding WorkloadBinding) (string, error) {
@@ -630,6 +650,9 @@ func ValidateFrozenWorkloadDecisionSnapshot(decision WorkloadDecision) error {
 	}
 	if decision.BindingSHA256 != bindingSHA256 {
 		return errors.New("workload decision binding digest does not match its frozen binding")
+	}
+	if _, err := canonicalWorkloadObjective(decision.Binding.Objective); err != nil {
+		return err
 	}
 	if len(decision.Binding.InputSHA256) != sha256.Size*2 {
 		return errors.New("workload decision input commitment is not a SHA-256 digest")

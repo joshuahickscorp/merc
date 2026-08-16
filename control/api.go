@@ -573,12 +573,16 @@ type jobSubmit struct {
 	// project ceiling. They are optional for ordinary jobs, but are a pair: a
 	// project job without an exact declared step would make the budget ledger
 	// impossible to audit.
-	ProjectID      string  `json:"project_id,omitempty"`
-	ProjectStepID  string  `json:"project_step_id,omitempty"`
-	MinReputation  float32 `json:"min_reputation,omitempty"`
-	DeadlineSecs   int     `json:"deadline_secs,omitempty"`
-	IdempotencyKey string  `json:"-"`
-	RequestSHA256  string  `json:"-"`
+	ProjectID     string  `json:"project_id,omitempty"`
+	ProjectStepID string  `json:"project_step_id,omitempty"`
+	MinReputation float32 `json:"min_reputation,omitempty"`
+	DeadlineSecs  int     `json:"deadline_secs,omitempty"`
+	// Objective is a workload-binding field: CHEAPEST, BALANCED, or FASTEST.
+	// It is persisted on the binding and changes the binding digest. It does
+	// not select price, placement, or runtime yet.
+	Objective      string `json:"objective,omitempty"`
+	IdempotencyKey string `json:"-"`
+	RequestSHA256  string `json:"-"`
 	// governedVerificationClass is a SERVER-SIDE argument. It is unexported and
 	// has no wire tag, so no buyer request can set it: submit decodes with
 	// DisallowUnknownFields, and a body carrying `verification_class` is refused

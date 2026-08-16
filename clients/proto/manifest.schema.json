@@ -12,6 +12,7 @@
       "enum": ["apple_silicon_base", "apple_silicon_pro", "apple_silicon_max", "apple_silicon_ultra"]
     },
     "tier": { "enum": ["batch", "priority", "trusted"] },
+    "workload_objective": { "enum": ["CHEAPEST", "BALANCED", "FASTEST"] },
     "model_kind": { "enum": ["gguf", "hf"] },
     "job_tag": { "enum": ["embed", "batch_infer"] },
     "ModelRef": {
@@ -199,6 +200,7 @@
         "constraints": { "$ref": "#/$defs/JobConstraints" },
         "verification": { "$ref": "#/$defs/VerificationPolicy" },
         "tier": { "$ref": "#/$defs/tier" },
+        "objective": { "$ref": "#/$defs/workload_objective" },
         "input": {
           "oneOf": [
             { "type": "string" },

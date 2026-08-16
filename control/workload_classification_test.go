@@ -75,6 +75,7 @@ func TestWorkloadBindingCoversEveryExecutionAssumption(t *testing.T) {
 		"reputation":     func(s *jobSubmit) { s.MinReputation = 0.9 },
 		"deadline":       func(s *jobSubmit) { s.DeadlineSecs = 600 },
 		"max duration":   func(s *jobSubmit) { s.Constraints.MaxDurationSecs = 7200 },
+		"objective":      func(s *jobSubmit) { s.Objective = workloadObjectiveFastest },
 		"input identity": func(s *jobSubmit) {},
 	}
 	for name, mutate := range mutations {
@@ -101,6 +102,54 @@ func TestWorkloadBindingCoversEveryExecutionAssumption(t *testing.T) {
 	must(t, err)
 	if same.BindingSHA256 != original.BindingSHA256 {
 		t.Fatal("budget/delivery/idempotency metadata changed the execution-shape binding")
+	}
+}
+
+// The buyer names CHEAPEST / BALANCED / FASTEST. That name is part of what
+// was agreed, so the binding digest must move when it does. Pricing does not
+// read the field yet; this only pins the persisted agreement.
+func TestWorkloadBindingDigestDiffersAcrossObjectives(t *testing.T) {
+	base := validBatchWorkloadSubmit(t)
+	inputSHA := strings.Repeat("b", 64)
+	type seen struct {
+		digest string
+		bound  string
+	}
+	got := map[string]seen{}
+	for _, objective := range []string{
+		workloadObjectiveCheapest,
+		workloadObjectiveBalanced,
+		workloadObjectiveFastest,
+	} {
+		sub := base
+		sub.Objective = objective
+		decision, err := buildWorkloadDecision(sub, inputSHA)
+		must(t, err)
+		if decision.Binding.Objective != objective {
+			t.Fatalf("binding did not persist objective %q: %+v", objective, decision.Binding)
+		}
+		blob, err := json.Marshal(decision.Binding)
+		must(t, err)
+		if !strings.Contains(string(blob), `"objective":"`+objective+`"`) {
+			t.Fatalf("marshaled binding omitted persisted objective %q: %s", objective, blob)
+		}
+		var roundtrip WorkloadBinding
+		mustf(t, json.Unmarshal(blob, &roundtrip), "round-trip binding: %v")
+		if roundtrip.Objective != objective {
+			t.Fatalf("round-tripped binding dropped objective %q", objective)
+		}
+		redigest, err := workloadBindingDigest(roundtrip)
+		must(t, err)
+		if redigest != decision.BindingSHA256 {
+			t.Fatalf("persisted %q binding digest %s did not survive round-trip (%s)",
+				objective, decision.BindingSHA256, redigest)
+		}
+		got[objective] = seen{digest: decision.BindingSHA256, bound: decision.Binding.Objective}
+	}
+	if got[workloadObjectiveCheapest].digest == got[workloadObjectiveBalanced].digest ||
+		got[workloadObjectiveCheapest].digest == got[workloadObjectiveFastest].digest ||
+		got[workloadObjectiveBalanced].digest == got[workloadObjectiveFastest].digest {
+		t.Fatalf("objectives did not produce distinct binding digests: %+v", got)
 	}
 }
 
@@ -446,6 +495,12 @@ func TestQuoteUsesStrictSharedNormalizerBeforeStoreAccess(t *testing.T) {
 			"model":{"ref":"all-minilm-l6-v2"},
 			"constraints":{"hw_classes":["imaginary_gpu"]},
 			"input":"{\"text\":\"hello\"}\n"
+		}`,
+		"unknown objective": `{
+			"job_type":{"type":"embed"},
+			"model":{"ref":"all-minilm-l6-v2"},
+			"input":"{\"text\":\"hello\"}\n",
+			"objective":"CHEAPISH"
 		}`,
 	}
 	for name, body := range tests {

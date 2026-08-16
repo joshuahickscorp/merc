@@ -86,6 +86,11 @@ func normalizeAndValidateJobSubmit(
 	if !validTiers[sub.Tier] {
 		return sub, &httpError{http.StatusBadRequest, "invalid tier: " + sub.Tier}
 	}
+	objective, err := canonicalWorkloadObjective(sub.Objective)
+	if err != nil {
+		return sub, &httpError{http.StatusBadRequest, err.Error()}
+	}
+	sub.Objective = objective
 	if checkRuntimeAuthority {
 		canonicalModel, err := normalizeAdvertisedRuntimeModelRef(sub.JobType.Type, sub.Model)
 		if err != nil {
