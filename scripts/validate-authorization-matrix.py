@@ -85,9 +85,14 @@ if missing or stale:
 # ever accumulate the measured samples its promotion gate requires. Both are
 # authAdmin at control/api.go:218,220. Neither can promote a cell by itself --
 # activation still needs the promotion gate's verdict.
+# The pin at 123 was already one behind the reviewed inventory at HEAD
+# 1dd71979 (124 registered and listed). 126 is that inventory plus the two
+# versioned UI composition reads (GET /v1/ui/v1/buy through authBuyer,
+# GET /v1/ui/v1/earn through authWorker). They assemble existing handler
+# bodies for a future GUI; neither quotes, submits, charges, or pays.
 # The count is pinned so a NEW route cannot be added without a reviewer deciding
 # what every role may do with it.
-if len(reviewed) != 123:
-    fail(f"expected reviewed 123-route surface, found {len(reviewed)}")
+if len(reviewed) != 126:
+    fail(f"expected reviewed 126-route surface, found {len(reviewed)}")
 
 print(f"authorization matrix: PASS ({len(reviewed)} routes, {len(ROLES)} roles, default deny)")

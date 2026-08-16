@@ -117,9 +117,10 @@ func (s *Server) Routes() http.Handler {
 
 	mux.HandleFunc("POST /v1/signup", s.handleSignup)
 	mux.HandleFunc("POST /v1/login", s.handleLogin)
-	mux.HandleFunc("POST /v1/alpha-request", s.handleAlphaRequest)               // public site's alpha-access capture (alpha_request.go), unauthed lead intake
-	mux.Handle("POST /v1/logout", s.authBuyer(http.HandlerFunc(s.handleLogout))) // revoke the presenting session
-	mux.Handle("GET /v1/me", s.authBuyer(http.HandlerFunc(s.handleMe)))          // authenticated buyer identity + remaining sandbox credit
+	mux.HandleFunc("POST /v1/alpha-request", s.handleAlphaRequest)                // public site's alpha-access capture (alpha_request.go), unauthed lead intake
+	mux.Handle("POST /v1/logout", s.authBuyer(http.HandlerFunc(s.handleLogout)))  // revoke the presenting session
+	mux.Handle("GET /v1/me", s.authBuyer(http.HandlerFunc(s.handleMe)))           // authenticated buyer identity + remaining sandbox credit
+	mux.Handle("GET /v1/ui/v1/buy", s.authBuyer(http.HandlerFunc(s.handleUIBuy))) // versioned BUY+HEALTH+SETTINGS composition; no quote/submit
 
 	mux.Handle("POST /v1/supplier/onboard", s.authBuyer(http.HandlerFunc(s.handleSupplierOnboard)))
 	mux.Handle("GET /v1/supplier/status", s.authBuyer(http.HandlerFunc(s.handleSupplierStatus)))
@@ -202,6 +203,7 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("GET /v1/worker/earnings", s.authWorker(http.HandlerFunc(s.handleWorkerEarnings)))
 	mux.Handle("GET /v1/worker/ledger", s.authWorker(http.HandlerFunc(s.handleWorkerLedger)))             // per-credit payout trail (earnings is the aggregate)
 	mux.Handle("GET /v1/worker/viability", s.authWorker(http.HandlerFunc(s.handleWorkerViability)))       // why this worker is or is not offered work
+	mux.Handle("GET /v1/ui/v1/earn", s.authWorker(http.HandlerFunc(s.handleUIEarn)))                      // versioned EARN+HEALTH+SETTINGS composition; no quote/submit
 	mux.Handle("GET /v1/worker/verification", s.authWorker(http.HandlerFunc(s.handleWorkerVerification))) // trust panel (Supplier onboarding & safety 7->8)
 	mux.Handle("GET /v1/worker/connect/status", s.authWorker(http.HandlerFunc(s.handleWorkerConnectStatus)))
 
@@ -461,6 +463,27 @@ const (
 	readyzReasonStaleTickers        = "stale_background_tickers"
 )
 
+// readyzPaymentFieldNames is the payment-health subset /readyz attaches once
+// payment authority parses. The UI facade copies these keys from that handler
+// body; it does not recompute them.
+var readyzPaymentFieldNames = []string{
+	"payment_mode",
+	"provider_enabled",
+	"live_value_movement",
+	"payment_recovery_active",
+	"stripe_api_version",
+}
+
+func readyzPaymentFields(paymentAuthority PaymentAuthority) map[string]any {
+	return map[string]any{
+		"payment_mode":            paymentAuthority.Mode,
+		"provider_enabled":        paymentAuthority.ProviderEnabled(),
+		"live_value_movement":     paymentAuthority.LiveValueMovementEnabled(),
+		"payment_recovery_active": paymentAuthority.RecoveryActive,
+		"stripe_api_version":      stripeAPIVersion,
+	}
+}
+
 func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
 	// payment_mode / live_value_movement are always present once the authority
 	// parses so external canary observers can measure safety without inventing it.
@@ -516,13 +539,7 @@ func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	paymentFields := map[string]any{
-		"payment_mode":            paymentAuthority.Mode,
-		"provider_enabled":        paymentAuthority.ProviderEnabled(),
-		"live_value_movement":     paymentAuthority.LiveValueMovementEnabled(),
-		"payment_recovery_active": paymentAuthority.RecoveryActive,
-		"stripe_api_version":      stripeAPIVersion,
-	}
+	paymentFields := readyzPaymentFields(paymentAuthority)
 	notReady := func(code, reason string, extra map[string]any) {
 		body := map[string]any{"status": "not_ready", "reason": reason, "reason_code": code}
 		for k, v := range paymentFields {

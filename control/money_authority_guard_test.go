@@ -292,6 +292,7 @@ var declaredMoneyAuthority = []string{
 	"Server.handleWorkerHeartbeat",                        // api.go
 	"Server.handleWorkerPoll",                             // api.go
 	"Server.handleWorkerRegister",                         // api.go
+	"Server.handleUIEarn",                                 // ui_facade.go
 	"Server.handleWorkerViability",                        // api.go
 	"Server.loadCurrentPublicCatalogue",                   // api.go
 	"Server.normalizeWorkloadRequest",                     // job_submit_validate.go

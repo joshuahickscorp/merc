@@ -129,7 +129,10 @@ func TestAuthorizationMatrixProtectedRoutesRejectAnonymousAndWrongCredentialName
 	// 104 after GET /v1/worker/ledger entered the worker_owned surface: the
 	// per-credit payout trail a supplier sees beside earnings aggregates. Same
 	// worker token boundary as /v1/worker/earnings; no cash movement.
-	if checked != 104 {
-		t.Fatalf("checked %d protected routes, want 104", checked)
+	// 106 after the versioned UI composition reads (GET /v1/ui/v1/buy buyer-owned,
+	// GET /v1/ui/v1/earn worker-owned). They copy existing handler bodies; they
+	// cannot quote, submit, charge, or pay.
+	if checked != 106 {
+		t.Fatalf("checked %d protected routes, want 106", checked)
 	}
 }
