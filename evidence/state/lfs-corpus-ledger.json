@@ -29,15 +29,15 @@
     }
   },
   "expected": {
-    "tracked_pointer_files": 93,
-    "unique_payload_oids": 91,
+    "tracked_pointer_files": 95,
+    "unique_payload_oids": 93,
     "missing_objects": 0,
     "corrupt_objects": 0,
     "resolved_payload_mismatches": 0
   },
   "dedup": {
     "duplicate_pointer_count": 2,
-    "note": "93 pointers map to 91 unique content OIDs; the 2 remaining extras are content-addressed aliases kept because both sides are referenced (droplet-device-ceiling.json is cited in docs/DROPLET_SCALING.md alongside heartbeat-ingest-ceiling.json; authorize-auth-tails-*174152Z/-baseline). The 14 timestamped/-after/-baseline duplicates a prior refactor dumped (0-cited exact-OID copies of cited -latest files) were removed. The verifier reports every shared oid and its alias set."
+    "note": "95 pointers map to 93 unique content OIDs; the 2 remaining extras are content-addressed aliases kept because both sides are referenced (droplet-device-ceiling.json is cited in docs/DROPLET_SCALING.md alongside heartbeat-ingest-ceiling.json; authorize-auth-tails-*174152Z/-baseline). The 14 timestamped/-after/-baseline duplicates a prior refactor dumped (0-cited exact-OID copies of cited -latest files) were removed. The verifier reports every shared oid and its alias set."
   },
   "policy": {
     "authority": "sha256(resolved payload bytes) must equal the pointer oid; computed by scripts/verify-lfs-corpus.py and control/lfs_corpus_integrity_test.go. git lfs fsck is a supplementary cross-check only \u2014 it returned OK while two objects were corrupt on 2026-08-04 (see evidence/state/lfs-corruption-incident-20260804.json).",
@@ -92,6 +92,18 @@
       "tracked_pointer_files": "91 -> 93",
       "unique_payload_oids": "89 -> 91",
       "why": "Two Merc Render measurement artifacts. evidence/perf/blender-render-baseline.json: MEASURED headless Cycles-CPU baseline (single frame vs 2x2 tile grid, wall seconds, peak RSS, output sha256, exit codes) produced by control/blender_render_baseline_test.go under MERC_BLENDER_RENDER_BENCH=1. evidence/perf/cycles-standalone-parity.json: lane C archaeology \u2014 standalone Cycles 5.3.0 built twice on this host (39s system-libs, 89s official precompiled, 18MB arm64) rendering CPU XML deterministically, plus the feature-parity gap vs Blender-integrated Cycles. Two new unique LFS payloads; the 2 content-addressed aliases are unchanged."
+    },
+    {
+      "at_commit": "p4-verify-pipeline",
+      "tracked_pointer_files": "93 -> 94",
+      "unique_payload_oids": "91 -> 92",
+      "why": "Hash-only / pipelined L1 verification measurement (evidence/perf/render-verify-pipeline.json). Resident Cycles-CPU 8-frame camera orbit at 1024\u00b2/512spp, decoded-pixel digest cached at ingest, serial PNG-decode vs hash-only vs pipelined Amdahl CEILINGS for a 100-frame project. One new unique LFS payload; the 2 content-addressed aliases are unchanged."
+    },
+    {
+      "at_commit": "p4-device-placement",
+      "tracked_pointer_files": "94 -> 95",
+      "unique_payload_oids": "92 -> 93",
+      "why": "evidence/perf/cycles-device-placement.json: the MEASURED CPU-vs-Metal crossover curve on this host plus the parity verdict. GPU LOSES on light work (0.29-0.99x below ~16.8M pixel-samples) and wins 6.49x wall / 8.29x render at 1024x1024/512spp; a RESIDENT GPU worker crosses far earlier (256/32 at 1.23x). Critically it records that L1 PIXEL_EXACT FAILS between CPU and Metal, and that Metal is not even self-deterministic (1 px on a 256/64 repeat) - so device is part of the quality contract and Merc must not silently mix devices within one project. One new unique LFS payload."
     }
   ]
 }

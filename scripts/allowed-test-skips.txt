@@ -147,6 +147,14 @@ TestControlPlaneHotPathProfile
 # make test / make ci. Set MERC_BLENDER_RENDER_BENCH=1.
 TestBlenderRenderBaseline
 #
+# Opt-in hash-only / pipelined L1 verification bench. Renders a resident
+# Cycles-CPU multi-frame camera orbit, caches the decoded-pixel digest at
+# render time, and measures serial PNG-decode verify vs hash-only vs
+# pipelined overlap. Needs the local Blender.app binary and minutes of
+# wall clock at 1024²/512spp; never part of make test / make ci.
+# Set MERC_RENDER_VERIFY_PIPELINE=1.
+TestRenderVerifyPipelineBench
+#
 # Opt-in realtime selection cost decomposition. Seeds up to 100k offers and
 # times five statement variants (precount, full claim, no-book, top-N pick,
 # eligibility floor) under ROLLBACK to name the linear term. Minutes of wall
@@ -178,3 +186,10 @@ TestLiveServingMatrixLlamaCppMetal
 # receipt. The economics arithmetic itself is asserted by TestPhase6* tests that
 # always run.
 TestPhase6WriteEvidencePayload
+# Set MERC_RENDER_DEVICE_PLACEMENT=1.
+TestRenderDevicePlacementBench
+#
+# Opt-in realtime selection cost decomposition. Seeds up to 100k offers and
+# times five statement variants (precount, full claim, no-book, top-N pick,
+# eligibility floor) under ROLLBACK to name the linear term. Minutes of wall
+# clock; never part of make test / make ci. Set MERC_REALTIME_DECOMP=1.
