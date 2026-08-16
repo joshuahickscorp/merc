@@ -586,7 +586,8 @@ func canonicalDigest(label string, value any) (string, error) {
 }
 
 func placementRequirementDigest(p PlacementRequirement) (string, error) {
-	if p.Version != 1 && p.Version != 2 && p.Version != placementRequirementVersion {
+	if p.Version != 1 && p.Version != 2 && p.Version != placementRequirementVersion &&
+		p.Version != placementRequirementVersionMultiFamily {
 		return "", fmt.Errorf("unsupported placement requirement version %d", p.Version)
 	}
 	return canonicalDigest("placement requirement", p)
@@ -837,7 +838,12 @@ func validateCurrentPlacementCataloguePhysicalAuthority(
 	placement PlacementRequirement,
 	catalogue CataloguePriceAuthority,
 ) error {
-	if placement.Version != placementRequirementVersion ||
+	// v4 is the multi-family shape already written by placementRequirementFor.
+	// The preferred cell still supplies performance/build identity; union HW
+	// and the quality-contract gate are the same checks
+	// validatePlacementRequirement applies at quote.go:561-599.
+	if (placement.Version != placementRequirementVersion &&
+		placement.Version != placementRequirementVersionMultiFamily) ||
 		placement.PerformanceAuthority == nil ||
 		placement.PerformanceAuthority.Version != frozenRuntimeCellPerformanceVersion {
 		return errors.New("current catalogue/placement binding requires current frozen performance authority")
@@ -1547,7 +1553,30 @@ func newDistributedPricingDecision(
 			"%w: resolving benchmark-bound placement hardware: %v",
 			errQuotePhysicalAuthorityUnavailable, err)
 	}
-	if !sameStrings(boundHW, placement.HWClasses) {
+	if placement.Version == placementRequirementVersionMultiFamily {
+		// Same contract as validatePlacementRequirement v4: HW is the eligible
+		// union; performance/catalogue still pin the preferred measured class.
+		// A non-empty contract id is not enough — REFUSED/unknown ids must not
+		// open a Metal-vs-CUDA price choice.
+		wantHW := multiFamilyHardwareClasses(workload, workload.Binding.Constraints.HWClasses)
+		if !sameStrings(placement.HWClasses, wantHW) {
+			return PricingDecision{}, fmt.Errorf(
+				"%w: placement hardware %v does not equal the multi-family eligible union %v",
+				errQuotePhysicalAuthorityUnavailable, placement.HWClasses, wantHW)
+		}
+		if len(boundHW) != 1 || boundHW[0] != performance.MeasuredOnHWClass ||
+			!slices.Contains(placement.HWClasses, performance.MeasuredOnHWClass) {
+			return PricingDecision{}, fmt.Errorf(
+				"%w: preferred-cell benchmark class %v is not in the multi-family placement union %v",
+				errQuotePhysicalAuthorityUnavailable, boundHW, placement.HWClasses)
+		}
+		cellIDs := admissionCellsForWorkload(workload)
+		if _, err := qualityContractAuthorizingMultiFamily(workload.QualityContractID, cellIDs); err != nil {
+			return PricingDecision{}, fmt.Errorf(
+				"%w: multi-family catalogue/placement binding: %v",
+				errQuotePhysicalAuthorityUnavailable, err)
+		}
+	} else if !sameStrings(boundHW, placement.HWClasses) {
 		return PricingDecision{}, fmt.Errorf(
 			"%w: placement hardware %v does not equal the benchmark-bound class %v",
 			errQuotePhysicalAuthorityUnavailable,

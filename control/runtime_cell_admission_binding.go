@@ -366,6 +366,15 @@ func freezeRuntimeCellEconomicsWithSnapshot(
 			out.HWClasses = append([]string(nil), placement.HWClasses...)
 		}
 		out.HWClass = acceptedHWClassForCell(placement.RuntimeCellID, placement.HWClasses)
+		if out.HWClass == "" && placement.Version == placementRequirementVersionMultiFamily &&
+			placement.PerformanceAuthority != nil {
+			// Energy/catalogue still pin the preferred measured class. The
+			// placement union is claim eligibility, not interchangeable watts.
+			measured := strings.TrimSpace(placement.PerformanceAuthority.Performance.MeasuredOnHWClass)
+			if slices.Contains(placement.HWClasses, measured) {
+				out.HWClass = measured
+			}
+		}
 	}
 	if snapshot != nil && snapshot.Version == frozenRuntimeCellEconomicsLegacyVersion {
 		if !reflect.DeepEqual(provider, snapshot.ProviderCost) {
@@ -636,11 +645,20 @@ func validateFrozenRuntimeCellEconomics(
 		}
 		return nil
 	}
-	if len(placement.HWClasses) != 1 || len(snapshot.HWClasses) != 1 {
+	if placement.Version == placementRequirementVersionMultiFamily {
+		if placement.PerformanceAuthority == nil {
+			return fmt.Errorf("frozen runtime-cell economics lacks multi-family performance authority")
+		}
+		measured := strings.TrimSpace(placement.PerformanceAuthority.Performance.MeasuredOnHWClass)
+		if !slices.Equal(snapshot.HWClasses, placement.HWClasses) ||
+			snapshot.HWClass != measured ||
+			!slices.Contains(placement.HWClasses, measured) {
+			return fmt.Errorf("frozen runtime-cell economics hardware classification conflicts with multi-family placement")
+		}
+	} else if len(placement.HWClasses) != 1 || len(snapshot.HWClasses) != 1 {
 		return fmt.Errorf(
 			"frozen runtime-cell economics lacks one serialized accepted hardware class; current runtime authority cannot repair historical classification")
-	}
-	if !slices.Equal(snapshot.HWClasses, placement.HWClasses) ||
+	} else if !slices.Equal(snapshot.HWClasses, placement.HWClasses) ||
 		snapshot.HWClass != strings.TrimSpace(placement.HWClasses[0]) {
 		return fmt.Errorf("frozen runtime-cell economics hardware classification conflicts with placement")
 	}
