@@ -3699,6 +3699,22 @@ CREATE UNIQUE INDEX IF NOT EXISTS execution_contracts_buyer_idempotency_uniq
 CREATE INDEX IF NOT EXISTS execution_contracts_buyer_created_idx
     ON execution_contracts (buyer_id,created_at DESC);
 
+-- Capacity reconciliation on the heartbeat path counts a worker's in-flight
+-- contracts: `SELECT count(*) FROM execution_contracts WHERE worker_id=$1
+-- AND runtime_profile_id=$2 AND state='EXECUTING'` (control/liveness_ingest.go,
+-- both the batched and single-item durable writes). Without this index that
+-- subquery Seq Scans, and execution_contracts is APPEND-ONLY — it grows with
+-- lifetime accepted contracts, so the scan cost rises forever while the number
+-- of EXECUTING rows stays small. Measured at HEAD 1b016ec4 on a near-empty
+-- table it was already 1.02 ms of the 1.16 ms UPDATE
+-- (evidence/perf/control-plane-hot-path-profile.json).
+--
+-- Partial on state='EXECUTING' because that is the only state the subquery asks
+-- about and it is a tiny live subset of the table, which keeps the index small
+-- and its writes cheap.
+CREATE INDEX IF NOT EXISTS execution_contracts_worker_profile_executing_idx
+    ON execution_contracts (worker_id,runtime_profile_id) WHERE state = 'EXECUTING';
+
 -- A request refused for lack of supply does not create an execution contract.
 -- Without this append-only decision stream, utilization can be measured but
 -- fill rate cannot: the denominator would quietly omit everyone Merc turned

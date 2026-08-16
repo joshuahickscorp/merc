@@ -131,6 +131,15 @@ TestLiveDeviceIndexBench
 # Set MERC_WRITE_AMP_BENCH=1.
 TestLivenessWriteAmplificationBench
 #
+# Opt-in integrated control-plane hot-path profile at HEAD. Times
+# HeartbeatRealtimeOffer (both flag states), the live-index bridge,
+# AuthorizeRealtimeContract / eligible-book CTE, CreateServiceLease /
+# ServiceLeaseDataPlaneTarget, and pricing/ranking inputs; writes
+# evidence/perf/control-plane-hot-path-profile.json plus CPU/alloc pprof.
+# Minutes of wall clock and a live PostgreSQL; never part of make test / make ci.
+# Set MERC_CONTROL_PLANE_PROFILE=1.
+TestControlPlaneHotPathProfile
+#
 # Opt-in realtime selection cost decomposition. Seeds up to 100k offers and
 # times five statement variants (precount, full claim, no-book, top-N pick,
 # eligibility floor) under ROLLBACK to name the linear term. Minutes of wall
