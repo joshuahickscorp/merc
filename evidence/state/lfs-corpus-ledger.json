@@ -29,15 +29,15 @@
     }
   },
   "expected": {
-    "tracked_pointer_files": 89,
-    "unique_payload_oids": 87,
+    "tracked_pointer_files": 90,
+    "unique_payload_oids": 88,
     "missing_objects": 0,
     "corrupt_objects": 0,
     "resolved_payload_mismatches": 0
   },
   "dedup": {
     "duplicate_pointer_count": 2,
-    "note": "89 pointers map to 87 unique content OIDs; the 2 remaining extras are content-addressed aliases kept because both sides are referenced (droplet-device-ceiling.json is cited in docs/DROPLET_SCALING.md alongside heartbeat-ingest-ceiling.json; authorize-auth-tails-*174152Z/-baseline). The 14 timestamped/-after/-baseline duplicates a prior refactor dumped (0-cited exact-OID copies of cited -latest files) were removed. The verifier reports every shared oid and its alias set."
+    "note": "90 pointers map to 88 unique content OIDs; the 2 remaining extras are content-addressed aliases kept because both sides are referenced (droplet-device-ceiling.json is cited in docs/DROPLET_SCALING.md alongside heartbeat-ingest-ceiling.json; authorize-auth-tails-*174152Z/-baseline). The 14 timestamped/-after/-baseline duplicates a prior refactor dumped (0-cited exact-OID copies of cited -latest files) were removed. The verifier reports every shared oid and its alias set."
   },
   "policy": {
     "authority": "sha256(resolved payload bytes) must equal the pointer oid; computed by scripts/verify-lfs-corpus.py and control/lfs_corpus_integrity_test.go. git lfs fsck is a supplementary cross-check only \u2014 it returned OK while two objects were corrupt on 2026-08-04 (see evidence/state/lfs-corruption-incident-20260804.json).",
@@ -67,13 +67,19 @@
       "at_commit": "g082-core-ledger",
       "tracked_pointer_files": "102 -> 103",
       "unique_payload_oids": "86 -> 87",
-      "why": "G082 core (b1f593b4) landed evidence/perf/liveness-index-bench.json (oid 5095be35..., 4938 bytes) — the compact live-device index synthetic benchmark — without a ledger bump, so the drift gate correctly failed at 103/87 vs expected 102/86. One new unique LFS payload; the 16 content-addressed aliases are unchanged. This is a legitimate tree gain, ledgered here."
+      "why": "G082 core (b1f593b4) landed evidence/perf/liveness-index-bench.json (oid 5095be35..., 4938 bytes) \u2014 the compact live-device index synthetic benchmark \u2014 without a ledger bump, so the drift gate correctly failed at 103/87 vs expected 102/86. One new unique LFS payload; the 16 content-addressed aliases are unchanged. This is a legitimate tree gain, ledgered here."
     },
     {
       "at_commit": "compactness-dedup",
       "tracked_pointer_files": "103 -> 89",
       "unique_payload_oids": "87 -> 87",
       "why": "Compactness (operator directive: strip the LFS a prior codex refactor dumped). Removed 14 timestamped/-after/-baseline evidence duplicates that were 0-cited exact-OID copies of a CITED -latest file, so no unique payload OID was lost (87 unchanged) and the content is fully preserved via the -latest. None were proof-bound: runtime-benchmarks/ (embedded in the control binary) untouched, droplet-device-ceiling.json (docs-referenced) kept, all 14 had zero code/test/docs references. duplicate_pointer_count 16 -> 2."
+    },
+    {
+      "at_commit": "p0c-write-amplification",
+      "tracked_pointer_files": "89 -> 90",
+      "unique_payload_oids": "87 -> 88",
+      "why": "P0 write-retirement measurement (61db3cd3) landed evidence/perf/liveness-write-amplification.json: the MEASURED durable-write amplification of MERC_LIVENESS_INDEX_AUTHORITATIVE (3.67x fewer durable heartbeat writes at the agent's real 5s cadence, 12.75x at 1s) plus the per-offer in-process footprint of offerSlotCache / offerPersistCache / slotOwner. One new unique LFS payload, so both counters advance by one; the 2 content-addressed aliases are unchanged. Legitimate tree gain, ledgered here rather than silencing the drift gate."
     }
   ]
 }
