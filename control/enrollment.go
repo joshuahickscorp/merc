@@ -746,7 +746,6 @@ func (s *Store) EnrollWorkerTx(ctx context.Context, in EnrollmentExchangeInput) 
 	}
 
 	var assignedSlot int64
-	var assignedSlotOK bool
 	if !rotated {
 		// device_slot is internal bookkeeping for the live-device index.
 		// It is not returned to the enrollee and is not a credential.
@@ -756,7 +755,6 @@ func (s *Store) EnrollWorkerTx(ctx context.Context, in EnrollmentExchangeInput) 
 			 RETURNING device_slot`, workerID, code.supplierID).Scan(&assignedSlot); err != nil {
 			return EnrollmentExchangeResult{}, err
 		}
-		assignedSlotOK = assignedSlot >= 0 && assignedSlot <= int64(^uint32(0))
 	} else {
 		if _, err := tx.Exec(ctx, `
 			UPDATE worker_tokens
@@ -816,9 +814,6 @@ func (s *Store) EnrollWorkerTx(ctx context.Context, in EnrollmentExchangeInput) 
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return EnrollmentExchangeResult{}, err
-	}
-	if assignedSlotOK {
-		s.rememberDeviceSlot(workerID, uint32(assignedSlot))
 	}
 	return EnrollmentExchangeResult{
 		CredentialID: credentialID, WorkerID: workerID, SupplierID: code.supplierID,

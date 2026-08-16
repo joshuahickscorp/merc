@@ -228,17 +228,6 @@ func (s *Store) slotOwnedBy(slot uint32, workerID uuid.UUID, profileID string) b
 	return atomic.LoadUint64(&owners[slot]) == offerFingerprint(workerID, profileID)
 }
 
-// rememberDeviceSlot is retained for the worker-enrolment callers; the shadow no
-// longer reads workers.device_slot after the offer-grain re-key (the slotCache is
-// vestigial). Kept to avoid editing money-path enrolment; a later cleanup can
-// drop it with workers.device_slot.
-func (s *Store) rememberDeviceSlot(workerID uuid.UUID, slot uint32) {
-	if s == nil {
-		return
-	}
-	s.slotCache.Store(workerID, slot)
-}
-
 func (s *Store) preloadOfferSlots(ctx context.Context) {
 	if s == nil || s.pool == nil {
 		return

@@ -112,9 +112,6 @@ func insertWorkerWithDeviceSlotTx(ctx context.Context, tx pgx.Tx, s *Store, work
 	if err != nil {
 		return err
 	}
-	if slot >= 0 && slot <= int64(^uint32(0)) && s != nil {
-		s.rememberDeviceSlot(workerID, uint32(slot))
-	}
 	return nil
 }
 
