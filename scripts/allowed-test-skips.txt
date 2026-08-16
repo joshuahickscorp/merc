@@ -140,6 +140,13 @@ TestLivenessWriteAmplificationBench
 # Set MERC_CONTROL_PLANE_PROFILE=1.
 TestControlPlaneHotPathProfile
 #
+# Opt-in headless Cycles-CPU Blender render baseline. Builds a procedural
+# Suzanne scene, renders one frame and N independent border tiles, assembles
+# them, and records wall / peak RSS / output bytes / bit-identity. Needs the
+# local Blender.app binary and tens of seconds of wall clock; never part of
+# make test / make ci. Set MERC_BLENDER_RENDER_BENCH=1.
+TestBlenderRenderBaseline
+#
 # Opt-in realtime selection cost decomposition. Seeds up to 100k offers and
 # times five statement variants (precount, full claim, no-book, top-N pick,
 # eligibility floor) under ROLLBACK to name the linear term. Minutes of wall
