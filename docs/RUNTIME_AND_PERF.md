@@ -1613,24 +1613,27 @@ Recorded in full in
   `Store.ClaimInflightExecution` directly — it executes nothing and settles
   nothing — and the money test is arithmetic against no database. The two halves
   have never been joined.
-- **`RenewInflightLease` has zero production callers.** `inflightLeaseTTL` is 30
-  seconds, so a leader whose execution runs longer can be taken over mid-flight.
-- **`sweepExpiredInflight` has zero production callers** and is not in the workers
-  ticker table. Expired `inflight_executions` rows accumulate.
-- **`ClassCoalescedDelivery` is never written.** Followers settle through
-  `SettleRealtimeExactReuse` and are recorded as `exact_reuse`, so coalesced
-  revenue cannot be counted separately.
-- **`MERC_SHAPE_AWARE_ROUTING=1` is inert.** `ClaimTaskSQL` passes
-  `shapeNoPreference` unconditionally; `preferenceForTier` has no production
-  caller.
-- **`EvictPrefixCacheToBudget` and `DeepestWarmPrefix` have zero production
-  callers.** The scheduler uses its own inline warm-depth SQL, so two definitions
-  of warm depth exist and only one is live.
-- **`SelectBatch` and `TokenBudgetFor` have zero production callers**, and one
-  latency class is defined where the directive names four.
+- **`TokenBudgetFor` still has no production caller.** Production packing goes
+  through `PolicyForTrafficClass` / `TokenBudgetForTrafficClass`; `TokenBudgetFor`
+  is carried deliberately in `knownUnwired` (`production_reachability_test.go`),
+  not by accident. One latency class is defined where the directive names four.
 
-None of these were introduced by this tranche. They are claims that outran their
-wiring, and a caller census is the only thing that finds them.
+### Resolved since this section was written (re-verified 2026-08-15)
+
+A caller census found these; a later census found them wired. The list is kept
+rather than deleted, because a stale "this is dead" claim is worse than no claim
+— it invites a future audit to delete live code.
+
+| former claim | actual production caller |
+|---|---|
+| `RenewInflightLease` has no caller | `control/realtime.go:1129` (the comment at `:1100` records the fix) |
+| `sweepExpiredInflight` has no caller | `control/inflight_coalescing.go:298`, reached from the workers ticker (`control/workers.go:316`) |
+| `ClassCoalescedDelivery` is never written | written at `control/realtime.go:1772`, enforced at `control/realtime_store.go:1525` and `:1565` |
+| `MERC_SHAPE_AWARE_ROUTING` is inert / `preferenceForTier` unused | `control/shape_routing.go:101,104`, reached from `control/scheduler.go` |
+| `EvictPrefixCacheToBudget` / `DeepestWarmPrefix` have no callers | `control/prefix_routing.go:462` and `:513` |
+| `SelectBatch` has no caller | `control/arrival_batch.go:282` and `:312` |
+
+Coalescing being wired but not economically proven (above) is unchanged.
 
 ## Against the directive's stop conditions
 
