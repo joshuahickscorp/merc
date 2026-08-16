@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "kind": "recovery_failure_mode",
+  "mode": "process_restart",
+  "status": "PASS",
+  "completed_at": "2026-08-16T22:49:33Z",
+  "test": "TestRecoveryLaneProcessRestart",
+  "test_result": "pass",
+  "killed": "control-plane process (new Store/pgxpool on the same database; prior process connections abandoned)",
+  "recovered": "in-flight running task, same claim, then a single worker_shutdown requeue",
+  "invariant": "task survived reconnect; FailTaskTx ran once; duplicate resume was noop; no ledger rows",
+  "elapsed_ns": 253402750,
+  "elapsed_ms_measured": 253.403,
+  "interval_shortened": false,
+  "production_period": null,
+  "test_period": null,
+  "details": {
+    "final_status": "retrying",
+    "retry_count": 1,
+    "task_id": "c6cb7c29-59fa-4bd0-95e6-8acc0a9ac868"
+  },
+  "secret_values_recorded": false,
+  "producer_identity": {
+    "source_commit": {
+      "value": "11813c8f14613ee46d86f2629c4a992d55da5098"
+    },
+    "build_digest": {
+      "value": "0bed9526473a2d848411a6dfe109baa97c07293823f7d3a6bec0603923fbfa24"
+    },
+    "model_artifact_digest": {
+      "na": "recovery suite does not load model weights"
+    },
+    "image_digest": {
+      "na": "throwaway postgres/minio pins live in the suite script, not receipt identity"
+    },
+    "harness_revision": {
+      "value": "scripts/derive-recovery-receipts.py"
+    },
+    "corpus_digest": {
+      "na": "synthetic recovery fixtures only"
+    },
+    "exact_config": {
+      "value": "recovery mode=process_restart; test_result=pass"
+    },
+    "raw_samples": {
+      "value": "embedded observations and test_results"
+    }
+  },
+  "binding_status": "BOUND"
+}

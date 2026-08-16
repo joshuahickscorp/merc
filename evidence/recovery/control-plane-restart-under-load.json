@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "kind": "recovery_failure_mode",
+  "mode": "control_plane_restart_under_load",
+  "status": "PASS",
+  "completed_at": "2026-08-16T22:49:33Z",
+  "test": "TestRecoveryLaneControlPlaneRestartUnderLoad",
+  "test_result": "pass",
+  "killed": "control-plane Store under inflight leaders, one sending payout, one running task",
+  "recovered": "new Store: inflight leadership election 2, payout sweep, stale-task sweep",
+  "invariant": "each identity handed off once; task requeued exactly once; payout became outcome_unknown; no duplicate money",
+  "elapsed_ns": 327028167,
+  "elapsed_ms_measured": 327.028,
+  "interval_shortened": true,
+  "production_period": "inflightLeaseTTL=30s, payoutSendingLease=5m, staleTaskTimeout=30m",
+  "test_period": "lease_expires_at and claimed_at/updated_at backdated past those production periods",
+  "details": {
+    "inflight_handoffs": 6,
+    "payouts_recovered": 1,
+    "task_final_status": "queued",
+    "task_retries": 1
+  },
+  "secret_values_recorded": false,
+  "producer_identity": {
+    "source_commit": {
+      "value": "11813c8f14613ee46d86f2629c4a992d55da5098"
+    },
+    "build_digest": {
+      "value": "0bed9526473a2d848411a6dfe109baa97c07293823f7d3a6bec0603923fbfa24"
+    },
+    "model_artifact_digest": {
+      "na": "recovery suite does not load model weights"
+    },
+    "image_digest": {
+      "na": "throwaway postgres/minio pins live in the suite script, not receipt identity"
+    },
+    "harness_revision": {
+      "value": "scripts/derive-recovery-receipts.py"
+    },
+    "corpus_digest": {
+      "na": "synthetic recovery fixtures only"
+    },
+    "exact_config": {
+      "value": "recovery mode=control_plane_restart_under_load; test_result=pass"
+    },
+    "raw_samples": {
+      "value": "embedded observations and test_results"
+    }
+  },
+  "binding_status": "BOUND"
+}

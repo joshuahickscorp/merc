@@ -10,8 +10,20 @@ and passing, the derived total is 84/100. The remaining 16 points have
 receipt rows wired to external evidence paths under evidence/external/, but
 those artifacts are absent today and their content checks refuse local or
 paper substitutes — so the score stays 84 until real external work lands.
+The 3-point qualifying soak stays on evidence/external/qualifying-soak-24h.json
+(persistent staging + two Metal devices). Local deterministic coverage of
+named time-dependent mechanisms is recorded at
+evidence/autonomous/soak-requirement-derivation.json as a 0-point row; it
+does not award those 3 points and must not claim a 24h wall-clock pass.
 Operator steps for those points: docs/PROGRAMME.md § "Facet external action pack".
 Do not loosen content checks to "make room".
+
+Backend alpha is an additional decision axis, not a replacement. The 100-point
+bar and the Level A/B/C decisions are derived exactly as before. A second
+score is computed from receipts classified ALPHA_BLOCKER or ALPHA_CONTROL in
+ops/backend-alpha-gates.json. Two claims are scored separately:
+ALPHA_ENGINEERING_READY (synthetics permitted) and EXTERNAL_ALPHA_PROVEN
+(synthetics structurally cannot satisfy). See docs/BACKEND_ALPHA_CONTRACT.md.
 """
 
 from __future__ import annotations
@@ -90,16 +102,18 @@ def auth_matrix_complete(doc: Any) -> bool:
     routes = 0
     for route_class in doc.get("route_classes", []):
         routes += len(route_class.get("routes", []))
-    # 126 after the two versioned UI composition reads (GET /v1/ui/v1/buy through
-    # authBuyer, GET /v1/ui/v1/earn through authWorker) joined the reviewed matrix.
-    # The count is a tripwire, not a fact about the world: it exists so that adding
-    # a route forces someone to look at the matrix. It had gone stale at 118 while
-    # two routes were already serving buyer traffic, which silently cost this
-    # domain 11 readiness points and made `make ci` red. It went stale AGAIN at
-    # 123 against a live 124, costing the same 11 points, and was only found by
-    # re-deriving the score rather than trusting it — so if you are reading this
-    # because the number moved, update BOTH this tripwire and
-    # scripts/validate-authorization-matrix.py, and check they agree.
+    # 126 after the P8 composition GETs (buyer /v1/ui/v1/buy through authBuyer,
+    # worker /v1/ui/v1/earn through authWorker, worker /v1/worker/ledger) joined
+    # the reviewed matrix under the existing buyer_owned / worker_owned
+    # role_decisions. Default deny is unchanged, so this is a pin retarget after
+    # review, not a loosened content check.
+    # The count is a tripwire, not a fact about the world: it exists so that
+    # adding a route forces someone to look at the matrix. It had gone stale at
+    # 118 while two routes were already serving buyer traffic, and stale AGAIN at
+    # 123 — each time silently costing this domain 11 readiness points and making
+    # `make ci` red. Both were found by re-deriving the score rather than trusting
+    # it. So if you are reading this because the number moved: update BOTH this
+    # tripwire and scripts/validate-authorization-matrix.py, and check they agree.
     return routes == 126 and doc.get("policy", {}).get("default") == "deny"
 
 
@@ -127,6 +141,44 @@ def technical_tabletops(doc: Any) -> bool:
         block = doc.get(section)
         if not isinstance(block, dict) or str(block.get("status", "")).upper() != "PASS":
             return False
+    return True
+
+
+def soak_derivation_recorded(doc: Any) -> bool:
+    """Local soak derivation (0 pts). Does not award the 24 h gate.
+
+    Records that named time-dependent mechanisms were inventoried and
+    exercised deterministically. Refuses any claim that a 24 h wall-clock
+    soak passed.
+    """
+    if not isinstance(doc, dict):
+        return False
+    if str(doc.get("kind", "")) != "soak_requirement_derivation":
+        return False
+    if str(doc.get("status", "")).upper() != "PASS":
+        return False
+    if doc.get("qualifies_for_24h_gate") is True:
+        return False
+    if str(doc.get("conclusion", "")) != "deterministic_coverage_supersedes_arbitrary_24h":
+        return False
+    mechanisms = doc.get("mechanisms")
+    if not isinstance(mechanisms, list) or len(mechanisms) < 8:
+        return False
+    for item in mechanisms:
+        if not isinstance(item, dict):
+            return False
+        name = str(item.get("name", "")).strip()
+        period = str(item.get("production_period", "")).strip()
+        exercise = str(item.get("exercise", "")).strip()
+        if len(name) < 3 or len(period) < 2 or len(exercise) < 8:
+            return False
+        if item.get("requires_wall_clock") is True:
+            return False
+    conclusion = str(doc.get("conclusion_text", "")).strip()
+    if len(conclusion) < 40:
+        return False
+    if _has_secret_shaped(doc):
+        return False
     return True
 
 
@@ -1042,6 +1094,419 @@ def staffed_abuse_route_or_tabletop_proven(doc: Any) -> bool:
     return True
 
 
+ALLOWED_CLASSIFICATIONS = frozenset(
+    {
+        "ALPHA_BLOCKER",
+        "ALPHA_CONTROL",
+        "POST_ALPHA",
+        "PUBLIC_LAUNCH",
+        "ENTERPRISE",
+        "OBSOLETE",
+    }
+)
+ALPHA_SCORED = frozenset({"ALPHA_BLOCKER", "ALPHA_CONTROL"})
+KNOWN_P1_IDS = frozenset(
+    {
+        "P1-STAGING",
+        "P1-RECOVERY-SOAK",
+        "P1-OFFSITE-RESTORE",
+        "P1-STRIPE-TEST",
+        "P1-ALERT-DELIVERY",
+        "P1-CANARY-REHEARSAL",
+        "P1-INDEPENDENT-APPROVAL",
+        "P1-GOVERNANCE",
+    }
+)
+P0_INDEPENDENT_SUPPLIER = "P0-INDEPENDENT-SUPPLIER"
+ALPHA_SOAK_RECEIPT = "evidence/external/qualifying-soak-alpha.json"
+ALPHA_SOAK_MINIMUM_SECONDS = 3600
+EXTERNAL_PARTICIPANTS_RECEIPT = "evidence/external/external-alpha-participants.json"
+_SYNTHETIC_CLASS = frozenset(
+    {
+        "synthetic",
+        "operator_synthetic",
+        "operator_controlled",
+        "operator_owned",
+        "harness",
+        "test",
+        "test_fixture",
+        "fixture",
+        "disposable",
+        "local_simulator",
+        "simulator",
+        "canary_synthetic",
+    }
+)
+_SYNTHETIC_EMAIL = re.compile(
+    r"(synthetic|canary-bot|noreply\+canary|invalid|example\.(com|org|net)|test\+)",
+    re.IGNORECASE,
+)
+
+
+def _participant_is_synthetic(participant: Any) -> bool:
+    """True if this identity is synthetic, disposable, or operator-side."""
+    if not isinstance(participant, dict):
+        return True
+    if participant.get("synthetic") is True:
+        return True
+    if participant.get("controlled_by_operator") is True:
+        return True
+    if participant.get("operator_owned") is True:
+        return True
+    classification = str(participant.get("participant_class", "")).strip().lower()
+    if classification in _SYNTHETIC_CLASS:
+        return True
+    kind = str(participant.get("identity_kind", "")).strip().lower()
+    if kind in _SYNTHETIC_CLASS:
+        return True
+    email = str(participant.get("email", "")).strip()
+    if _SYNTHETIC_EMAIL.search(email):
+        return True
+    identity = str(participant.get("id", "")).strip().lower()
+    if identity.startswith("00000000-0000-") or identity in {
+        "00000000-0000-0000-0000-000000000000",
+        "",
+    }:
+        # Empty id is incomplete, not an independent external.
+        if identity.startswith("00000000-0000-") or identity == "00000000-0000-0000-0000-000000000000":
+            return True
+    return False
+
+
+def qualifying_alpha_soak_proven(doc: Any) -> bool:
+    """Backend-alpha soak: ≥3600 s, derived from pgx MaxConnLifetime.
+
+    Twice the 30-minute pool lifetime so a live recycle is observed with
+    samples on both sides. Does not, and must not, satisfy the Level B/C
+    24-hour qualifying soak. Local 60 s / 300 s / 900 s receipts cannot pass.
+    """
+    if not isinstance(doc, dict):
+        return False
+    if str(doc.get("status", "")).upper() != "PASS":
+        return False
+    kind = str(doc.get("kind", ""))
+    if kind not in {"go_closure_soak", "local_resilience_soak", "backend_alpha_soak"}:
+        return False
+
+    started = _parse_utc(str(doc.get("started_at", "")))
+    finished = _parse_utc(str(doc.get("finished_at", "")))
+    if started is None or finished is None or finished <= started:
+        return False
+
+    duration = doc.get("duration")
+    if not isinstance(duration, dict):
+        return False
+    try:
+        requested = int(duration["requested_seconds"])
+        actual = int(duration["actual_seconds"])
+        interval = int(duration["interval_seconds"])
+    except (KeyError, TypeError, ValueError):
+        return False
+    if requested < ALPHA_SOAK_MINIMUM_SECONDS or actual < ALPHA_SOAK_MINIMUM_SECONDS:
+        return False
+    if interval < 15 or interval > 900:
+        return False
+    if actual < requested:
+        return False
+    wall = int((finished - started).total_seconds())
+    if wall < actual or wall > actual + 300:
+        return False
+
+    # Refuse a receipt that only exists to tick 24 h on this path, and refuse
+    # a receipt that claims the 24 h gate without meeting it — this path is
+    # the derived hour, not a back door onto the Level B soak.
+    qualification = doc.get("qualification")
+    if isinstance(qualification, dict):
+        if qualification.get("qualifies_for_24h_gate") is True:
+            return False
+
+    if kind == "go_closure_soak":
+        assertions = doc.get("assertions")
+        if not isinstance(assertions, dict) or not assertions:
+            return False
+        for key in (
+            "two_agents_continuously_present",
+            "no_page_alerts",
+            "no_webhook_dead_letters",
+            "no_control_restarts_or_recreates",
+            "no_stuck_terminal_jobs",
+            "bounded_resource_growth",
+        ):
+            if assertions.get(key) is not True:
+                return False
+        policy = doc.get("policy")
+        if isinstance(policy, dict):
+            if policy.get("stripe_live_mode") is True or policy.get("real_value") is True:
+                return False
+    else:
+        bounds = doc.get("observed_bounds")
+        if isinstance(bounds, dict):
+            restarts = bounds.get("control_restart_count")
+            if isinstance(restarts, dict):
+                restart_max = restarts.get("max", 1)
+            else:
+                restart_max = restarts if isinstance(restarts, (int, float)) else 1
+            oom = bounds.get("control_oom_samples", 1)
+            if restart_max != 0 or oom != 0:
+                return False
+
+    if _has_secret_shaped(doc):
+        return False
+    return True
+
+
+def external_alpha_participants_proven(doc: Any) -> bool:
+    """EXTERNAL_ALPHA_PROVEN receipt. Synthetics cannot pass. Ever.
+
+    A synthetic, disposable, harness, operator-owned, or operator-controlled
+    identity appearing anywhere in `participants` makes the receipt fail.
+    Completing P1-CANARY-REHEARSAL (synthetic buyers, operator Metal) cannot
+    produce a document that passes this checker.
+    """
+    if not isinstance(doc, dict):
+        return False
+    if str(doc.get("kind", "")) != "external_alpha_participants":
+        return False
+    if str(doc.get("status", "")).upper() != "PASS":
+        return False
+    if str(doc.get("claim", "")) != "EXTERNAL_ALPHA_PROVEN":
+        return False
+    if doc.get("includes_synthetic_participants") is True:
+        return False
+    if doc.get("secret_values_recorded") is not False:
+        return False
+
+    participants = doc.get("participants")
+    if not isinstance(participants, list) or len(participants) < 2:
+        return False
+
+    buyer = None
+    supplier = None
+    for participant in participants:
+        if not isinstance(participant, dict):
+            return False
+        # Structural: a synthetic identity may not appear in this receipt
+        # at all, even with a renamed class.
+        if _participant_is_synthetic(participant):
+            return False
+        if str(participant.get("participant_class", "")) != "independent_external":
+            return False
+        role = str(participant.get("role", "")).strip().lower()
+        if role == "buyer":
+            if buyer is not None:
+                return False
+            buyer = participant
+        elif role == "supplier":
+            if supplier is not None:
+                return False
+            supplier = participant
+        else:
+            return False
+
+    if buyer is None or supplier is None:
+        return False
+
+    buyer_id = str(buyer.get("id", "")).strip()
+    supplier_id = str(supplier.get("id", "")).strip()
+    if not buyer_id or not supplier_id or buyer_id == supplier_id:
+        return False
+    if str(buyer.get("email", "")).strip().lower() == str(supplier.get("email", "")).strip().lower():
+        return False
+    if str(buyer.get("organization", "")).strip().lower() == str(
+        supplier.get("organization", "")
+    ).strip().lower():
+        return False
+
+    for participant in (buyer, supplier):
+        attestation = participant.get("attestation")
+        if not isinstance(attestation, dict):
+            return False
+        if attestation.get("not_synthetic") is not True:
+            return False
+        if attestation.get("independent_of_operator") is not True:
+            return False
+        if attestation.get("not_operator_employee_acting_as_fixture") is not True:
+            return False
+        if not _nonempty_text(participant.get("organization"), minimum=3):
+            return False
+        email = str(participant.get("email", "")).strip()
+        if not _nonempty_text(email, minimum=6) or "@" not in email:
+            return False
+
+    inventory = doc.get("operator_controlled_device_ids")
+    if not isinstance(inventory, list):
+        return False
+    inventory_ids = {str(item) for item in inventory}
+    supplier_device = str(
+        supplier.get("device_id") or supplier.get("worker_id") or ""
+    ).strip()
+    if not supplier_device or supplier_device in inventory_ids:
+        return False
+
+    # P0 expansion fields on the external supplier: without them this is
+    # still an independently owned device under the standing prohibition.
+    expansion = supplier.get("p0_expansion")
+    if not isinstance(expansion, dict):
+        return False
+    for key in (
+        "contract_recorded",
+        "location_verified",
+        "destination_pinned_egress",
+        "attestation_recorded",
+    ):
+        if expansion.get(key) is not True:
+            return False
+
+    if _has_secret_shaped(doc):
+        return False
+    return True
+
+
+def _gate_ids(gates: list[Any]) -> list[str]:
+    return [str(g.get("id")) for g in gates if isinstance(g, dict) and g.get("id")]
+
+
+def load_backend_alpha_gates() -> dict[str, Any]:
+    path = ROOT / "ops" / "backend-alpha-gates.json"
+    if not path.is_file():
+        fail("ops/backend-alpha-gates.json is required")
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        fail(f"cannot load ops/backend-alpha-gates.json: {exc}")
+    if not isinstance(doc, dict) or not isinstance(doc.get("gates"), list):
+        fail("backend-alpha-gates.json must be an object with a gates array")
+    return doc
+
+
+def _require_classification_record(gate: Any, where: str) -> dict[str, Any]:
+    if not isinstance(gate, dict):
+        fail(f"{where}: each gate must be an object")
+    gid = str(gate.get("id") or "").strip()
+    if not gid:
+        fail(f"{where}: gate missing id")
+    classification = str(gate.get("classification") or "").strip()
+    if classification not in ALLOWED_CLASSIFICATIONS:
+        fail(f"{gid}: classification {gate.get('classification')!r} is not allowed")
+    for field in (
+        "harm",
+        "reachable_harm_statement",
+    ):
+        text = gate.get(field)
+        if not isinstance(text, str) or text.strip() != text or len(text.strip()) < 40:
+            fail(f"{gid}: {field} must name the reachable harm in ≥40 characters")
+    for flag in (
+        "harm_reachable_in_this_alpha",
+        "necessary_before_first_controlled_alpha_transaction",
+        "later_production_or_public_launch_requirement",
+    ):
+        if gate.get(flag) is not True and gate.get(flag) is not False:
+            fail(f"{gid}: {flag} must be a boolean")
+    if "smaller_control" not in gate:
+        fail(f"{gid}: smaller_control is required (string or null)")
+    if gate.get("smaller_control") is not None and not isinstance(
+        gate.get("smaller_control"), str
+    ):
+        fail(f"{gid}: smaller_control must be a string or null")
+    # A later-level classification cannot claim the harm is a start-gate.
+    if classification in {"POST_ALPHA", "PUBLIC_LAUNCH", "ENTERPRISE", "OBSOLETE"}:
+        if gate.get("necessary_before_first_controlled_alpha_transaction") is True:
+            fail(
+                f"{gid}: {classification} cannot be necessary before the "
+                "first controlled alpha transaction"
+            )
+    if classification == "ALPHA_BLOCKER":
+        if gate.get("harm_reachable_in_this_alpha") is not True:
+            fail(f"{gid}: ALPHA_BLOCKER must have a harm reachable on this alpha")
+        if gate.get("necessary_before_first_controlled_alpha_transaction") is not True:
+            fail(f"{gid}: ALPHA_BLOCKER must be necessary before the first transaction")
+    return gate
+
+
+def require_complete_classification(
+    spec: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    """Every DOMAIN_RECEIPTS row, every known P1, the P0, the derived soak,
+    and the external-proven claim must have a classification record."""
+    records = [_require_classification_record(g, "backend-alpha-gates") for g in spec["gates"]]
+    by_id = {str(g["id"]): g for g in records}
+    if len(by_id) != len(records):
+        fail("backend-alpha-gates.json has duplicate gate ids")
+
+    expected: set[str] = set()
+    for domain_id, domain in DOMAIN_RECEIPTS.items():
+        for relative, _checker, _points in domain["receipts"]:
+            expected.add(f"receipt:{domain_id}:{relative}")
+    for p1 in KNOWN_P1_IDS:
+        expected.add(f"p1:{p1}")
+    expected.add(f"p0:{P0_INDEPENDENT_SUPPLIER}")
+    expected.add("soak:alpha-derived")
+    expected.add("claim:EXTERNAL_ALPHA_PROVEN")
+
+    missing = expected - set(by_id)
+    extra = set(by_id) - expected
+    if missing or extra:
+        fail(
+            "backend-alpha gate classification drift "
+            f"missing={sorted(missing)} extra={sorted(extra)}"
+        )
+    return by_id
+
+
+def receipt_passes(relative: str, checker: Callable[[Any], bool]) -> bool:
+    path = ROOT / relative
+    if not path.is_file():
+        return False
+    doc: Any = load_json(relative) if relative.endswith(".json") else True
+    if relative.endswith(".json") and doc is None:
+        return False
+    return bool(checker(doc))
+
+
+def derive_backend_alpha_score(
+    by_id: dict[str, dict[str, Any]],
+) -> tuple[int, int, list[str]]:
+    """Score only ALPHA_BLOCKER and ALPHA_CONTROL receipt rows.
+
+    Level B's 100-point bar is untouched: this function never changes
+    derive_domain_score and never drops a receipt from DOMAIN_RECEIPTS.
+    """
+    earned = 0
+    possible = 0
+    notes: list[str] = []
+    for domain_id, domain in DOMAIN_RECEIPTS.items():
+        for relative, checker, points in domain["receipts"]:
+            record = by_id[f"receipt:{domain_id}:{relative}"]
+            if record["classification"] not in ALPHA_SCORED:
+                continue
+            points = int(points)
+            possible += points
+            if receipt_passes(relative, checker):
+                earned += points
+                notes.append(f"{relative}: OK → {points}/{points} ({record['classification']})")
+            else:
+                notes.append(
+                    f"{relative}: MISSING_OR_FAILED → 0/{points} ({record['classification']})"
+                )
+    return earned, possible, notes
+
+
+def backend_alpha_blocker_receipts_open(by_id: dict[str, dict[str, Any]]) -> list[str]:
+    open_ids: list[str] = []
+    for domain_id, domain in DOMAIN_RECEIPTS.items():
+        for relative, checker, _points in domain["receipts"]:
+            gid = f"receipt:{domain_id}:{relative}"
+            record = by_id[gid]
+            if record["classification"] != "ALPHA_BLOCKER":
+                continue
+            if not receipt_passes(relative, checker):
+                open_ids.append(gid)
+    soak = load_json(ALPHA_SOAK_RECEIPT)
+    if not qualifying_alpha_soak_proven(soak):
+        open_ids.append("soak:alpha-derived")
+    return open_ids
+
+
 # Each domain's possible points are fixed. earned is the sum of points for
 # receipts that exist and pass their content check. Missing/failed => 0.
 # External rows under evidence/external/ are wired so real operator artifacts
@@ -1122,6 +1587,11 @@ DOMAIN_RECEIPTS: dict[str, dict[str, Any]] = {
             ("evidence/autonomous/local-rollback.json", status_in("PASS"), 2),
             ("evidence/autonomous/local-restart-storm.json", status_in("PASS"), 1),
             ("evidence/autonomous/local-soak-60s.json", soak_clean, 0),
+            (
+                "evidence/autonomous/soak-requirement-derivation.json",
+                soak_derivation_recorded,
+                0,
+            ),
             (
                 "evidence/external/qualifying-soak-24h.json",
                 qualifying_24h_soak_proven,
@@ -1271,6 +1741,24 @@ def main() -> None:
     if not isinstance(open_p0, list) or not isinstance(open_p1, list):
         fail("open_p0 and open_p1 must be arrays")
 
+    # Scoping must not delete a P1. Every known id stays in open_p1 or dropped_p1.
+    dropped = decision.get("dropped_p1") or []
+    if not isinstance(dropped, list):
+        fail("dropped_p1 must be an array when present")
+    dropped_ids: set[str] = set()
+    for item in dropped:
+        if isinstance(item, str):
+            dropped_ids.add(item)
+        elif isinstance(item, dict) and item.get("id"):
+            dropped_ids.add(str(item["id"]))
+    present_p1 = set(_gate_ids(open_p1)) | dropped_ids
+    missing_p1 = KNOWN_P1_IDS - present_p1
+    if missing_p1:
+        fail(
+            "P1 gate(s) removed without an open_p1 or dropped_p1 entry "
+            f"(scoping must not delete a gate): {sorted(missing_p1)}"
+        )
+
     severity = readiness.get("severity") or {}
     if severity.get("target_scope_open_p0") != len(open_p0):
         fail("open target-scope P0 count differs")
@@ -1289,10 +1777,191 @@ def main() -> None:
     if decision.get("machine_input_request") != "ops/go-closure-inputs.json":
         fail("decision must point to the single exact input request")
 
+    # ---- backend alpha (additive; does not change the 100-point bar) ----
+    levels = readiness.get("release_levels") or {}
+    if not isinstance(levels, dict) or "level_backend_alpha" not in levels:
+        fail("readiness.release_levels.level_backend_alpha is required")
+    alpha_meta = levels.get("level_backend_alpha") or {}
+    if not isinstance(alpha_meta, dict):
+        fail("release_levels.level_backend_alpha must be an object")
+    if alpha_meta.get("live_money") is not False or alpha_meta.get("public_access") is not False:
+        fail("backend alpha live_money and public_access must remain false")
+    if alpha_meta.get("website_required") is not False:
+        fail("backend alpha website_required must be false")
+    level_c_meta = levels.get("level_c_live_money") or {}
+    if level_c_meta.get("decision") != "NO_GO_PROHIBITED":
+        fail("readiness release_levels.level_c_live_money.decision must remain NO_GO_PROHIBITED")
+    if level_c_meta.get("live_money") is not False or level_c_meta.get("public_access") is not False:
+        fail("Level C live_money and public_access must remain false")
+    level_b_meta = levels.get("level_b_private_canary") or {}
+    if level_b_meta.get("live_money") is not False or level_b_meta.get("public_access") is not False:
+        fail("Level B live_money and public_access must remain false")
+
+    classification_spec = load_backend_alpha_gates()
+    by_id = require_complete_classification(classification_spec)
+    alpha_earned, alpha_possible, alpha_notes = derive_backend_alpha_score(by_id)
+
+    # Every open P1 / out-of-scope P0 must carry the same classification as
+    # the gate file. Rescoping lives in one place.
+    out_of_scope_p0 = decision.get("out_of_scope_p0") or []
+    if not isinstance(out_of_scope_p0, list):
+        fail("out_of_scope_p0 must be an array")
+    oos_ids = set(_gate_ids(out_of_scope_p0))
+    if P0_INDEPENDENT_SUPPLIER not in oos_ids:
+        fail(
+            "P0-INDEPENDENT-SUPPLIER must remain in out_of_scope_p0 "
+            "(containment, not a closeable backend-alpha PASS)"
+        )
+
+    def _declared_classification(gate: Any, gid: str) -> str:
+        if not isinstance(gate, dict):
+            fail(f"{gid}: not an object")
+        declared = str(gate.get("classification") or "").strip()
+        if declared not in ALLOWED_CLASSIFICATIONS:
+            fail(f"{gid}: missing or invalid classification")
+        return declared
+
+    for gate in open_p1:
+        gid = str(gate.get("id") or "")
+        declared = _declared_classification(gate, gid)
+        record = by_id.get(f"p1:{gid}")
+        if record is None:
+            fail(f"{gid}: not classified in backend-alpha-gates.json")
+        if record["classification"] != declared:
+            fail(
+                f"{gid}: go-no-go classification {declared} != "
+                f"{record['classification']}"
+            )
+    for gate in out_of_scope_p0:
+        gid = str(gate.get("id") or "")
+        declared = _declared_classification(gate, gid)
+        record = by_id.get(f"p0:{gid}")
+        if record is None:
+            fail(f"{gid}: not classified in backend-alpha-gates.json")
+        if record["classification"] != declared:
+            fail(
+                f"{gid}: go-no-go classification {declared} != "
+                f"{record['classification']}"
+            )
+
+    alpha_blocker_p1 = [
+        g for g in open_p1 if str(g.get("classification")) == "ALPHA_BLOCKER"
+    ]
+    alpha_control_p1 = [
+        g for g in open_p1 if str(g.get("classification")) == "ALPHA_CONTROL"
+    ]
+    open_blocker_receipts = backend_alpha_blocker_receipts_open(by_id)
+
+    engineering_ready = "GO"
+    if alpha_blocker_p1 or open_blocker_receipts:
+        engineering_ready = "NO_GO"
+    if open_p0:
+        engineering_ready = "NO_GO"
+
+    external_doc = load_json(EXTERNAL_PARTICIPANTS_RECEIPT)
+    external_proven_ok = external_alpha_participants_proven(external_doc)
+    # P0-INDEPENDENT-SUPPLIER stays in out_of_scope_p0 as the general
+    # prohibition (do not enroll a random GPU). A passing participants
+    # receipt already carries per-supplier P0 expansion fields, so the
+    # claim can become GO for that named pair without dissolving the
+    # prohibition. Synthetics still cannot pass the checker.
+    external_proven = "GO" if external_proven_ok else "NO_GO"
+
+    # A synthetic-looking receipt that someone marked PASS must not be able
+    # to force the claim to GO by editing only go-no-go.json.
+    declared_engineering = decision.get("decisions", {}).get(
+        "backend_alpha_engineering_ready"
+    )
+    declared_external = decision.get("decisions", {}).get("backend_alpha_external_proven")
+    if declared_engineering != engineering_ready:
+        fail(
+            "decisions.backend_alpha_engineering_ready "
+            f"{declared_engineering!r} != derived {engineering_ready!r}"
+        )
+    if declared_external != external_proven:
+        fail(
+            "decisions.backend_alpha_external_proven "
+            f"{declared_external!r} != derived {external_proven!r}"
+        )
+    # Nested copy in go-no-go.backend_alpha, when present, must agree.
+    nested = decision.get("backend_alpha") or {}
+    if isinstance(nested, dict):
+        if nested.get("ALPHA_ENGINEERING_READY") not in {None, engineering_ready}:
+            fail("backend_alpha.ALPHA_ENGINEERING_READY disagrees with derived claim")
+        if nested.get("EXTERNAL_ALPHA_PROVEN") not in {None, external_proven}:
+            fail("backend_alpha.EXTERNAL_ALPHA_PROVEN disagrees with derived claim")
+        if nested.get("external_participants_receipt") not in {
+            None,
+            EXTERNAL_PARTICIPANTS_RECEIPT,
+        }:
+            fail("backend_alpha.external_participants_receipt path drift")
+
+    alpha_claims = alpha_meta.get("claims") or {}
+    if not isinstance(alpha_claims, dict):
+        fail("release_levels.level_backend_alpha.claims must be an object")
+    if alpha_claims.get("ALPHA_ENGINEERING_READY") != engineering_ready:
+        fail(
+            "release_levels.level_backend_alpha.claims.ALPHA_ENGINEERING_READY "
+            f"!= derived {engineering_ready}"
+        )
+    if alpha_claims.get("EXTERNAL_ALPHA_PROVEN") != external_proven:
+        fail(
+            "release_levels.level_backend_alpha.claims.EXTERNAL_ALPHA_PROVEN "
+            f"!= derived {external_proven}"
+        )
+    if engineering_ready != "GO" and alpha_meta.get("decision") != "NO_GO":
+        fail("release_levels.level_backend_alpha.decision must be NO_GO while blocked")
+
+    declared_alpha = readiness.get("backend_alpha_score") or {}
+    if not isinstance(declared_alpha, dict):
+        fail("readiness.backend_alpha_score must be an object")
+    if (
+        declared_alpha.get("earned") != alpha_earned
+        or declared_alpha.get("possible") != alpha_possible
+    ):
+        fail(
+            "backend_alpha_score "
+            f"{declared_alpha.get('earned')}/{declared_alpha.get('possible')} "
+            f"!= derived {alpha_earned}/{alpha_possible}"
+        )
+    if declared_alpha.get("open_alpha_blocker_p1") != len(alpha_blocker_p1):
+        fail("backend_alpha_score.open_alpha_blocker_p1 disagrees with derived open blockers")
+    if declared_alpha.get("open_alpha_control_p1") != len(alpha_control_p1):
+        fail("backend_alpha_score.open_alpha_control_p1 disagrees with derived open controls")
+    if declared_alpha.get("ALPHA_ENGINEERING_READY") != engineering_ready:
+        fail("backend_alpha_score.ALPHA_ENGINEERING_READY disagrees with derived claim")
+    if declared_alpha.get("EXTERNAL_ALPHA_PROVEN") != external_proven:
+        fail("backend_alpha_score.EXTERNAL_ALPHA_PROVEN disagrees with derived claim")
+
+    # Full-bar Level B number is still 84/100 when local receipts pass.
+    # Refuse a ledger that silently retargets the 100-point possible.
+    if possible_total != 100:
+        fail(f"domain possibles sum to {possible_total}, want 100")
+
     print(
         f"readiness: PASS ({derived_total}/100 derived, P0={len(open_p0)}, "
         f"P1={len(open_p1)}, Level B {level_b})"
     )
+    print(
+        f"  level_b: {derived_total}/100 derived "
+        f"(threshold {go_threshold}/100), "
+        f"P0={len(open_p0)}, P1={len(open_p1)}, decision {level_b}"
+    )
+    print(
+        f"  backend_alpha: {alpha_earned}/{alpha_possible} derived, "
+        f"ALPHA_BLOCKER_P1={len(alpha_blocker_p1)}, "
+        f"ALPHA_ENGINEERING_READY {engineering_ready}, "
+        f"EXTERNAL_ALPHA_PROVEN {external_proven}"
+    )
+    print(
+        "  backend_alpha open ALPHA_BLOCKER P1: "
+        + ", ".join(_gate_ids(alpha_blocker_p1) or ["(none)"])
+    )
+    if open_blocker_receipts:
+        print(
+            "  backend_alpha open ALPHA_BLOCKER receipts/soaks: "
+            + ", ".join(open_blocker_receipts)
+        )
     for line in per_domain:
         print(f"  {line}")
 

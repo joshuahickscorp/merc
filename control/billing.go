@@ -516,6 +516,17 @@ func handleStripeWebhookWithAllHandlersAtMode(
 		}
 		if cust != "" && pm != "" {
 			if err := setPM(r.Context(), cust, pm); err != nil {
+				// A customer this deployment has never seen is not our event:
+				// the Stripe account is shared with fixtures and other tooling.
+				// Answering 500 tells Stripe to retry, and no number of retries
+				// will make a stranger's customer exist here — it just builds a
+				// permanently failing delivery queue. Acknowledge and ignore.
+				// A real database fault, or the "matched N rows" invariant
+				// violation, still answers 500 so the retry is useful.
+				if errors.Is(err, errNotFound) {
+					log.Printf("billing webhook: ignoring payment-method update for unknown customer")
+					break
+				}
 				log.Printf("billing webhook: saved payment-method update failed: %v", err)
 				writeErr(w, http.StatusInternalServerError, "updating saved payment method")
 				return

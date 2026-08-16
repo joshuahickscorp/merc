@@ -2,7 +2,7 @@
   "schema_version": 1,
   "kind": "logical_independent_restore",
   "status": "PASS",
-  "completed_at": "2026-07-20T05:43:55Z",
+  "completed_at": "2026-08-16T22:49:30Z",
   "separation": {
     "source_environment_destroyed": true,
     "separate_transfer_process": true,
@@ -12,7 +12,7 @@
     "new_namespace": true
   },
   "integrity": {
-    "ciphertext_sha256": "b1983343d645650ae7212dc93f1118b8ea3ad88f6b4fb31a9e4dc5978afa1a1f",
+    "ciphertext_sha256": "8b3e2772777ee850b5a99bb44047bd2e727ef69f5afd1e28e349352a78a6311f",
     "ciphertext_verified": true,
     "corrupt_backup_rejected": true,
     "payload_checksums_verified": true,
@@ -33,15 +33,31 @@
   },
   "external_offsite_restore": "NOT EXECUTED",
   "secret_values_recorded": false,
-  "binding_status": "UNBOUND",
-  "missing_identity_fields": [
-    "source_commit",
-    "build_digest",
-    "model_artifact_digest",
-    "image_digest",
-    "harness_revision",
-    "corpus_digest",
-    "exact_config",
-    "raw_samples"
-  ]
+  "producer_identity": {
+    "source_commit": {
+      "value": "11813c8f14613ee46d86f2629c4a992d55da5098"
+    },
+    "build_digest": {
+      "value": "1ce5cfc01a1ef75499b112d9f6aca745397172e278be79ae011fc027de44a47c"
+    },
+    "model_artifact_digest": {
+      "na": "restore drill does not load model weights"
+    },
+    "image_digest": {
+      "na": "drill uses ephemeral docker images; not programme image digests"
+    },
+    "harness_revision": {
+      "value": "scripts/local-independent-restore.sh"
+    },
+    "corpus_digest": {
+      "na": "no external corpus; synthetic seed only"
+    },
+    "exact_config": {
+      "value": "logical independent restore; ciphertext_sha256=8b3e2772777ee850b5a99bb44047bd2e727ef69f5afd1e28e349352a78a6311f"
+    },
+    "raw_samples": {
+      "value": "embedded database_semantics and object_count"
+    }
+  },
+  "binding_status": "BOUND"
 }

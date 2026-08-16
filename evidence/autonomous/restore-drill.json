@@ -2,10 +2,10 @@
   "schema_version": 1,
   "kind": "restore_drill",
   "status": "PASS",
-  "drill_id": "20260726T190058Z-27937",
-  "completed_at": "2026-07-26T19:01:03Z",
+  "drill_id": "20260816T224913Z-74932",
+  "completed_at": "2026-08-16T22:49:22Z",
   "runtime": "docker",
-  "rto_seconds_measured": 1.386,
+  "rto_seconds_measured": 2.706,
   "thresholds": {
     "min_jobs": 10000,
     "min_ledger_entries": 1000,
@@ -27,25 +27,41 @@
   },
   "source_object_count": 1000,
   "restored_object_count": 1000,
-  "db_dump_sha256": "63866db5335064d9c52834d3ab834fd8dabf49ec7e0a2a4285b6fb2886e9f52c",
+  "db_dump_sha256": "4494539b62900bde6a53ac4de8a9e13fc83318001f9051f929b8123f7d400c1b",
   "restored_state_sha256": "f02ada7dd23758f6b143abb1d3d2df21fca3976715be1f871fac5688982811a1",
   "restored_object_manifest_sha256": "552d03ff74f49566905be14249485b678f502f3763cf234bf03e7c35ccb541a7",
-  "corrupt_backup_evidence": "evidence/autonomous/corrupt-backup-refused.json",
+  "corrupt_backup_evidence": "/Users/scammermike/Downloads/merc/evidence/autonomous/corrupt-backup-refused.json",
   "assertions_derived_from_observation": [
     "source and restored row-count JSON match",
     "jobs/ledger/objects meet production-shaped minima",
     "database and object content hashes match",
     "RTO measured wall-clock around pg_restore + object mirror"
   ],
-  "binding_status": "UNBOUND",
-  "missing_identity_fields": [
-    "source_commit",
-    "build_digest",
-    "model_artifact_digest",
-    "image_digest",
-    "harness_revision",
-    "corpus_digest",
-    "exact_config",
-    "raw_samples"
-  ]
+  "producer_identity": {
+    "source_commit": {
+      "value": "11813c8f14613ee46d86f2629c4a992d55da5098"
+    },
+    "build_digest": {
+      "value": "71b2f4d51a2e17e9b508b9b0f3a777e2767eff0acc70bdd7b024875d2716cf6a"
+    },
+    "model_artifact_digest": {
+      "na": "restore drill does not load model weights"
+    },
+    "image_digest": {
+      "na": "drill uses pinned postgres/minio images; digests live in script pins, not receipt identity"
+    },
+    "harness_revision": {
+      "value": "scripts/restore-drill.sh"
+    },
+    "corpus_digest": {
+      "na": "no external corpus; synthetic seed only"
+    },
+    "exact_config": {
+      "value": "restore-drill clean path; drill_id=20260816T224913Z-74932 min_jobs=10000"
+    },
+    "raw_samples": {
+      "value": "embedded source/restored counts and hashes in receipt body"
+    }
+  },
+  "binding_status": "BOUND"
 }

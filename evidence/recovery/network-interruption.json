@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "kind": "recovery_failure_mode",
+  "mode": "network_interruption",
+  "status": "PASS",
+  "completed_at": "2026-08-16T22:49:33Z",
+  "test": "TestRecoveryLaneNetworkInterruption",
+  "test_result": "pass",
+  "killed": "docker pause of MinIO (black-hole partition from the Storage client)",
+  "recovered": "unpause + new Storage client GetObject of the same key",
+  "invariant": "GetObject timed out during the partition (no silent success); bytes intact after reconnect",
+  "elapsed_ns": 2103119709,
+  "elapsed_ms_measured": 2103.12,
+  "interval_shortened": true,
+  "production_period": "Storage client / S3 HTTP timeouts 10-20s; store breaker cooldown 10s",
+  "test_period": "GetObject context deadline compressed to 2s during the partition",
+  "details": {
+    "container": "merc-recovery-74640-minio",
+    "partition_error": "context deadline exceeded"
+  },
+  "secret_values_recorded": false,
+  "producer_identity": {
+    "source_commit": {
+      "value": "11813c8f14613ee46d86f2629c4a992d55da5098"
+    },
+    "build_digest": {
+      "value": "0bed9526473a2d848411a6dfe109baa97c07293823f7d3a6bec0603923fbfa24"
+    },
+    "model_artifact_digest": {
+      "na": "recovery suite does not load model weights"
+    },
+    "image_digest": {
+      "na": "throwaway postgres/minio pins live in the suite script, not receipt identity"
+    },
+    "harness_revision": {
+      "value": "scripts/derive-recovery-receipts.py"
+    },
+    "corpus_digest": {
+      "na": "synthetic recovery fixtures only"
+    },
+    "exact_config": {
+      "value": "recovery mode=network_interruption; test_result=pass"
+    },
+    "raw_samples": {
+      "value": "embedded observations and test_results"
+    }
+  },
+  "binding_status": "BOUND"
+}

@@ -172,3 +172,52 @@ func TestCanaryMoneyModeRefusesLiveAndAmbiguousRails(t *testing.T) {
 		}
 	}
 }
+
+func TestCanaryMoneyModeStagingWithoutConnectAllowsTestKeyOnly(t *testing.T) {
+	t.Setenv("MERC_ENV", "staging")
+	t.Setenv("MERC_CONNECT_RETURN_URL", "")
+	t.Setenv("MERC_CONNECT_REFRESH_URL", "")
+	if err := validateCanaryMoneyMode("true", "sk_test_staging", "", "", "", ""); err != nil {
+		t.Fatalf("staging canary without Connect was refused: %v", err)
+	}
+	if err := validateCanaryMoneyMode("true", "sk_test_staging", "whsec_billing", "", "", ""); err != nil {
+		t.Fatalf("staging canary with only a billing webhook was refused: %v", err)
+	}
+	if err := validateCanaryMoneyMode("true", "sk_live_nope", "", "", "", ""); err == nil {
+		t.Fatal("staging canary accepted a live Stripe key")
+	}
+	if err := validateCanaryMoneyMode("true", "sk_test_staging", "not-a-webhook", "", "", ""); err == nil {
+		t.Fatal("staging canary accepted a non-whsec billing webhook")
+	}
+	t.Setenv("MERC_CONNECT_RETURN_URL", "https://mercmerc.net/supplier?connect=return")
+	if err := validateCanaryMoneyMode("true", "sk_test_staging", "whsec_billing", "whsec_connect", "", ""); err == nil {
+		t.Fatal("staging canary with Connect URLs accepted a missing ca_*")
+	}
+}
+
+// The staging-without-Connect exception may drop the ca_* platform-ID
+// requirement. It may not drop secret distinctness: the Connect webhook route
+// is served regardless of onboarding, so equal secrets make a cash-signed event
+// verify at the Connect authority. Regression for a defect found live on the
+// staging plane, where both variables held the same whsec_.
+func TestStagingWithoutConnectStillRequiresDistinctWebhookSecrets(t *testing.T) {
+	t.Setenv("MERC_ENV", "staging")
+	t.Setenv("MERC_CONNECT_RETURN_URL", "")
+	t.Setenv("MERC_CONNECT_REFRESH_URL", "")
+
+	same := "whsec_identical_secret_for_both_authorities"
+	if err := validateCanaryMoneyMode("true", "sk_test_x", same, same, "", ""); err == nil {
+		t.Fatal("staging with identical cash and Connect webhook secrets must be refused")
+	}
+
+	if err := validateCanaryMoneyMode(
+		"true", "sk_test_x", "whsec_cash_authority", "whsec_connect_authority", "", "",
+	); err != nil {
+		t.Fatalf("staging with distinct whsec_ secrets and no Connect must boot: %v", err)
+	}
+
+	// The exception itself still holds: no Connect secret at all is fine.
+	if err := validateCanaryMoneyMode("true", "sk_test_x", "whsec_cash_authority", "", "", ""); err != nil {
+		t.Fatalf("staging without Connect onboarding must not demand a Connect secret: %v", err)
+	}
+}

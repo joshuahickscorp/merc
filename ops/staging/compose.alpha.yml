@@ -1,0 +1,30 @@
+# Overlay for the mercmerc.net backend alpha.
+# Applied on the droplet as the third compose file:
+#   docker compose -f docker-compose.prod.yml \
+#                  -f docker-compose.smallhost.yml \
+#                  -f ops/staging/compose.alpha.yml
+#
+# Forces MERC_ENV=staging and MERC_CANARY_MODE=true. Allowlist values come
+# from the host .env (see ops/staging/alpha-participants.json). This file
+# contains no secrets.
+name: merc
+
+services:
+  control:
+    environment:
+      MERC_ENV: staging
+      MERC_CANARY_MODE: "true"
+      MERC_PAYMENT_MODE: test
+      MERC_PAYMENT_PROVIDER: stripe
+      MERC_CANARY_MAX_ACTIVE_BUYERS: "1"
+      MERC_CANARY_MAX_ACTIVE_WORKERS: "1"
+      MERC_CANARY_MAX_QUEUED_JOBS: "20"
+      MERC_CANARY_MAX_TASKS_PER_JOB: "64"
+      MERC_CANARY_MAX_ARTIFACT_BYTES: "33554432"
+      MERC_CANARY_MAX_INPUT_BYTES: "33554432"
+      MERC_CANARY_MAX_OUTPUT_TOKENS: "256"
+      MERC_CANARY_MAX_JOB_DURATION_SECS: "600"
+      MERC_CANARY_MAX_RETRIES: "3"
+      MERC_CANARY_MAX_DAILY_JOBS: "100"
+      MERC_CANARY_MAX_SHADOW_VALUE_USD: "10"
+      MERC_CANARY_MAX_HELD_SHADOW_PAYOUT_USD: "10"

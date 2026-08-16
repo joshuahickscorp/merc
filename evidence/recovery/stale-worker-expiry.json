@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "kind": "recovery_failure_mode",
+  "mode": "stale_worker_expiry",
+  "status": "PASS",
+  "completed_at": "2026-08-16T22:49:33Z",
+  "test": "TestRecoveryLaneStaleWorkerExpiry",
+  "test_result": "pass",
+  "killed": "worker claim (claimed_at backdated; worker process not present)",
+  "recovered": "StaleRunningTasks(staleTaskTimeout) + RequeueStaleTask",
+  "invariant": "lease expired once; job requeued exactly once; no payment",
+  "elapsed_ns": 289803042,
+  "elapsed_ms_measured": 289.803,
+  "interval_shortened": true,
+  "production_period": "staleTaskTimeout=30m",
+  "test_period": "claimed_at set to now()-31m; StaleRunningTasks still used the production 30m timeout",
+  "details": {
+    "retries": 1,
+    "task_id": "2787dccf-e251-4d3a-a61f-569814ee7318"
+  },
+  "secret_values_recorded": false,
+  "producer_identity": {
+    "source_commit": {
+      "value": "11813c8f14613ee46d86f2629c4a992d55da5098"
+    },
+    "build_digest": {
+      "value": "0bed9526473a2d848411a6dfe109baa97c07293823f7d3a6bec0603923fbfa24"
+    },
+    "model_artifact_digest": {
+      "na": "recovery suite does not load model weights"
+    },
+    "image_digest": {
+      "na": "throwaway postgres/minio pins live in the suite script, not receipt identity"
+    },
+    "harness_revision": {
+      "value": "scripts/derive-recovery-receipts.py"
+    },
+    "corpus_digest": {
+      "na": "synthetic recovery fixtures only"
+    },
+    "exact_config": {
+      "value": "recovery mode=stale_worker_expiry; test_result=pass"
+    },
+    "raw_samples": {
+      "value": "embedded observations and test_results"
+    }
+  },
+  "binding_status": "BOUND"
+}

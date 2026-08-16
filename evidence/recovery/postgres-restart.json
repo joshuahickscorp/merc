@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "kind": "recovery_failure_mode",
+  "mode": "postgres_restart",
+  "status": "PASS",
+  "completed_at": "2026-08-16T22:49:33Z",
+  "test": "TestRecoveryLanePostgresRestart",
+  "test_result": "pass",
+  "killed": "docker restart of the throwaway PostgreSQL container",
+  "recovered": "pgxpool reconnect; buyer marker and running task still present",
+  "invariant": "no data loss, no torn task state, no invented ledger rows",
+  "elapsed_ns": 1489510625,
+  "elapsed_ms_measured": 1489.511,
+  "interval_shortened": false,
+  "production_period": null,
+  "test_period": null,
+  "details": {
+    "container": "merc-recovery-74640-pg",
+    "marker": "recovery-pg-7e405948-77bc-4945-9e53-11dd09ebe2de",
+    "reconnect_attempts": 2
+  },
+  "secret_values_recorded": false,
+  "producer_identity": {
+    "source_commit": {
+      "value": "11813c8f14613ee46d86f2629c4a992d55da5098"
+    },
+    "build_digest": {
+      "value": "0bed9526473a2d848411a6dfe109baa97c07293823f7d3a6bec0603923fbfa24"
+    },
+    "model_artifact_digest": {
+      "na": "recovery suite does not load model weights"
+    },
+    "image_digest": {
+      "na": "throwaway postgres/minio pins live in the suite script, not receipt identity"
+    },
+    "harness_revision": {
+      "value": "scripts/derive-recovery-receipts.py"
+    },
+    "corpus_digest": {
+      "na": "synthetic recovery fixtures only"
+    },
+    "exact_config": {
+      "value": "recovery mode=postgres_restart; test_result=pass"
+    },
+    "raw_samples": {
+      "value": "embedded observations and test_results"
+    }
+  },
+  "binding_status": "BOUND"
+}

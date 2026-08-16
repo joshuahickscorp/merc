@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -150,6 +151,17 @@ func (s *Store) SetSupplierPayoutsEnabledByAcct(ctx context.Context, acct string
 	_, err := s.pool.Exec(ctx,
 		`UPDATE suppliers SET payouts_enabled = $2 WHERE stripe_acct = $1`, acct, enabled)
 	return err
+}
+
+func (s *Store) HasSupplierStripeAcct(ctx context.Context, acct string) (bool, error) {
+	if !strings.HasPrefix(acct, "acct_") {
+		return false, nil
+	}
+	var exists bool
+	err := s.pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM suppliers WHERE stripe_acct = $1)`, acct,
+	).Scan(&exists)
+	return exists, err
 }
 
 func decodeEmptySupplierBody(r *http.Request) error {
@@ -327,6 +339,7 @@ func (s *Server) handleConnectWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 	var ev struct {
 		Type       string `json:"type"`
+		Account    string `json:"account"`
 		APIVersion string `json:"api_version"`
 		Livemode   *bool  `json:"livemode"`
 		Data       struct {
@@ -346,8 +359,24 @@ func (s *Server) handleConnectWebhook(w http.ResponseWriter, r *http.Request) {
 	if ev.Type == "account.updated" {
 		obj := ev.Data.Object
 		acct, _ := obj["id"].(string)
-		pe, _ := obj["payouts_enabled"].(bool)
+		if ev.Account != "" && acct != "" && ev.Account != acct {
+			writeErr(w, http.StatusBadRequest, "connected account mismatch")
+			return
+		}
+		if acct == "" {
+			acct = ev.Account
+		}
 		if acct != "" {
+			known, err := s.store.HasSupplierStripeAcct(r.Context(), acct)
+			if err != nil {
+				writeErr(w, http.StatusInternalServerError, "updating payout readiness")
+				return
+			}
+			if !known {
+				writeErr(w, http.StatusBadRequest, "unknown connected account")
+				return
+			}
+			pe, _ := obj["payouts_enabled"].(bool)
 			if err := s.store.SetSupplierPayoutsEnabledByAcct(r.Context(), acct, pe); err != nil {
 				writeErr(w, http.StatusInternalServerError, "updating payout readiness: "+err.Error())
 				return

@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "purpose": "Bounded private-canary allowlist for the mercmerc.net backend alpha. Not a disable-canary decision and not an open-signup record.",
+  "environment": "staging",
+  "canary_mode": true,
+  "source_commit": "8283ae583057d6265947a473023e4f05102704b4",
+  "buyers": [
+    {
+      "email": "joshuahicksboba@gmail.com",
+      "role": "operator_buyer",
+      "origin": "ACME_EMAIL on the droplet; the only human identity already bound to this host"
+    }
+  ],
+  "workers": [
+    {
+      "id": "7d2bb6c8-c45a-505e-ae39-6b9fc73989f5",
+      "role": "operator_reserved_worker",
+      "origin": "uuid5(NAMESPACE_DNS, mercmerc.net:alpha-worker-1); reserved for the operator agent, not an enrolled device"
+    }
+  ],
+  "agent_versions": ["0.1.0"],
+  "build_hashes": [
+    {
+      "hash": "f4303a751ca2b2af",
+      "origin": "evidence/perf/runtime-benchmarks/candle-metal-llama1-q4-r5.json engine_build_hash"
+    }
+  ],
+  "ceilings": {
+    "max_active_buyers": 1,
+    "max_active_workers": 1,
+    "max_queued_jobs": 20,
+    "max_tasks_per_job": 64,
+    "max_artifact_bytes": 33554432,
+    "max_input_bytes": 33554432,
+    "max_output_tokens": 256,
+    "max_job_duration_secs": 600,
+    "max_retries": 3,
+    "max_daily_jobs": 100,
+    "max_shadow_value_usd": 10,
+    "max_held_shadow_payout_usd": 10
+  }
+}

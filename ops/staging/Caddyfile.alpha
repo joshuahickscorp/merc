@@ -1,0 +1,73 @@
+{
+	email {$ACME_EMAIL}
+	admin 127.0.0.1:2019
+	metrics
+}
+
+{$SITE_HOST:mercmerc.net} {
+	encode zstd gzip
+
+	# --- merc cache policy ---
+	# Compression already worked (zstd, 31.8KB -> 11.1KB on the landing page);
+	# what was missing was any Cache-Control at all, so every asset was refetched
+	# on every visit and a Cloudflare proxy would have had nothing to cache.
+	#
+	# Hashed and versioned assets cache hard: their URL changes when their content
+	# does. HTML deliberately does not, because the claim state on these pages is
+	# derived from receipts and a stale page would misrepresent it.
+	@immutable path /assets/* /logo/* *.woff2 *.png *.svg *.jpg *.webp
+	header @immutable Cache-Control "public, max-age=31536000, immutable"
+
+	@cacheable_html path / /buyer /admin /prices /supplier
+	header @cacheable_html Cache-Control "public, max-age=60, must-revalidate"
+
+	@json path *.json
+	header @json Cache-Control "public, max-age=300"
+
+	# Metrics remain available to an authorized scraper on the private service
+	# network; they are never exposed through the public TLS virtual host.
+	@metrics path /metrics
+	respond @metrics 404
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		Content-Security-Policy "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' https://api.stripe.com; frame-src https://js.stripe.com https://hooks.stripe.com; style-src 'self' 'sha256-wzPyOXShc9nAq0Cda7CuKQSaamiZEkR74x0iZTLEPw4=' 'sha256-mwtBOHaT4ajeQejQHvUpbkVjbZZ9/rwcaFrdtxGSd6U=' 'sha256-DTrdErDbM1FVA11vYHh5x9bBoLGpioGiI77S/qGHJa0=' 'sha256-Zij0fm1gkYp6TGSaMn/ECpwIjWMVJjd6heYTz1oGB6Q=' 'sha256-LgiOQvfIj9gguD1Jwu3M850LB9/5tLQeb3JjiYroQg0=' 'sha256-d6mC7+nTthvh1Q63egCh1k7OiRuCkT8MqGuT8R1+2Eo='; script-src 'self' https://js.stripe.com 'sha256-Wibn1i4VOkc0UELhaK1Zk7c4cfZ9+Q0VAv+MXY4GfHc=' 'sha256-UGSy4uI7gtAZL8VgDEjs5jWQoqXMKSy12cuGG/HvVIc=' 'sha256-i1SavnBgz0oWflBamUjOjMaz98302MTMWywoNhDFFjY=' 'sha256-mKbtLgKZUcRiCfPTAAsXzVWWWBBhHju1GJ2yzTYwzzs=' 'sha256-y9wt6+1xTyKn1/rHkBFyzTwdHnyWB1sBqxL1DizjhLo='; upgrade-insecure-requests"
+		Permissions-Policy "camera=(), geolocation=(), microphone=(), payment=(), usb=()"
+		Cross-Origin-Opener-Policy "same-origin"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		-Server
+	}
+
+	@html path / /buyer /admin /prices /supplier
+	header @html Cache-Control "no-store"
+
+	reverse_proxy control:8080 {
+		health_uri /readyz
+		health_interval 10s
+		health_timeout 4s
+	}
+	log {
+	output stdout
+}
+}
+
+{$STORAGE_HOST:storage.mercmerc.net} {
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		Permissions-Policy "camera=(), geolocation=(), microphone=(), payment=(), usb=()"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		-Server
+	}
+	reverse_proxy minio:9000 {
+		health_uri /minio/health/live
+		health_interval 10s
+		health_timeout 4s
+	}
+	log {
+	output stdout
+}
+}

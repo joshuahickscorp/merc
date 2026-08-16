@@ -238,7 +238,38 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("GET /admin/controls", s.authAdmin(http.HandlerFunc(s.handleAdminControls)))
 	mux.Handle("POST /admin/controls/{name}", s.authAdmin(http.HandlerFunc(s.handleAdminSetControl)))
 
-	return observe(s.ipLimiter.limitByIP(capBody(requestBodyLimit, mux)))
+	return observe(s.ipLimiter.limitByIP(capBody(requestBodyLimit, rejectPathTraversal(mux))))
+}
+
+// rejectPathTraversal refuses any request whose path still contains a parent
+// segment before ServeMux can 307 it onto another registered route. Public
+// asset URLs are the practical carrier: GET /assets/site/../../v1/me would
+// otherwise become GET /v1/me on the same origin.
+func rejectPathTraversal(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if requestPathHasParentSegment(r) {
+			writeErr(w, http.StatusNotFound, "no such route")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func requestPathHasParentSegment(r *http.Request) bool {
+	if r == nil || r.URL == nil {
+		return false
+	}
+	candidates := []string{r.URL.Path, r.URL.RawPath, r.URL.EscapedPath()}
+	for _, p := range candidates {
+		if p == "" {
+			continue
+		}
+		lower := strings.ToLower(p)
+		if strings.Contains(p, "..") || strings.Contains(lower, "%2e%2e") {
+			return true
+		}
+	}
+	return false
 }
 
 type statusRecorder struct {

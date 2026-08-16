@@ -1,0 +1,203 @@
+{
+  "schema_version": 1,
+  "kind": "stripe_sandbox_matrix",
+  "status": "BLOCKED",
+  "provider_mode": "test",
+  "live_mode": "PROHIBITED",
+  "secret_values_printed": false,
+  "run_id": "20260816T221000Z-l2buyer",
+  "settlement_currency": "cad",
+  "platform_account": "acct_1TxbzMCwPLrR4vaY",
+  "platform_country": "CA",
+  "platform_default_currency": "cad",
+  "disposable_customer_cleanup": "attempted",
+  "blocker": {
+    "id": "connect_platform_not_signed_up",
+    "detail": "POST /v1/accounts on acct_1TxbzMCwPLrR4vaY returns: You can only create new accounts if you've signed up for Connect (dashboard.stripe.com/connect). That dashboard action is not reachable from this lane without signing in. MERC_CONNECT_CLIENT_ID (ca_*) is also only revealed in Connect OAuth settings after that signup. stripe-check and stripe-matrix therefore remain EXTERNAL CREDENTIAL REQUIRED with connect_test_account_present=false.",
+    "unreachable_in_test_mode_api": true
+  },
+  "harness": {
+    "stripe_check": "EXTERNAL CREDENTIAL REQUIRED",
+    "stripe_matrix": "EXTERNAL CREDENTIAL REQUIRED",
+    "staging_hostname_valid": true,
+    "endpoint_ids_distinct": true,
+    "api_key_class": "test",
+    "billing_webhook_class": "webhook",
+    "connect_webhook_class": "webhook",
+    "connect_test_account_present": false,
+    "live_mode": "PROHIBITED"
+  },
+  "payment_objects": {
+    "authorization": true,
+    "capture": true,
+    "decline": true,
+    "idempotency": true,
+    "refunds": true,
+    "transfer": false,
+    "timeout": {
+      "client_deadline": true,
+      "idempotent_recovery": true
+    }
+  },
+  "delivery": {
+    "internet_staging": {
+      "attempted": true,
+      "reachable": false,
+      "hostname": "mercmerc.net",
+      "port_443": "closed",
+      "note": "Stripe cannot deliver to the registered we_ endpoints until lane L1 revives staging. This lane did not touch the droplet."
+    },
+    "local_forwarded": {
+      "attempted": true,
+      "handler": "control handleStripeWebhookWithAllHandlersAtMode + handleConnectWebhook",
+      "listen_api_version": "2026-06-24.dahlia",
+      "compiled_contract_api_version": "2025-06-30.basil",
+      "stripe_listen_forwarded_events": [
+        {
+          "id": "evt_3U5CKECwPLrR4vaY0yLkYLkZ",
+          "http": 400,
+          "reason": "api_version contract mismatch (dahlia != basil)"
+        },
+        {
+          "id": "evt_3U5CKFCwPLrR4vaY1TagfGdF",
+          "http": 400,
+          "reason": "api_version contract mismatch (dahlia != basil)"
+        },
+        {
+          "id": "evt_3U5CKFCwPLrR4vaY1CeCWyiI",
+          "http": 400,
+          "reason": "api_version contract mismatch (dahlia != basil)"
+        },
+        {
+          "id": "evt_3U5CKICwPLrR4vaY16P3GVX6",
+          "http": 400,
+          "reason": "api_version contract mismatch (dahlia != basil)"
+        },
+        {
+          "id": "evt_1U5CKJCwPLrR4vaYbVqBXrJh",
+          "http": 400,
+          "reason": "api_version contract mismatch (dahlia != basil)",
+          "type": "charge.dispute.created"
+        }
+      ],
+      "basil_signed_local_posts": {
+        "applied": true,
+        "stale_ignored": true,
+        "duplicate": true
+      }
+    }
+  },
+  "refusals": {
+    "billing_secret_at_connect_endpoint": {
+      "executed": true,
+      "outcome": "HTTP 400",
+      "path": "local real handler"
+    },
+    "connect_secret_at_billing_endpoint": {
+      "executed": true,
+      "outcome": "HTTP 400",
+      "path": "local real handler"
+    },
+    "invalid_signature": {
+      "executed": true,
+      "outcome": "HTTP 400",
+      "path": "local real handler"
+    },
+    "account_envelope_mismatch": {
+      "executed": true,
+      "outcome": "HTTP 400 connected account mismatch",
+      "path": "local real handler"
+    },
+    "unknown_connected_account": {
+      "executed": true,
+      "outcome": "HTTP 400 unknown connected account",
+      "path": "local real handler"
+    },
+    "self_transfer": {
+      "executed": true,
+      "outcome": "HTTP 400 destination cannot be own account",
+      "path": "Stripe test API"
+    },
+    "bogus_transfer_destination": {
+      "executed": true,
+      "outcome": "HTTP 400 resource_missing",
+      "path": "Stripe test API"
+    }
+  },
+  "fixtures": {
+    "provider_mode": "test",
+    "livemode": false,
+    "customer": "cus_V5MyCuWva9fFWc",
+    "timeout_recovery_payment_intent": "pi_3U5CEHCwPLrR4vaY0nifBHJ4",
+    "payment_intent": "pi_3U5CEICwPLrR4vaY0bTeLOMl",
+    "charge": "ch_3U5CEICwPLrR4vaY0PMpsN9B",
+    "partial_refund": "re_3U5CEICwPLrR4vaY0sAsx8Az",
+    "remaining_refund": "re_3U5CEICwPLrR4vaY0co8pdzn",
+    "disputed_payment_intent": "pi_3U5CEMCwPLrR4vaY0WeEuwXS",
+    "disputed_charge": "ch_3U5CEMCwPLrR4vaY0TtLVMx2",
+    "dispute": "du_1U5CENCwPLrR4vaYGG6LeFfq",
+    "dispute_created_event": "evt_1U5CEOCwPLrR4vaYnmqR3lcM",
+    "billing_webhook_endpoint": "we_1U5CAjCwPLrR4vaY5kFShwCq",
+    "connect_webhook_endpoint": "we_1U5CAjCwPLrR4vaYNzG3o7ab",
+    "transfer": null,
+    "payout_hold": null,
+    "payout_release": null,
+    "payout_failure": null,
+    "payout_reversal": null
+  },
+  "external_scenarios": {
+    "schema_version": 1,
+    "status": "BLOCKED",
+    "provider_mode": "test",
+    "run_id": "20260816T221000Z-l2buyer",
+    "payment_intent": "pi_3U5CEICwPLrR4vaY0bTeLOMl",
+    "charge": "ch_3U5CEICwPLrR4vaY0PMpsN9B",
+    "transfer": "",
+    "disputed_payment_intent": "pi_3U5CEMCwPLrR4vaY0WeEuwXS",
+    "disputed_charge": "ch_3U5CEMCwPLrR4vaY0TtLVMx2",
+    "secret_values_recorded": false,
+    "webhook": {
+      "endpoint_secrets_verified": true,
+      "payload_api_version": "2025-06-30.basil",
+      "staging_urls_exact": true,
+      "distinct_endpoint_ids": true,
+      "delivery": false,
+      "application_outcomes_verified": true,
+      "replay_idempotent": true,
+      "out_of_order_safe": true,
+      "internet_staging_delivery": false,
+      "local_forwarded_delivery": true
+    },
+    "dispute": {
+      "opened": true,
+      "resolved": true,
+      "provider_object_class": "du"
+    },
+    "payout": {
+      "hold": false,
+      "release": false,
+      "failure": false,
+      "reversal": false
+    },
+    "reconciliation": {
+      "clean": false,
+      "reason": "no Connect transfer/payout objects"
+    },
+    "settlement": {
+      "currency": "cad",
+      "connected_account_country": "CA"
+    },
+    "live_mode": "PROHIBITED"
+  },
+  "unreached": [
+    "Connect supplier transfer (tr_)",
+    "payout hold / manual release / failure / reversal",
+    "internet delivery to https://mercmerc.net/v1/stripe/webhook",
+    "internet delivery to https://mercmerc.net/v1/stripe/connect-webhook",
+    "pending_webhooks drain on registered we_ endpoints",
+    "MERC_CONNECT_CLIENT_ID derivation",
+    "STRIPE_PUBLISHABLE_KEY derivation (stripe login --api-key is interactive in this CLI; no pk_test for acct_1TxbzMCwPLrR4vaY on disk)",
+    "make stripe-check PASS",
+    "make stripe-matrix PASS"
+  ]
+}

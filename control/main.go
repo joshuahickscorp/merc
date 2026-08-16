@@ -165,6 +165,41 @@ func validateCanaryMoneyMode(
 	if !strings.HasPrefix(stripeSecret, "sk_test_") && !strings.HasPrefix(stripeSecret, "rk_test_") {
 		return fmt.Errorf("private canary requires STRIPE_SECRET_KEY=sk_test_* or scoped rk_test_*; live or absent keys are refused")
 	}
+	if strings.TrimSpace(payoutExport) != "" {
+		return fmt.Errorf("private canary refuses MERC_PAYOUT_EXPORT; supplier value movement is test-mode only")
+	}
+	// A backend staging alpha that never onboarded Connect has no platform
+	// client ID to name. Demanding ca_* / a Connect webhook there is the
+	// self-serve-payout decision, not the private-canary money-rail check:
+	// test-mode Stripe is still required, and the moment Connect return/refresh
+	// URLs or a ca_* appear the full pair is required again. Production is
+	// unchanged. MERC_ENV is read here rather than passed so existing callers
+	// and tests stay production-shaped unless they opt into staging.
+	connectConfigured := strings.HasPrefix(strings.TrimSpace(connectClientID), "ca_") ||
+		strings.TrimSpace(os.Getenv("MERC_CONNECT_RETURN_URL")) != "" ||
+		strings.TrimSpace(os.Getenv("MERC_CONNECT_REFRESH_URL")) != ""
+	stagingWithoutConnect := strings.EqualFold(strings.TrimSpace(os.Getenv("MERC_ENV")), "staging") &&
+		!connectConfigured
+	if stagingWithoutConnect {
+		if billingWebhookSecret != "" && !strings.HasPrefix(billingWebhookSecret, "whsec_") {
+			return fmt.Errorf("private canary billing webhook must be a whsec_* secret when set")
+		}
+		if connectWebhookSecret != "" && !strings.HasPrefix(connectWebhookSecret, "whsec_") {
+			return fmt.Errorf("private canary Connect webhook must be a whsec_* secret when set")
+		}
+		// Not requiring a ca_* platform ID here is the whole point of the
+		// exception. Not requiring DISTINCT secrets is a different claim, and it
+		// is false: /v1/stripe/connect-webhook is served whether or not Connect
+		// is onboarded, so equal secrets make a cash-signed event acceptable at
+		// the Connect authority and vice versa. That is the exact cross-authority
+		// forgery the security suite proves is refused, so the boot check must
+		// not be the thing that permits it. Caught on the live staging plane,
+		// where both variables had in fact been set to the same whsec_.
+		if billingWebhookSecret != "" && billingWebhookSecret == connectWebhookSecret {
+			return fmt.Errorf("private canary requires distinct cash and Connect whsec_* endpoint secrets")
+		}
+		return nil
+	}
 	if !strings.HasPrefix(billingWebhookSecret, "whsec_") ||
 		!strings.HasPrefix(connectWebhookSecret, "whsec_") ||
 		billingWebhookSecret == connectWebhookSecret {
@@ -172,9 +207,6 @@ func validateCanaryMoneyMode(
 	}
 	if !strings.HasPrefix(connectClientID, "ca_") {
 		return fmt.Errorf("private canary requires a test-mode MERC_CONNECT_CLIENT_ID")
-	}
-	if strings.TrimSpace(payoutExport) != "" {
-		return fmt.Errorf("private canary refuses MERC_PAYOUT_EXPORT; supplier value movement is test-mode only")
 	}
 	return nil
 }

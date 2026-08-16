@@ -8,6 +8,19 @@ import (
 	"time"
 )
 
+// TestBackupAgeMetricObservation is the probe scripts/test-backup-age-metric.sh
+// parses. It reads MERC_BACKUP_STATUS_FILE through the same function the
+// /metrics handler uses and prints one JSON object.
+func TestBackupAgeMetricObservation(t *testing.T) {
+	path := strings.TrimSpace(os.Getenv("MERC_BACKUP_STATUS_FILE"))
+	if path == "" {
+		t.Skip("MERC_BACKUP_STATUS_FILE is unset")
+	}
+	got := readBackupSignal(time.Now(), path)
+	t.Logf("BACKUP_AGE_OBSERVATION {\"configured\":%t,\"valid\":%t,\"age_seconds\":%.3f,\"last_success\":%.0f}",
+		got.configured, got.valid, got.ageSeconds, got.lastSuccess)
+}
+
 func TestReadBackupSignal(t *testing.T) {
 	now := time.Unix(1_800_000_000, 0)
 	path := filepath.Join(t.TempDir(), "last-success")

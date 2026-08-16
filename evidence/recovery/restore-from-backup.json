@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "kind": "recovery_failure_mode",
+  "mode": "restore_from_backup",
+  "status": "PASS",
+  "completed_at": "2026-08-16T22:49:33Z",
+  "test": "",
+  "test_result": "pass",
+  "killed": "source environment (logical-independent-restore destroys it); corrupt dump/envelope refused",
+  "recovered": "pg_restore + object mirror into isolated databases/MinIO with new credentials",
+  "invariant": "source/restored row counts and object hashes match; ledger zero-sum; corrupt backup refused",
+  "elapsed_ns": null,
+  "elapsed_ms_measured": null,
+  "interval_shortened": false,
+  "production_period": null,
+  "test_period": null,
+  "details": {
+    "restore_drill_pass": true,
+    "logical_independent_restore_pass": true,
+    "age_envelope_round_trip": true,
+    "rto_seconds_measured": 2.706,
+    "restore_drill_status": "PASS",
+    "independent_status": "PASS",
+    "ciphertext_verified": true,
+    "ledger_zero_sum": true,
+    "external_offsite_restore": "NOT EXECUTED"
+  },
+  "secret_values_recorded": false,
+  "producer_identity": {
+    "source_commit": {
+      "value": "11813c8f14613ee46d86f2629c4a992d55da5098"
+    },
+    "build_digest": {
+      "value": "0bed9526473a2d848411a6dfe109baa97c07293823f7d3a6bec0603923fbfa24"
+    },
+    "model_artifact_digest": {
+      "na": "recovery suite does not load model weights"
+    },
+    "image_digest": {
+      "na": "throwaway postgres/minio pins live in the suite script, not receipt identity"
+    },
+    "harness_revision": {
+      "value": "scripts/derive-recovery-receipts.py"
+    },
+    "corpus_digest": {
+      "na": "synthetic recovery fixtures only"
+    },
+    "exact_config": {
+      "value": "recovery mode=restore_from_backup; test_result=pass"
+    },
+    "raw_samples": {
+      "value": "embedded observations and test_results"
+    }
+  },
+  "binding_status": "BOUND"
+}

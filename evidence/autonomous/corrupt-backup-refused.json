@@ -2,10 +2,10 @@
   "schema_version": 1,
   "kind": "corrupt_backup_refused",
   "status": "PASS",
-  "completed_at": "2026-07-26T19:01:01Z",
-  "drill_id": "20260726T190058Z-27937",
-  "good_dump_sha256": "63866db5335064d9c52834d3ab834fd8dabf49ec7e0a2a4285b6fb2886e9f52c",
-  "corrupt_dump_sha256": "9b18ec686155a6c18fe3de0d13ef1f69e4e487f83172109188325802d84b69ae",
+  "completed_at": "2026-08-16T22:49:19Z",
+  "drill_id": "20260816T224913Z-74932",
+  "good_dump_sha256": "4494539b62900bde6a53ac4de8a9e13fc83318001f9051f929b8123f7d400c1b",
+  "corrupt_dump_sha256": "8b9d617d8a95bf49bd6549e4b10e57bc2aac80a10f841b188fba20835f9b479d",
   "observations": {
     "pg_restore_exit_code": 1,
     "checksum_verify_exit_code": 1,
@@ -18,15 +18,31 @@
     "restore_failed_closed": true,
     "no_full_database_from_corrupt": true
   },
-  "binding_status": "UNBOUND",
-  "missing_identity_fields": [
-    "source_commit",
-    "build_digest",
-    "model_artifact_digest",
-    "image_digest",
-    "harness_revision",
-    "corpus_digest",
-    "exact_config",
-    "raw_samples"
-  ]
+  "producer_identity": {
+    "source_commit": {
+      "value": "11813c8f14613ee46d86f2629c4a992d55da5098"
+    },
+    "build_digest": {
+      "value": "71b2f4d51a2e17e9b508b9b0f3a777e2767eff0acc70bdd7b024875d2716cf6a"
+    },
+    "model_artifact_digest": {
+      "na": "restore drill does not load model weights"
+    },
+    "image_digest": {
+      "na": "drill uses pinned postgres/minio images; digests live in script pins, not receipt identity"
+    },
+    "harness_revision": {
+      "value": "scripts/restore-drill.sh"
+    },
+    "corpus_digest": {
+      "na": "no external corpus; synthetic seed only"
+    },
+    "exact_config": {
+      "value": "restore-drill corrupt-backup path; drill_id=20260816T224913Z-74932"
+    },
+    "raw_samples": {
+      "value": "embedded observations in receipt body"
+    }
+  },
+  "binding_status": "BOUND"
 }

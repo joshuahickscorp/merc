@@ -1,0 +1,143 @@
+{
+  "schema_version": 1,
+  "kind": "soak_requirement_derivation",
+  "status": "PASS",
+  "completed_at": "2026-08-16T22:49:33Z",
+  "question": "which mechanism can only be observed by real elapsed time?",
+  "mechanisms": [
+    {
+      "name": "stale task / worker claim lease",
+      "production_period": "30m (staleTaskTimeout)",
+      "exercise": "claimed_at backdated 31m; StaleRunningTasks used the production 30m timeout",
+      "requires_wall_clock": false
+    },
+    {
+      "name": "inflight coalescing leader lease",
+      "production_period": "30s (inflightLeaseTTL); result TTL 60s",
+      "exercise": "lease_expires_at set to now()-1s; leadership handoff + bounded re-election",
+      "requires_wall_clock": false
+    },
+    {
+      "name": "payout sending lease",
+      "production_period": "5m (payoutSendingLease)",
+      "exercise": "updated_at backdated 6m; RecoverStalePayoutOperations(payoutSendingLease)",
+      "requires_wall_clock": false
+    },
+    {
+      "name": "payout idempotency retry window",
+      "production_period": "23h (payoutIdempotencyRetryWindow)",
+      "exercise": "ClaimOutcomeUnknownPayouts called with the production 23h window; created_at is now so the row is inside it",
+      "requires_wall_clock": false
+    },
+    {
+      "name": "minimum payout hold",
+      "production_period": "24h (minimumPayoutHold)",
+      "exercise": "payout fixtures set release_at to now()-1m (same injection as payout_money_path_test)",
+      "requires_wall_clock": false
+    },
+    {
+      "name": "service-lease heartbeat timeout",
+      "production_period": "45s",
+      "exercise": "duration argument; existing service_lease tests expire the heartbeat",
+      "requires_wall_clock": false
+    },
+    {
+      "name": "worker token TTL",
+      "production_period": "2h (workerTokenTTL)",
+      "exercise": "clock / issued_at injection in token tests; not a soak subject",
+      "requires_wall_clock": false
+    },
+    {
+      "name": "Stripe signature tolerance",
+      "production_period": "5m (stripeSigTolerance)",
+      "exercise": "signed request timestamp is constructed in-process",
+      "requires_wall_clock": false
+    },
+    {
+      "name": "pgx pool recycle",
+      "production_period": "MaxConnLifetime 30m; MaxConnIdleTime 5m",
+      "exercise": "pool closed and reopened (process restart); postgres restart forces reconnect",
+      "requires_wall_clock": false
+    },
+    {
+      "name": "backup schedule and stale-age alert",
+      "production_period": "OnCalendar daily; MercBackupStale at 93600s (26h)",
+      "exercise": "scripts/test-backup-age-metric.sh writes a stale unix timestamp; no 26h wait",
+      "requires_wall_clock": false
+    },
+    {
+      "name": "charge batch max age / retry",
+      "production_period": "chargeBatchMaxAge 24h; chargeRetryStep 30m; chargeRetryMax 6h",
+      "exercise": "created_at / next_attempt injection on collect rows",
+      "requires_wall_clock": false
+    },
+    {
+      "name": "retention / cleanup sweeps",
+      "production_period": "telemetry 14d/30d/180d; fabric 30d; alpha leads 90d; job objects hourly sweep",
+      "exercise": "row timestamps backdated past the production period; sweeper functions take now()",
+      "requires_wall_clock": false
+    },
+    {
+      "name": "webhook delivery backoff",
+      "production_period": "base 30s, cap 6h",
+      "exercise": "attempt counters and next_attempt_at written directly",
+      "requires_wall_clock": false
+    },
+    {
+      "name": "execution envelope TTL",
+      "production_period": "min 30s, max 24h",
+      "exercise": "expires_at set in the past; envelope recovery sweep interval is 15s",
+      "requires_wall_clock": false
+    },
+    {
+      "name": "certificate / mTLS identity",
+      "production_period": "identity fingerprint, not a time-rotating cert in this tree",
+      "exercise": "fabric tests bind SHA-256 fingerprints; no refresh period exists to soak",
+      "requires_wall_clock": false
+    },
+    {
+      "name": "memory growth under sustained full-stack load",
+      "production_period": "no named period (continuous)",
+      "exercise": "not a lease/lock/sweep; historical local 15m compose soaks OOM'd on the agent stack (not materialized here). Existing local-soak-60s/300s receipts are the retained local samples. A staging soak with two Metal devices would still add production-shaped RSS evidence; that is P1-STAGING / P1-CANARY, not a 24h mechanism.",
+      "requires_wall_clock": false
+    }
+  ],
+  "mechanisms_requiring_wall_clock": [],
+  "longest_named_period": "backup stale alert 93600s (26h) and payoutIdempotencyRetryWindow 23h / minimumPayoutHold 24h / several 24h windows — all clock-injectable",
+  "qualifies_for_24h_gate": false,
+  "conclusion": "deterministic_coverage_supersedes_arbitrary_24h",
+  "conclusion_text": "Every named time-dependent mechanism in control/ has a period that is either seconds-to-minutes or is a Duration/timestamp the tests already inject. The arbitrary 24-hour soak duration was protecting nothing that the deterministic recovery suite does not now cover. A long staging soak would still add evidence about production-shaped RSS/FD growth on two external Metal devices; that is a staging/device boundary, not a soak duration, and remains a separate P1.",
+  "retained_local_soak_receipts": [
+    "evidence/autonomous/local-soak-60s.json",
+    "evidence/autonomous/local-soak-300s.json"
+  ],
+  "what_a_long_soak_would_still_add": "uninterrupted RSS/FD/heap samples on the full compose+agent stack against persistent staging and two distinct external devices",
+  "secret_values_recorded": false,
+  "producer_identity": {
+    "source_commit": {
+      "value": "11813c8f14613ee46d86f2629c4a992d55da5098"
+    },
+    "build_digest": {
+      "value": "0bed9526473a2d848411a6dfe109baa97c07293823f7d3a6bec0603923fbfa24"
+    },
+    "model_artifact_digest": {
+      "na": "recovery suite does not load model weights"
+    },
+    "image_digest": {
+      "na": "throwaway postgres/minio pins live in the suite script, not receipt identity"
+    },
+    "harness_revision": {
+      "value": "scripts/derive-recovery-receipts.py"
+    },
+    "corpus_digest": {
+      "na": "synthetic recovery fixtures only"
+    },
+    "exact_config": {
+      "value": "soak requirement derivation from named control/ periods"
+    },
+    "raw_samples": {
+      "value": "embedded observations and test_results"
+    }
+  },
+  "binding_status": "BOUND"
+}

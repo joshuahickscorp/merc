@@ -4,57 +4,78 @@
   "decisions": {
     "software_candidate": "GO",
     "supervised_stripe_test_mode_private_canary": "NO_GO",
+    "backend_alpha_engineering_ready": "NO_GO",
+    "backend_alpha_external_proven": "NO_GO",
     "live_money_or_public_launch": "NO_GO_PROHIBITED"
   },
   "readiness_score": 84,
   "go_threshold": 95,
+  "backend_alpha": {
+    "contract": "docs/BACKEND_ALPHA_CONTRACT.md",
+    "classifications": "ops/backend-alpha-gates.json",
+    "ALPHA_ENGINEERING_READY": "NO_GO",
+    "EXTERNAL_ALPHA_PROVEN": "NO_GO",
+    "external_participants_receipt": "evidence/external/external-alpha-participants.json",
+    "synthetic_participants_cannot_satisfy": "EXTERNAL_ALPHA_PROVEN"
+  },
   "open_p0": [],
+  "dropped_p1": [],
   "open_p1": [
     {
       "id": "P1-STAGING",
       "owner": "operations",
+      "classification": "ALPHA_BLOCKER",
       "blocker": "No persistent private TLS staging endpoint or persistent data plane is available.",
       "exit_criterion": "Deploy the exact candidate digest to the supplied host/DNS/TLS boundary and pass external health, source identity, auth, storage, lifecycle, and both workload probes."
     },
     {
       "id": "P1-RECOVERY-SOAK",
       "owner": "operations",
-      "blocker": "Local source-equivalent rollback/forward, seeded restart-storm, and continuous 15-minute/two-hour soak receipts pass, but they do not substitute for a qualifying 24-hour run against persistent staging state and two distinct external Metal devices.",
-      "exit_criterion": "Run the exact published candidate and retained prior digest against persistent staging, preserve source/state/restart receipts, and complete the configured 24-hour invariant and SLO window on two distinct external devices."
+      "classification": "ALPHA_BLOCKER",
+      "blocker": "Named time-dependent mechanisms (leases, holds, retention, backup age, pool recycle) are exercised deterministically with disclosed interval compression. The remaining qualifying soak is a persistent-staging run on two distinct external Metal devices, not a local 24-hour wall-clock requirement.",
+      "exit_criterion": "Run the exact published candidate against persistent staging with two distinct external devices. The local deterministic recovery suite (make recovery-suite) does not substitute for that staging/device boundary.",
+      "alpha_exit_criterion": "Rollback/forward and a seeded restart-storm on the persistent plane, plus a qualifying soak of at least 3600 seconds derived from pgx MaxConnLifetime. The 24-hour window remains the Level B/C exit criterion of this same P1."
     },
     {
       "id": "P1-OFFSITE-RESTORE",
       "owner": "operations",
+      "classification": "ALPHA_BLOCKER",
       "blocker": "No encrypted backup has been uploaded across an independent provider/credential boundary and restored from an independently downloaded copy.",
       "exit_criterion": "Upload only ciphertext, independently download/decrypt in isolation, restore database and objects, and match checksums plus application/ledger invariants."
     },
     {
       "id": "P1-STRIPE-TEST",
       "owner": "payments",
+      "classification": "ALPHA_BLOCKER",
       "blocker": "The full Stripe test-mode payment, refund, dispute, Connect restriction, payout hold/release/failure, replay/out-of-order webhook, and provider reconciliation matrix has not run.",
       "exit_criterion": "Execute every scenario with sk_test/whsec test credentials and distinct endpoint secrets; preserve redacted provider IDs and reconciliation receipts."
     },
     {
       "id": "P1-ALERT-DELIVERY",
       "owner": "operations_on_call",
+      "classification": "PUBLIC_LAUNCH",
       "blocker": "A private Alertmanager→HTTP sink fire/resolve receipt now passes, but no external staffed paging receiver and acknowledgement route has been exercised.",
       "exit_criterion": "Preserve redacted external receiver delivery IDs and firing, acknowledgement, deduplication, and resolution timestamps."
     },
     {
       "id": "P1-CANARY-REHEARSAL",
       "owner": "canary_operator",
+      "classification": "ALPHA_CONTROL",
       "blocker": "Two approved synthetic buyers, two operator-controlled Metal workers, and the strict scenario/restart adapters are unavailable.",
-      "exit_criterion": "Exercise the complete counted scenario matrix within every fail-closed limit, including kill switches, revocations, restore, alert, reconciliation, result retrieval during intake pause, and no payout export."
+      "exit_criterion": "Exercise the complete counted scenario matrix within every fail-closed limit, including kill switches, revocations, restore, alert, reconciliation, result retrieval during intake pause, and no payout export.",
+      "does_not_satisfy": "EXTERNAL_ALPHA_PROVEN"
     },
     {
       "id": "P1-INDEPENDENT-APPROVAL",
       "owner": "repository_owner",
+      "classification": "PUBLIC_LAUNCH",
       "blocker": "No non-author collaborator with repository review authority is available to approve the exact-head closure PR.",
       "exit_criterion": "Named eligible reviewer independently inspects evidence and grants the required exact-head approval with no unresolved thread."
     },
     {
       "id": "P1-GOVERNANCE",
       "owner": "legal_privacy_tax_payments_security_trust_license_support",
+      "classification": "PUBLIC_LAUNCH",
       "blocker": "Qualified approvals for the bounded test canary and named human incident coverage are absent.",
       "exit_criterion": "Supply an exact-candidate governance bundle conforming to ops/governance-approval-bundle.schema.json with all eight named approvals."
     }
@@ -62,6 +83,7 @@
   "out_of_scope_p0": [
     {
       "id": "P0-INDEPENDENT-SUPPLIER",
+      "classification": "ALPHA_BLOCKER",
       "containment": "Independent supplier ownership is prohibited; only two operator-controlled Metal devices and synthetic data may enter the Level B canary.",
       "expansion_exit_criterion": "Contracts, verified location, destination-pinned egress, confidentiality, data governance, and attestation risk must be separately approved before expansion."
     }

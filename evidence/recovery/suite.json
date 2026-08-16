@@ -1,0 +1,127 @@
+{
+  "schema_version": 1,
+  "kind": "recovery_suite",
+  "status": "PASS",
+  "completed_at": "2026-08-16T22:49:33Z",
+  "go_test_exit_code": 0,
+  "modes": [
+    {
+      "mode": "process_restart",
+      "status": "PASS",
+      "test_result": "pass",
+      "interval_shortened": false
+    },
+    {
+      "mode": "control_plane_restart_under_load",
+      "status": "PASS",
+      "test_result": "pass",
+      "interval_shortened": true
+    },
+    {
+      "mode": "postgres_restart",
+      "status": "PASS",
+      "test_result": "pass",
+      "interval_shortened": false
+    },
+    {
+      "mode": "object_store_restart",
+      "status": "PASS",
+      "test_result": "pass",
+      "interval_shortened": false
+    },
+    {
+      "mode": "network_interruption",
+      "status": "PASS",
+      "test_result": "pass",
+      "interval_shortened": true
+    },
+    {
+      "mode": "stale_worker_expiry",
+      "status": "PASS",
+      "test_result": "pass",
+      "interval_shortened": true
+    },
+    {
+      "mode": "interrupted_execution",
+      "status": "PASS",
+      "test_result": "pass",
+      "interval_shortened": false
+    },
+    {
+      "mode": "duplicate_stripe_event",
+      "status": "PASS",
+      "test_result": "pass",
+      "interval_shortened": false
+    },
+    {
+      "mode": "partial_settlement",
+      "status": "PASS",
+      "test_result": "pass",
+      "interval_shortened": true
+    },
+    {
+      "mode": "rollback_and_forward",
+      "status": "PASS",
+      "test_result": "pass",
+      "interval_shortened": false
+    },
+    {
+      "mode": "restore_from_backup",
+      "status": "PASS",
+      "test_result": "pass",
+      "interval_shortened": false
+    }
+  ],
+  "money_state_machine": {
+    "duplicate_stripe_event": {
+      "mode": "duplicate_stripe_event",
+      "status": "PASS",
+      "test_result": "pass",
+      "interval_shortened": false
+    },
+    "partial_settlement": {
+      "mode": "partial_settlement",
+      "status": "PASS",
+      "test_result": "pass",
+      "interval_shortened": true
+    },
+    "proved": {
+      "duplicate_stripe": "the same charge.refunded event_id applied twice produced one stripe_webhook_events row and one refunded_cents value; the second ApplyPaymentEventTx returned Duplicate=true and did not re-apply a cash effect",
+      "partial_settlement": "ClaimPayout committed ledger+operation to sending with cash_moved=false; RecoverStalePayoutOperations moved the row to outcome_unknown; ClaimOutcomeUnknownPayouts re-presented the same requested_cents; FinalizePayout released once; a second finalize did not create a second cash_moved row"
+    }
+  },
+  "offsite_independence": {
+    "what_it_protects": "correlated-failure loss of real data: same disk, host, operator, or credential set destroying both the live store and the only backup",
+    "reachable_at_backend_alpha_with_synthetic_data": false,
+    "honest_local_equivalent": "encrypted backup, independent checksum verification, isolated restore with new database/object credentials, source environment destroyed, corrupt envelope refused",
+    "external_offsite_restore": "NOT EXECUTED"
+  },
+  "secret_values_recorded": false,
+  "producer_identity": {
+    "source_commit": {
+      "value": "11813c8f14613ee46d86f2629c4a992d55da5098"
+    },
+    "build_digest": {
+      "value": "0bed9526473a2d848411a6dfe109baa97c07293823f7d3a6bec0603923fbfa24"
+    },
+    "model_artifact_digest": {
+      "na": "recovery suite does not load model weights"
+    },
+    "image_digest": {
+      "na": "throwaway postgres/minio pins live in the suite script, not receipt identity"
+    },
+    "harness_revision": {
+      "value": "scripts/derive-recovery-receipts.py"
+    },
+    "corpus_digest": {
+      "na": "synthetic recovery fixtures only"
+    },
+    "exact_config": {
+      "value": "recovery suite; go_exit=0"
+    },
+    "raw_samples": {
+      "value": "embedded observations and test_results"
+    }
+  },
+  "binding_status": "BOUND"
+}

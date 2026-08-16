@@ -2,47 +2,59 @@
   "schema_version": 1,
   "kind": "backup_age_metric",
   "status": "PASS",
-  "completed_at": "2026-07-26T18:54:44Z",
+  "completed_at": "2026-08-16T22:49:33Z",
   "alert": {
-    "name": "ComputeExchangeBackupStale",
-    "expr": "cx_backup_age_seconds > 93600",
+    "name": "MercBackupStale",
+    "expr": "merc_backup_age_seconds > 93600",
     "threshold_seconds": 93600
   },
   "observations": {
     "after_backup_signal": {
       "configured": true,
       "valid": true,
-      "last_success": 1785092083,
-      "age_seconds": 0.8,
-      "observed_at_unix": 1785092083,
-      "path_configured": true
+      "age_seconds": 1.939,
+      "last_success": 1786920570
     },
     "after_no_backup_stale_signal": {
       "configured": true,
       "valid": true,
-      "last_success": 1784994883,
-      "age_seconds": 97201.639,
-      "observed_at_unix": 1785092084,
-      "path_configured": true
+      "age_seconds": 97203.202,
+      "last_success": 1786823370
     }
   },
   "derived": {
     "age_moved": true,
-    "fresh_age_seconds": 0.8,
-    "stale_age_seconds": 97201.639,
+    "fresh_age_seconds": 1.939,
+    "stale_age_seconds": 97203.202,
     "stale_would_fire_alert": true,
     "backup_sh_dry_run_status_written": true
   },
   "secret_values_recorded": false,
-  "binding_status": "UNBOUND",
-  "missing_identity_fields": [
-    "source_commit",
-    "build_digest",
-    "model_artifact_digest",
-    "image_digest",
-    "harness_revision",
-    "corpus_digest",
-    "exact_config",
-    "raw_samples"
-  ]
+  "producer_identity": {
+    "source_commit": {
+      "value": "11813c8f14613ee46d86f2629c4a992d55da5098"
+    },
+    "build_digest": {
+      "value": "1576b1797f556e870a970f4ef116fca5bb9ce5b55967ca2967be49fa8c6ba159"
+    },
+    "model_artifact_digest": {
+      "na": "backup-age metric drill does not load model weights"
+    },
+    "image_digest": {
+      "na": "no container image in this measurement"
+    },
+    "harness_revision": {
+      "value": "scripts/test-backup-age-metric.sh"
+    },
+    "corpus_digest": {
+      "na": "no external corpus"
+    },
+    "exact_config": {
+      "value": "backup-age metric observation; stale_threshold=93600"
+    },
+    "raw_samples": {
+      "value": "embedded fresh/stale age observations"
+    }
+  },
+  "binding_status": "BOUND"
 }

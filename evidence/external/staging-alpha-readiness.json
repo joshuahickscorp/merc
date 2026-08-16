@@ -1,0 +1,184 @@
+{
+  "kind": "staging_alpha_readiness",
+  "schema_version": 1,
+  "observed_at": "2026-08-16T22:16:16Z",
+  "host": {
+    "alias": "merc-droplet",
+    "address": "192.241.134.31",
+    "dns": "mercmerc.net",
+    "deploy_root": "/opt/merc"
+  },
+  "root_cause": {
+    "readyz_reason_code": "canary_policy_unconfigured",
+    "readyz_reason": "canary policy was incomplete when this process started",
+    "code_path": "control/api.go handleReadyz first gate: s.canary.Enabled && s.canary.configError",
+    "policy_path": "control/canary_policy.go loadCanaryPolicyFromEnv: MERC_CANARY_MODE=false with empty MERC_CANARY_DISABLE_DECISION_REF fail-closes to Enabled=true + configError",
+    "worker_log": "workers: stale-requeue: canary retry policy: canary disable decision reference is absent — same configError via canaryRetryLimit, not a separate readiness condition",
+    "fix_class": "config_supply",
+    "fix": "set MERC_CANARY_MODE=true with the allowlist in ops/staging/alpha-participants.json; did not write a DISABLE_CANARY_ADMISSION decision because a controlled backend alpha does not open self-serve signup",
+    "secondary_gate": "validateCanaryMoneyMode required a Connect ca_* whenever canary was on; MERC_ENV=staging with no Connect URLs or ca_* now requires only a Stripe test key (and a well-shaped billing webhook if set). Production unchanged."
+  },
+  "deployed": {
+    "commit": "8283ae583057d6265947a473023e4f05102704b4",
+    "image": "computexchange/control:8283ae583057d6265947a473023e4f05102704b4",
+    "image_id": "sha256:7bf0ab9d69ed36d2203161dd161fabe8977bce83ca53c2629bff16297a7bdd1b",
+    "linux_amd64_manifest": "sha256:8926eab377aa7776c9fcf0fe7d264e71c0b9c3725aef2605181b4b0eb79e217e",
+    "image_config": "sha256:c4b0c8841ed31e632657c393c192f933953818e7613cf223261ad26655b3ccfb",
+    "build_date": "2026-08-16T22:08:14Z",
+    "registry": "local docker image store on the droplet; not pushed to a remote registry",
+    "source_note": "built from commit 8283ae58 plus the staging-without-Connect change in control/main.go; /version reports that commit because ldflags set it and the image build context had no .git"
+  },
+  "prior": {
+    "commit": "deac3e9b76595b03dc0fe489cfdf0efdb7df21bb",
+    "image": "computexchange/control:deac3e9b76595b03dc0fe489cfdf0efdb7df21bb",
+    "image_id": "sha256:68b18805b68313ace911f3d5abe1edd181866af4128926b0832e46d9aedffd20"
+  },
+  "criteria": {
+    "tls": {
+      "status": "PROVEN",
+      "method": "Caddy ACME HTTP-01 on public :80; TLS bound to 127.0.0.1:443; curl --resolve mercmerc.net:443:127.0.0.1 https://mercmerc.net/readyz; openssl x509; TCP connect from the operator Mac to 192.241.134.31:443",
+      "observed": {
+        "issuer": "C=US, O=Let's Encrypt, CN=YE1",
+        "subject": "CN=mercmerc.net",
+        "san": [
+          "mercmerc.net"
+        ],
+        "not_before": "2026-08-16T21:12:38Z",
+        "not_after": "2026-11-14T21:12:37Z",
+        "https_readyz": 200,
+        "https_healthz": 200,
+        "ssl_verify_result": 0,
+        "headers": [
+          "strict-transport-security",
+          "via: 1.1 Caddy"
+        ],
+        "public_443_from_operator_mac": "CLOSED",
+        "public_80_from_operator_mac": "OPEN (ACME + 308 to https)",
+        "listener": "127.0.0.1:443 docker-proxy"
+      }
+    },
+    "correct_current_candidate": {
+      "status": "PROVEN",
+      "method": "docker inspect + GET /version on the running control container",
+      "observed": {
+        "commit": "8283ae583057d6265947a473023e4f05102704b4",
+        "image_id": "sha256:7bf0ab9d69ed36d2203161dd161fabe8977bce83ca53c2629bff16297a7bdd1b",
+        "digest_record": "computexchange/control@sha256:7bf0ab9d69ed36d2203161dd161fabe8977bce83ca53c2629bff16297a7bdd1b",
+        "version_endpoint_commit": "8283ae583057d6265947a473023e4f05102704b4",
+        "started_at": "2026-08-16T22:16:09.740720066Z"
+      }
+    },
+    "isolated_test_configuration": {
+      "status": "PROVEN",
+      "method": "container env + /readyz payment fields",
+      "observed": {
+        "MERC_ENV": "staging",
+        "MERC_PAYMENT_MODE": "test",
+        "MERC_PAYMENT_PROVIDER": "stripe",
+        "readyz_payment_mode": "test",
+        "live_value_movement": false,
+        "residual": "Stripe platform country CA/CAD; MERC_SETTLEMENT_CURRENCY is still usd, so supplier payouts would fail until an operator sets cad and a FX revision. Not required for API health."
+      }
+    },
+    "recoverable_data_plane": {
+      "status": "PROVEN",
+      "method": "insert marker row and object, docker restart postgres and minio, read them back; logical dump taken first",
+      "observed": {
+        "backup": "/opt/merc/.artifacts/backups/cx-20260816T220458Z.dump",
+        "backup_sha256": "24d049d750020ea251a42e6d70e6b8ea72b0b168d8f1d1067bb50ff75b57d788",
+        "postgres_marker_after_restart": "l1-plane-marker@mercmerc.net|restart-receipt-20260816|pending",
+        "postgres_restarted_at": "2026-08-16T22:15:16.817975023Z",
+        "minio_object_after_restart": "l1/restart-marker.txt -> l1-restart-receipt-20260816T22Z",
+        "minio_restarted_at": "2026-08-16T22:15:24.302670933Z",
+        "control_restart_readyz": 200,
+        "control_restarted_at": "2026-08-16T22:15:09.496962435Z"
+      }
+    },
+    "correct_stripe_mode": {
+      "status": "PROVEN",
+      "method": "host secret file prefix + container env class + /readyz live_value_movement",
+      "observed": {
+        "host_stripe_file": "/opt/merc/secrets/stripe-secret-key",
+        "host_stripe_class": "sk_test_",
+        "readyz_live_value_movement": false,
+        "mac_live_key": "present in Downloads/merc/.merc-secrets.env as sk_live_; never copied to the droplet (hashes of the two sk_test_ values also differ)"
+      }
+    },
+    "health_version_truth": {
+      "status": "PROVEN",
+      "method": "GET /healthz and /readyz and /version against the control IP and again through loopback TLS",
+      "observed": {
+        "healthz": 200,
+        "readyz": 200,
+        "readyz_status": "ready",
+        "version_commit": "8283ae583057d6265947a473023e4f05102704b4",
+        "version_via_tls": 200
+      }
+    },
+    "controlled_access": {
+      "status": "PROVEN",
+      "method": "ss listeners, TCP from the operator Mac, POST /v1/signup, canary env",
+      "observed": {
+        "public_443": "CLOSED",
+        "public_80": "OPEN for ACME HTTP-01; Caddy 308s to https which the internet cannot complete",
+        "tls_loopback_only": true,
+        "signup_unapproved": {
+          "status": 403,
+          "error": "email is not approved for this private canary"
+        },
+        "allowlist_buyers": [
+          "joshuahicksboba@gmail.com"
+        ],
+        "allowlist_workers": [
+          "7d2bb6c8-c45a-505e-ae39-6b9fc73989f5"
+        ],
+        "admin_cidrs": "127.0.0.1/32,::1/128",
+        "connect_platform": "absent (no MERC_CONNECT_CLIENT_ID)",
+        "public_443_flip_command": "CADDY_TLS_BIND=0.0.0.0 docker compose -f docker-compose.prod.yml -f docker-compose.smallhost.yml -f docker-compose.canary.yml up -d --no-deps caddy"
+      }
+    },
+    "rollback_capability": {
+      "status": "PROVEN",
+      "method": "compose recreate onto the prior tag, GET /version, then recreate onto the candidate tag",
+      "observed": {
+        "rollback_at": "2026-08-16T22:16:06Z",
+        "rollback_image_id": "sha256:68b18805b68313ace911f3d5abe1edd181866af4128926b0832e46d9aedffd20",
+        "rollback_commit": "deac3e9b76595b03dc0fe489cfdf0efdb7df21bb",
+        "rollback_readyz": 503,
+        "forward_at": "2026-08-16T22:16:16Z",
+        "forward_image_id": "sha256:7bf0ab9d69ed36d2203161dd161fabe8977bce83ca53c2629bff16297a7bdd1b",
+        "forward_commit": "8283ae583057d6265947a473023e4f05102704b4",
+        "forward_readyz": 200,
+        "postgres_marker_still_present": true,
+        "note": "the prior image cannot boot with MERC_CANARY_MODE=true (it still demands a Connect ca_*). Rollback used MODE=false, the env that image previously ran under."
+      }
+    }
+  },
+  "producer_identity": {
+    "source_commit": {
+      "value": "8283ae583057d6265947a473023e4f05102704b4"
+    },
+    "build_digest": {
+      "value": "0795932d6c3f0cb2f7a4b31e1473332a7f951ee7c1717a2b05deeb527b867cd1"
+    },
+    "model_artifact_digest": {
+      "na": "no model weights in this staging-plane receipt"
+    },
+    "image_digest": {
+      "value": "7bf0ab9d69ed36d2203161dd161fabe8977bce83ca53c2629bff16297a7bdd1b"
+    },
+    "harness_revision": {
+      "value": "lane L1 staging-alpha readiness"
+    },
+    "corpus_digest": {
+      "na": "no external corpus in this staging-plane receipt"
+    },
+    "exact_config": {
+      "value": "embedded in receipt body"
+    },
+    "raw_samples": {
+      "value": "embedded in receipt body"
+    }
+  },
+  "binding_status": "BOUND"
+}
