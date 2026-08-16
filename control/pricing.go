@@ -105,6 +105,7 @@ var unpricedThroughputUntilBound = []measuredThroughput{
 		// Parked: measured embeddings/completed_embedding_records; embed settlement
 		// is token_like_input_units/token_like_input_geometry. No token-geometry
 		// embed receipt exists yet; no frozen conversion may invent one.
+		// unbound historical diagnostic; not catalogue price authority
 		SourceCitation: "evidence/benchmarks/2026-07-01-m3-pro.json#embed",
 	},
 	{

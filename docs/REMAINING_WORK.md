@@ -19,8 +19,8 @@ who has to do it — **[auto]** runs unattended here, **[you]** needs a human on
 
 **G063.** `https://mercmerc.net/version` reports commit `41db85b5`,
 `"modified": true`, **733 commits behind** HEAD (re-verified 2026-08-10), and
-`evidence/deploy/live-cutover.json` records `stripe_mode: "live"` with its own
-warning that real money moves.
+`evidence/deploy/live-cutover.json` (unbound historical cutover record) records
+`stripe_mode: "live"` with its own warning that real money moves.
 
 That host is missing `a7bf17a6` (the P0: realtime funding under-held open prepaid
 exposure — no service-lease term at all, and `estimated_usd` where the reserved
@@ -98,7 +98,8 @@ inside budgets, receipts rejecting tampering, money reconciliation, worker/provi
 loss recovery, POOL/fabric refusals, exact-HEAD checkpoint.
 
 **[auto], now unblocked:**
-- **SBOM** — done. `evidence/state/sbom.json`, CycloneDX 1.5, 639 components,
+- **SBOM** — generator exists. `evidence/state/sbom.json` is an unbound
+  historical snapshot at `8e6b1024` (CycloneDX 1.5, 639 components there),
   generated from `go list -m -json all` + `cargo metadata`. No AGPL/SSPL/GPL; the
   single copyleft appearance (`r-efi`) is a disjunction that resolves to MIT.
   236 Go components are recorded as *undeclared* rather than guessed permissive.

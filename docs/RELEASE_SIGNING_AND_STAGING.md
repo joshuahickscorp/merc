@@ -200,8 +200,9 @@ approval, and an acknowledgement nobody made is exactly that.
 
 ## 3. SBOM and licences — status
 
-**SBOM: done, automated.** `scripts/generate-sbom.py` →
-`evidence/state/sbom.json`, CycloneDX 1.5, 639 components, generated from
+**SBOM: generator exists, automated.** `scripts/generate-sbom.py` →
+`evidence/state/sbom.json` (unbound historical snapshot at `8e6b1024`;
+CycloneDX 1.5, 639 components at that commit), generated from
 `go list -m -json all` and `cargo metadata` rather than a scanner that would
 itself need installing and trusting.
 
@@ -249,8 +250,9 @@ $ git rev-list --count 41db85b5..HEAD
 727
 ```
 
-`evidence/deploy/live-cutover.json` records `stripe_mode: "live"` and carries its
-own warning: *"Stripe is LIVE. Charges and payouts move real money."*
+`evidence/deploy/live-cutover.json` is an unbound historical cutover record;
+it records `stripe_mode: "live"` and carries its own warning: *"Stripe is LIVE.
+Charges and payouts move real money."*
 
 `"modified": true` means the running image was built from a dirty tree, so its
 own provenance claim is already untrue — `MERC_BUILD_COMMIT` records the commit

@@ -90,12 +90,17 @@ def auth_matrix_complete(doc: Any) -> bool:
     routes = 0
     for route_class in doc.get("route_classes", []):
         routes += len(route_class.get("routes", []))
-    # 121 after the two buyer-owned execution-envelope routes joined the reviewed
-    # matrix. The count is a tripwire, not a fact about the world: it exists so
-    # that adding a route forces someone to look at the matrix. It had gone stale
-    # at 118 while those two routes were already serving buyer traffic, which
-    # silently cost this domain 11 readiness points and made `make ci` red.
-    return routes == 123 and doc.get("policy", {}).get("default") == "deny"
+    # 126 after the two versioned UI composition reads (GET /v1/ui/v1/buy through
+    # authBuyer, GET /v1/ui/v1/earn through authWorker) joined the reviewed matrix.
+    # The count is a tripwire, not a fact about the world: it exists so that adding
+    # a route forces someone to look at the matrix. It had gone stale at 118 while
+    # two routes were already serving buyer traffic, which silently cost this
+    # domain 11 readiness points and made `make ci` red. It went stale AGAIN at
+    # 123 against a live 124, costing the same 11 points, and was only found by
+    # re-deriving the score rather than trusting it — so if you are reading this
+    # because the number moved, update BOTH this tripwire and
+    # scripts/validate-authorization-matrix.py, and check they agree.
+    return routes == 126 and doc.get("policy", {}).get("default") == "deny"
 
 
 def technical_break_glass(doc: Any) -> bool:
