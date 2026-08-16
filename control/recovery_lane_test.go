@@ -24,16 +24,16 @@ import (
 const recoveryObservationPrefix = "RECOVERY_LANE_OBSERVATION "
 
 type recoveryObservation struct {
-	Mode                string         `json:"mode"`
-	Status              string         `json:"status"`
-	Killed              string         `json:"killed"`
-	Recovered           string         `json:"recovered"`
-	Invariant           string         `json:"invariant"`
-	ElapsedNS           int64          `json:"elapsed_ns"`
-	IntervalShortened   bool           `json:"interval_shortened"`
-	ProductionPeriod    string         `json:"production_period,omitempty"`
-	TestPeriod          string         `json:"test_period,omitempty"`
-	Details             map[string]any `json:"details,omitempty"`
+	Mode              string         `json:"mode"`
+	Status            string         `json:"status"`
+	Killed            string         `json:"killed"`
+	Recovered         string         `json:"recovered"`
+	Invariant         string         `json:"invariant"`
+	ElapsedNS         int64          `json:"elapsed_ns"`
+	IntervalShortened bool           `json:"interval_shortened"`
+	ProductionPeriod  string         `json:"production_period,omitempty"`
+	TestPeriod        string         `json:"test_period,omitempty"`
+	Details           map[string]any `json:"details,omitempty"`
 }
 
 func emitRecoveryObservation(t *testing.T, obs recoveryObservation) {
@@ -276,11 +276,11 @@ func TestRecoveryLaneControlPlaneRestartUnderLoad(t *testing.T) {
 	}
 
 	emitRecoveryObservation(t, recoveryObservation{
-		Mode:      "control_plane_restart_under_load",
-		Killed:    "control-plane Store under inflight leaders, one sending payout, one running task",
-		Recovered: "new Store: inflight leadership election 2, payout sweep, stale-task sweep",
-		Invariant: "each identity handed off once; task requeued exactly once; payout became outcome_unknown; no duplicate money",
-		ElapsedNS: time.Since(started).Nanoseconds(),
+		Mode:              "control_plane_restart_under_load",
+		Killed:            "control-plane Store under inflight leaders, one sending payout, one running task",
+		Recovered:         "new Store: inflight leadership election 2, payout sweep, stale-task sweep",
+		Invariant:         "each identity handed off once; task requeued exactly once; payout became outcome_unknown; no duplicate money",
+		ElapsedNS:         time.Since(started).Nanoseconds(),
 		IntervalShortened: true,
 		ProductionPeriod:  "inflightLeaseTTL=30s, payoutSendingLease=5m, staleTaskTimeout=30m",
 		TestPeriod:        "lease_expires_at and claimed_at/updated_at backdated past those production periods",
@@ -461,11 +461,11 @@ func TestRecoveryLaneNetworkInterruption(t *testing.T) {
 		t.Fatalf("silent loss after partition: got %q", recovered)
 	}
 	emitRecoveryObservation(t, recoveryObservation{
-		Mode:      "network_interruption",
-		Killed:    "docker pause of MinIO (black-hole partition from the Storage client)",
-		Recovered: "unpause + new Storage client GetObject of the same key",
-		Invariant: "GetObject timed out during the partition (no silent success); bytes intact after reconnect",
-		ElapsedNS: time.Since(started).Nanoseconds(),
+		Mode:              "network_interruption",
+		Killed:            "docker pause of MinIO (black-hole partition from the Storage client)",
+		Recovered:         "unpause + new Storage client GetObject of the same key",
+		Invariant:         "GetObject timed out during the partition (no silent success); bytes intact after reconnect",
+		ElapsedNS:         time.Since(started).Nanoseconds(),
 		IntervalShortened: true,
 		ProductionPeriod:  "Storage client / S3 HTTP timeouts 10-20s; store breaker cooldown 10s",
 		TestPeriod:        "GetObject context deadline compressed to 2s during the partition",
@@ -509,15 +509,15 @@ func TestRecoveryLaneStaleWorkerExpiry(t *testing.T) {
 		t.Fatalf("expiry minted ledger rows=%d", n)
 	}
 	emitRecoveryObservation(t, recoveryObservation{
-		Mode:      "stale_worker_expiry",
-		Killed:    "worker claim (claimed_at backdated; worker process not present)",
-		Recovered: "StaleRunningTasks(staleTaskTimeout) + RequeueStaleTask",
-		Invariant: "lease expired once; job requeued exactly once; no payment",
-		ElapsedNS: time.Since(started).Nanoseconds(),
+		Mode:              "stale_worker_expiry",
+		Killed:            "worker claim (claimed_at backdated; worker process not present)",
+		Recovered:         "StaleRunningTasks(staleTaskTimeout) + RequeueStaleTask",
+		Invariant:         "lease expired once; job requeued exactly once; no payment",
+		ElapsedNS:         time.Since(started).Nanoseconds(),
 		IntervalShortened: true,
 		ProductionPeriod:  "staleTaskTimeout=30m",
 		TestPeriod:        "claimed_at set to now()-31m; StaleRunningTasks still used the production 30m timeout",
-		Details: map[string]any{"task_id": taskID.String(), "retries": retries},
+		Details:           map[string]any{"task_id": taskID.String(), "retries": retries},
 	})
 }
 
@@ -556,7 +556,7 @@ func TestRecoveryLaneInterruptedExecution(t *testing.T) {
 		Recovered: "task returned to retrying with claim cleared; second fail is noop",
 		Invariant: "claimable (retrying, claimed_by NULL); no orphan lease; no money",
 		ElapsedNS: time.Since(started).Nanoseconds(),
-		Details: map[string]any{"task_id": taskID.String(), "outcome": string(out)},
+		Details:   map[string]any{"task_id": taskID.String(), "outcome": string(out)},
 	})
 }
 
@@ -708,11 +708,11 @@ func TestRecoveryLanePartialSettlement(t *testing.T) {
 		t.Fatalf("cash evidence rows=%d sent=%d want 1/%d", cashRows, sentSum, claimed.RequestedCents)
 	}
 	emitRecoveryObservation(t, recoveryObservation{
-		Mode:      "partial_settlement",
-		Killed:    "process after ClaimPayout committed ledger+operation to sending, before provider cash / FinalizePayout",
-		Recovered: "RecoverStalePayoutOperations → outcome_unknown → ClaimOutcomeUnknownPayouts → FinalizePayout once",
-		Invariant: "state machine converged to released; exactly one cash_moved row; replay did not duplicate money",
-		ElapsedNS: time.Since(started).Nanoseconds(),
+		Mode:              "partial_settlement",
+		Killed:            "process after ClaimPayout committed ledger+operation to sending, before provider cash / FinalizePayout",
+		Recovered:         "RecoverStalePayoutOperations → outcome_unknown → ClaimOutcomeUnknownPayouts → FinalizePayout once",
+		Invariant:         "state machine converged to released; exactly one cash_moved row; replay did not duplicate money",
+		ElapsedNS:         time.Since(started).Nanoseconds(),
 		IntervalShortened: true,
 		ProductionPeriod:  "payoutSendingLease=5m; payoutIdempotencyRetryWindow=23h; minimumPayoutHold=24h",
 		TestPeriod:        "updated_at backdated 6m; retry window kept at 23h (created_at is now); release_at seeded in the past (same injection as payout fixtures)",
