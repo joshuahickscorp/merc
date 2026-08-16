@@ -1,5 +1,9 @@
 # Supply-chain release policy
 
+> **DRAFT · INTERNAL · NOT LEGAL ADVICE**
+>
+> Not reviewed by counsel. Does not constitute legal approval or compliance.
+
 Candidate and rollback control images are built from exact commits, published
 by digest, scanned, assigned SPDX SBOMs, signed with GitHub OIDC, and attested
 with the same SBOM plus a signed SLSA provenance predicate identifying the

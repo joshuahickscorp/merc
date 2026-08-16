@@ -1,8 +1,14 @@
 # Data Subject and Account Data Request Runbook
 
+> **DRAFT · INTERNAL · NOT LEGAL ADVICE**
+>
+> Not reviewed by counsel. Does not constitute legal approval or compliance.
+
 Status: **DRAFT / TECHNICAL WORKFLOW REHEARSED / HUMAN PROCEDURE NOT APPROVED**
 
-This runbook covers access, correction, portability, deletion, restriction and
+Scoped to the controlled backend alpha (named invitees, Stripe test-mode,
+synthetic workload input). This runbook covers access, correction,
+portability, deletion, restriction and
 objection requests. It does not substitute for counsel and does not authorize
 ad hoc production SQL. The repository now has an idempotent buyer export,
 deletion/tombstone, artifact-expiry manifest and restore-replay workflow with a

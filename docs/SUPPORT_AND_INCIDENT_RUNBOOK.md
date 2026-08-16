@@ -1,8 +1,13 @@
 # Support and Incident Runbook
 
+> **DRAFT · INTERNAL · NOT LEGAL ADVICE**
+>
+> Not reviewed by counsel. Does not constitute legal approval or compliance.
+
 Status: **DRAFT / CONTACTS UNSET / TECHNICAL TABLETOP PASS / QUALIFIED HUMAN TABLETOP NOT EXECUTED**
 
-This runbook covers the controlled synthetic-data, Stripe-test-mode canary. It
+This runbook covers the controlled backend alpha: named invitees, synthetic
+workload input, Stripe test-mode only, CAD, connected-account country CA. It
 does not authorize production or live-money response. Populate the contacts,
 decision authorities and jurisdiction-specific notification rules before use.
 

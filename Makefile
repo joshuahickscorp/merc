@@ -195,6 +195,7 @@ release-gates:
 # as its own target rather than blocking every build, and it must not be
 # silenced by editing the register.
 license-register:
+	python3 scripts/generate-license-inventory.py
 	python3 scripts/validate-license-register.py
 
 audit:

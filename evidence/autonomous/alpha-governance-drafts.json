@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "kind": "alpha_governance_drafts",
+  "status": "DRAFTS_WRITTEN_HUMAN_SIGNATURE_STILL_REQUIRED",
+  "binding_status": "UNBOUND",
+  "approvals_fabricated": false,
+  "constitutes_legal_approval": false,
+  "constitutes_compliance": false,
+  "qualified_human_approvals": 0,
+  "scope": "controlled backend alpha; Stripe test-mode; CAD; CA; operator-known participants; no public website",
+  "report": "docs/ALPHA_GOVERNANCE_DRAFT_REPORT.md",
+  "drafts": {
+    "created": [
+      "docs/ALPHA_SUPPLIER_ACKNOWLEDGEMENT.md",
+      "docs/ALPHA_BUYER_ACKNOWLEDGEMENT.md",
+      "docs/ALPHA_RISK_DISCLOSURE.md",
+      "docs/ALPHA_PAYMENT_PAYOUT_DISCLOSURE.md",
+      "docs/LICENSE_INVENTORY.md",
+      "docs/DEPENDENCY_LICENSE_REPORT.md",
+      "docs/ALPHA_GOVERNANCE_DRAFT_REPORT.md"
+    ],
+    "updated": [
+      "docs/CANARY_TERMS.md",
+      "docs/PRIVACY_NOTICE_DRAFT.md",
+      "docs/PRIVACY_DATA_GOVERNANCE.md",
+      "docs/ACCEPTABLE_USE_AND_ABUSE_RESPONSE.md",
+      "docs/DSAR_RUNBOOK.md",
+      "docs/SUPPORT_AND_INCIDENT_RUNBOOK.md",
+      "docs/THIRD_PARTY_LICENSES.md",
+      "docs/SUPPLY_CHAIN_POLICY.md"
+    ],
+    "generated": [
+      "docs/generated/license-inventory.json",
+      "docs/LICENSE_INVENTORY.md",
+      "docs/DEPENDENCY_LICENSE_REPORT.md"
+    ]
+  },
+  "external_receipts_not_minted": [
+    "evidence/external/privacy-qualified-approval.json",
+    "evidence/external/licensing-provenance-approval.json",
+    "evidence/external/staffed-abuse-route-or-tabletop.json"
+  ],
+  "reason_receipts_absent": "Drafts are not approval. A named human signature is still required. This file must never be copied to evidence/external/ as a PASS receipt.",
+  "legal_review": "ops/legal-review.json remains NO_GO; every approval row remains PENDING"
+}

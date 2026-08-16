@@ -22,6 +22,8 @@
   },
   "qualified_human_approvals": 0,
   "approvals_fabricated": false,
+  "alpha_governance_drafts": "docs/ALPHA_GOVERNANCE_DRAFT_REPORT.md",
+  "alpha_governance_drafts_status": "DRAFTS_WRITTEN_HUMAN_SIGNATURE_STILL_REQUIRED",
   "qualified_human_tabletop": "NOT EXECUTED",
   "gate": "Level B NO-GO",
   "binding_status": "UNBOUND",

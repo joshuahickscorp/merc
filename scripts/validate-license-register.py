@@ -10,13 +10,48 @@ as internal contracts, but that does not clear any future third-party model.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PRICING = ROOT / "control" / "pricing.go"
 REGISTER = ROOT / "docs" / "THIRD_PARTY_LICENSES.md"
+GENERATED = ROOT / "docs" / "generated" / "license-inventory.json"
+
+
+def tracked_text(rel: str) -> str:
+    path = ROOT / rel
+    if path.is_file():
+        return path.read_text(encoding="utf-8")
+    completed = subprocess.run(
+        ["git", "show", f"HEAD:{rel}"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        fail(f"missing {rel} on disk and in HEAD")
+    return completed.stdout
+
+
+def tracked_sha256(rel: str) -> str:
+    path = ROOT / rel
+    if path.is_file():
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+    completed = subprocess.run(
+        ["git", "show", f"HEAD:{rel}"],
+        cwd=ROOT,
+        capture_output=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        fail(f"missing {rel} on disk and in HEAD")
+    return hashlib.sha256(completed.stdout).hexdigest()
 
 # Map catalogue model ids to register row labels in THIRD_PARTY_LICENSES.md.
 MODEL_REGISTER_LABELS = {
@@ -33,7 +68,7 @@ def fail(message: str) -> None:
 
 
 def repricing_model_ids() -> list[str]:
-    text = PRICING.read_text(encoding="utf-8")
+    text = tracked_text("control/pricing.go")
     # Collect ModelID strings inside repricingBenchmarks.
     block = re.search(
         r"var repricingBenchmarks\s*=\s*\[\]measuredThroughput\{(.*?)\n\}",
@@ -69,9 +104,50 @@ def register_status(label: str, text: str) -> str | None:
     return None
 
 
+def validate_generated_inventory() -> None:
+    """The software-graph inventory must exist and be bound to the lockfiles.
+
+    This is independent of the catalogue-model BLOCKED rows. A missing
+    generated inventory is an engineering fail. BLOCKED Llama/MiniLM rows
+    remain a legal fail on purpose.
+    """
+    if not GENERATED.is_file():
+        fail("missing docs/generated/license-inventory.json; run scripts/generate-license-inventory.py")
+    try:
+        payload = json.loads(GENERATED.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        fail(f"unreadable generated inventory: {exc}")
+    if payload.get("kind") != "merc_generated_license_inventory":
+        fail("generated inventory kind mismatch")
+    if payload.get("status") != "GENERATED_DRAFT_NOT_APPROVAL":
+        fail("generated inventory must remain GENERATED_DRAFT_NOT_APPROVAL")
+    inputs = payload.get("inputs") or {}
+    for rel in (
+        "control/go.mod",
+        "control/go.sum",
+        "agent/Cargo.lock",
+        "clients/sdk/python/pyproject.toml",
+        "clients/sdk/typescript/package.json",
+        "clients/sdk/typescript/package-lock.json",
+    ):
+        recorded = (inputs.get(rel) or {}).get("sha256")
+        observed = tracked_sha256(rel)
+        if recorded != observed:
+            fail(
+                f"generated inventory stale for {rel}: "
+                f"recorded={recorded} observed={observed}"
+            )
+    inventory_md = ROOT / "docs" / "LICENSE_INVENTORY.md"
+    report_md = ROOT / "docs" / "DEPENDENCY_LICENSE_REPORT.md"
+    if not inventory_md.is_file() or "GENERATED" not in inventory_md.read_text(encoding="utf-8"):
+        fail("docs/LICENSE_INVENTORY.md missing or not marked GENERATED")
+    if not report_md.is_file() or "GENERATED" not in report_md.read_text(encoding="utf-8"):
+        fail("docs/DEPENDENCY_LICENSE_REPORT.md missing or not marked GENERATED")
+
+
 def main() -> None:
-    if not PRICING.is_file():
-        fail("missing control/pricing.go")
+    validate_generated_inventory()
+    # pricing.go may be absent from a sparse checkout; read it from HEAD.
     if not REGISTER.is_file():
         fail("missing docs/THIRD_PARTY_LICENSES.md")
 

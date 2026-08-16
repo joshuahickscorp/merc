@@ -25,7 +25,7 @@
       "status": "PENDING",
       "qualified_reviewer_required": true,
       "review_scope": ["lawful roles and purposes", "DSAR export and authenticated delivery", "deletion and tombstone retention", "subprocessors and transfers", "retention schedule"],
-      "required_evidence": ["docs/PRIVACY_DATA_GOVERNANCE.md", "docs/DSAR_RUNBOOK.md", "evidence/autonomous/technical-exercises.json", "ops/legal-review.json"],
+      "required_evidence": ["docs/PRIVACY_DATA_GOVERNANCE.md", "docs/PRIVACY_NOTICE_DRAFT.md", "docs/DSAR_RUNBOOK.md", "docs/ALPHA_GOVERNANCE_DRAFT_REPORT.md", "evidence/autonomous/technical-exercises.json", "ops/legal-review.json"],
       "decision_required": "approve or reject synthetic personal-data processing for the exact canary"
     },
     {
@@ -33,7 +33,7 @@
       "status": "PENDING",
       "qualified_reviewer_required": true,
       "review_scope": ["entity and jurisdiction", "canary terms and acceptance", "privacy notice and AUP", "tax boundaries", "no-real-money disclosures"],
-      "required_evidence": ["docs/CANARY_TERMS.md", "docs/PRIVACY_NOTICE_DRAFT.md", "docs/ACCEPTABLE_USE_AND_ABUSE_RESPONSE.md", "ops/legal-review.json"],
+      "required_evidence": ["docs/CANARY_TERMS.md", "docs/ALPHA_SUPPLIER_ACKNOWLEDGEMENT.md", "docs/ALPHA_BUYER_ACKNOWLEDGEMENT.md", "docs/ALPHA_RISK_DISCLOSURE.md", "docs/ALPHA_PAYMENT_PAYOUT_DISCLOSURE.md", "docs/PRIVACY_NOTICE_DRAFT.md", "docs/ACCEPTABLE_USE_AND_ABUSE_RESPONSE.md", "docs/ALPHA_GOVERNANCE_DRAFT_REPORT.md", "ops/legal-review.json"],
       "decision_required": "approve or reject the exact private-canary terms and operating scope"
     },
     {
@@ -41,7 +41,7 @@
       "status": "PENDING",
       "qualified_reviewer_required": true,
       "review_scope": ["project license", "dependency notices", "model licenses and cards", "visual and font provenance", "distribution obligations"],
-      "required_evidence": ["NOTICE", "docs/THIRD_PARTY_LICENSES.md", "docs/SUPPLY_CHAIN_POLICY.md", "ops/model-provenance.json", "ops/asset-provenance.json", "ops/rust-paste-audit.json"],
+      "required_evidence": ["NOTICE", "docs/THIRD_PARTY_LICENSES.md", "docs/LICENSE_INVENTORY.md", "docs/DEPENDENCY_LICENSE_REPORT.md", "docs/SUPPLY_CHAIN_POLICY.md", "ops/model-provenance.json", "ops/asset-provenance.json", "ops/rust-paste-audit.json"],
       "decision_required": "approve or reject distribution of the exact hashes in the candidate"
     },
     {
@@ -65,7 +65,7 @@
       "status": "PENDING",
       "qualified_reviewer_required": true,
       "review_scope": ["operator-controlled devices", "worker enrollment and revocation", "egress and data handling", "verification and payout holds", "prohibited supplier expansion"],
-      "required_evidence": ["docs/CANARY_TERMS.md", "docs/ACCEPTABLE_USE_AND_ABUSE_RESPONSE.md", "evidence/autonomous/hardware-characterization.json", "ops/agent-review-notes.json"],
+      "required_evidence": ["docs/CANARY_TERMS.md", "docs/ALPHA_SUPPLIER_ACKNOWLEDGEMENT.md", "docs/ACCEPTABLE_USE_AND_ABUSE_RESPONSE.md", "evidence/autonomous/hardware-characterization.json", "ops/agent-review-notes.json"],
       "decision_required": "approve or reject only the operator-controlled supplier cohort"
     },
     {

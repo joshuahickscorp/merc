@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -21,22 +22,72 @@ def require(condition: bool, message: str) -> None:
         raise ValidationError(message)
 
 
-def read_json(path: str) -> dict:
+def git_show_bytes(rel: str) -> bytes:
+    completed = subprocess.run(
+        ["git", "show", f"HEAD:{rel}"],
+        cwd=ROOT,
+        capture_output=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise ValidationError(f"{rel}: not on disk and not in HEAD")
+    return completed.stdout
+
+
+def read_text(path: str) -> str:
     target = ROOT / path
+    if target.is_file():
+        return target.read_text(encoding="utf-8")
+    return git_show_bytes(path).decode("utf-8")
+
+
+def read_json(path: str) -> dict:
     try:
-        value = json.loads(target.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+        value = json.loads(read_text(path))
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError) as exc:
         raise ValidationError(f"{path}: invalid or unreadable JSON: {exc}") from exc
     require(isinstance(value, dict), f"{path}: root must be an object")
     return value
 
 
 def sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as source:
-        for chunk in iter(lambda: source.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    if path.is_file():
+        digest = hashlib.sha256()
+        with path.open("rb") as source:
+            for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
+    rel = path.relative_to(ROOT).as_posix()
+    return hashlib.sha256(git_show_bytes(rel)).hexdigest()
+
+
+MANDATORY_DRAFT_HEADER = (
+    "DRAFT · INTERNAL · NOT LEGAL ADVICE",
+    "Not reviewed by counsel. Does not constitute legal approval or compliance.",
+)
+
+# Lane L4 drafts. A missing header is a fail. A claim of approval is a fail.
+ALPHA_GOVERNANCE_DRAFTS = (
+    "docs/CANARY_TERMS.md",
+    "docs/ALPHA_SUPPLIER_ACKNOWLEDGEMENT.md",
+    "docs/ALPHA_BUYER_ACKNOWLEDGEMENT.md",
+    "docs/PRIVACY_NOTICE_DRAFT.md",
+    "docs/ACCEPTABLE_USE_AND_ABUSE_RESPONSE.md",
+    "docs/ALPHA_RISK_DISCLOSURE.md",
+    "docs/ALPHA_PAYMENT_PAYOUT_DISCLOSURE.md",
+    "docs/PRIVACY_DATA_GOVERNANCE.md",
+    "docs/LICENSE_INVENTORY.md",
+    "docs/DEPENDENCY_LICENSE_REPORT.md",
+    "docs/ALPHA_GOVERNANCE_DRAFT_REPORT.md",
+    "docs/DSAR_RUNBOOK.md",
+    "docs/SUPPORT_AND_INCIDENT_RUNBOOK.md",
+    "docs/THIRD_PARTY_LICENSES.md",
+)
+
+FORBIDDEN_APPROVAL_CLAIMS = (
+    "QUALIFIED APPROVAL GRANTED",
+    "THIS DOCUMENT IS APPROVED",
+)
 
 
 def validate_documents() -> None:
@@ -49,6 +100,17 @@ def validate_documents() -> None:
         "docs/SUPPORT_AND_INCIDENT_RUNBOOK.md": ("DRAFT", "QUALIFIED HUMAN TABLETOP NOT EXECUTED", "Stripe"),
         "docs/THIRD_PARTY_LICENSES.md": ("INCOMPLETE", "RELEASE BLOCKING", "Llama"),
         "NOTICE": ("Built with Llama", "licensed component-by-component", "Apache-2.0"),
+        "docs/ALPHA_SUPPLIER_ACKNOWLEDGEMENT.md": ("DRAFT", "test-mode", "Termination"),
+        "docs/ALPHA_BUYER_ACKNOWLEDGEMENT.md": ("DRAFT", "no SLA", "test-mode"),
+        "docs/ALPHA_RISK_DISCLOSURE.md": ("DRAFT", "pre-production", "SLA"),
+        "docs/ALPHA_PAYMENT_PAYOUT_DISCLOSURE.md": ("DRAFT", "No live money", "test mode"),
+        "docs/LICENSE_INVENTORY.md": ("GENERATED", "GENERATED_DRAFT_NOT_APPROVAL", "go.mod"),
+        "docs/DEPENDENCY_LICENSE_REPORT.md": ("GENERATED", "incompatible", "Cargo.lock"),
+        "docs/ALPHA_GOVERNANCE_DRAFT_REPORT.md": (
+            "Before backend alpha",
+            "Before live money",
+            "human signature is still required",
+        ),
     }
     for relative, needles in required.items():
         target = ROOT / relative
@@ -56,6 +118,31 @@ def validate_documents() -> None:
         text = target.read_text(encoding="utf-8")
         for needle in needles:
             require(needle in text, f"{relative}: missing required marker {needle!r}")
+
+    for relative in ALPHA_GOVERNANCE_DRAFTS:
+        target = ROOT / relative
+        require(target.is_file(), f"missing alpha governance draft: {relative}")
+        text = target.read_text(encoding="utf-8")
+        for line in MANDATORY_DRAFT_HEADER:
+            require(line in text, f"{relative}: missing mandatory header line {line!r}")
+        for claim in FORBIDDEN_APPROVAL_CLAIMS:
+            require(claim not in text, f"{relative}: must not claim {claim!r}")
+
+    inventory = ROOT / "docs/generated/license-inventory.json"
+    require(inventory.is_file(), "missing generated license inventory JSON")
+    payload = json.loads(inventory.read_text(encoding="utf-8"))
+    require(
+        payload.get("kind") == "merc_generated_license_inventory",
+        "generated inventory kind mismatch",
+    )
+    require(
+        payload.get("status") == "GENERATED_DRAFT_NOT_APPROVAL",
+        "generated inventory must not claim approval",
+    )
+    require(
+        payload.get("honesty", {}).get("does_not_constitute_approval_or_compliance") is True,
+        "generated inventory must deny approval",
+    )
 
 
 def validate_review_packets() -> None:
@@ -167,7 +254,16 @@ def validate_assets() -> None:
                 f"invalid or duplicate asset path: {relative!r}")
         seen.add(relative)
         target = ROOT / relative
-        require(target.is_file(), f"asset missing: {relative}")
+        require(
+            target.is_file()
+            or subprocess.run(
+                ["git", "cat-file", "-e", f"HEAD:{relative}"],
+                cwd=ROOT,
+                capture_output=True,
+            ).returncode
+            == 0,
+            f"asset missing: {relative}",
+        )
         observed = sha256(target)
         require(observed == asset.get("sha256"),
                 f"asset hash mismatch for {relative}: expected {asset.get('sha256')}, got {observed}")
@@ -181,7 +277,7 @@ def validate_models() -> None:
     require(provenance.get("status") == "BLOCKED_LICENSE_AND_FINAL_CANDIDATE_BINDING",
             "model provenance must remain blocked for licensing and final binding")
     authority_models = {item["id"]: item for item in authority.get("models", [])}
-    rust = (ROOT / "agent/src/models.rs").read_text(encoding="utf-8")
+    rust = read_text("agent/src/models.rs")
     for model in provenance.get("models", []):
         model_id = model.get("catalog_id")
         declared = authority_models.get(model_id)
