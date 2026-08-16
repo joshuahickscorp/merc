@@ -104,6 +104,54 @@ CREATE TRIGGER wm_phase_observation_source_immutable
     BEFORE UPDATE ON wm.phase_observation
     FOR EACH ROW EXECUTE FUNCTION wm.phase_observation_source_is_immutable();
 
+-- Epistemic class rank: larger is stronger evidence. The seven directive
+-- classes are the only representable values (NULL rank = unknown class).
+-- A rewrite that raises rank would launder a weaker observation into a
+-- stronger class; source immutability above already refuses every rewrite,
+-- including upgrades such as WORKER_CLAIM_UNCORROBORATED -> CONTROL_PLANE_MEASURED.
+CREATE OR REPLACE FUNCTION wm.epistemic_class_rank(class text)
+RETURNS integer
+LANGUAGE sql
+IMMUTABLE
+PARALLEL SAFE
+AS $$
+    SELECT CASE class
+        WHEN 'CONTROL_PLANE_MEASURED'      THEN 70
+        WHEN 'EXTERNALLY_ATTESTED'         THEN 60
+        WHEN 'WORKER_CLAIM_CORROBORATED'   THEN 50
+        WHEN 'WORKER_CLAIM_UNCORROBORATED' THEN 40
+        WHEN 'DERIVED'                     THEN 30
+        WHEN 'SYNTHETIC'                   THEN 20
+        WHEN 'COUNTERFACTUAL'              THEN 10
+        ELSE NULL
+    END
+$$;
+ALTER FUNCTION wm.epistemic_class_rank(text) OWNER TO wm_owner;
+
+-- value_num / measurement_state are committed measurement facts. Deleting the
+-- row, nulling the number, rewriting the number, or flipping UNKNOWN -> MEASURED
+-- would let later evidence look stronger (or erase what was observed).
+-- trust_state and freshness may still evolve; these two columns may not.
+CREATE OR REPLACE FUNCTION wm.phase_observation_measurement_is_immutable()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        RAISE EXCEPTION 'wm.phase_observation is append-only; value_num/measurement_state cannot be deleted';
+    END IF;
+    IF NEW.measurement_state IS DISTINCT FROM OLD.measurement_state
+       OR NEW.value_num IS DISTINCT FROM OLD.value_num THEN
+        RAISE EXCEPTION 'wm.phase_observation value_num/measurement_state is immutable (measurement_state % -> %, value_num % -> %)',
+            OLD.measurement_state, NEW.measurement_state, OLD.value_num, NEW.value_num;
+    END IF;
+    RETURN NEW;
+END $$;
+ALTER FUNCTION wm.phase_observation_measurement_is_immutable() OWNER TO wm_owner;
+
+DROP TRIGGER IF EXISTS wm_phase_observation_measurement_immutable ON wm.phase_observation;
+CREATE TRIGGER wm_phase_observation_measurement_immutable
+    BEFORE UPDATE OR DELETE ON wm.phase_observation
+    FOR EACH ROW EXECUTE FUNCTION wm.phase_observation_measurement_is_immutable();
+
 -- Grants. writer = DML in wm only; reader = SELECT in wm only. Neither gets any
 -- privilege on public (authority). The hard boundary is the ABSENCE of any
 -- public grant plus the explicit revokes below.
