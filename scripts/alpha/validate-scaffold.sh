@@ -42,8 +42,16 @@ for id in P1-STAGING P1-STRIPE-TEST P1-OFFSITE-RESTORE P1-ALERT-DELIVERY \
   grep -Fq "$crit" "$ROOT/docs/ALPHA_GATE_PLAN.md" || die "plan does not quote $id exit_criterion"
 done
 grep -Fq 'P1-INDEPENDENT-APPROVAL' "$ROOT/docs/ALPHA_GATE_PLAN.md" \
-  || die "plan does not record the dropped independent-approval gate"
-pass "plan quotes in-scope exit criteria"
+  || die "plan does not name P1-INDEPENDENT-APPROVAL"
+grep -Fq 'alpha_ledger_gate_state' "$ROOT/scripts/alpha/lib.sh" \
+  || die "lib.sh must derive P1 state from ops/go-no-go.json"
+grep -Fq 'ops/go-no-go.json' "$ROOT/scripts/alpha/lib.sh" \
+  || die "lib.sh must name the go-no-go ledger"
+[ -f "$ROOT/docker-compose.canary.yml" ] \
+  || die "missing docker-compose.canary.yml (launch review cites it)"
+grep -Fq 'MERC_ENV: staging' "$ROOT/docker-compose.canary.yml" \
+  || die "docker-compose.canary.yml must override MERC_ENV=staging"
+pass "plan quotes in-scope exit criteria; P1 approval follows one ledger"
 
 # Fail-closed contracts exist in the shared lib / soak driver.
 for needle in alpha_reject_live_stripe alpha_require_boot alpha_require_prereqs \

@@ -7,10 +7,11 @@ ALPHA_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 ALPHA_ROOT="$(cd "$ALPHA_LIB_DIR/../.." && pwd -P)"
 ALPHA_RECEIPT_DIR="${MERC_ALPHA_RECEIPT_DIR:-$ALPHA_ROOT/.artifacts/alpha}"
 ALPHA_BOOT_RECEIPT="${MERC_ALPHA_BOOT_RECEIPT:-$ALPHA_ROOT/evidence/state/alpha-boot-green.json}"
-ALPHA_GO_NO_GO="$ALPHA_ROOT/ops/go-no-go.json"
+ALPHA_GO_NO_GO="${MERC_ALPHA_GO_NO_GO:-$ALPHA_ROOT/ops/go-no-go.json}"
 
-# Gate identifiers match ops/go-no-go.json. Order is enforced by
-# ALPHA_PREREQS_* below. P1-INDEPENDENT-APPROVAL is dropped.
+# Gate identifiers and P1-INDEPENDENT-APPROVAL state come from
+# ops/go-no-go.json. This file does not independently drop or pass a gate.
+# Order is enforced by ALPHA_PREREQS_* below.
 ALPHA_GATES=(
   boot
   P1-STAGING
@@ -130,8 +131,50 @@ alpha_load_env_optional() {
   alpha_reject_live_stripe
 }
 
+alpha_boot_receipt_commit() {
+  local file="${1:-$ALPHA_BOOT_RECEIPT}"
+  [ -f "$file" ] || return 0
+  jq -er '.commit // .source.commit // empty' "$file" 2>/dev/null || true
+}
+
+# Ledger state for a P1 id. open_p1 wins; dropped_p1 is the only way to
+# de-scope a gate. lib.sh does not invent either list.
+alpha_ledger_gate_state() {
+  local gate="$1"
+  if [ ! -f "$ALPHA_GO_NO_GO" ]; then
+    printf 'unknown'
+    return
+  fi
+  if ! command -v jq >/dev/null 2>&1; then
+    printf 'unknown'
+    return
+  fi
+  if jq -e --arg id "$gate" '.open_p1[]? | select(.id==$id)' "$ALPHA_GO_NO_GO" >/dev/null 2>&1; then
+    printf 'open'
+    return
+  fi
+  if jq -e --arg id "$gate" '
+      ((.dropped_p1 // [])[])
+      | if type=="object" then .id else . end
+      | select(.==$id)
+    ' "$ALPHA_GO_NO_GO" >/dev/null 2>&1; then
+    printf 'dropped'
+    return
+  fi
+  printf 'absent'
+}
+
+alpha_ledger_gate_owner() {
+  local gate="$1"
+  jq -er --arg id "$gate" '
+    (.open_p1[]? | select(.id==$id) | .owner)
+    // ((.dropped_p1 // [])[] | select(type=="object" and .id==$id) | .owner)
+    // empty
+  ' "$ALPHA_GO_NO_GO" 2>/dev/null || true
+}
+
 alpha_boot_status() {
-  local file="$ALPHA_BOOT_RECEIPT"
+  local file="$ALPHA_BOOT_RECEIPT" receipt_commit expected
   if [ ! -f "$file" ]; then
     printf 'missing'
     return
@@ -140,15 +183,21 @@ alpha_boot_status() {
     printf 'unknown'
     return
   fi
-  if jq -e '
+  if ! jq -e '
     .status == "PASS" and
     (.kind == "alpha_boot_green" or .kind == "release_image_boot") and
     .binding_status == "BOUND"
   ' "$file" >/dev/null 2>&1; then
-    printf 'PASS'
+    printf 'FAIL'
     return
   fi
-  printf 'FAIL'
+  receipt_commit="$(alpha_boot_receipt_commit "$file")"
+  expected="$(alpha_expected_commit)"
+  if [ -z "$receipt_commit" ] || [ "$receipt_commit" != "$expected" ]; then
+    printf 'FAIL'
+    return
+  fi
+  printf 'PASS'
 }
 
 alpha_boot_is_green() {
@@ -156,9 +205,17 @@ alpha_boot_is_green() {
 }
 
 alpha_require_boot() {
-  local status
+  local status receipt_commit expected
   status="$(alpha_boot_status)"
-  [ "$status" = PASS ] || alpha_die "boot is not green (receipt $ALPHA_BOOT_RECEIPT status=$status). Wait for the power-authority lane (VENDOR_WALL_UPPER_BOUND) to write a BOUND PASS receipt. Deploy/execute is refused."
+  if [ "$status" = PASS ]; then
+    return
+  fi
+  receipt_commit="$(alpha_boot_receipt_commit)"
+  expected="$(alpha_expected_commit)"
+  if [ -n "$receipt_commit" ] && [ "$receipt_commit" != "$expected" ]; then
+    alpha_die "boot receipt commit $receipt_commit != candidate $expected (receipt $ALPHA_BOOT_RECEIPT). Re-seal at this HEAD after G070 is green, or refuse deploy. Deploy/execute is refused."
+  fi
+  alpha_die "boot is not green (receipt $ALPHA_BOOT_RECEIPT status=$status). Wait for the power-authority lane (VENDOR_WALL_UPPER_BOUND) to write a BOUND PASS receipt at this HEAD. Deploy/execute is refused."
 }
 
 alpha_receipt_status() {
@@ -167,7 +224,7 @@ alpha_receipt_status() {
     alpha_boot_status
     return
   fi
-  if [ "$gate" = P1-INDEPENDENT-APPROVAL ]; then
+  if [ "$(alpha_ledger_gate_state "$gate")" = dropped ]; then
     printf 'dropped'
     return
   fi
@@ -244,6 +301,7 @@ alpha_write_receipt() {
 }
 
 alpha_who_for() {
+  local owner
   case "$1" in
     boot) printf 'power-authority lane (VENDOR_WALL_UPPER_BOUND)' ;;
     P1-STAGING) printf 'SUPERVISOR (ssh/deploy)' ;;
@@ -253,14 +311,21 @@ alpha_who_for() {
     P1-CANARY-REHEARSAL) printf 'SUPERVISOR + 2 Metal devices' ;;
     P1-RECOVERY-SOAK) printf 'SUPERVISOR RUN-LAST' ;;
     P1-GOVERNANCE) printf 'operator (governance bundle)' ;;
-    P1-INDEPENDENT-APPROVAL) printf 'dropped' ;;
+    P1-INDEPENDENT-APPROVAL)
+      if [ "$(alpha_ledger_gate_state "$1")" = dropped ]; then
+        printf 'dropped (ops/go-no-go.json)'
+      else
+        owner="$(alpha_ledger_gate_owner "$1")"
+        printf '%s' "${owner:-repository_owner}"
+      fi
+      ;;
     *) printf 'unknown' ;;
   esac
 }
 
 alpha_state_label() {
   local gate="$1" status prereq
-  if [ "$gate" = P1-INDEPENDENT-APPROVAL ]; then
+  if [ "$(alpha_ledger_gate_state "$gate")" = dropped ]; then
     printf 'dropped'
     return
   fi

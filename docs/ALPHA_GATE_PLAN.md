@@ -28,10 +28,11 @@ One screen. Living copy: `scripts/alpha/status.sh`.
 | **P1-CANARY-REHEARSAL** | blocked (staging) | **SUPERVISOR** + 2 Metal devices |
 | **P1-RECOVERY-SOAK** | blocked (RUN-LAST) | **SUPERVISOR** — do not start |
 | **P1-GOVERNANCE** | needs-supervisor | operator (eight named approvals) |
-| **P1-INDEPENDENT-APPROVAL** | **dropped** | operator de-scoped; operator *is* governance |
+| **P1-INDEPENDENT-APPROVAL** | `ops/go-no-go.json` | repository_owner (this plan does not decide) |
 
-Dropped does not reopen later in this plan. Do not wait on a second
-reviewer.
+`P1-INDEPENDENT-APPROVAL` is whatever `ops/go-no-go.json` records.
+`scripts/alpha/lib.sh` reads that ledger and does not independently drop
+or pass the gate.
 
 ---
 
@@ -91,7 +92,8 @@ gates behind canary.
 
 1. **Boot not green** — missing or non-`BOUND`/`PASS`
    `evidence/state/alpha-boot-green.json` (override path:
-   `MERC_ALPHA_BOOT_RECEIPT`). Historical
+   `MERC_ALPHA_BOOT_RECEIPT`), or a receipt whose `commit` is not
+   `git rev-parse HEAD` (override: `MERC_CANDIDATE_COMMIT`). Historical
    `evidence/state/release-image-boot.json` is `UNBOUND` and does **not**
    count.
 2. **Live Stripe** — any of `STRIPE_SECRET_KEY`,
@@ -157,8 +159,8 @@ The power-authority lane writes:
 
 Default path: `evidence/state/alpha-boot-green.json`.
 `scripts/alpha/lib.sh` accepts `kind` `alpha_boot_green` or
-`release_image_boot`, but only with `binding_status=BOUND` and
-`status=PASS`.
+`release_image_boot`, but only with `binding_status=BOUND`,
+`status=PASS`, and `commit` equal to the candidate HEAD.
 
 ---
 
@@ -197,7 +199,7 @@ droplet: that compose starts its own postgres/minio and will fight
    `MERC_PAYMENT_PROVIDER=stripe`, `MERC_CANARY_MODE=true`,
    `MERC_PAYOUT_EXPORT` unset, `MERC_TOKEN_KEY` **byte-identical** to
    the value already sealing the database.
-5. `docker compose -f docker-compose.smallhost.yml up -d --no-deps --no-recreate postgres minio`
+5. `docker compose -f docker-compose.smallhost.yml -f docker-compose.canary.yml up -d --no-deps --no-recreate postgres minio`
    then `up -d --no-deps control caddy prometheus alertmanager`.
    Confirm postgres/minio `StartedAt` did not change.
 6. TLS: grey-cloud A records so Caddy HTTP-01 can issue for
@@ -410,8 +412,13 @@ the exact 40-hex candidate commit.
 
 ## P1-INDEPENDENT-APPROVAL
 
-**Dropped.** Operator de-scoped a non-author collaborator. Do not block
-the graph on `GITHUB_RELEASE_REVIEWER_LOGIN`.
+Status is whatever `ops/go-no-go.json` records. `scripts/alpha/lib.sh`
+reads that file and does not independently drop or pass this gate. This
+plan does not decide it.
+
+If the ledger lists the id under `open_p1`, it is open. If the operator
+later moves it to `dropped_p1`, the scripts follow. Do not fork a second
+decision here or in lib.sh.
 
 ---
 

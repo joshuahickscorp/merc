@@ -44,7 +44,7 @@ print_runbook() {
 # Do not recreate postgres/minio. Do not docker compose down.
 
 ## 0. Preconditions the supervisor confirms
-# - evidence/state/alpha-boot-green.json is BOUND PASS (VENDOR_WALL_UPPER_BOUND)
+# - evidence/state/alpha-boot-green.json is BOUND PASS at commit $commit
 # - tree used to build is this commit (or MERC_CANDIDATE_COMMIT)
 # - .env on the droplet is chmod 600; MERC_TOKEN_KEY is the EXISTING value
 # - MERC_PAYMENT_MODE=test  MERC_PAYMENT_PROVIDER=stripe  MERC_CANARY_MODE=true
@@ -71,13 +71,14 @@ ssh $droplet 'docker image inspect merc/control:${commit:0:12} --format {{.Id}} 
 
 ## 3. SUPERVISOR — env on the droplet (do not regenerate secrets)
 # Preferred compose for this 1-vCPU host: docker-compose.smallhost.yml
+# plus docker-compose.canary.yml (MERC_ENV=staging so TEST payment mode is allowed).
 # Overlay only control + caddy (+ prometheus/alertmanager for later gates).
 # Existing data plane stays:
 ssh $droplet 'docker ps --format "{{.Names}} {{.Status}}" | grep -E "postgres|minio|control|caddy"'
 # Expect merc-postgres-1 and merc-minio-1 healthy. Control absent.
 #
 # In the droplet .env (chmod 600), required for the alpha canary:
-#   MERC_ENV=production
+#   MERC_ENV=staging
 #   MERC_PAYMENT_MODE=test
 #   MERC_PAYMENT_PROVIDER=stripe
 #   MERC_CANARY_MODE=true
@@ -101,11 +102,11 @@ ssh $droplet 'docker ps --format "{{.Names}} {{.Status}}" | grep -E "postgres|mi
 
 ## 4. SUPERVISOR — start control + Caddy against the existing data plane
 ssh $droplet 'cd /opt/merc && \\
-  docker compose -f docker-compose.smallhost.yml up -d --no-deps --no-recreate postgres minio && \\
-  docker compose -f docker-compose.smallhost.yml up -d --no-deps --build=false control caddy prometheus alertmanager'
+  docker compose -f docker-compose.smallhost.yml -f docker-compose.canary.yml up -d --no-deps --no-recreate postgres minio && \\
+  docker compose -f docker-compose.smallhost.yml -f docker-compose.canary.yml up -d --no-deps --build=false control caddy prometheus alertmanager'
 # If the compose file still has \`build:\` for control, override the image:
 #   docker tag merc/control:${commit:0:12} computexchange/control:$commit
-#   MERC_BUILD_COMMIT=$commit docker compose -f docker-compose.smallhost.yml up -d --no-deps control caddy
+#   MERC_BUILD_COMMIT=$commit docker compose -f docker-compose.smallhost.yml -f docker-compose.canary.yml up -d --no-deps control caddy
 #
 # Confirm we did not replace the data plane:
 ssh $droplet 'docker inspect -f "{{.Id}} {{.State.Status}} {{.State.StartedAt}}" merc-postgres-1 merc-minio-1'
@@ -137,6 +138,9 @@ check_local() {
   alpha_load_env_optional
   [ -f "$ROOT/Dockerfile.control" ] || alpha_die "missing Dockerfile.control"
   [ -f "$ROOT/docker-compose.smallhost.yml" ] || alpha_die "missing docker-compose.smallhost.yml"
+  [ -f "$ROOT/docker-compose.canary.yml" ] || alpha_die "missing docker-compose.canary.yml"
+  grep -q 'MERC_ENV: staging' "$ROOT/docker-compose.canary.yml" \
+    || alpha_die "docker-compose.canary.yml must override MERC_ENV=staging"
   [ -f "$ROOT/Caddyfile" ] || alpha_die "missing Caddyfile"
   [ -f "$ROOT/pricing/board.json" ] || alpha_die "missing pricing/board.json"
   [ -f "$ROOT/ops/smallhost/postgresql.conf" ] || alpha_die "missing ops/smallhost/postgresql.conf"
@@ -144,7 +148,7 @@ check_local() {
   grep -q 'FROM gcr.io/distroless/static:nonroot@sha256:' "$ROOT/Dockerfile.control" \
     || alpha_die "Dockerfile.control is not digest-pinned distroless"
   if grep -n 'sk_live_\|rk_live_\|pk_live_' "$ROOT/docker-compose.smallhost.yml" \
-    "$ROOT/docker-compose.prod.yml" >/dev/null 2>&1; then
+    "$ROOT/docker-compose.prod.yml" "$ROOT/docker-compose.canary.yml" >/dev/null 2>&1; then
     alpha_die "compose files must not contain live Stripe prefixes"
   fi
   alpha_log "local artifacts present (Dockerfile.control, smallhost compose, Caddyfile)"

@@ -71,7 +71,7 @@ fabricated by the agent:
 
 | Gate | State |
 |---|---|
-| boot | DONE (`evidence/state/alpha-boot-green.json`, VENDOR_WALL_UPPER_BOUND) |
+| boot | DONE only when `evidence/state/alpha-boot-green.json` is BOUND PASS at the candidate HEAD (`scripts/alpha/lib.sh` refuses deploy otherwise) |
 | P1-STAGING (deploy) | control serving in test mode at the launch line (this review). Public TLS pending the canary artifact. |
 | P1-STRIPE-TEST | pending; fix settlement currency + webhook secrets first |
 | P1-OFFSITE-RESTORE | pending (backup dump + cross-provider restore drill) |
