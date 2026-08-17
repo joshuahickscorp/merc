@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "kind": "s4_staging_close_loop_submit",
+  "classification": "ALPHA_CONTROL",
+  "does_not_satisfy": "EXTERNAL_ALPHA_PROVEN",
+  "participant_class": "operator_controlled",
+  "synthetic": true,
+  "controlled_by_operator": true,
+  "operator_owned": true,
+  "external_alpha_proven": false,
+  "observed_at": "2026-08-17T20:36:24Z",
+  "plane": "https://mercmerc.net",
+  "status": "REFUSED",
+  "deployed_commit": "0ffbd52dd7ace54e5ac620c38d724af4fb2e7c10",
+  "anonymous_submit": {
+    "http": 401,
+    "body": {
+      "error": "missing or malformed Authorization bearer token",
+      "code": "unauthorized",
+      "action": "authenticate"
+    }
+  },
+  "authenticated_submit": null,
+  "idempotent_replay": null,
+  "job_id": null,
+  "billing": null,
+  "source_gate": "POST /v1/jobs is mounted behind Server.authBuyer (control/api.go:136). Funding is POST /v1/billing/topup (control/api.go:175); the operator buyer row currently has free_credit_usd=0.",
+  "remaining_refusal": {
+    "stage": "submit",
+    "blocked_by": "quote",
+    "http": 401,
+    "body": {
+      "error": "missing or malformed Authorization bearer token",
+      "code": "unauthorized",
+      "action": "authenticate"
+    },
+    "which_fix": "neither of the two shipped fixes; submit never reached canary/catalogue gates"
+  },
+  "producer_identity": {
+    "source_commit": {
+      "value": "0ffbd52dd7ace54e5ac620c38d724af4fb2e7c10"
+    },
+    "build_digest": {
+      "value": "442f41430c2c3079a2d5f8a71147cd12f9930fc305297c358fe2470570a01774"
+    },
+    "model_artifact_digest": {
+      "na": "no model weights in this staging-plane receipt"
+    },
+    "image_digest": {
+      "na": "no container image in this measurement"
+    },
+    "harness_revision": {
+      "value": "scripts/alpha/close-staging-loop.py"
+    },
+    "corpus_digest": {
+      "na": "no external corpus in this staging-plane receipt"
+    },
+    "exact_config": {
+      "value": "embedded in receipt body"
+    },
+    "raw_samples": {
+      "value": "embedded in receipt body"
+    }
+  },
+  "binding_status": "BOUND"
+}

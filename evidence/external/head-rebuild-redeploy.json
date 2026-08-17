@@ -4,16 +4,16 @@
   "status": "PASS",
   "host": "mercmerc.net",
   "deploy_root": "/opt/merc",
-  "candidate_commit": "aa1f189e8dca8d0964929897859c71f445f89b1e",
-  "candidate_image_id": "sha256:b656365974f4849f612e27e4ab2b187b8ced07201d3401bf02d7b4d238901f77",
-  "candidate_loaded_id": "sha256:b656365974f4849f612e27e4ab2b187b8ced07201d3401bf02d7b4d238901f77",
-  "prior_commit": "9e31c65b27860d659d7ce972e2de7052691c0642",
-  "prior_image_id": "sha256:e0b642220dcd195c84290466cdaf90c2083c8740a87e6c3166d5817683f59fd3",
-  "prior_retained": "id=sha256:e0b642220dcd195c84290466cdaf90c2083c8740a87e6c3166d5817683f59fd3 tags=[\"computexchange/control:9e31c65b27860d659d7ce972e2de7052691c0642\",\"merc/control:9e31c65b2786\"]",
+  "candidate_commit": "0ffbd52dd7ace54e5ac620c38d724af4fb2e7c10",
+  "candidate_image_id": "sha256:5c33d078c71a8e42a9a2c2cbaa5bf4722195423c65a1f13647684f8e9fa50253",
+  "candidate_loaded_id": "sha256:5c33d078c71a8e42a9a2c2cbaa5bf4722195423c65a1f13647684f8e9fa50253",
+  "prior_commit": "aa1f189e8dca8d0964929897859c71f445f89b1e",
+  "prior_image_id": "sha256:b656365974f4849f612e27e4ab2b187b8ced07201d3401bf02d7b4d238901f77",
+  "prior_retained": "id=sha256:b656365974f4849f612e27e4ab2b187b8ced07201d3401bf02d7b4d238901f77 tags=[\"computexchange/control:aa1f189e8dca8d0964929897859c71f445f89b1e\",\"merc/control:aa1f189e8dca\"]",
   "historic_prior_commit": "19fe0b23940c7e3d4da9b45d9cc5689c2c515d07",
   "historic_prior_image_id": "sha256:245dc92a5fffc1b9ffefe2452277797a498dc9cfb779dd915ae2631802175768",
   "historic_prior_retained": "id=sha256:245dc92a5fffc1b9ffefe2452277797a498dc9cfb779dd915ae2631802175768 tags=[\"computexchange/control:19fe0b23940c7e3d4da9b45d9cc5689c2c515d07\",\"merc/control:19fe0b23940c\"]",
-  "build_date": "2026-08-17T20:10:40Z",
+  "build_date": "2026-08-17T20:24:26Z",
   "toolchain": "golang:1.26.6@sha256:0d1d3a794be25f809dd2cb3160d8c73276c4056a9f8242a138e908ddeee7b6b6",
   "compose": "docker compose -f docker-compose.prod.yml -f docker-compose.smallhost.yml -f docker-compose.canary.yml -f ops/staging/compose.alpha.yml",
   "compose_pin": {
@@ -48,25 +48,310 @@
       "stripe_api_version": "2025-06-30.basil"
     }
   },
+  "pricing_board_before": {
+    "http": 503,
+    "body": {
+      "error": "current catalogue price authority unavailable",
+      "code": "unavailable",
+      "action": "retry_after"
+    }
+  },
+  "pricing_board_after": {
+    "http": 200,
+    "body": {
+      "schema_version": 2,
+      "price_authority": {
+        "status": "current_revalidated",
+        "basis": "append_only_catalogue_schedule_v3_with_current_board_throughput_and_power_revalidation",
+        "schedule_sha256": "86e62a72b345fbf5942b756164fc9b32c19e8fab9a8201e52456fde8793f25de",
+        "schedule_version": 3,
+        "current_use_valid_until": "2026-09-09T00:00:00Z",
+        "settlement_currency": "usd",
+        "catalogue": [
+          {
+            "version": 3,
+            "model_id": "llama-3.2-1b-instruct-q4",
+            "job_type": "batch_infer",
+            "price_source": "market_board",
+            "schedule_sha256": "86e62a72b345fbf5942b756164fc9b32c19e8fab9a8201e52456fde8793f25de",
+            "schedule_version": 3,
+            "reference_currency": "usd",
+            "reference_price_per_1k": 3.6e-05,
+            "settlement_currency": "usd",
+            "settlement_price_per_1k": 3.6e-05,
+            "reference_to_settlement_rate": 1,
+            "fx_revision": "identity-usd",
+            "board_sha256": "440909b34593487d8bd5d00c1b65244cc0a971755507b665014334505a34f48c",
+            "current_use_valid_until": "2026-09-09T00:00:00Z",
+            "price_formula": "price_per_1k = confidence_weighted_median(board[infer_small])×positioning_multiplier = 0.00004000×0.9000 = 0.00003600  [median_obs=generalcompute/llama-3.2-1b source=https://www.generalcompute.com/blog/inference-api-pricing-guide-groq-vs-fireworks-vs-together-vs-generalcompute fetched_at=2026-08-02] board_sha256=440909b34593487d8bd5d00c1b65244cc0a971755507b665014334505a34f48c reference_price_per_1k=0.000036000000000 reference_currency=usd reference_to_settlement_rate=1 fx_revision=identity-usd settlement_price_per_1k=0.00003600 settlement_currency=usd supplier_share_policy=physical-workload-share-v1 supplier_share=0.86000000",
+            "supplier_share": 0.86,
+            "supplier_share_policy_revision": "physical-workload-share-v1",
+            "physical_authority": {
+              "version": 2,
+              "model_id": "llama-3.2-1b-instruct-q4",
+              "job_type": "batch_infer",
+              "runtime_cell_id": "candle-metal-llama1-infer",
+              "runtime_profile_id": "candle_metal",
+              "profile_revision": "r9",
+              "engine": "candle",
+              "engine_build_hash": "7cc01c442c7f6dbe",
+              "engine_build_identity_policy": "merc_agent_running_executable_sha256_v1",
+              "hardware_class": "apple_silicon_ultra",
+              "hardware_identity": "apple_silicon_v1|brand=Apple M3 Ultra|model=Mac15,14|memory_bytes=103079215104|cpu_cores=28|gpu_cores=60",
+              "unit": "tokens",
+              "unit_scope": "token_like_input_plus_max_output_tokens",
+              "model_artifact_digest": "3f5a22426976ab26cfe84dba63c1d08391717abb1af893e10f1b2968d862dcc1",
+              "throughput": {
+                "citation": "evidence/perf/runtime-benchmarks/candle-metal-llama1-q4-r6.json#batch_infer",
+                "receipt_sha256": "0955fb5582cc92896545e2b2dce400992b4801f5c426bf0fd167cf3e67f56a82",
+                "benchmark_summary_sha256": "b4d8ddd7f88db8257c4eeed4a90b245f55f77feb13c0defb1c4adfceeacf06d9",
+                "engine_build_hash": "7cc01c442c7f6dbe",
+                "engine_build_identity_policy": "merc_agent_running_executable_sha256_v1",
+                "hardware_identity": "apple_silicon_v1|brand=Apple M3 Ultra|model=Mac15,14|memory_bytes=103079215104|cpu_cores=28|gpu_cores=60",
+                "freshness_policy": "catalogue-throughput-receipt-v1/max-age-180d/no-future-timestamps",
+                "measured_at": "2026-08-17T00:58:58Z",
+                "valid_until": "2027-02-13T00:58:58Z",
+                "observed_units_per_second": 304.2661,
+                "haircut_policy_revision": "runtime-cell-performance-authority-v2",
+                "haircut": 0.7,
+                "conservative_units_per_second": 212.98627
+              },
+              "power": {
+                "citation": "https://support.apple.com/en-us/102027",
+                "receipt_sha256": "45b1b48412e8e24a41acf597e63ffbe66f371d3b4893231854c70eba9d6aa492",
+                "runtime_cell_id": "candle-metal-llama1-infer",
+                "runtime_profile_id": "candle_metal",
+                "engine": "candle",
+                "engine_build_hash": "7cc01c442c7f6dbe",
+                "engine_build_identity_policy": "merc_agent_running_executable_sha256_v1",
+                "hardware_class": "apple_silicon_ultra",
+                "hardware_identity": "apple_silicon_v1|brand=Apple M3 Ultra|model=Mac15,14|memory_bytes=103079215104|cpu_cores=28|gpu_cores=60",
+                "freshness_policy": "vendor-wall-upper-bound-v1/pinned-citation-digest",
+                "measurement_boundary": "AC_WALL",
+                "workload_class": "not_workload_specific",
+                "unit": "watts",
+                "authority_scope": "vendor_family_chassis_conservative_upper_bound",
+                "aggregation": "vendor_published_max",
+                "operating_protocol": "apple-support-102027-wall-max",
+                "covered_workloads": null,
+                "watts": 270,
+                "measured_at": "2025-03-12T00:00:00Z",
+                "valid_until": "2027-02-13T00:58:58Z",
+                "source_class": "VENDOR_WALL_UPPER_BOUND",
+                "vendor": "apple",
+                "product_family": "mac_studio_2025",
+                "soc_family": "m3_ultra",
+                "watts_upper_bound": 270,
+                "measurement_scope": "AC_WALL",
+                "includes_psu_losses": true,
+                "workload_specific": false,
+                "local_measurement_available": false,
+                "local_failure_reason": [
+                  "cpu_power_sensor_zero",
+                  "ane_power_sensor_zero"
+                ],
+                "measured_config": "32CPU/80GPU",
+                "local_config": "28CPU/60GPU",
+                "citation_digest": "45b1b48412e8e24a41acf597e63ffbe66f371d3b4893231854c70eba9d6aa492"
+              },
+              "valid_until": "2027-02-13T00:58:58Z"
+            }
+          }
+        ]
+      },
+      "market_evidence": {
+        "status": "evidence_only_not_buyer_authority",
+        "authorizes_buyer_prices": false,
+        "sha256": "440909b34593487d8bd5d00c1b65244cc0a971755507b665014334505a34f48c",
+        "source": "release",
+        "board": {
+          "schema_version": 1,
+          "unit": "usd_per_1k_units",
+          "unit_note": "Reference prices are USD per 1000 billable units. Text observations are token-like units; media_transcode uses the separately documented media_work_units = input_bytes/4 geometry; media_rendering uses declared output pixels because the measured renderer is pixel/sec. Media observations below convert official per-minute prices using the measured 320x180/0.208333s reference fixture (430.5 media_work_units); this is a market comparison only, while the fixed-point quote/settlement geometry remains the control authority.",
+          "fetched_at": "2026-08-02",
+          "positioning_multiplier": 0.9,
+          "positioning_note": "Catalogue reference price = confidence-weighted median of governed class observations × positioning_multiplier. Vendor-owned sources carry more weight than third-party or unattributed rows; 0.9 positions the result 10% below that governed median.",
+          "classes": {
+            "embed_small": {
+              "description": "Small general-purpose text embeddings (OpenAI text-embedding-3-small class / voyage-4-lite class). Maps to all-minilm-l6-v2.",
+              "job_type": "embed",
+              "model_ids": [
+                "all-minilm-l6-v2"
+              ],
+              "observations": [
+                {
+                  "provider": "openai",
+                  "model": "text-embedding-3-small",
+                  "usd_per_1m": 0.02,
+                  "usd_per_1k": 2e-05,
+                  "tier": "standard",
+                  "source_url": "https://costgoat.com/pricing/openai-embeddings",
+                  "fetched_at": "2026-07-26",
+                  "notes": "Standard tier; batch is ~$0.01/1M. Used as the open-web list price for small embeddings."
+                },
+                {
+                  "provider": "voyage",
+                  "model": "voyage-4-lite",
+                  "usd_per_1m": 0.02,
+                  "usd_per_1k": 2e-05,
+                  "tier": "standard",
+                  "source_url": "https://docs.voyageai.com/docs/pricing",
+                  "fetched_at": "2026-07-26",
+                  "notes": "Published $0.00002 per thousand tokens = $0.02 per million."
+                },
+                {
+                  "provider": "together",
+                  "model": "multilingual-e5-large-instruct",
+                  "usd_per_1m": 0.02,
+                  "usd_per_1k": 2e-05,
+                  "tier": "serverless",
+                  "source_url": "https://www.together.ai/pricing",
+                  "fetched_at": "2026-07-26",
+                  "notes": "Together serverless embeddings list $0.02 per 1M tokens for Multilingual e5 large instruct."
+                }
+              ]
+            },
+            "infer_small": {
+              "description": "Small open-weight chat/completion (≤~3B / 1B-class Llama). Maps to llama-3.2-1b-instruct-q4.",
+              "job_type": "batch_infer",
+              "model_ids": [
+                "llama-3.2-1b-instruct-q4"
+              ],
+              "observations": [
+                {
+                  "provider": "fireworks",
+                  "model": "llama-3.2-1b-instruct",
+                  "usd_per_1m": 0.01,
+                  "usd_per_1k": 1e-05,
+                  "tier": "serverless",
+                  "source_url": "https://www.generalcompute.com/blog/inference-api-pricing-guide-groq-vs-fireworks-vs-together-vs-generalcompute",
+                  "fetched_at": "2026-07-26",
+                  "notes": "Cited Fireworks Llama 3.2 1B Instruct at $0.01 / 1M input and output."
+                },
+                {
+                  "provider": "generalcompute",
+                  "model": "llama-3.2-1b",
+                  "usd_per_1m": 0.04,
+                  "usd_per_1k": 4e-05,
+                  "tier": "serverless",
+                  "source_url": "https://www.generalcompute.com/blog/inference-api-pricing-guide-groq-vs-fireworks-vs-together-vs-generalcompute",
+                  "fetched_at": "2026-07-26",
+                  "notes": "GeneralCompute list $0.04 / 1M input and output for Llama 3.2 1B."
+                },
+                {
+                  "provider": "together",
+                  "model": "gemma-3n-e4b-instruct",
+                  "usd_per_1m": 0.06,
+                  "usd_per_1k": 6e-05,
+                  "tier": "serverless",
+                  "source_url": "https://www.together.ai/pricing",
+                  "fetched_at": "2026-07-26",
+                  "notes": "Smallest serverless chat SKU currently listed on Together ($0.06 in / $0.12 out); proxy for sub-3B class when 1B is not published."
+                }
+              ]
+            },
+            "media_transcode_small": {
+              "description": "Bounded short-form video transcode comparable to a small SD/HD normalisation job. Maps to ffmpeg-transcode-v1 and prices the documented media_work_units geometry.",
+              "job_type": "media_transcode",
+              "model_ids": [
+                "ffmpeg-transcode-v1"
+              ],
+              "observations": [
+                {
+                  "provider": "google",
+                  "model": "Transcoder API SD output",
+                  "usd_per_1m": 0.12098315911730545,
+                  "usd_per_1k": 0.00012098315911730545,
+                  "tier": "sd",
+                  "source_url": "https://cloud.google.com/transcoder/pricing",
+                  "fetched_at": "2026-08-02",
+                  "notes": "Official $0.015/output minute SD rate converted for the measured 0.208333-second, 430.5-media_work_unit reference fixture; no claim that provider billing uses Merc's unit."
+                },
+                {
+                  "provider": "aws",
+                  "model": "Elemental MediaConvert SD on-demand",
+                  "usd_per_1m": 0.060491579558652725,
+                  "usd_per_1k": 6.0491579558652725e-05,
+                  "tier": "sd",
+                  "source_url": "https://aws.amazon.com/mediaconvert/pricing/",
+                  "fetched_at": "2026-08-02",
+                  "notes": "Official $0.0075/output minute SD rate converted for the measured reference fixture; provider-minute billing remains distinct from Merc settlement units."
+                },
+                {
+                  "provider": "api.video",
+                  "model": "video encoding",
+                  "usd_per_1m": 0.8065543941153698,
+                  "usd_per_1k": 0.0008065543941153698,
+                  "tier": "standard",
+                  "source_url": "https://api.video/pricing/",
+                  "fetched_at": "2026-08-02",
+                  "notes": "Official $0.10/video-minute encoding price converted for the measured reference fixture; used as a high-side corroborating market observation, not as a supplier cost floor."
+                }
+              ]
+            },
+            "media_rendering_small": {
+              "description": "Bounded deterministic vector-scene rasterization. Market observations are intentionally absent; the fixed price is a private-canary economic term, not an image-generation benchmark.",
+              "job_type": "media_rendering",
+              "model_ids": [
+                "svg-scene-render-v1"
+              ],
+              "observations": [
+                {
+                  "provider": "merc-private-canary-control",
+                  "model": "svg-scene-render-v1",
+                  "usd_per_1m": 10.0,
+                  "usd_per_1k": 0.01,
+                  "tier": "fixed-term",
+                  "source_url": "https://merc-private-canary-control.invalid/MEDIA_RENDERING_CONTRACT.md#control",
+                  "fetched_at": "2026-08-02",
+                  "notes": "Private deterministic renderer term; not an external image-generation market observation and not public activation authority."
+                },
+                {
+                  "provider": "merc-private-canary-worker",
+                  "model": "svg-scene-render-v1",
+                  "usd_per_1m": 10.0,
+                  "usd_per_1k": 0.01,
+                  "tier": "fixed-term",
+                  "source_url": "https://merc-private-canary-worker.invalid/MEDIA_RENDERING_CONTRACT.md#worker",
+                  "fetched_at": "2026-08-02",
+                  "notes": "Private deterministic renderer term; separate worker-side observation, not public market evidence."
+                },
+                {
+                  "provider": "merc-private-canary-receipt",
+                  "model": "svg-scene-render-v1",
+                  "usd_per_1m": 10.0,
+                  "usd_per_1k": 0.01,
+                  "tier": "fixed-term",
+                  "source_url": "https://merc-private-canary-receipt.invalid/MEDIA_RENDERING_CONTRACT.md#receipt",
+                  "fetched_at": "2026-08-02",
+                  "notes": "Private deterministic renderer term bound to the receipt path; not a public image-generation claim."
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  },
   "pre": {
-    "at": "2026-08-17T20:12:50Z",
-    "inspect": "/merc-control-1 started=2026-08-17T15:35:21.0997652Z image=sha256:e0b642220dcd195c84290466cdaf90c2083c8740a87e6c3166d5817683f59fd3 status=running health=healthy\n/merc-postgres-1 started=2026-08-16T23:58:11.006751471Z image=sha256:a426e44bac0b759c95894d68e1a0ac03ecc20b619f498a91aae373bf06d8508d status=running health=healthy\n/merc-minio-1 started=2026-08-16T23:58:23.587891976Z image=sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e status=running health=healthy\n",
-    "prior_commit": "9e31c65b27860d659d7ce972e2de7052691c0642",
-    "prior_image_id": "sha256:e0b642220dcd195c84290466cdaf90c2083c8740a87e6c3166d5817683f59fd3",
+    "at": "2026-08-17T20:27:17Z",
+    "inspect": "/merc-control-1 started=2026-08-17T20:13:30.159793557Z image=sha256:b656365974f4849f612e27e4ab2b187b8ced07201d3401bf02d7b4d238901f77 status=running health=healthy\n/merc-postgres-1 started=2026-08-16T23:58:11.006751471Z image=sha256:a426e44bac0b759c95894d68e1a0ac03ecc20b619f498a91aae373bf06d8508d status=running health=healthy\n/merc-minio-1 started=2026-08-16T23:58:23.587891976Z image=sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e status=running health=healthy\n",
+    "prior_commit": "aa1f189e8dca8d0964929897859c71f445f89b1e",
+    "prior_image_id": "sha256:b656365974f4849f612e27e4ab2b187b8ced07201d3401bf02d7b4d238901f77",
     "historic_prior": "id=sha256:245dc92a5fffc1b9ffefe2452277797a498dc9cfb779dd915ae2631802175768 tags=[\"computexchange/control:19fe0b23940c7e3d4da9b45d9cc5689c2c515d07\",\"merc/control:19fe0b23940c\"]",
-    "live_prior": "id=sha256:e0b642220dcd195c84290466cdaf90c2083c8740a87e6c3166d5817683f59fd3 tags=[\"computexchange/control:9e31c65b27860d659d7ce972e2de7052691c0642\",\"merc/control:9e31c65b2786\"]",
+    "live_prior": "id=sha256:b656365974f4849f612e27e4ab2b187b8ced07201d3401bf02d7b4d238901f77 tags=[\"computexchange/control:aa1f189e8dca8d0964929897859c71f445f89b1e\",\"merc/control:aa1f189e8dca\"]",
     "version_http": 200,
     "version": {
       "version": "v0.1.0-merc-staging",
-      "commit": "9e31c65b27860d659d7ce972e2de7052691c0642",
-      "build_date": "2026-08-17T15:33:33Z",
+      "commit": "aa1f189e8dca8d0964929897859c71f445f89b1e",
+      "build_date": "2026-08-17T20:10:40Z",
       "go_version": "go1.26.6",
       "platform": "linux/amd64",
       "modified": false,
       "price_board_sha256": "440909b34593487d8bd5d00c1b65244cc0a971755507b665014334505a34f48c",
       "price_board_source": "release",
       "capability_matrix_sha256": "0b569a272b2bef7f553cad0efbe7bac9fc42a18944b16ac60b590763f497d60c",
-      "authority_document_sha256": "d03a7596c026744bcfa824d03bee5d5950218fe2cbcd93f7900643ccf047915d"
+      "authority_document_sha256": "7c7538f6763054fc383da664d48779a8caea6735f67ad4749dbf6a341691d7be"
     },
     "readyz_http": 200,
     "readyz": {
@@ -77,16 +362,54 @@
       "status": "ready",
       "stripe_api_version": "2025-06-30.basil"
     },
+    "pricing_board_http": 503,
+    "pricing_board": {
+      "error": "current catalogue price authority unavailable",
+      "code": "unavailable",
+      "action": "retry_after"
+    },
     "host_env_build_hash": "f4303a751ca2b2af",
-    "running_canary_hash": "f4303a751ca2b2af"
+    "running_canary_hash": "7cc01c442c7f6dbe"
   },
   "first_activate": {
-    "at": "2026-08-17T20:13:07Z",
-    "finished_at": "2026-08-17T20:13:18Z",
+    "at": "2026-08-17T20:27:34Z",
+    "finished_at": "2026-08-17T20:27:45Z",
+    "commit": "0ffbd52dd7ace54e5ac620c38d724af4fb2e7c10",
+    "configured_image": "computexchange/control:0ffbd52dd7ace54e5ac620c38d724af4fb2e7c10",
+    "image_id": "sha256:5c33d078c71a8e42a9a2c2cbaa5bf4722195423c65a1f13647684f8e9fa50253",
+    "inspect": "/merc-control-1 started=2026-08-17T20:27:37.862929321Z image=sha256:5c33d078c71a8e42a9a2c2cbaa5bf4722195423c65a1f13647684f8e9fa50253 status=running health=starting\n/merc-postgres-1 started=2026-08-16T23:58:11.006751471Z image=sha256:a426e44bac0b759c95894d68e1a0ac03ecc20b619f498a91aae373bf06d8508d status=running health=healthy\n/merc-minio-1 started=2026-08-16T23:58:23.587891976Z image=sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e status=running health=healthy\n",
+    "postgres_started_at": "2026-08-16T23:58:11.006751471Z",
+    "minio_started_at": "2026-08-16T23:58:23.587891976Z",
+    "canary_approved_build_hashes": "7cc01c442c7f6dbe",
+    "version": {
+      "version": "v0.1.0-merc-staging",
+      "commit": "0ffbd52dd7ace54e5ac620c38d724af4fb2e7c10",
+      "build_date": "2026-08-17T20:24:26Z",
+      "go_version": "go1.26.6",
+      "platform": "linux/amd64",
+      "modified": false,
+      "price_board_sha256": "440909b34593487d8bd5d00c1b65244cc0a971755507b665014334505a34f48c",
+      "price_board_source": "release",
+      "capability_matrix_sha256": "0b569a272b2bef7f553cad0efbe7bac9fc42a18944b16ac60b590763f497d60c",
+      "authority_document_sha256": "7c7538f6763054fc383da664d48779a8caea6735f67ad4749dbf6a341691d7be"
+    },
+    "readyz": {
+      "live_value_movement": false,
+      "payment_mode": "test",
+      "payment_recovery_active": true,
+      "provider_enabled": true,
+      "status": "ready",
+      "stripe_api_version": "2025-06-30.basil"
+    },
+    "readyz_http": 200
+  },
+  "rollback": {
+    "at": "2026-08-17T20:27:45Z",
+    "finished_at": "2026-08-17T20:27:53Z",
     "commit": "aa1f189e8dca8d0964929897859c71f445f89b1e",
     "configured_image": "computexchange/control:aa1f189e8dca8d0964929897859c71f445f89b1e",
     "image_id": "sha256:b656365974f4849f612e27e4ab2b187b8ced07201d3401bf02d7b4d238901f77",
-    "inspect": "/merc-control-1 started=2026-08-17T20:13:10.822343404Z image=sha256:b656365974f4849f612e27e4ab2b187b8ced07201d3401bf02d7b4d238901f77 status=running health=starting\n/merc-postgres-1 started=2026-08-16T23:58:11.006751471Z image=sha256:a426e44bac0b759c95894d68e1a0ac03ecc20b619f498a91aae373bf06d8508d status=running health=healthy\n/merc-minio-1 started=2026-08-16T23:58:23.587891976Z image=sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e status=running health=healthy\n",
+    "inspect": "/merc-control-1 started=2026-08-17T20:27:48.715274733Z image=sha256:b656365974f4849f612e27e4ab2b187b8ced07201d3401bf02d7b4d238901f77 status=running health=starting\n/merc-postgres-1 started=2026-08-16T23:58:11.006751471Z image=sha256:a426e44bac0b759c95894d68e1a0ac03ecc20b619f498a91aae373bf06d8508d status=running health=healthy\n/merc-minio-1 started=2026-08-16T23:58:23.587891976Z image=sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e status=running health=healthy\n",
     "postgres_started_at": "2026-08-16T23:58:11.006751471Z",
     "minio_started_at": "2026-08-16T23:58:23.587891976Z",
     "canary_approved_build_hashes": "7cc01c442c7f6dbe",
@@ -112,52 +435,20 @@
     },
     "readyz_http": 200
   },
-  "rollback": {
-    "at": "2026-08-17T20:13:18Z",
-    "finished_at": "2026-08-17T20:13:25Z",
-    "commit": "9e31c65b27860d659d7ce972e2de7052691c0642",
-    "configured_image": "computexchange/control:9e31c65b27860d659d7ce972e2de7052691c0642",
-    "image_id": "sha256:e0b642220dcd195c84290466cdaf90c2083c8740a87e6c3166d5817683f59fd3",
-    "inspect": "/merc-control-1 started=2026-08-17T20:13:20.314154475Z image=sha256:e0b642220dcd195c84290466cdaf90c2083c8740a87e6c3166d5817683f59fd3 status=running health=starting\n/merc-postgres-1 started=2026-08-16T23:58:11.006751471Z image=sha256:a426e44bac0b759c95894d68e1a0ac03ecc20b619f498a91aae373bf06d8508d status=running health=healthy\n/merc-minio-1 started=2026-08-16T23:58:23.587891976Z image=sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e status=running health=healthy\n",
-    "postgres_started_at": "2026-08-16T23:58:11.006751471Z",
-    "minio_started_at": "2026-08-16T23:58:23.587891976Z",
-    "canary_approved_build_hashes": "7cc01c442c7f6dbe",
-    "version": {
-      "version": "v0.1.0-merc-staging",
-      "commit": "9e31c65b27860d659d7ce972e2de7052691c0642",
-      "build_date": "2026-08-17T15:33:33Z",
-      "go_version": "go1.26.6",
-      "platform": "linux/amd64",
-      "modified": false,
-      "price_board_sha256": "440909b34593487d8bd5d00c1b65244cc0a971755507b665014334505a34f48c",
-      "price_board_source": "release",
-      "capability_matrix_sha256": "0b569a272b2bef7f553cad0efbe7bac9fc42a18944b16ac60b590763f497d60c",
-      "authority_document_sha256": "d03a7596c026744bcfa824d03bee5d5950218fe2cbcd93f7900643ccf047915d"
-    },
-    "readyz": {
-      "live_value_movement": false,
-      "payment_mode": "test",
-      "payment_recovery_active": true,
-      "provider_enabled": true,
-      "status": "ready",
-      "stripe_api_version": "2025-06-30.basil"
-    },
-    "readyz_http": 200
-  },
   "forward": {
-    "at": "2026-08-17T20:13:27Z",
-    "finished_at": "2026-08-17T20:13:35Z",
-    "commit": "aa1f189e8dca8d0964929897859c71f445f89b1e",
-    "configured_image": "computexchange/control:aa1f189e8dca8d0964929897859c71f445f89b1e",
-    "image_id": "sha256:b656365974f4849f612e27e4ab2b187b8ced07201d3401bf02d7b4d238901f77",
-    "inspect": "/merc-control-1 started=2026-08-17T20:13:30.159793557Z image=sha256:b656365974f4849f612e27e4ab2b187b8ced07201d3401bf02d7b4d238901f77 status=running health=starting\n/merc-postgres-1 started=2026-08-16T23:58:11.006751471Z image=sha256:a426e44bac0b759c95894d68e1a0ac03ecc20b619f498a91aae373bf06d8508d status=running health=healthy\n/merc-minio-1 started=2026-08-16T23:58:23.587891976Z image=sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e status=running health=healthy\n",
+    "at": "2026-08-17T20:27:56Z",
+    "finished_at": "2026-08-17T20:28:03Z",
+    "commit": "0ffbd52dd7ace54e5ac620c38d724af4fb2e7c10",
+    "configured_image": "computexchange/control:0ffbd52dd7ace54e5ac620c38d724af4fb2e7c10",
+    "image_id": "sha256:5c33d078c71a8e42a9a2c2cbaa5bf4722195423c65a1f13647684f8e9fa50253",
+    "inspect": "/merc-control-1 started=2026-08-17T20:27:58.276630355Z image=sha256:5c33d078c71a8e42a9a2c2cbaa5bf4722195423c65a1f13647684f8e9fa50253 status=running health=starting\n/merc-postgres-1 started=2026-08-16T23:58:11.006751471Z image=sha256:a426e44bac0b759c95894d68e1a0ac03ecc20b619f498a91aae373bf06d8508d status=running health=healthy\n/merc-minio-1 started=2026-08-16T23:58:23.587891976Z image=sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e status=running health=healthy\n",
     "postgres_started_at": "2026-08-16T23:58:11.006751471Z",
     "minio_started_at": "2026-08-16T23:58:23.587891976Z",
     "canary_approved_build_hashes": "7cc01c442c7f6dbe",
     "version": {
       "version": "v0.1.0-merc-staging",
-      "commit": "aa1f189e8dca8d0964929897859c71f445f89b1e",
-      "build_date": "2026-08-17T20:10:40Z",
+      "commit": "0ffbd52dd7ace54e5ac620c38d724af4fb2e7c10",
+      "build_date": "2026-08-17T20:24:26Z",
       "go_version": "go1.26.6",
       "platform": "linux/amd64",
       "modified": false,
@@ -204,9 +495,9 @@
     "canary_boot_check_defeated": false,
     "compose_pin_shipped": true
   },
-  "finished_at": "2026-08-17T20:13:39Z",
+  "finished_at": "2026-08-17T20:28:06Z",
   "webhook_status_table": {
-    "observed_at": "2026-08-17T20:14:18Z",
+    "observed_at": "2026-08-17T20:31:09Z",
     "signed_posts": [
       {
         "source": "hmac_signed_live_post",
@@ -296,18 +587,23 @@
     "five_hundreds": 0
   },
   "money_ingress_receipt": "evidence/external/staging-money-ingress.json",
+  "loop_receipt": "evidence/canary/s4-staging-close-loop-summary.json",
+  "pricing_board_after_summary": {
+    "http": 200,
+    "catalogue": true
+  },
   "producer_identity": {
     "source_commit": {
-      "value": "aa1f189e8dca8d0964929897859c71f445f89b1e"
+      "value": "0ffbd52dd7ace54e5ac620c38d724af4fb2e7c10"
     },
     "build_digest": {
-      "value": "4fc0b9417ba8f855f4c6c97f0ed7569667cf305952fbcab9936448703d34f252"
+      "value": "11aaaeca26dc97d57030be42f272fccb4dd84c7a76f0ad9ed724ae0db65d1576"
     },
     "model_artifact_digest": {
       "na": "no model weights in this staging-plane receipt"
     },
     "image_digest": {
-      "value": "b656365974f4849f612e27e4ab2b187b8ced07201d3401bf02d7b4d238901f77"
+      "value": "5c33d078c71a8e42a9a2c2cbaa5bf4722195423c65a1f13647684f8e9fa50253"
     },
     "harness_revision": {
       "value": "scripts/alpha/rebuild-redeploy.py"

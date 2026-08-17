@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "kind": "s4_staging_close_loop_summary",
+  "classification": "ALPHA_CONTROL",
+  "does_not_satisfy": "EXTERNAL_ALPHA_PROVEN",
+  "participant_class": "operator_controlled",
+  "synthetic": true,
+  "controlled_by_operator": true,
+  "operator_owned": true,
+  "external_alpha_proven": false,
+  "observed_at": "2026-08-17T20:36:25Z",
+  "plane": "https://mercmerc.net",
+  "status": "PARTIAL",
+  "deployed_commit": "0ffbd52dd7ace54e5ac620c38d724af4fb2e7c10",
+  "local_head": "0ffbd52dd7ace54e5ac620c38d724af4fb2e7c10",
+  "fixes": {
+    "canary_quotes": {
+      "in_tree": "validateCurrentUniformCanaryAuthority refuses only when admitted suppliers are not operator-controlled",
+      "live_exercise": "not reached; quote stopped at authBuyer",
+      "took": "unknown-on-authenticated-path"
+    },
+    "price_board_seed": {
+      "in_tree": "syncActivationPolicy rewrites a drifted document seed (r4→r6)",
+      "live_exercise": "GET /pricing/board.json HTTP 200 catalogue_rows=1",
+      "took": true
+    }
+  },
+  "stages": {
+    "quote": "REFUSED",
+    "submit": "REFUSED",
+    "claim": "REFUSED",
+    "execute": "REFUSED",
+    "verification_accept": "REFUSED",
+    "verification_reject": "REFUSED",
+    "settle": "REFUSED"
+  },
+  "remaining_refusal": {
+    "stage": "quote",
+    "http": 401,
+    "body": {
+      "error": "missing or malformed Authorization bearer token",
+      "code": "unauthorized",
+      "action": "authenticate"
+    },
+    "source": "control/api.go:170 mounts POST /v1/quote behind authBuyer; api.go:364-366 writes 401 missing or malformed Authorization bearer token",
+    "which_fix": "neither. The canary-quote fix and the catalogue-seed rewrite are not this gate."
+  },
+  "allowlist_widened": false,
+  "participants": {
+    "buyer_email": "joshuahicksboba@gmail.com",
+    "reserved_worker_id": "7d2bb6c8-c45a-505e-ae39-6b9fc73989f5"
+  },
+  "producer_identity": {
+    "source_commit": {
+      "value": "0ffbd52dd7ace54e5ac620c38d724af4fb2e7c10"
+    },
+    "build_digest": {
+      "value": "442f41430c2c3079a2d5f8a71147cd12f9930fc305297c358fe2470570a01774"
+    },
+    "model_artifact_digest": {
+      "na": "no model weights in this staging-plane receipt"
+    },
+    "image_digest": {
+      "na": "no container image in this measurement"
+    },
+    "harness_revision": {
+      "value": "scripts/alpha/close-staging-loop.py"
+    },
+    "corpus_digest": {
+      "na": "no external corpus in this staging-plane receipt"
+    },
+    "exact_config": {
+      "value": "embedded in receipt body"
+    },
+    "raw_samples": {
+      "value": "embedded in receipt body"
+    }
+  },
+  "binding_status": "BOUND"
+}

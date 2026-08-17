@@ -491,6 +491,7 @@ def main() -> int:
 
     pre_ready_code, pre_ready = https_json("/readyz")
     pre_version_code, pre_version = https_json("/version")
+    pre_board_code, pre_board = https_json("/pricing/board.json")
     pre = {
         "at": utc(),
         "inspect": inspect_trio(),
@@ -502,6 +503,8 @@ def main() -> int:
         "version": pre_version,
         "readyz_http": pre_ready_code,
         "readyz": pre_ready,
+        "pricing_board_http": pre_board_code,
+        "pricing_board": pre_board,
         "host_env_build_hash": host_env_build_hash(),
         "running_canary_hash": running_canary_hash(),
     }
@@ -565,6 +568,7 @@ def main() -> int:
     end_ready_code, end_ready = https_json("/readyz")
     if end_ready_code != 200 or not readyz_is_ready(end_ready):
         die(f"end /readyz is {end_ready_code} {end_ready}")
+    end_board_code, end_board = https_json("/pricing/board.json")
 
     receipt = {
         "schema_version": 1,
@@ -587,6 +591,8 @@ def main() -> int:
         "compose_pin": compose_pin,
         "readyz_before": {"http": pre_ready_code, "body": pre_ready},
         "readyz_after": {"http": end_ready_code, "body": end_ready},
+        "pricing_board_before": {"http": pre_board_code, "body": pre_board},
+        "pricing_board_after": {"http": end_board_code, "body": end_board},
         "pre": pre,
         "first_activate": first,
         "rollback": rollback,

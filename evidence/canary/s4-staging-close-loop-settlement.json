@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "kind": "s4_staging_close_loop_settlement",
+  "classification": "ALPHA_CONTROL",
+  "does_not_satisfy": "EXTERNAL_ALPHA_PROVEN",
+  "participant_class": "operator_controlled",
+  "synthetic": true,
+  "controlled_by_operator": true,
+  "operator_owned": true,
+  "external_alpha_proven": false,
+  "observed_at": "2026-08-17T20:36:25Z",
+  "plane": "https://mercmerc.net",
+  "status": "REFUSED",
+  "job": null,
+  "settled_exactly_once": false,
+  "live_payouts": false,
+  "readyz": {
+    "live_value_movement": false,
+    "payment_mode": "test",
+    "payment_recovery_active": true,
+    "provider_enabled": true,
+    "status": "ready",
+    "stripe_api_version": "2025-06-30.basil"
+  },
+  "remaining_refusal": {
+    "stage": "settle",
+    "blocked_by": "quote",
+    "which_fix": "neither of the two shipped fixes"
+  },
+  "producer_identity": {
+    "source_commit": {
+      "value": "0ffbd52dd7ace54e5ac620c38d724af4fb2e7c10"
+    },
+    "build_digest": {
+      "value": "442f41430c2c3079a2d5f8a71147cd12f9930fc305297c358fe2470570a01774"
+    },
+    "model_artifact_digest": {
+      "na": "no model weights in this staging-plane receipt"
+    },
+    "image_digest": {
+      "na": "no container image in this measurement"
+    },
+    "harness_revision": {
+      "value": "scripts/alpha/close-staging-loop.py"
+    },
+    "corpus_digest": {
+      "na": "no external corpus in this staging-plane receipt"
+    },
+    "exact_config": {
+      "value": "embedded in receipt body"
+    },
+    "raw_samples": {
+      "value": "embedded in receipt body"
+    }
+  },
+  "binding_status": "BOUND"
+}
