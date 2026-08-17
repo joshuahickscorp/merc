@@ -80,6 +80,33 @@ distinctness check. Not requiring a `ca_*` platform ID there is correct; not
 requiring distinct secrets is not, because the Connect route is served whether
 or not Connect is onboarded. Fixed, with a regression test.
 
+## Defects found by making `make ci` complete
+
+`make ci` had never run to completion during this closeout. Every earlier
+attempt ran in a sparse worktree, and its failures were artifacts of the
+checkout rather than facts about the product — one lane correctly refused to
+report against such a tree at all. Running it on a full tree found three more.
+
+**Fixtures were lying about currency, and it looked like two defects.** Eleven
+currency tests and six scheduler tests failed. The job and economic-plan
+fixtures inserted rows without a currency column, falling through to the
+schema's `DEFAULT 'usd'`, while the platform settles CAD — the Stripe account is
+CA/CAD. So `job_economic_plans_json_currency_bound` fired correctly, and the
+claim currency filter correctly refused to let a CAD worker claim a usd-default
+job. The "SLA deferral starvation" was that filter working, not a broken
+deferral bound: no scheduler logic was touched. The product was right both
+times; the fixtures were wrong.
+
+**26 test failures were the wrong database.** The dev Postgres ran with the
+image default `max_locks_per_transaction = 64`, which cannot hold a schema apply
+per isolated database, so 26 tests failed with `out of shared memory` for
+reasons unrelated to the code — and hid the real failures behind them. Raising
+it to 512 takes that count to zero. Worth recording separately: this machine has
+**two** Postgres on 5432 — the compose container via OrbStack, and a Homebrew
+`postgresql@17` on `[::1]` — and both `localhost` and `127.0.0.1` reach the
+Homebrew one. Every test run in this closeout until that was noticed had been
+pointed at the wrong database.
+
 ## Closeout standard
 
 | # | Condition | Status |

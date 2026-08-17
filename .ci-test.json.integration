@@ -1,7 +1,0 @@
-{"ImportPath":"merc/control [merc/control.test]","Action":"build-output","Output":"# merc/control [merc/control.test]\n"}
-{"ImportPath":"merc/control [merc/control.test]","Action":"build-output","Output":"./l12_routable_loop_integration_test.go:411:6: l12WriteReceipt redeclared in this block\n"}
-{"ImportPath":"merc/control [merc/control.test]","Action":"build-output","Output":"\t./l12_register_diagnose_test.go:65:6: other declaration of l12WriteReceipt\n"}
-{"ImportPath":"merc/control [merc/control.test]","Action":"build-fail"}
-{"Time":"2026-08-16T23:55:32.752309-04:00","Action":"start","Package":"merc/control"}
-{"Time":"2026-08-16T23:55:32.752723-04:00","Action":"output","Package":"merc/control","Output":"FAIL\tmerc/control [build failed]\n"}
-{"Time":"2026-08-16T23:55:32.752747-04:00","Action":"fail","Package":"merc/control","Elapsed":0,"FailedBuild":"merc/control [merc/control.test]"}

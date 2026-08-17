@@ -2,17 +2,17 @@
   "schema_version": 1,
   "kind": "rename_residue_audit",
   "counts": {
-    "FROZEN": 395,
-    "BLOCKED": 430,
+    "FROZEN": 422,
+    "BLOCKED": 479,
     "RESIDUE": 0
   },
   "blocked_by_prerequisite": {
-    "metric name in the alert label set; must land with the receiver update": 234,
+    "metric name in the alert label set; must land with the receiver update": 255,
     "model alias inside the sha256'd vLLM runtime profile; workers must re-attest in the same cutover": 56,
+    "object storage bucket name in a running deployment": 43,
     "droplet .env, GitHub Actions secrets and systemd units supply these; CX_TOKEN_KEY must be copied byte-identically or every sealed secret in Postgres becomes undecryptable": 30,
-    "object storage bucket name in a running deployment": 25,
-    "alert names ship in the label set Alertmanager fingerprints": 15,
-    "published image tag": 14,
+    "alert names ship in the label set Alertmanager fingerprints": 20,
+    "published image tag": 19,
     "real directory on the droplet": 6,
     "bind-mount path in a running deployment": 6,
     "Prometheus job label fingerprinted by Alertmanager": 6,
