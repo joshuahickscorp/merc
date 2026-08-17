@@ -87,15 +87,30 @@ attempt ran in a sparse worktree, and its failures were artifacts of the
 checkout rather than facts about the product — one lane correctly refused to
 report against such a tree at all. Running it on a full tree found three more.
 
-**Fixtures were lying about currency, and it looked like two defects.** Eleven
-currency tests and six scheduler tests failed. The job and economic-plan
-fixtures inserted rows without a currency column, falling through to the
-schema's `DEFAULT 'usd'`, while the platform settles CAD — the Stripe account is
-CA/CAD. So `job_economic_plans_json_currency_bound` fired correctly, and the
-claim currency filter correctly refused to let a CAD worker claim a usd-default
-job. The "SLA deferral starvation" was that filter working, not a broken
-deferral bound: no scheduler logic was touched. The product was right both
-times; the fixtures were wrong.
+**Fixtures are lying about currency, and it looks like two defects — diagnosed,
+not yet fixed.** Eleven currency tests and six scheduler tests fail. The job and
+economic-plan fixtures insert rows without a currency column, falling through to
+the schema's `DEFAULT 'usd'`, while the platform settles CAD — the Stripe account
+is CA/CAD. So `job_economic_plans_json_currency_bound` fires correctly, and the
+claim currency filter correctly refuses to let a CAD worker claim a usd-default
+job. The "SLA deferral starvation" is that filter working, not a broken deferral
+bound. The product is right both times; the fixtures are wrong.
+
+A fix for this was written and **reverted**, because it was a net loss and the
+numbers say so plainly:
+
+| tree | control-suite failures |
+|---|---|
+| baseline | 25 |
+| with the currency fix | 80 — fixed 17, broke 73 |
+| reverting only its `usd`→`cad` test default | 77 |
+| reverting the whole change | 27 |
+
+The obvious hypothesis — that the damage was the package-wide default flip — was
+wrong, and testing it first (one line, one suite run) is what showed that:
+reverting that line alone recovered three tests, not seventy-three. The fixture
+writes are what broke the rest. The diagnosis above stands and the remedy has to
+be re-attempted at a much smaller radius.
 
 **26 test failures were the wrong database.** The dev Postgres ran with the
 image default `max_locks_per_transaction = 64`, which cannot hold a schema apply
