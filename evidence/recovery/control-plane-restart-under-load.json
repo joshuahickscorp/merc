@@ -3,14 +3,14 @@
   "kind": "recovery_failure_mode",
   "mode": "control_plane_restart_under_load",
   "status": "PASS",
-  "completed_at": "2026-08-16T22:49:33Z",
+  "completed_at": "2026-08-17T00:44:10Z",
   "test": "TestRecoveryLaneControlPlaneRestartUnderLoad",
   "test_result": "pass",
   "killed": "control-plane Store under inflight leaders, one sending payout, one running task",
   "recovered": "new Store: inflight leadership election 2, payout sweep, stale-task sweep",
   "invariant": "each identity handed off once; task requeued exactly once; payout became outcome_unknown; no duplicate money",
-  "elapsed_ns": 327028167,
-  "elapsed_ms_measured": 327.028,
+  "elapsed_ns": 389170459,
+  "elapsed_ms_measured": 389.17,
   "interval_shortened": true,
   "production_period": "inflightLeaseTTL=30s, payoutSendingLease=5m, staleTaskTimeout=30m",
   "test_period": "lease_expires_at and claimed_at/updated_at backdated past those production periods",
@@ -23,7 +23,7 @@
   "secret_values_recorded": false,
   "producer_identity": {
     "source_commit": {
-      "value": "11813c8f14613ee46d86f2629c4a992d55da5098"
+      "value": "73bc49da1d92b4189d62f9cfbb4b65de18753208"
     },
     "build_digest": {
       "value": "0bed9526473a2d848411a6dfe109baa97c07293823f7d3a6bec0603923fbfa24"

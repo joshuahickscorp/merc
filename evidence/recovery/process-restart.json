@@ -3,26 +3,26 @@
   "kind": "recovery_failure_mode",
   "mode": "process_restart",
   "status": "PASS",
-  "completed_at": "2026-08-16T22:49:33Z",
+  "completed_at": "2026-08-17T00:44:10Z",
   "test": "TestRecoveryLaneProcessRestart",
   "test_result": "pass",
   "killed": "control-plane process (new Store/pgxpool on the same database; prior process connections abandoned)",
   "recovered": "in-flight running task, same claim, then a single worker_shutdown requeue",
   "invariant": "task survived reconnect; FailTaskTx ran once; duplicate resume was noop; no ledger rows",
-  "elapsed_ns": 253402750,
-  "elapsed_ms_measured": 253.403,
+  "elapsed_ns": 293034625,
+  "elapsed_ms_measured": 293.035,
   "interval_shortened": false,
   "production_period": null,
   "test_period": null,
   "details": {
     "final_status": "retrying",
     "retry_count": 1,
-    "task_id": "c6cb7c29-59fa-4bd0-95e6-8acc0a9ac868"
+    "task_id": "46927fb7-88d1-4bdd-89d0-51899ea6a133"
   },
   "secret_values_recorded": false,
   "producer_identity": {
     "source_commit": {
-      "value": "11813c8f14613ee46d86f2629c4a992d55da5098"
+      "value": "73bc49da1d92b4189d62f9cfbb4b65de18753208"
     },
     "build_digest": {
       "value": "0bed9526473a2d848411a6dfe109baa97c07293823f7d3a6bec0603923fbfa24"

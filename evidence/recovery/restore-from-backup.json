@@ -3,7 +3,7 @@
   "kind": "recovery_failure_mode",
   "mode": "restore_from_backup",
   "status": "PASS",
-  "completed_at": "2026-08-16T22:49:33Z",
+  "completed_at": "2026-08-17T00:44:10Z",
   "test": "",
   "test_result": "pass",
   "killed": "source environment (logical-independent-restore destroys it); corrupt dump/envelope refused",
@@ -18,17 +18,17 @@
     "restore_drill_pass": true,
     "logical_independent_restore_pass": true,
     "age_envelope_round_trip": true,
-    "rto_seconds_measured": 2.706,
+    "rto_seconds_measured": 2.588,
     "restore_drill_status": "PASS",
     "independent_status": "PASS",
     "ciphertext_verified": true,
     "ledger_zero_sum": true,
-    "external_offsite_restore": "NOT EXECUTED"
+    "external_offsite_restore": "PASS"
   },
   "secret_values_recorded": false,
   "producer_identity": {
     "source_commit": {
-      "value": "11813c8f14613ee46d86f2629c4a992d55da5098"
+      "value": "73bc49da1d92b4189d62f9cfbb4b65de18753208"
     },
     "build_digest": {
       "value": "0bed9526473a2d848411a6dfe109baa97c07293823f7d3a6bec0603923fbfa24"

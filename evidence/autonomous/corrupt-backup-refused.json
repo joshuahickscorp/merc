@@ -2,10 +2,10 @@
   "schema_version": 1,
   "kind": "corrupt_backup_refused",
   "status": "PASS",
-  "completed_at": "2026-08-16T23:57:55Z",
-  "drill_id": "20260816T235750Z-86549",
-  "good_dump_sha256": "c7b518264bd8407b02d0b4bd36de590a6f0ca72f9bf928e65a38b63cdfc979ad",
-  "corrupt_dump_sha256": "7a97eebe5a91bb5929ee23b09f4d3318d3718507715ae72801bc301854a242be",
+  "completed_at": "2026-08-17T00:43:55Z",
+  "drill_id": "20260817T004350Z-18412",
+  "good_dump_sha256": "99031a7aa451027aad6488493bc17a0b8bd4631f150a0018b2b634882cacf873",
+  "corrupt_dump_sha256": "8179eac933f04690182a7d77454c3526b4aa8e78f489e564866f6ecc3bfacae8",
   "observations": {
     "pg_restore_exit_code": 1,
     "checksum_verify_exit_code": 1,
@@ -20,7 +20,7 @@
   },
   "producer_identity": {
     "source_commit": {
-      "value": "a5bca8c0abcfda4158f5c681fa67f5ae5ebccb05"
+      "value": "73bc49da1d92b4189d62f9cfbb4b65de18753208"
     },
     "build_digest": {
       "value": "71b2f4d51a2e17e9b508b9b0f3a777e2767eff0acc70bdd7b024875d2716cf6a"
@@ -38,7 +38,7 @@
       "na": "no external corpus; synthetic seed only"
     },
     "exact_config": {
-      "value": "restore-drill corrupt-backup path; drill_id=20260816T235750Z-86549"
+      "value": "restore-drill corrupt-backup path; drill_id=20260817T004350Z-18412"
     },
     "raw_samples": {
       "value": "embedded observations in receipt body"

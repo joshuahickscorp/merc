@@ -3,26 +3,26 @@
   "kind": "recovery_failure_mode",
   "mode": "postgres_restart",
   "status": "PASS",
-  "completed_at": "2026-08-16T22:49:33Z",
+  "completed_at": "2026-08-17T00:44:10Z",
   "test": "TestRecoveryLanePostgresRestart",
   "test_result": "pass",
   "killed": "docker restart of the throwaway PostgreSQL container",
   "recovered": "pgxpool reconnect; buyer marker and running task still present",
   "invariant": "no data loss, no torn task state, no invented ledger rows",
-  "elapsed_ns": 1489510625,
-  "elapsed_ms_measured": 1489.511,
+  "elapsed_ns": 1485440875,
+  "elapsed_ms_measured": 1485.441,
   "interval_shortened": false,
   "production_period": null,
   "test_period": null,
   "details": {
-    "container": "merc-recovery-74640-pg",
-    "marker": "recovery-pg-7e405948-77bc-4945-9e53-11dd09ebe2de",
+    "container": "merc-recovery-18187-pg",
+    "marker": "recovery-pg-d71f4d30-0d9c-4ea2-9a32-4bbadea1ab89",
     "reconnect_attempts": 2
   },
   "secret_values_recorded": false,
   "producer_identity": {
     "source_commit": {
-      "value": "11813c8f14613ee46d86f2629c4a992d55da5098"
+      "value": "73bc49da1d92b4189d62f9cfbb4b65de18753208"
     },
     "build_digest": {
       "value": "0bed9526473a2d848411a6dfe109baa97c07293823f7d3a6bec0603923fbfa24"

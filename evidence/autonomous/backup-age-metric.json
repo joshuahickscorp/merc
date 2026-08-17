@@ -2,7 +2,7 @@
   "schema_version": 1,
   "kind": "backup_age_metric",
   "status": "PASS",
-  "completed_at": "2026-08-16T22:49:33Z",
+  "completed_at": "2026-08-17T00:44:10Z",
   "alert": {
     "name": "MercBackupStale",
     "expr": "merc_backup_age_seconds > 93600",
@@ -12,27 +12,27 @@
     "after_backup_signal": {
       "configured": true,
       "valid": true,
-      "age_seconds": 1.939,
-      "last_success": 1786920570
+      "age_seconds": 1.289,
+      "last_success": 1786927448
     },
     "after_no_backup_stale_signal": {
       "configured": true,
       "valid": true,
-      "age_seconds": 97203.202,
-      "last_success": 1786823370
+      "age_seconds": 97202.488,
+      "last_success": 1786830248
     }
   },
   "derived": {
     "age_moved": true,
-    "fresh_age_seconds": 1.939,
-    "stale_age_seconds": 97203.202,
+    "fresh_age_seconds": 1.289,
+    "stale_age_seconds": 97202.488,
     "stale_would_fire_alert": true,
     "backup_sh_dry_run_status_written": true
   },
   "secret_values_recorded": false,
   "producer_identity": {
     "source_commit": {
-      "value": "11813c8f14613ee46d86f2629c4a992d55da5098"
+      "value": "73bc49da1d92b4189d62f9cfbb4b65de18753208"
     },
     "build_digest": {
       "value": "1576b1797f556e870a970f4ef116fca5bb9ce5b55967ca2967be49fa8c6ba159"

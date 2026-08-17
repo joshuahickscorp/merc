@@ -3,27 +3,27 @@
   "kind": "recovery_failure_mode",
   "mode": "object_store_restart",
   "status": "PASS",
-  "completed_at": "2026-08-16T22:49:33Z",
+  "completed_at": "2026-08-17T00:44:10Z",
   "test": "TestRecoveryLaneObjectStoreRestart",
   "test_result": "pass",
   "killed": "docker restart of the throwaway MinIO container",
   "recovered": "NewStorage + GetObject of the pre-restart sentinel; subsequent Put/Get",
   "invariant": "artifact bytes identical; writes work after restart",
-  "elapsed_ns": 640868500,
-  "elapsed_ms_measured": 640.869,
+  "elapsed_ns": 780394875,
+  "elapsed_ms_measured": 780.395,
   "interval_shortened": false,
   "production_period": null,
   "test_period": null,
   "details": {
-    "container": "merc-recovery-74640-minio",
-    "key": "recovery/object-store/97f5de3b-d957-4d98-b38c-67174c06f148.txt",
+    "container": "merc-recovery-18187-minio",
+    "key": "recovery/object-store/b88efda5-887a-4389-afdb-1a15a004e0f1.txt",
     "reconnect_attempts": 1,
-    "sha256": "d0910069b302e750e217294390dfba61da708ab7f6ac7fba90c42baa3b5f1fc0"
+    "sha256": "096b97a4a8c401f6f4638c961b856af4edc95df4c076cf9d189f9344352b8f33"
   },
   "secret_values_recorded": false,
   "producer_identity": {
     "source_commit": {
-      "value": "11813c8f14613ee46d86f2629c4a992d55da5098"
+      "value": "73bc49da1d92b4189d62f9cfbb4b65de18753208"
     },
     "build_digest": {
       "value": "0bed9526473a2d848411a6dfe109baa97c07293823f7d3a6bec0603923fbfa24"

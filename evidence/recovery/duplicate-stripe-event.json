@@ -3,19 +3,19 @@
   "kind": "recovery_failure_mode",
   "mode": "duplicate_stripe_event",
   "status": "PASS",
-  "completed_at": "2026-08-16T22:49:33Z",
+  "completed_at": "2026-08-17T00:44:10Z",
   "test": "TestRecoveryLaneDuplicateStripeEvent",
   "test_result": "pass",
   "killed": "nothing; the same charge.refunded event was delivered twice",
   "recovered": "ApplyPaymentEventTx ON CONFLICT (event_id) DO NOTHING",
   "invariant": "one stripe_webhook_events row; refunded_cents applied once; second delivery Duplicate=true",
-  "elapsed_ns": 22691542,
-  "elapsed_ms_measured": 22.692,
+  "elapsed_ns": 19513750,
+  "elapsed_ms_measured": 19.514,
   "interval_shortened": false,
   "production_period": null,
   "test_period": null,
   "details": {
-    "event_id": "evt_dup_ch_payout_13923002-bc90-4922-b6e4-fc5d547668af",
+    "event_id": "evt_dup_ch_payout_0f4486f5-0933-4321-ad8f-b36bf80f9d8d",
     "first_duplicate": false,
     "linked_collection": true,
     "refunded_cents": 75,
@@ -25,7 +25,7 @@
   "secret_values_recorded": false,
   "producer_identity": {
     "source_commit": {
-      "value": "11813c8f14613ee46d86f2629c4a992d55da5098"
+      "value": "73bc49da1d92b4189d62f9cfbb4b65de18753208"
     },
     "build_digest": {
       "value": "0bed9526473a2d848411a6dfe109baa97c07293823f7d3a6bec0603923fbfa24"

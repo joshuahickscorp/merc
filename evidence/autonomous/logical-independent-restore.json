@@ -2,7 +2,7 @@
   "schema_version": 1,
   "kind": "logical_independent_restore",
   "status": "PASS",
-  "completed_at": "2026-08-16T22:49:30Z",
+  "completed_at": "2026-08-17T00:44:07Z",
   "separation": {
     "source_environment_destroyed": true,
     "separate_transfer_process": true,
@@ -12,7 +12,7 @@
     "new_namespace": true
   },
   "integrity": {
-    "ciphertext_sha256": "8b3e2772777ee850b5a99bb44047bd2e727ef69f5afd1e28e349352a78a6311f",
+    "ciphertext_sha256": "4642c83caa09ae14911cf225a30415555f186c03c526b9596645fe820112dc3f",
     "ciphertext_verified": true,
     "corrupt_backup_rejected": true,
     "payload_checksums_verified": true,
@@ -35,10 +35,10 @@
   "secret_values_recorded": false,
   "producer_identity": {
     "source_commit": {
-      "value": "11813c8f14613ee46d86f2629c4a992d55da5098"
+      "value": "73bc49da1d92b4189d62f9cfbb4b65de18753208"
     },
     "build_digest": {
-      "value": "1ce5cfc01a1ef75499b112d9f6aca745397172e278be79ae011fc027de44a47c"
+      "value": "8bda8d2f5a54aa78dfebda85e495e07f0cbec0c7d8460fbf0cad69a911b0f5f6"
     },
     "model_artifact_digest": {
       "na": "restore drill does not load model weights"
@@ -53,7 +53,7 @@
       "na": "no external corpus; synthetic seed only"
     },
     "exact_config": {
-      "value": "logical independent restore; ciphertext_sha256=8b3e2772777ee850b5a99bb44047bd2e727ef69f5afd1e28e349352a78a6311f"
+      "value": "logical independent restore; ciphertext_sha256=4642c83caa09ae14911cf225a30415555f186c03c526b9596645fe820112dc3f"
     },
     "raw_samples": {
       "value": "embedded database_semantics and object_count"

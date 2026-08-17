@@ -1,10 +1,10 @@
 {
   "kind": "local_alpha_security_rehearsal",
-  "status": "FAIL",
+  "status": "PASS",
   "surface": "local_control_plane_routes",
   "qualification": "LOCAL",
   "secret_values_recorded": false,
-  "source_commit_recorded": "11813c8f14613ee46d86f2629c4a992d55da5098",
+  "source_commit_recorded": "73bc49da1d92b4189d62f9cfbb4b65de18753208",
   "target": {
     "scheme": "http",
     "hostname": "127.0.0.1",
@@ -114,9 +114,9 @@
     },
     "supply_chain": {
       "attempted": 9,
-      "blocked": 8,
-      "finding": 1,
-      "executed": 1235
+      "blocked": 9,
+      "finding": 0,
+      "executed": 1265
     }
   },
   "attacks": [
@@ -3594,7 +3594,7 @@
       "blocked": true,
       "finding": false,
       "severity": "",
-      "reproduction": "POST /admin/payouts/0b81f2db-30ee-4b8d-9bf9-bab2c53f488d/release as unauthorized principal",
+      "reproduction": "POST /admin/payouts/556488a6-beff-4c66-9103-8e1f6ca992b7/release as unauthorized principal",
       "location": "control/api.go Routes + authAdmin/authBuyer",
       "alpha_reachable": true,
       "detail": "{\"error\":\"invalid credential\",\"code\":\"unauthorized\",\"action\":\"authenticate\"}\n",
@@ -3609,7 +3609,7 @@
       "blocked": true,
       "finding": false,
       "severity": "",
-      "reproduction": "POST /admin/buyers/a12d5347-8624-4ad8-8497-7f284ce60cab/prepaid-refund as unauthorized principal",
+      "reproduction": "POST /admin/buyers/25e09c81-f356-473a-82ae-347b1133b41b/prepaid-refund as unauthorized principal",
       "location": "control/api.go Routes + authAdmin/authBuyer",
       "alpha_reachable": true,
       "detail": "{\"error\":\"invalid credential\",\"code\":\"unauthorized\",\"action\":\"authenticate\"}\n",
@@ -3624,7 +3624,7 @@
       "blocked": true,
       "finding": false,
       "severity": "",
-      "reproduction": "POST /admin/payouts/8e2c89a9-279b-4b58-ad37-ed643723ff2c/subsidize as unauthorized principal",
+      "reproduction": "POST /admin/payouts/3a39fe26-ba3c-4192-9901-199d2fb7e859/subsidize as unauthorized principal",
       "location": "control/api.go Routes + authAdmin/authBuyer",
       "alpha_reachable": true,
       "detail": "{\"error\":\"invalid credential\",\"code\":\"unauthorized\",\"action\":\"authenticate\"}\n",
@@ -3942,7 +3942,7 @@
       "reproduction": "concurrent GET /v1/worker/poll with two device-bound worker tokens",
       "location": "control/scheduler.go:ClaimTasksTx FOR UPDATE SKIP LOCKED",
       "alpha_reachable": true,
-      "detail": "claimed_by rows=1 http=204/200 bodies=\"\" / \"{\\\"task_id\\\":\\\"c3f892e6-f71d-4f6d-80a9-64b27b5665db\\\",\\\"attempt\\\":0,\\\"job_id\\\":\\\"226c9bb7-4f5c-47df-82a4-694d13d0aff6\\\",\\\"runtime_c…\"",
+      "detail": "claimed_by rows=1 http=204/200 bodies=\"\" / \"{\\\"task_id\\\":\\\"066a3edf-1bd1-4fa2-9bad-720444ede00b\\\",\\\"attempt\\\":0,\\\"job_id\\\":\\\"6bd8e782-6ea6-4072-980d-296c5911a543\\\",\\\"runtime_c…\"",
       "executed": 1
     },
     {
@@ -4137,7 +4137,7 @@
       "reproduction": "bash clients/macapp/ComputeExchangeAgent/sandbox-profile-test.sh",
       "location": "clients/macapp/ComputeExchangeAgent/merc-agent.sb",
       "alpha_reachable": true,
-      "detail": "sandbox-profile-test: proving merc-agent.sb against standalone binaries\n  profile : /Users/scammermike/Downloads/merc/clients/macapp/ComputeExchangeAgent/merc-agent.sb\n  fakeHOME: /Users/scammermike/.merc-sandbox-test.1Xfpv1/home\n\n  \u001b[1;32m✓\u001b[0m ALLOW  process executes under the profile\n  \u001b[1;32m✓\u001b[0m ALLOW  read the model cache (weights/tokenizer)\n  \u001b[1;32m✓\u001b[0m ALLOW  write the model cache (hf-hub download)\n  \u001b[1;32m✓\u001b[0m ALLOW  read the agent data dir\n  \u001b[1;32m✓\u001b[0m ALLOW  write the agent data dir (status.json)\n  \u001b[1;32m✓\u001b[0m ALLOW  write system temp (inference scratch)\n  \u001b[1;32m✓\u001b[0m DENY   plant a LaunchAgent (persistence)\n  \u001b[1;32m✓\u001b[0m DENY   overwrite the operator's Documents\n  \u001b[1;32m✓\u001b[0m DENY   read ~/.ssh/id_rsa (SSH private key)\n  \u001b[1;32m✓\u001b[0m DENY   read ~/.aws/credentials (cloud secrets)\n  \u001b[1;32m✓\u001b[0m DENY   read ~/Library/Keychains (login keychain)\n  \u001b[1;32m✓\u001b[0m DENY   read ~/Documents (personal files)\n  \u001b[1;32m✓\u001b[0m DENY   write a new ~/.zshrc (rc injection)\n\n  network containment:\n  \u001b[1;32m✓\u001b[0m DENY   open a listening socket (no inbound backdoor)\n  \u001b[1;32m✓\u001b[0m ALLOW  outbound to loopback (dev control plane / local sidecar)\n  \u001b[1;32m✓\u001b[0m DENY   outbound HTTPS to arbitrary host :443 (no open exfil egress)\n  \u001b[1;32m✓\u001b[0m DENY   outbound to an arbitrary port :6667 (no C2/exfil egress)\n  \u001b[1;32m✓\u001b[0m profile is deny-default (no allow default)\n  \u001b[1;32m✓\u001b[0m profile has no wildcard *:443 / *:80 egress\n\n\u001b[1;32mPASS: all 19 containment rows held  -  merc-agent.sb contains the blast radius\u001b[0m\n",
+      "detail": "sandbox-profile-test: proving merc-agent.sb against standalone binaries\n  profile : /Users/scammermike/Downloads/merc/clients/macapp/ComputeExchangeAgent/merc-agent.sb\n  fakeHOME: /Users/scammermike/.merc-sandbox-test.QjdRng/home\n\n  \u001b[1;32m✓\u001b[0m ALLOW  process executes under the profile\n  \u001b[1;32m✓\u001b[0m ALLOW  read the model cache (weights/tokenizer)\n  \u001b[1;32m✓\u001b[0m ALLOW  write the model cache (hf-hub download)\n  \u001b[1;32m✓\u001b[0m ALLOW  read the agent data dir\n  \u001b[1;32m✓\u001b[0m ALLOW  write the agent data dir (status.json)\n  \u001b[1;32m✓\u001b[0m ALLOW  write system temp (inference scratch)\n  \u001b[1;32m✓\u001b[0m DENY   plant a LaunchAgent (persistence)\n  \u001b[1;32m✓\u001b[0m DENY   overwrite the operator's Documents\n  \u001b[1;32m✓\u001b[0m DENY   read ~/.ssh/id_rsa (SSH private key)\n  \u001b[1;32m✓\u001b[0m DENY   read ~/.aws/credentials (cloud secrets)\n  \u001b[1;32m✓\u001b[0m DENY   read ~/Library/Keychains (login keychain)\n  \u001b[1;32m✓\u001b[0m DENY   read ~/Documents (personal files)\n  \u001b[1;32m✓\u001b[0m DENY   write a new ~/.zshrc (rc injection)\n\n  network containment:\n  \u001b[1;32m✓\u001b[0m DENY   open a listening socket (no inbound backdoor)\n  \u001b[1;32m✓\u001b[0m ALLOW  outbound to loopback (dev control plane / local sidecar)\n  \u001b[1;32m✓\u001b[0m DENY   outbound HTTPS to arbitrary host :443 (no open exfil egress)\n  \u001b[1;32m✓\u001b[0m DENY   outbound to an arbitrary port :6667 (no C2/exfil egress)\n  \u001b[1;32m✓\u001b[0m profile is deny-default (no allow default)\n  \u001b[1;32m✓\u001b[0m profile has no wildcard *:443 / *:80 egress\n\n\u001b[1;32mPASS: all 19 containment rows held  -  merc-agent.sb contains the blast radius\u001b[0m\n",
       "executed": 17
     },
     {
@@ -4174,15 +4174,15 @@
       "id": "supply-govulncheck-control",
       "class": "supply_chain",
       "title": "govulncheck on control/",
-      "status": "finding",
+      "status": "blocked",
       "attempted": true,
-      "blocked": false,
-      "finding": true,
-      "severity": "P2",
+      "blocked": true,
+      "finding": false,
+      "severity": "",
       "reproduction": "cd control && govulncheck ./...",
       "location": "control/go.mod",
       "alpha_reachable": false,
-      "detail": "control.main calls http.Server.ListenAndServe\n      #2: gateway_parity_cli.go:314:2: control.runGatewayParityMatrixStandinSelfTest calls http.Server.Serve\n\nVulnerability #4: GO-2026-6088\n    Add recursion depth guard during decode in encoding/xml\n  More info: https://pkg.go.dev/vuln/GO-2026-6088\n  Standard library\n    Found in: encoding/xml@go1.26.5\n    Fixed in: encoding/xml@go1.26.6\n    Example traces found:\n      #1: storage.go:59:38: control.NewStorage calls minio.Client.BucketExists, which eventually calls xml.Decoder.Decode\n      #2: pricing.go:1999:9: control.Store.ApplyRepricing calls pgx.connRow.Scan, which eventually calls xml.Unmarshal\n\nVulnerability #5: GO-2026-5972\n    Enforce maximum recursion depth in encoding/asn1\n  More info: https://pkg.go.dev/vuln/GO-2026-5972\n  Standard library\n    Found in: encoding/asn1@go1.26.5\n    Fixed in: encoding/asn1@go1.26.6\n    Example traces found:\n      #1: main.go:332:2: control.main calls pgxpool.Pool.Close, which eventually calls asn1.Unmarshal\n\nVulnerability #6: GO-2026-5026\n    Invoking failure to reject ASCII-only Punycode-encoded labels in\n    golang.org/x/net/idna\n  More info: https://pkg.go.dev/vuln/GO-2026-5026\n  Standard library\n    Found in: net/http@go1.26.5\n    Fixed in: net/http@go1.26.6\n    Example traces found:\n      #1: stripe_api_contract.go:27:18: control.doStripeRequest calls http.Client.Do\n      #2: main.go:494:25: control.runHealthcheck calls http.Client.Get\n      #3: storage.go:59:38: control.NewStorage calls minio.Client.BucketExists, which eventually calls http.Transport.CloseIdleConnections\n      #4: storage.go:59:38: control.NewStorage calls minio.Client.BucketExists, which eventually calls http.Transport.RoundTrip\n\nYour code is affected by 6 vulnerabilities from the Go standard library.\nThis scan also found 2 vulnerabilities in packages you import and 2\nvulnerabilities in modules you require, but your code doesn't appear to call\nthese vulnerabilities.\nUse '-show verbose' for more details.\n",
+      "detail": "=== Symbol Results ===\n\nNo vulnerabilities found.\n\nYour code is affected by 0 vulnerabilities.\nThis scan also found 1 vulnerability in packages you import and 2\nvulnerabilities in modules you require, but your code doesn't appear to call\nthese vulnerabilities.\nUse '-show verbose' for more details.\n",
       "executed": 1
     },
     {
@@ -4272,8 +4272,8 @@
       "reproduction": "scan git ls-files for sk_live_/rk_live_ values (not regex/docs)",
       "location": "working tree (tracked)",
       "alpha_reachable": false,
-      "detail": "live_value_files=0 test_value_files=1 scanned=1227",
-      "executed": 1227
+      "detail": "live_value_files=0 test_value_files=1 scanned=1257",
+      "executed": 1257
     },
     {
       "id": "secrets-git-history-live-keys",
@@ -4306,29 +4306,13 @@
       "executed": 1
     }
   ],
-  "findings": [
-    {
-      "id": "supply-govulncheck-control",
-      "class": "supply_chain",
-      "title": "govulncheck on control/",
-      "status": "finding",
-      "attempted": true,
-      "blocked": false,
-      "finding": true,
-      "severity": "P2",
-      "reproduction": "cd control && govulncheck ./...",
-      "location": "control/go.mod",
-      "alpha_reachable": false,
-      "detail": "control.main calls http.Server.ListenAndServe\n      #2: gateway_parity_cli.go:314:2: control.runGatewayParityMatrixStandinSelfTest calls http.Server.Serve\n\nVulnerability #4: GO-2026-6088\n    Add recursion depth guard during decode in encoding/xml\n  More info: https://pkg.go.dev/vuln/GO-2026-6088\n  Standard library\n    Found in: encoding/xml@go1.26.5\n    Fixed in: encoding/xml@go1.26.6\n    Example traces found:\n      #1: storage.go:59:38: control.NewStorage calls minio.Client.BucketExists, which eventually calls xml.Decoder.Decode\n      #2: pricing.go:1999:9: control.Store.ApplyRepricing calls pgx.connRow.Scan, which eventually calls xml.Unmarshal\n\nVulnerability #5: GO-2026-5972\n    Enforce maximum recursion depth in encoding/asn1\n  More info: https://pkg.go.dev/vuln/GO-2026-5972\n  Standard library\n    Found in: encoding/asn1@go1.26.5\n    Fixed in: encoding/asn1@go1.26.6\n    Example traces found:\n      #1: main.go:332:2: control.main calls pgxpool.Pool.Close, which eventually calls asn1.Unmarshal\n\nVulnerability #6: GO-2026-5026\n    Invoking failure to reject ASCII-only Punycode-encoded labels in\n    golang.org/x/net/idna\n  More info: https://pkg.go.dev/vuln/GO-2026-5026\n  Standard library\n    Found in: net/http@go1.26.5\n    Fixed in: net/http@go1.26.6\n    Example traces found:\n      #1: stripe_api_contract.go:27:18: control.doStripeRequest calls http.Client.Do\n      #2: main.go:494:25: control.runHealthcheck calls http.Client.Get\n      #3: storage.go:59:38: control.NewStorage calls minio.Client.BucketExists, which eventually calls http.Transport.CloseIdleConnections\n      #4: storage.go:59:38: control.NewStorage calls minio.Client.BucketExists, which eventually calls http.Transport.RoundTrip\n\nYour code is affected by 6 vulnerabilities from the Go standard library.\nThis scan also found 2 vulnerabilities in packages you import and 2\nvulnerabilities in modules you require, but your code doesn't appear to call\nthese vulnerabilities.\nUse '-show verbose' for more details.\n",
-      "executed": 1
-    }
-  ],
+  "findings": [],
   "observations": {
-    "started_at": "2026-08-16T22:47:46Z",
-    "finished_at": "2026-08-16T22:48:50Z",
-    "request_count": 1521,
+    "started_at": "2026-08-17T00:42:30Z",
+    "finished_at": "2026-08-17T00:43:29Z",
+    "request_count": 1551,
     "distinct_routes_exercised": 247,
-    "attacks_executed": 1521,
+    "attacks_executed": 1551,
     "attack_rows": 279
   },
   "reviewer": {
@@ -4343,7 +4327,7 @@
   },
   "producer_identity": {
     "source_commit": {
-      "value": "11813c8f14613ee46d86f2629c4a992d55da5098"
+      "value": "73bc49da1d92b4189d62f9cfbb4b65de18753208"
     },
     "build_digest": {
       "value": "9c188d7856ceade18be369a3022bbddbda70d8e8440f9e983e41dc328056facd"

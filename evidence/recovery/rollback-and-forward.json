@@ -3,26 +3,26 @@
   "kind": "recovery_failure_mode",
   "mode": "rollback_and_forward",
   "status": "PASS",
-  "completed_at": "2026-08-16T22:49:33Z",
+  "completed_at": "2026-08-17T00:44:10Z",
   "test": "TestRecoveryLaneRollbackAndForward",
   "test_result": "pass",
   "killed": "deliberately interrupted DDL transaction (SELECT 1/0) and a destroyed current-version row",
   "recovered": "transaction rolled back (no probe table); prior-version row restored; forward UPDATE applied",
   "invariant": "interrupted migration is not durable; restored row matches snapshot; subsequent write succeeds",
-  "elapsed_ns": 13773000,
-  "elapsed_ms_measured": 13.773,
+  "elapsed_ns": 14252750,
+  "elapsed_ms_measured": 14.253,
   "interval_shortened": false,
   "production_period": null,
   "test_period": null,
   "details": {
-    "forward_email": "forward-e5ebd7cb-ba47-40ea-8b4f-7e7f2e896b93@example.invalid",
+    "forward_email": "forward-1a147412-64a2-47ef-907e-cd637da92404@example.invalid",
     "probe_table_exists": false,
-    "restored_email": "rollback-e5ebd7cb-ba47-40ea-8b4f-7e7f2e896b93@example.invalid"
+    "restored_email": "rollback-1a147412-64a2-47ef-907e-cd637da92404@example.invalid"
   },
   "secret_values_recorded": false,
   "producer_identity": {
     "source_commit": {
-      "value": "11813c8f14613ee46d86f2629c4a992d55da5098"
+      "value": "73bc49da1d92b4189d62f9cfbb4b65de18753208"
     },
     "build_digest": {
       "value": "0bed9526473a2d848411a6dfe109baa97c07293823f7d3a6bec0603923fbfa24"
