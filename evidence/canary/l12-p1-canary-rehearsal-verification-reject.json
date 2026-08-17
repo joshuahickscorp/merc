@@ -16,5 +16,16 @@
   "schema_version": 1,
   "status": "PASS",
   "synthetic": true,
-  "worker_id": "69cab73e-dc7d-4ab6-9ad4-7052b6be5edd"
+  "worker_id": "69cab73e-dc7d-4ab6-9ad4-7052b6be5edd",
+  "binding_status": "UNBOUND",
+  "missing_identity_fields": [
+    "source_commit",
+    "build_digest",
+    "model_artifact_digest",
+    "image_digest",
+    "harness_revision",
+    "corpus_digest",
+    "exact_config",
+    "raw_samples"
+  ]
 }

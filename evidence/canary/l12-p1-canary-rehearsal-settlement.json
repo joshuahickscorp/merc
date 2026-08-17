@@ -1,5 +1,5 @@
 {
-  "actual_usd": 0.000006,
+  "actual_usd": 6e-06,
   "classification": "ALPHA_CONTROL",
   "controlled_by_operator": true,
   "does_not_satisfy": "EXTERNAL_ALPHA_PROVEN",
@@ -17,5 +17,16 @@
   "settled_exactly_once": true,
   "status": "PASS",
   "supplier_credit_rows": 2,
-  "synthetic": true
+  "synthetic": true,
+  "binding_status": "UNBOUND",
+  "missing_identity_fields": [
+    "source_commit",
+    "build_digest",
+    "model_artifact_digest",
+    "image_digest",
+    "harness_revision",
+    "corpus_digest",
+    "exact_config",
+    "raw_samples"
+  ]
 }

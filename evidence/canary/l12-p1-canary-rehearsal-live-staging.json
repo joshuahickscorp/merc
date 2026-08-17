@@ -29,5 +29,16 @@
     "Quote 400: normalizeAdvertisedRuntimeModelRef → validateAdvertisedRuntimeJobModel when advertisedRuntimeCapabilities() has no (job, model). Embed is parked on empty engine_build_hash. Infer is document-advertised locally; a live overlay can QUARANTINE it via storedRoutableEntryHasCurrentGlobalAuthority.",
     "If infer becomes advertised on staging, quote then 503s: validateCurrentUniformCanaryAuthority refuses while MERC_CANARY_MODE is on because canary injects a honeypot and validateCurrentUniformTaskCounts refuses honeypotTasks != 0.",
     "Worker register: projectWorkerRuntimeCapabilities requires sealed r6 identity 7cc01c442c7f6dbe. Current host merc-agent honeypot-answer emits 2939a8e26ffe6fd2. Canary also requires MERC_CANARY_APPROVED_BUILD_HASHES, still f4303a751ca2b2af."
+  ],
+  "binding_status": "UNBOUND",
+  "missing_identity_fields": [
+    "source_commit",
+    "build_digest",
+    "model_artifact_digest",
+    "image_digest",
+    "harness_revision",
+    "corpus_digest",
+    "exact_config",
+    "raw_samples"
   ]
 }

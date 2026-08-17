@@ -20,5 +20,16 @@
   "worker_ids": [
     "19f0f0ab-fad1-49b0-8aec-a6271c60f6e1",
     "fd69efdb-3ee9-422e-af23-2a735bfa75fd"
+  ],
+  "binding_status": "UNBOUND",
+  "missing_identity_fields": [
+    "source_commit",
+    "build_digest",
+    "model_artifact_digest",
+    "image_digest",
+    "harness_revision",
+    "corpus_digest",
+    "exact_config",
+    "raw_samples"
   ]
 }
