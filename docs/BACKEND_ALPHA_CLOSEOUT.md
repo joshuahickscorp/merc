@@ -35,9 +35,11 @@ reclassification.
 7 `ALPHA_CONTROL`, 7 `PUBLIC_LAUNCH`, 2 `POST_ALPHA`. Only 9 of 44 moved out of
 alpha scope.
 
-**Nothing was deleted.** Level B still derives against the full 100-point bar
-with all eight P1s open, `go_threshold` is still 95, and Level C is untouched.
-A gate rescoped to `PUBLIC_LAUNCH` keeps its full requirement at that level.
+**Nothing was deleted.** Level B still derives against the full 100-point bar,
+`go_threshold` is still 95, and Level C is untouched. A gate rescoped to
+`PUBLIC_LAUNCH` keeps its full requirement at that level. The reclassification
+by itself closed **zero** P1s: all eight were still open afterwards, and the two
+that have since closed did so on evidence.
 
 Two gates were questioned and deliberately **kept** as alpha blockers, against
 the easier answer: offsite backup/restore ("a restore path unproven at alpha is
