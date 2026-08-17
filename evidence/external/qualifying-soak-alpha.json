@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "kind": "backend_alpha_soak",
+  "status": "PASS",
+  "started_at": "2026-08-16T23:58:47Z",
+  "finished_at": "2026-08-17T00:58:47Z",
+  "host": "mercmerc.net",
+  "expected_commit": "a5bca8c0abcfda4158f5c681fa67f5ae5ebccb05",
+  "duration": {
+    "requested_seconds": 3600,
+    "actual_seconds": 3600,
+    "interval_seconds": 30,
+    "samples": 121
+  },
+  "qualification": {
+    "qualifies_for_24h_gate": false,
+    "derived_from": "2x pgxpool MaxConnLifetime=30m (control/main.go)"
+  },
+  "observed_bounds": {
+    "control_restart_count": 0,
+    "control_oom_samples": 0,
+    "sample_count": 121
+  },
+  "last_version": {
+    "version": "v0.1.0-merc-staging",
+    "commit": "a5bca8c0abcfda4158f5c681fa67f5ae5ebccb05",
+    "build_date": "2026-08-16T23:52:36Z",
+    "go_version": "go1.26.5",
+    "platform": "linux/amd64",
+    "modified": false,
+    "price_board_sha256": "440909b34593487d8bd5d00c1b65244cc0a971755507b665014334505a34f48c",
+    "price_board_source": "release",
+    "capability_matrix_sha256": "0b569a272b2bef7f553cad0efbe7bac9fc42a18944b16ac60b590763f497d60c",
+    "authority_document_sha256": "a8ce0116c3b71b53870ca514179eee204781773e28ba7b2a798a951e1201f7d7"
+  },
+  "last_readyz": {
+    "live_value_movement": false,
+    "payment_mode": "test",
+    "payment_recovery_active": true,
+    "provider_enabled": true,
+    "status": "ready",
+    "stripe_api_version": "2025-06-30.basil"
+  },
+  "samples_path": "evidence/external/qualifying-soak-alpha-samples.jsonl",
+  "secret_values_recorded": false,
+  "policy": {
+    "stripe_live_mode": false,
+    "real_value": false
+  },
+  "producer_identity": {
+    "source_commit": {
+      "value": "a5bca8c0abcfda4158f5c681fa67f5ae5ebccb05"
+    },
+    "build_digest": {
+      "value": "72582dde5fe473dffa9cb730319a456c819ec9d8999e279c12069dfb837074cf"
+    },
+    "model_artifact_digest": {
+      "na": "soak does not load model weights"
+    },
+    "image_digest": {
+      "value": "2b2f85c969176dd5cc84f66e402e0853519f7784bc9f60fcf86841372e9fb28c"
+    },
+    "harness_revision": {
+      "value": "scripts/alpha/derived-soak.py"
+    },
+    "corpus_digest": {
+      "na": "no external corpus"
+    },
+    "exact_config": {
+      "value": "backend_alpha_soak 3600s interval=30 host=mercmerc.net commit=a5bca8c0"
+    },
+    "raw_samples": {
+      "value": "evidence/external/qualifying-soak-alpha-samples.jsonl"
+    }
+  },
+  "binding_status": "BOUND"
+}

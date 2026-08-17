@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "kind": "staging_rollback_and_forward",
+  "status": "PASS",
+  "rollback_at": "2026-08-16T23:57:25Z",
+  "forward_at": "2026-08-16T23:57:38Z",
+  "prior_commit": "8283ae583057d6265947a473023e4f05102704b4",
+  "prior_image_id": "sha256:7bf0ab9d69ed36d2203161dd161fabe8977bce83ca53c2629bff16297a7bdd1b",
+  "candidate_commit": "a5bca8c0abcfda4158f5c681fa67f5ae5ebccb05",
+  "candidate_image_id": "sha256:2b2f85c969176dd5cc84f66e402e0853519f7784bc9f60fcf86841372e9fb28c",
+  "rollback_commit_observed": "8283ae583057d6265947a473023e4f05102704b4",
+  "forward_commit_observed": "a5bca8c0abcfda4158f5c681fa67f5ae5ebccb05",
+  "rollback_readyz_http": 200,
+  "forward_readyz": {
+    "live_value_movement": false,
+    "payment_mode": "test",
+    "payment_recovery_active": true,
+    "provider_enabled": true,
+    "status": "ready",
+    "stripe_api_version": "2025-06-30.basil"
+  },
+  "postgres_marker_after_rollback": "rollback-forward|present-before-rollback",
+  "postgres_marker_after_forward": "rollback-forward|present-before-rollback",
+  "minio_marker_after_forward": "l7-rollback-forward-marker",
+  "inspect_before": "/merc-control-1 started=2026-08-16T23:53:52.249072182Z image=sha256:2b2f85c969176dd5cc84f66e402e0853519f7784bc9f60fcf86841372e9fb28c\n/merc-postgres-1 started=2026-08-16T22:15:16.817975023Z image=sha256:a426e44bac0b759c95894d68e1a0ac03ecc20b619f498a91aae373bf06d8508d\n/merc-minio-1 started=2026-08-16T22:15:24.302670933Z image=sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e\n",
+  "inspect_rollback": "/merc-control-1 started=2026-08-16T23:57:29.351835766Z image=sha256:7bf0ab9d69ed36d2203161dd161fabe8977bce83ca53c2629bff16297a7bdd1b\n/merc-postgres-1 started=2026-08-16T22:15:16.817975023Z image=sha256:a426e44bac0b759c95894d68e1a0ac03ecc20b619f498a91aae373bf06d8508d\n/merc-minio-1 started=2026-08-16T22:15:24.302670933Z image=sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e\n",
+  "inspect_forward": "/merc-control-1 started=2026-08-16T23:57:41.481373958Z image=sha256:2b2f85c969176dd5cc84f66e402e0853519f7784bc9f60fcf86841372e9fb28c\n/merc-postgres-1 started=2026-08-16T22:15:16.817975023Z image=sha256:a426e44bac0b759c95894d68e1a0ac03ecc20b619f498a91aae373bf06d8508d\n/merc-minio-1 started=2026-08-16T22:15:24.302670933Z image=sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e\n",
+  "data_loss": false,
+  "secret_values_recorded": false,
+  "producer_identity": {
+    "source_commit": {
+      "value": "a5bca8c0abcfda4158f5c681fa67f5ae5ebccb05"
+    },
+    "build_digest": {
+      "value": "0795932d6c3f0cb2f7a4b31e1473332a7f951ee7c1717a2b05deeb527b867cd1"
+    },
+    "model_artifact_digest": {
+      "na": "no model weights in this staging-plane receipt"
+    },
+    "image_digest": {
+      "value": "2b2f85c969176dd5cc84f66e402e0853519f7784bc9f60fcf86841372e9fb28c"
+    },
+    "harness_revision": {
+      "value": "scripts/write-bound-evidence.py"
+    },
+    "corpus_digest": {
+      "na": "no external corpus in this staging-plane receipt"
+    },
+    "exact_config": {
+      "value": "embedded in receipt body"
+    },
+    "raw_samples": {
+      "value": "embedded in receipt body"
+    }
+  },
+  "binding_status": "BOUND"
+}

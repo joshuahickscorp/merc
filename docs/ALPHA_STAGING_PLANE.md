@@ -19,9 +19,11 @@ webhook whenever canary was on. This host is not a Connect platform (no `ca_*`,
 no Connect return/refresh URLs). The narrow gate correction in
 `control/main.go` is: when `MERC_ENV=staging` and Connect is not configured,
 require a test-mode Stripe key (and a well-shaped billing webhook if one is
-set) and do not demand Connect. Production and any staging stack that sets
-Connect URLs or a `ca_*` still take the full pair.
+set) and do not demand Connect. Distinct cash and Connect `whsec_*` secrets
+are still required whenever both are set: `/v1/stripe/connect-webhook` is
+served whether or not Connect is onboarded. Production and any staging stack
+that sets Connect URLs or a `ca_*` still take the full pair.
 
-Port 443 is bound to loopback only. The command that would publish it is
-recorded in `ops/staging/compose.tls-loopback.yml`. Do not run it from this
-lane.
+Port 443 is public on this host (`0.0.0.0:443`, Let's Encrypt for
+`mercmerc.net`). Do not close it. Canary admission is still allowlisted:
+unapproved `POST /v1/signup` answers 403.

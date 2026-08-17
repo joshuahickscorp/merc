@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "kind": "evidence_binding_sidecar",
+  "target": "evidence/external/qualifying-soak-alpha-samples.jsonl",
+  "binding_status": "BOUND",
+  "producer_identity": {
+    "source_commit": {
+      "value": "a5bca8c0abcfda4158f5c681fa67f5ae5ebccb05"
+    },
+    "build_digest": {
+      "value": "72582dde5fe473dffa9cb730319a456c819ec9d8999e279c12069dfb837074cf"
+    },
+    "model_artifact_digest": {
+      "na": "soak samples do not load model weights"
+    },
+    "image_digest": {
+      "na": "image identity recorded in parent soak receipt"
+    },
+    "harness_revision": {
+      "value": "scripts/alpha/derived-soak.py"
+    },
+    "corpus_digest": {
+      "na": "no external corpus"
+    },
+    "exact_config": {
+      "value": "backend alpha derived soak samples"
+    },
+    "raw_samples": {
+      "value": "JSONL at evidence/external/qualifying-soak-alpha-samples.jsonl"
+    }
+  },
+  "note": "sidecar for non-object evidence written via bound path"
+}

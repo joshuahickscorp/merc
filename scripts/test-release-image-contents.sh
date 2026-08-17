@@ -115,6 +115,40 @@ for path in "${REQUIRED_PATHS[@]}"; do
     rc=1
   fi
 done
+# Catalogue receipts must be real JSON, not Git LFS pointer files. A sparse or
+# un-smudged checkout ships 129-byte "version https://git-lfs..." stubs; the
+# control plane then crash-loops with "cited receipt is not JSON". Observed
+# 2026-08-16 on the staging droplet when HEAD was built without `git lfs pull`.
+receipt_dir="$tmpdir/runtime-benchmarks"
+if "$RUNTIME" cp "$PROBE:/etc/merc/evidence/perf/runtime-benchmarks" "$receipt_dir" >/dev/null 2>&1; then
+  receipt_count=0
+  while IFS= read -r -d '' receipt; do
+    receipt_count=$((receipt_count + 1))
+    case "$(head -c 20 "$receipt" 2>/dev/null || true)" in
+      version\ https://git-l*)
+        echo "  FAIL  LFS pointer in image: ${receipt#"$receipt_dir"/}" >&2
+        rc=1
+        ;;
+    esac
+    case "$receipt" in
+      *.json)
+        if ! python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$receipt" 2>/dev/null; then
+          echo "  FAIL  not JSON in image: ${receipt#"$receipt_dir"/}" >&2
+          rc=1
+        fi
+        ;;
+    esac
+  done < <(command find "$receipt_dir" -type f -print0)
+  if [ "$receipt_count" -lt 8 ]; then
+    echo "  FAIL  expected cited runtime-benchmark receipts in the image, found $receipt_count" >&2
+    rc=1
+  else
+    echo "  ok    $receipt_count runtime-benchmark receipts (not LFS pointers)"
+  fi
+else
+  echo "  FAIL  missing from image: /etc/merc/evidence/perf/runtime-benchmarks" >&2
+  rc=1
+fi
 rm -rf "$tmpdir"
 
 if [ "$rc" != "0" ]; then

@@ -1,0 +1,84 @@
+{
+  "schema_version": 1,
+  "kind": "staging_restart_storm",
+  "status": "PASS",
+  "started_at": "2026-08-16T23:57:57Z",
+  "finished_at": "2026-08-16T23:58:37Z",
+  "candidate_commit": "a5bca8c0abcfda4158f5c681fa67f5ae5ebccb05",
+  "candidate_image_id": "sha256:2b2f85c969176dd5cc84f66e402e0853519f7784bc9f60fcf86841372e9fb28c",
+  "events": [
+    {
+      "service": "control",
+      "restarted_at": "2026-08-16T23:58:00Z",
+      "image": "a5bca8c0abcfda4158f5c681fa67f5ae5ebccb05",
+      "readyz": "ready",
+      "marker": "restart-storm|present-before-restarts"
+    },
+    {
+      "service": "postgres",
+      "restarted_at": "2026-08-16T23:58:10Z",
+      "readyz": "ready",
+      "marker": "restart-storm|present-before-restarts"
+    },
+    {
+      "service": "minio",
+      "restarted_at": "2026-08-16T23:58:22Z",
+      "readyz": "ready",
+      "minio_marker": "l7-restart-storm-marker",
+      "postgres_marker": "restart-storm|present-before-restarts"
+    }
+  ],
+  "inspect_before": "/merc-control-1 started=2026-08-16T23:57:41.481373958Z image=sha256:2b2f85c969176dd5cc84f66e402e0853519f7784bc9f60fcf86841372e9fb28c\n/merc-postgres-1 started=2026-08-16T22:15:16.817975023Z image=sha256:a426e44bac0b759c95894d68e1a0ac03ecc20b619f498a91aae373bf06d8508d\n/merc-minio-1 started=2026-08-16T22:15:24.302670933Z image=sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e\n",
+  "inspect_after": "/merc-control-1 started=2026-08-16T23:58:01.515291205Z image=sha256:2b2f85c969176dd5cc84f66e402e0853519f7784bc9f60fcf86841372e9fb28c\n/merc-postgres-1 started=2026-08-16T23:58:11.006751471Z image=sha256:a426e44bac0b759c95894d68e1a0ac03ecc20b619f498a91aae373bf06d8508d\n/merc-minio-1 started=2026-08-16T23:58:23.587891976Z image=sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e\n",
+  "final_version": {
+    "version": "v0.1.0-merc-staging",
+    "commit": "a5bca8c0abcfda4158f5c681fa67f5ae5ebccb05",
+    "build_date": "2026-08-16T23:52:36Z",
+    "go_version": "go1.26.5",
+    "platform": "linux/amd64",
+    "modified": false,
+    "price_board_sha256": "440909b34593487d8bd5d00c1b65244cc0a971755507b665014334505a34f48c",
+    "price_board_source": "release",
+    "capability_matrix_sha256": "0b569a272b2bef7f553cad0efbe7bac9fc42a18944b16ac60b590763f497d60c",
+    "authority_document_sha256": "a8ce0116c3b71b53870ca514179eee204781773e28ba7b2a798a951e1201f7d7"
+  },
+  "final_readyz": {
+    "live_value_movement": false,
+    "payment_mode": "test",
+    "payment_recovery_active": true,
+    "provider_enabled": true,
+    "status": "ready",
+    "stripe_api_version": "2025-06-30.basil"
+  },
+  "postgres_marker": "restart-storm|present-before-restarts",
+  "minio_marker": "l7-restart-storm-marker",
+  "state_preserved": true,
+  "secret_values_recorded": false,
+  "producer_identity": {
+    "source_commit": {
+      "value": "a5bca8c0abcfda4158f5c681fa67f5ae5ebccb05"
+    },
+    "build_digest": {
+      "value": "0795932d6c3f0cb2f7a4b31e1473332a7f951ee7c1717a2b05deeb527b867cd1"
+    },
+    "model_artifact_digest": {
+      "na": "no model weights in this staging-plane receipt"
+    },
+    "image_digest": {
+      "value": "2b2f85c969176dd5cc84f66e402e0853519f7784bc9f60fcf86841372e9fb28c"
+    },
+    "harness_revision": {
+      "value": "scripts/write-bound-evidence.py"
+    },
+    "corpus_digest": {
+      "na": "no external corpus in this staging-plane receipt"
+    },
+    "exact_config": {
+      "value": "embedded in receipt body"
+    },
+    "raw_samples": {
+      "value": "embedded in receipt body"
+    }
+  },
+  "binding_status": "BOUND"
+}

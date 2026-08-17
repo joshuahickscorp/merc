@@ -57,6 +57,10 @@ docker context use orbstack
 cd $ROOT
 git rev-parse HEAD   # must equal $commit
 git status --porcelain | head   # must be empty or /version will lie
+# Runtime-benchmark receipts are LFS. An unsudged checkout ships 129-byte
+# pointer files; the image then crash-loops: cited receipt is not JSON.
+git lfs pull --include='evidence/perf/runtime-benchmarks/**' --exclude=''
+bash scripts/assert-control-receipts-not-lfs.sh
 docker build --platform linux/amd64 -f Dockerfile.control \\
   --build-arg MERC_BUILD_VERSION=v0.1.0-merc-rc1 \\
   --build-arg MERC_BUILD_COMMIT=$commit \\
@@ -147,6 +151,10 @@ check_local() {
   [ -f "$ROOT/ops/smallhost/Caddyfile.local" ] || alpha_die "missing ops/smallhost/Caddyfile.local"
   grep -q 'FROM gcr.io/distroless/static:nonroot@sha256:' "$ROOT/Dockerfile.control" \
     || alpha_die "Dockerfile.control is not digest-pinned distroless"
+  if [ -x "$ROOT/scripts/assert-control-receipts-not-lfs.sh" ]; then
+    bash "$ROOT/scripts/assert-control-receipts-not-lfs.sh" \
+      || alpha_die "control image receipts are Git LFS pointers; git lfs pull first"
+  fi
   if grep -n 'sk_live_\|rk_live_\|pk_live_' "$ROOT/docker-compose.smallhost.yml" \
     "$ROOT/docker-compose.prod.yml" "$ROOT/docker-compose.canary.yml" >/dev/null 2>&1; then
     alpha_die "compose files must not contain live Stripe prefixes"

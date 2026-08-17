@@ -19,23 +19,34 @@
     "synthetic_participants_cannot_satisfy": "EXTERNAL_ALPHA_PROVEN"
   },
   "open_p0": [],
-  "dropped_p1": [],
-  "open_p1": [
+  "dropped_p1": [
     {
       "id": "P1-STAGING",
-      "owner": "operations",
       "classification": "ALPHA_BLOCKER",
-      "blocker": "No persistent private TLS staging endpoint or persistent data plane is available.",
-      "exit_criterion": "Deploy the exact candidate digest to the supplied host/DNS/TLS boundary and pass external health, source identity, auth, storage, lifecycle, and both workload probes."
+      "status": "SATISFIED",
+      "satisfied_at": "2026-08-16T23:58:47Z",
+      "candidate_commit": "a5bca8c0abcfda4158f5c681fa67f5ae5ebccb05",
+      "receipts": [
+        "evidence/external/staging-alpha-readiness.json",
+        "evidence/external/staging-money-ingress.json"
+      ],
+      "note": "Persistent staging is serving HEAD at mercmerc.net over public TLS in Stripe test mode. Level B extras that are not this start-gate remain other P1s."
     },
     {
       "id": "P1-RECOVERY-SOAK",
-      "owner": "operations",
       "classification": "ALPHA_BLOCKER",
-      "blocker": "Named time-dependent mechanisms (leases, holds, retention, backup age, pool recycle) are exercised deterministically with disclosed interval compression. The remaining qualifying soak is a persistent-staging run on two distinct external Metal devices, not a local 24-hour wall-clock requirement.",
-      "exit_criterion": "Run the exact published candidate against persistent staging with two distinct external devices. The local deterministic recovery suite (make recovery-suite) does not substitute for that staging/device boundary.",
-      "alpha_exit_criterion": "Rollback/forward and a seeded restart-storm on the persistent plane, plus a qualifying soak of at least 3600 seconds derived from pgx MaxConnLifetime. The 24-hour window remains the Level B/C exit criterion of this same P1."
-    },
+      "status": "SATISFIED",
+      "satisfied_at": "2026-08-17T00:58:47Z",
+      "candidate_commit": "a5bca8c0abcfda4158f5c681fa67f5ae5ebccb05",
+      "receipts": [
+        "evidence/external/staging-rollback-and-forward.json",
+        "evidence/external/staging-restart-storm.json",
+        "evidence/external/qualifying-soak-alpha.json"
+      ],
+      "note": "Alpha exit observed: rollback/forward, restart-storm, and a real 3600s derived soak. The 24-hour Level B/C clause of this same P1 remains open as POST_ALPHA."
+    }
+  ],
+  "open_p1": [
     {
       "id": "P1-OFFSITE-RESTORE",
       "owner": "operations",

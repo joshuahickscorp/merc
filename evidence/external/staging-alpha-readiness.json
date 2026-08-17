@@ -1,42 +1,37 @@
 {
   "kind": "staging_alpha_readiness",
   "schema_version": 1,
-  "observed_at": "2026-08-16T22:16:16Z",
+  "observed_at": "2026-08-16T23:58:47Z",
   "host": {
     "alias": "merc-droplet",
     "address": "192.241.134.31",
     "dns": "mercmerc.net",
     "deploy_root": "/opt/merc"
   },
-  "root_cause": {
-    "readyz_reason_code": "canary_policy_unconfigured",
-    "readyz_reason": "canary policy was incomplete when this process started",
-    "code_path": "control/api.go handleReadyz first gate: s.canary.Enabled && s.canary.configError",
-    "policy_path": "control/canary_policy.go loadCanaryPolicyFromEnv: MERC_CANARY_MODE=false with empty MERC_CANARY_DISABLE_DECISION_REF fail-closes to Enabled=true + configError",
-    "worker_log": "workers: stale-requeue: canary retry policy: canary disable decision reference is absent — same configError via canaryRetryLimit, not a separate readiness condition",
-    "fix_class": "config_supply",
-    "fix": "set MERC_CANARY_MODE=true with the allowlist in ops/staging/alpha-participants.json; did not write a DISABLE_CANARY_ADMISSION decision because a controlled backend alpha does not open self-serve signup",
-    "secondary_gate": "validateCanaryMoneyMode required a Connect ca_* whenever canary was on; MERC_ENV=staging with no Connect URLs or ca_* now requires only a Stripe test key (and a well-shaped billing webhook if set). Production unchanged."
-  },
   "deployed": {
-    "commit": "8283ae583057d6265947a473023e4f05102704b4",
-    "image": "computexchange/control:8283ae583057d6265947a473023e4f05102704b4",
-    "image_id": "sha256:7bf0ab9d69ed36d2203161dd161fabe8977bce83ca53c2629bff16297a7bdd1b",
-    "linux_amd64_manifest": "sha256:8926eab377aa7776c9fcf0fe7d264e71c0b9c3725aef2605181b4b0eb79e217e",
-    "image_config": "sha256:c4b0c8841ed31e632657c393c192f933953818e7613cf223261ad26655b3ccfb",
-    "build_date": "2026-08-16T22:08:14Z",
+    "commit": "a5bca8c0abcfda4158f5c681fa67f5ae5ebccb05",
+    "image": "computexchange/control:a5bca8c0abcfda4158f5c681fa67f5ae5ebccb05",
+    "image_id": "sha256:2b2f85c969176dd5cc84f66e402e0853519f7784bc9f60fcf86841372e9fb28c",
+    "linux_amd64_manifest": "sha256:18169c8bb1cc888725d2e7713eeacdd23bc579706fc0eafb82878112909f670c",
+    "image_config": "sha256:f87cc531ea22f791067be8bc8e6704d7be94d2ead3d4d279ce3e1bda5e2daa43",
+    "build_date": "2026-08-16T23:52:36Z",
     "registry": "local docker image store on the droplet; not pushed to a remote registry",
-    "source_note": "built from commit 8283ae58 plus the staging-without-Connect change in control/main.go; /version reports that commit because ldflags set it and the image build context had no .git"
+    "source_note": "built linux/amd64 on the operator Mac from repo HEAD a5bca8c0 after git lfs pull of evidence/perf/runtime-benchmarks; first build without LFS smudge crash-looped and was rolled back before this digest was loaded"
   },
   "prior": {
-    "commit": "deac3e9b76595b03dc0fe489cfdf0efdb7df21bb",
-    "image": "computexchange/control:deac3e9b76595b03dc0fe489cfdf0efdb7df21bb",
-    "image_id": "sha256:68b18805b68313ace911f3d5abe1edd181866af4128926b0832e46d9aedffd20"
+    "commit": "8283ae583057d6265947a473023e4f05102704b4",
+    "image": "computexchange/control:8283ae583057d6265947a473023e4f05102704b4",
+    "image_id": "sha256:7bf0ab9d69ed36d2203161dd161fabe8977bce83ca53c2629bff16297a7bdd1b"
+  },
+  "backup_before_deploy": {
+    "path": "/opt/merc/.artifacts/backups/cx-20260816T234903Z.dump",
+    "sha256": "a18ad84e9f2db9950e22b6fc587545bc6e3b14d3e3488fcc6d2fb4621bb76e52",
+    "bytes": 642388
   },
   "criteria": {
     "tls": {
       "status": "PROVEN",
-      "method": "Caddy ACME HTTP-01 on public :80; TLS bound to 127.0.0.1:443; curl --resolve mercmerc.net:443:127.0.0.1 https://mercmerc.net/readyz; openssl x509; TCP connect from the operator Mac to 192.241.134.31:443",
+      "method": "Caddy ACME HTTP-01; public :443; python ssl wrap_socket from the operator Mac to mercmerc.net:443",
       "observed": {
         "issuer": "C=US, O=Let's Encrypt, CN=YE1",
         "subject": "CN=mercmerc.net",
@@ -47,25 +42,24 @@
         "not_after": "2026-11-14T21:12:37Z",
         "https_readyz": 200,
         "https_healthz": 200,
-        "ssl_verify_result": 0,
         "headers": [
           "strict-transport-security",
           "via: 1.1 Caddy"
         ],
-        "public_443_from_operator_mac": "CLOSED",
-        "public_80_from_operator_mac": "OPEN (ACME + 308 to https)",
-        "listener": "127.0.0.1:443 docker-proxy"
+        "public_443_from_operator_mac": "OPEN",
+        "public_80_from_operator_mac": "OPEN (ACME + HTTPS redirect)",
+        "listener": "0.0.0.0:443 docker-proxy"
       }
     },
     "correct_current_candidate": {
       "status": "PROVEN",
-      "method": "docker inspect + GET /version on the running control container",
+      "method": "docker inspect + GET https://mercmerc.net/version",
       "observed": {
-        "commit": "8283ae583057d6265947a473023e4f05102704b4",
-        "image_id": "sha256:7bf0ab9d69ed36d2203161dd161fabe8977bce83ca53c2629bff16297a7bdd1b",
-        "digest_record": "computexchange/control@sha256:7bf0ab9d69ed36d2203161dd161fabe8977bce83ca53c2629bff16297a7bdd1b",
-        "version_endpoint_commit": "8283ae583057d6265947a473023e4f05102704b4",
-        "started_at": "2026-08-16T22:16:09.740720066Z"
+        "commit": "a5bca8c0abcfda4158f5c681fa67f5ae5ebccb05",
+        "image_id": "sha256:2b2f85c969176dd5cc84f66e402e0853519f7784bc9f60fcf86841372e9fb28c",
+        "digest_record": "computexchange/control@sha256:2b2f85c969176dd5cc84f66e402e0853519f7784bc9f60fcf86841372e9fb28c",
+        "version_endpoint_commit": "a5bca8c0abcfda4158f5c681fa67f5ae5ebccb05",
+        "started_at": "2026-08-16T23:58:01.515291205Z"
       }
     },
     "isolated_test_configuration": {
@@ -82,36 +76,36 @@
     },
     "recoverable_data_plane": {
       "status": "PROVEN",
-      "method": "insert marker row and object, docker restart postgres and minio, read them back; logical dump taken first",
+      "method": "logical pg_dump before deploy; marker row and MinIO object survive rollback/forward and restart-storm of control, postgres, and minio",
       "observed": {
-        "backup": "/opt/merc/.artifacts/backups/cx-20260816T220458Z.dump",
-        "backup_sha256": "24d049d750020ea251a42e6d70e6b8ea72b0b168d8f1d1067bb50ff75b57d788",
-        "postgres_marker_after_restart": "l1-plane-marker@mercmerc.net|restart-receipt-20260816|pending",
-        "postgres_restarted_at": "2026-08-16T22:15:16.817975023Z",
-        "minio_object_after_restart": "l1/restart-marker.txt -> l1-restart-receipt-20260816T22Z",
-        "minio_restarted_at": "2026-08-16T22:15:24.302670933Z",
+        "backup": "/opt/merc/.artifacts/backups/cx-20260816T234903Z.dump",
+        "backup_sha256": "a18ad84e9f2db9950e22b6fc587545bc6e3b14d3e3488fcc6d2fb4621bb76e52",
+        "postgres_marker_after_restart": "restart-storm|present-before-restarts",
+        "postgres_restarted_at": "2026-08-16T23:58:11.006751471Z",
+        "minio_object_after_restart": "l7/restart-storm.txt -> l7-restart-storm-marker",
+        "minio_restarted_at": "2026-08-16T23:58:23.587891976Z",
         "control_restart_readyz": 200,
-        "control_restarted_at": "2026-08-16T22:15:09.496962435Z"
+        "control_restarted_at": "2026-08-16T23:58:01.515291205Z"
       }
     },
     "correct_stripe_mode": {
       "status": "PROVEN",
-      "method": "host secret file prefix + container env class + /readyz live_value_movement",
+      "method": "host secret file class + container env + /readyz live_value_movement",
       "observed": {
         "host_stripe_file": "/opt/merc/secrets/stripe-secret-key",
         "host_stripe_class": "sk_test_",
         "readyz_live_value_movement": false,
-        "mac_live_key": "present in Downloads/merc/.merc-secrets.env as sk_live_; never copied to the droplet (hashes of the two sk_test_ values also differ)"
+        "mac_live_key": "present on the operator Mac as sk_live_; never copied to the droplet and never read by this lane"
       }
     },
     "health_version_truth": {
       "status": "PROVEN",
-      "method": "GET /healthz and /readyz and /version against the control IP and again through loopback TLS",
+      "method": "GET /healthz /readyz /version through public TLS",
       "observed": {
         "healthz": 200,
         "readyz": 200,
         "readyz_status": "ready",
-        "version_commit": "8283ae583057d6265947a473023e4f05102704b4",
+        "version_commit": "a5bca8c0abcfda4158f5c681fa67f5ae5ebccb05",
         "version_via_tls": 200
       }
     },
@@ -119,9 +113,9 @@
       "status": "PROVEN",
       "method": "ss listeners, TCP from the operator Mac, POST /v1/signup, canary env",
       "observed": {
-        "public_443": "CLOSED",
-        "public_80": "OPEN for ACME HTTP-01; Caddy 308s to https which the internet cannot complete",
-        "tls_loopback_only": true,
+        "public_443": "OPEN (intentional; do not close)",
+        "public_80": "OPEN for ACME HTTP-01",
+        "tls_loopback_only": false,
         "signup_unapproved": {
           "status": 403,
           "error": "email is not approved for this private canary"
@@ -133,30 +127,30 @@
           "7d2bb6c8-c45a-505e-ae39-6b9fc73989f5"
         ],
         "admin_cidrs": "127.0.0.1/32,::1/128",
-        "connect_platform": "absent (no MERC_CONNECT_CLIENT_ID)",
-        "public_443_flip_command": "CADDY_TLS_BIND=0.0.0.0 docker compose -f docker-compose.prod.yml -f docker-compose.smallhost.yml -f docker-compose.canary.yml up -d --no-deps caddy"
+        "connect_platform": "absent (no MERC_CONNECT_CLIENT_ID)"
       }
     },
     "rollback_capability": {
       "status": "PROVEN",
       "method": "compose recreate onto the prior tag, GET /version, then recreate onto the candidate tag",
       "observed": {
-        "rollback_at": "2026-08-16T22:16:06Z",
-        "rollback_image_id": "sha256:68b18805b68313ace911f3d5abe1edd181866af4128926b0832e46d9aedffd20",
-        "rollback_commit": "deac3e9b76595b03dc0fe489cfdf0efdb7df21bb",
-        "rollback_readyz": 503,
-        "forward_at": "2026-08-16T22:16:16Z",
-        "forward_image_id": "sha256:7bf0ab9d69ed36d2203161dd161fabe8977bce83ca53c2629bff16297a7bdd1b",
-        "forward_commit": "8283ae583057d6265947a473023e4f05102704b4",
+        "rollback_at": "2026-08-16T23:57:25Z",
+        "rollback_image_id": "sha256:7bf0ab9d69ed36d2203161dd161fabe8977bce83ca53c2629bff16297a7bdd1b",
+        "rollback_commit": "8283ae583057d6265947a473023e4f05102704b4",
+        "rollback_readyz": 200,
+        "forward_at": "2026-08-16T23:57:38Z",
+        "forward_image_id": "sha256:2b2f85c969176dd5cc84f66e402e0853519f7784bc9f60fcf86841372e9fb28c",
+        "forward_commit": "a5bca8c0abcfda4158f5c681fa67f5ae5ebccb05",
         "forward_readyz": 200,
         "postgres_marker_still_present": true,
-        "note": "the prior image cannot boot with MERC_CANARY_MODE=true (it still demands a Connect ca_*). Rollback used MODE=false, the env that image previously ran under."
+        "minio_marker_still_present": true,
+        "note": "An earlier candidate build that shipped Git LFS pointer files crash-looped; that digest was rolled back to 7bf0ab9d before the smudged-receipt rebuild (2b2f85c9) was loaded. The observed rollback/forward below is the later clean pair on the booting candidate."
       }
     }
   },
   "producer_identity": {
     "source_commit": {
-      "value": "8283ae583057d6265947a473023e4f05102704b4"
+      "value": "a5bca8c0abcfda4158f5c681fa67f5ae5ebccb05"
     },
     "build_digest": {
       "value": "0795932d6c3f0cb2f7a4b31e1473332a7f951ee7c1717a2b05deeb527b867cd1"
@@ -165,10 +159,10 @@
       "na": "no model weights in this staging-plane receipt"
     },
     "image_digest": {
-      "value": "7bf0ab9d69ed36d2203161dd161fabe8977bce83ca53c2629bff16297a7bdd1b"
+      "value": "2b2f85c969176dd5cc84f66e402e0853519f7784bc9f60fcf86841372e9fb28c"
     },
     "harness_revision": {
-      "value": "lane L1 staging-alpha readiness"
+      "value": "scripts/write-bound-evidence.py"
     },
     "corpus_digest": {
       "na": "no external corpus in this staging-plane receipt"
