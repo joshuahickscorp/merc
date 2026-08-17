@@ -42,7 +42,8 @@ func persistHistoricalV2CatalogueSchedule(
 		  sha256,version,reference_currency,settlement_currency,
 		  reference_to_settlement_rate,fx_revision,board_sha256,board_schema_version,
 		  board_fetched_at,positioning_multiplier,supplier_share,schedule_json
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NULL,$11)`,
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NULL,$11)
+		ON CONFLICT (sha256) DO NOTHING`,
 		legacy.SHA256, legacy.Version, legacy.ReferenceCurrency, legacy.SettlementCurrency,
 		legacy.ReferenceToSettlement, legacy.FXRevision, legacy.BoardSHA256,
 		legacy.BoardSchemaVersion, legacy.BoardFetchedAt, legacy.PositioningMultiplier, scheduleJSON)
@@ -53,7 +54,8 @@ func persistHistoricalV2CatalogueSchedule(
 			  schedule_sha256,model_id,job_type,prior_price_per_1k,prior_price_source,
 			  reference_price_per_1k,reference_currency,price_per_1k,
 			  price_currency,price_formula,supplier_share
-			) VALUES ($1,$2,$3,0,'market_board',$4,$5,$6,$7,$8,$9)`,
+			) VALUES ($1,$2,$3,0,'market_board',$4,$5,$6,$7,$8,$9)
+			ON CONFLICT (schedule_sha256,model_id) DO NOTHING`,
 			legacy.SHA256, result.ModelID, result.JobType, result.ReferencePricePer1K,
 			legacy.ReferenceCurrency, result.PricePer1K, legacy.SettlementCurrency,
 			result.Formula, result.SupplierShare)

@@ -484,23 +484,41 @@ func TestFrozenMiniLMPerformanceCarriesOnlyTheSelectedCellArtifact(t *testing.T)
 	})
 }
 
-// G070: exactly candle-metal-llama1-infer admits under settlement geometry
-// tokens/token_like_input_plus_max_output_tokens. No other routable production
-// cell may admit (embed parked, media unbound). A wrong extra binding fails.
+// Settlement-compatible admission is the CLOSED current production set:
+// candle-metal-llama1-infer (ACTIVE, buyer-advertised, tokens / token_like
+// input-plus-output) and candle-metal-scene-render (CANARY+BOUND, pixels /
+// declared_output_pixels_per_scene). ffmpeg is document-routable but its
+// receipt scope is not the governed transcode settlement unit, so it must
+// not admit. Embed stays parked. A wrong extra binding still fails.
+// Advertised buyer traffic remains the llama cell alone
+// (see TestRegistryAndDocumentAgreeOnEveryRoutableCell).
 func TestExactlyLlamaLaneHasSettlementCompatibleAdmission(t *testing.T) {
-	const wantCell = "candle-metal-llama1-infer"
+	const wantLlama = "candle-metal-llama1-infer"
+	const wantRender = "candle-metal-scene-render"
+	const wantFFmpeg = "candle-metal-ffmpeg-transcode"
+	wantDocumentRoutable := map[string]bool{
+		wantLlama:  true,
+		wantFFmpeg: true,
+		wantRender: true,
+	}
+	wantAdmitted := map[string]performanceUnitAuthority{
+		wantLlama: {Unit: "tokens", Scope: performanceUnitScopeTokenLikeInputPlusOutputTokens},
+		wantRender: {
+			Unit: "pixels", Scope: performanceUnitScopeDeclaredOutputPixelsPerScene,
+		},
+	}
 	admitted := map[string]RuntimeCellPerformance{}
-	routable := 0
+	documentRoutable := map[string]bool{}
 	for _, profile := range runtimeAuthority.Runtimes {
 		for _, cell := range profile.Cells {
 			if !cell.Routable(profile) {
 				continue
 			}
-			routable++
+			documentRoutable[cell.ID] = true
 			_, performance, err := admissionUnitsPerSec(
 				cell.Job, cell.Model, []string{cell.ID}, benchmarkNow)
 			if err != nil {
-				if cell.ID == wantCell {
+				if _, mustAdmit := wantAdmitted[cell.ID]; mustAdmit {
 					t.Fatalf("production cell %s refused settlement-compatible admission: %v",
 						cell.ID, err)
 				}
@@ -509,18 +527,35 @@ func TestExactlyLlamaLaneHasSettlementCompatibleAdmission(t *testing.T) {
 			admitted[cell.ID] = performance
 		}
 	}
-	if routable != 1 {
-		t.Fatalf("production routable cell count=%d, want exactly 1 (%s)", routable, wantCell)
+	if len(documentRoutable) != len(wantDocumentRoutable) {
+		t.Fatalf("document-routable cells=%v, want %v", documentRoutable, wantDocumentRoutable)
 	}
-	performance, ok := admitted[wantCell]
-	if !ok || len(admitted) != 1 {
-		t.Fatalf("admitted cells=%v, want exactly [%s]", admitted, wantCell)
+	for id := range wantDocumentRoutable {
+		if !documentRoutable[id] {
+			t.Fatalf("document-routable cells=%v, missing %s", documentRoutable, id)
+		}
 	}
-	if performance.Unit != "tokens" ||
-		performance.UnitScope != performanceUnitScopeTokenLikeInputPlusOutputTokens {
-		t.Fatalf("llama admission unit/scope=%q/%q, want tokens/%s",
-			performance.Unit, performance.UnitScope,
-			performanceUnitScopeTokenLikeInputPlusOutputTokens)
+	for id := range documentRoutable {
+		if !wantDocumentRoutable[id] {
+			t.Fatalf("unexpected document-routable cell %s (set=%v)", id, documentRoutable)
+		}
+	}
+	if _, ok := admitted[wantFFmpeg]; ok {
+		t.Fatalf("ffmpeg transcode admitted under settlement geometry; receipt scope is not governed: %+v",
+			admitted[wantFFmpeg])
+	}
+	if len(admitted) != len(wantAdmitted) {
+		t.Fatalf("admitted cells=%v, want %v", admitted, wantAdmitted)
+	}
+	for id, want := range wantAdmitted {
+		got, ok := admitted[id]
+		if !ok {
+			t.Fatalf("admitted cells=%v, missing %s", admitted, id)
+		}
+		if got.Unit != want.Unit || got.UnitScope != want.Scope {
+			t.Fatalf("%s admission unit/scope=%q/%q, want %s/%s",
+				id, got.Unit, got.UnitScope, want.Unit, want.Scope)
+		}
 	}
 }
 

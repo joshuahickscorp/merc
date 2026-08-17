@@ -411,23 +411,24 @@ func TestWorkerRegistrationProjectsBuiltinMediaCell(t *testing.T) {
 
 func TestHeartbeatLoadedModelsStayInsideProductionProjection(t *testing.T) {
 	installBoundCataloguePublicationAuthorityForTest(t)
-	// Only models with a bindable advertised cell may be warm. After the llama1
-	// re-measure both MiniLM and Llama generation are in the catalogue; media
-	// models remain unbound and a heartbeat naming them is refused.
+	// A heartbeat may name any runtime-authority model, including CANARY+BOUND
+	// media that is document-routable but not buyer-advertised. Unknown names
+	// and duplicate ids stay refused. Buyer catalogue advertisement is a
+	// different predicate (TestRegistryAndDocumentAgreeOnEveryRoutableCell).
 	for _, models := range [][]string{
 		{"all-minilm-l6-v2"},
 		{"llama-3.2-1b-instruct-q4"},
 		{"all-minilm-l6-v2", "llama-3.2-1b-instruct-q4"},
+		{"ffmpeg-transcode-v1"},
+		{"svg-scene-render-v1"},
 	} {
 		if err := validateHeartbeatRuntimeModels(models); err != nil {
-			t.Fatalf("production warm models rejected: %v (%v)", err, models)
+			t.Fatalf("runtime-authority warm models rejected: %v (%v)", err, models)
 		}
 	}
 	for _, models := range [][]string{
 		{"unsupported-model"},
 		{"unknown"},
-		{"ffmpeg-transcode-v1"},
-		{"svg-scene-render-v1"},
 		{"all-minilm-l6-v2", "all-minilm-l6-v2"},
 	} {
 		if err := validateHeartbeatRuntimeModels(models); err == nil {

@@ -31,12 +31,22 @@ DEFAULT_BASE = "https://mercmerc.net"
 SESSION_PATH = ROOT / ".artifacts" / "alpha-e2e" / "session.json"
 PARTICIPANTS_PATH = ROOT / "ops" / "staging" / "alpha-participants.json"
 EVIDENCE_DIR = ROOT / "evidence" / "canary"
-RECEIPT_PREFIX = "l11-p1-canary-rehearsal"
+RECEIPT_PREFIX = "l12-p1-canary-rehearsal"
 
 # Approved reserved worker from ops/staging/alpha-participants.json.
 RESERVED_WORKER_ID = "7d2bb6c8-c45a-505e-ae39-6b9fc73989f5"
 APPROVED_AGENT_VERSION = "0.1.0"
-APPROVED_BUILD_HASH = "f4303a751ca2b2af"
+# Sealed r6 candle-metal-llama1-infer identity. The live canary allowlist
+# still names the superseded r5 hash f4303a751ca2b2af; this script does not
+# widen that list. Registering the sealed identity will be refused by the
+# canary build-hash gate until an operator adds 7cc01c properly.
+SEALED_INFER_BUILD_HASH = "7cc01c442c7f6dbe"
+SEALED_INFER_BUILD_POLICY = "merc_agent_running_executable_sha256_v1"
+SEALED_INFER_HARDWARE = (
+    "apple_silicon_v1|brand=Apple M3 Ultra|model=Mac15,14|"
+    "memory_bytes=103079215104|cpu_cores=28|gpu_cores=60"
+)
+APPROVED_BUILD_HASH = SEALED_INFER_BUILD_HASH
 
 SECRET_MARKERS = (
     "cx_test_",
@@ -320,17 +330,33 @@ def mint_worker_token(api: API, key: str, worker_id: str) -> dict[str, Any]:
 
 def register_worker(api: API, worker_token: str, *, foreign: bool = False) -> dict[str, Any]:
     session = str(uuid.uuid4())
+    now = int(time.time())
     cap = {
         "hw_class": "apple_silicon_ultra",
         "engine": "candle",
-        "build_hash": APPROVED_BUILD_HASH if not foreign else "deadbeefdeadbeef",
-        "hardware_identity": "Apple M3 Ultra",
+        "build_hash": SEALED_INFER_BUILD_HASH if not foreign else "deadbeefdeadbeef",
+        "build_identity_policy": SEALED_INFER_BUILD_POLICY,
+        "hardware_identity": SEALED_INFER_HARDWARE if not foreign else "Apple M1 Ultra",
         "memory_gb": 96,
         "memory_bw_gbps": 800,
-        "supported_jobs": ["embed", "batch_infer"],
-        "supported_models": ["all-minilm-l6-v2", "llama-3.2-1b-instruct-q4"],
+        "supported_jobs": ["batch_infer"],
+        "supported_models": ["llama-3.2-1b-instruct-q4"],
         "min_payout_usd_hr": 0.01,
-        "benchmarks": [],
+        "benchmarks": []
+        if foreign
+        else [
+            {
+                "model_id": "llama-3.2-1b-instruct-q4",
+                "job_type": "batch_infer",
+                "tps": 304.2661,
+                "eps": 0,
+                "p99_ms": 20,
+                "thermal_ok": True,
+                "unit": "tokens",
+                "unit_scope": "token_like_input_plus_max_output_tokens",
+                "measured_unix": now,
+            }
+        ],
         "agent_version": APPROVED_AGENT_VERSION if not foreign else "9.9.9",
         "os_version": "macos",
         "sandboxed": True,
@@ -399,9 +425,9 @@ def cmd_buyer(args: argparse.Namespace) -> None:
     api = API(session.get("base_url") or DEFAULT_BASE)
     plane = public_plane(api)
     key = session["sandbox_key"]
-    idem = "l11-rehearsal-" + uuid.uuid4().hex
+    idem = "l12-rehearsal-" + uuid.uuid4().hex
     embed = try_quote_and_submit(api, key, embed_job_body(), idem)
-    infer_idem = "l11-rehearsal-infer-" + uuid.uuid4().hex
+    infer_idem = "l12-rehearsal-infer-" + uuid.uuid4().hex
     infer = try_quote_and_submit(api, key, batch_infer_job_body(), infer_idem)
     write_json(
         ROOT / ".artifacts" / "alpha-e2e" / "buyer-attempt.json",
@@ -454,10 +480,11 @@ def cmd_run(args: argparse.Namespace) -> None:
         "POST", "/v1/jobs", bearer=key, body=embed_job_body()
     )
 
-    idem = "l11-rehearsal-" + uuid.uuid4().hex[:24]
-    first = try_quote_and_submit(api, key, embed_job_body(), idem)
-    infer_idem = "l11-rehearsal-infer-" + uuid.uuid4().hex[:24]
-    infer_attempt = try_quote_and_submit(api, key, batch_infer_job_body(), infer_idem)
+    idem = "l12-rehearsal-infer-" + uuid.uuid4().hex[:24]
+    first = try_quote_and_submit(api, key, batch_infer_job_body(), idem)
+    embed_idem = "l12-rehearsal-embed-" + uuid.uuid4().hex[:24]
+    embed_attempt = try_quote_and_submit(api, key, embed_job_body(), embed_idem)
+    infer_attempt = first
     jobs_code, jobs_body, _ = api.call("GET", "/v1/jobs", bearer=key)
     job_ids: list[str] = []
     if isinstance(jobs_body, dict):
@@ -535,6 +562,7 @@ def cmd_run(args: argparse.Namespace) -> None:
         },
         "authenticated_submit": first,
         "authenticated_submit_batch_infer": infer_attempt,
+        "authenticated_submit_embed": embed_attempt,
         "jobs_after_submit": {"http": jobs_code, "ids": job_ids, "body": jobs_body},
         "proven": {
             "approved_buyer_authenticated": me_code == 200,
@@ -553,14 +581,14 @@ def cmd_run(args: argparse.Namespace) -> None:
                 "normalizeAdvertisedRuntimeModelRef → validateAdvertisedRuntimeJobModel "
                 "when advertisedRuntimeCapabilities() has no (job, model) pair. "
                 "That set is currentActivation().advertised = ACTIVE lifecycle AND "
-                "cell.Routable = cellAuthorityBindable. Embed is not bindable "
-                "(empty engine_build_hash on the comparison receipt). Infer is "
-                "document-advertised, but the live staging process overlay can "
-                "QUARANTINE an ACTIVE DB row when storedRoutableEntryHasCurrentGlobalAuthority "
-                "fails (GET /v1/models empty). A registered worker is not consulted "
-                "at this 400; EligibleWorkerCount is later and advisory. "
-                "Staging also cannot run this host's agent: canary build-hash "
-                "allowlist is still f4303a751ca2b2af and must not be widened here."
+                "cell.Routable = cellAuthorityBindable (BOUND + 16-hex "
+                "engine_build_hash + exact Apple hardware_identity). Embed stays "
+                "parked on an empty engine_build_hash. Infer is document-advertised "
+                "under r6 (7cc01c442c7f6dbe) but a live overlay can QUARANTINE the "
+                "ACTIVE row when storedRoutableEntryHasCurrentGlobalAuthority fails. "
+                "A registered worker is not consulted at this 400. This script does "
+                "not widen ops/staging/alpha-participants.json; the canary allowlist "
+                "still names the superseded r5 hash f4303a751ca2b2af."
             ),
         },
     }
@@ -597,14 +625,14 @@ def cmd_run(args: argparse.Namespace) -> None:
         "blocked": {
             "step": "register, claim, execute, return a result",
             "reason": (
-                "POST /v1/worker/register is refused: no cell this worker declares "
-                "is activated for routing or directed use. In-memory activation "
-                "quarantines ACTIVE cells whose document.Routable is false "
-                "(benchmark receipts are not BOUND). Device-bound enrollment would "
-                "mint a new worker UUID and also be refused unless added to the "
-                "allowlist; the reserved UUID was used instead. Unbound tokens on "
-                "MERC_ENV=staging are allowed; ordinary claim still requires a "
-                "directed or advertised cell."
+                "POST /v1/worker/register is refused unless the worker offers the "
+                "sealed r6 identity (hw_class/build_hash/hardware_identity/"
+                "build_identity_policy plus a fresh bench above the conservative "
+                "floor). projectWorkerRuntimeCapabilities (control/runtime_matrix.go) "
+                "is the named gate. Live canary additionally requires the worker "
+                "build hash to be in MERC_CANARY_APPROVED_BUILD_HASHES, which still "
+                "lists only the superseded r5 hash f4303a751ca2b2af. This script "
+                "registers 7cc01c442c7f6dbe and does not widen the allowlist."
             ),
         },
         "workers_exercised": 1,

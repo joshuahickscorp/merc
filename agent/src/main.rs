@@ -766,6 +766,25 @@ enum Command {
         #[arg(long, default_value_t = false)]
         binary: bool,
     },
+    /// Emit the exact bytes a worker commits for a batch_infer task.
+    ///
+    /// Same bridge as emit-embed-artifact: a Go integration test can drive the
+    /// production BatchInferRunner without the `run` loop having to advertise
+    /// this process's engine_build_hash. Catalogue advertisement still requires
+    /// the sealed cell identity at register time; this command only produces
+    /// commit bytes.
+    EmitInferArtifact {
+        #[arg(long, default_value = "llama-3.2-1b-instruct-q4")]
+        model: String,
+        #[arg(long, default_value_t = 16)]
+        max_tokens: u32,
+        /// JSONL, one {"id":..,"prompt":..} per line. Reads stdin when empty.
+        #[arg(long, default_value = "")]
+        input: String,
+        /// Where to write the committed bytes.
+        #[arg(long)]
+        out: String,
+    },
 }
 
 fn init_tracing() {
@@ -951,6 +970,15 @@ async fn main() -> Result<()> {
         } => {
             init_tracing();
             run_emit_embed_artifact(&runtime, &model, &llama_base_url, &input, &out, binary).await
+        }
+        Command::EmitInferArtifact {
+            model,
+            max_tokens,
+            input,
+            out,
+        } => {
+            init_tracing();
+            run_emit_infer_artifact(&model, max_tokens, &input, &out).await
         }
         Command::Characterize => {
             init_tracing();
@@ -1825,6 +1853,82 @@ async fn run_emit_embed_artifact(
             "tokens_used": output.tokens_used,
             "duration_ms": output.duration_ms,
             "driver_metrics": driver.metrics(),
+        })
+    );
+    Ok(())
+}
+
+async fn run_emit_infer_artifact(
+    model: &str,
+    max_tokens: u32,
+    input: &str,
+    out: &str,
+) -> Result<()> {
+    use executor::{BatchInferRunner, JobRunner};
+    use sha2::{Digest, Sha256};
+
+    let body = if input.is_empty() {
+        let mut buffer = String::new();
+        std::io::Read::read_to_string(&mut std::io::stdin(), &mut buffer)
+            .context("reading input from stdin")?;
+        buffer
+    } else {
+        std::fs::read_to_string(input).with_context(|| format!("reading {input}"))?
+    };
+
+    let backend = inference::build_backend(inference::BackendKind::Candle, "", "", None)
+        .map_err(|e| anyhow::anyhow!("build candle backend: {e}"))?;
+    let manifest = types::JobManifest {
+        id: uuid::Uuid::nil(),
+        job_type: types::JobType::BatchInfer {
+            max_tokens,
+            temperature: 0.0,
+        },
+        model: types::ModelRef {
+            kind: types::ModelKind::Gguf,
+            model_ref: model.to_string(),
+        },
+        inputs: vec![],
+        output: types::OutputRef { url: String::new() },
+        params: serde_json::Value::Null,
+        constraints: types::JobConstraints {
+            min_memory_gb: 0.0,
+            hw_classes: None,
+            max_duration_secs: 600,
+            data_residency: None,
+        },
+        verification: types::VerificationPolicy {
+            redundancy_frac: 0.0,
+            honeypot_frac: 0.0,
+            payout_hold_secs: 0,
+        },
+        tier: types::ServiceTier::Batch,
+    };
+
+    // Production runner, not a one-off generate: commit bytes must match
+    // BatchInferResult declaration order so honeypot bytes.Equal can pass.
+    let runner = BatchInferRunner { inference: backend };
+    let pool = ModelPool::new();
+    let output = runner
+        .run(&manifest, body.as_bytes(), &pool)
+        .await
+        .map_err(|e| anyhow::anyhow!("batch_infer execution: {e}"))?;
+
+    std::fs::write(out, &output.result).with_context(|| format!("writing {out}"))?;
+    let digest = format!("{:x}", Sha256::digest(&output.result));
+    println!(
+        "{}",
+        serde_json::json!({
+            "runtime_profile_id": "candle_metal",
+            "model": model,
+            "wire_kind": "gguf",
+            "artifact_path": out,
+            "artifact_sha256": digest,
+            "artifact_bytes": output.result.len(),
+            "tokens_used": output.tokens_used,
+            "duration_ms": output.duration_ms,
+            "inference_backend": output.inference_backend,
+            "max_tokens": max_tokens,
         })
     );
     Ok(())

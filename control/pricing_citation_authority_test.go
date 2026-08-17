@@ -435,8 +435,9 @@ func TestUnpricedMediaThroughputIsRefusedUntilBound(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "unbindable") &&
 			!strings.Contains(err.Error(), "not current-bindable") &&
-			!strings.Contains(err.Error(), "not a git object") {
-			t.Fatalf("%s/%s refusal should name unbindable artifact, got: %v",
+			!strings.Contains(err.Error(), "not a git object") &&
+			!strings.Contains(err.Error(), "lacks exact canonical build/device identity") {
+			t.Fatalf("%s/%s refusal should name unbindable artifact or current identity refusal, got: %v",
 				b.ModelID, b.JobType, err)
 		}
 		t.Logf("refused as expected: %v", err)
@@ -472,8 +473,10 @@ func TestCatalogueScheduleRefusesUnbindableCitation(t *testing.T) {
 	if err == nil {
 		t.Fatal("BuildCataloguePriceSchedule accepted a price row citing an unbindable artifact")
 	}
-	if !strings.Contains(err.Error(), "unbindable") && !strings.Contains(err.Error(), "not a git object") {
-		t.Fatalf("want unbindable/git-object refusal, got: %v", err)
+	if !strings.Contains(err.Error(), "unbindable") &&
+		!strings.Contains(err.Error(), "not a git object") &&
+		!strings.Contains(err.Error(), "lacks exact canonical build/device identity") {
+		t.Fatalf("want unbindable/git-object/identity refusal, got: %v", err)
 	}
 }
 

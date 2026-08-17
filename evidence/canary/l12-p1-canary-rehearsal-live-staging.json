@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "kind": "p1_canary_rehearsal_live_staging",
+  "gate": "P1-CANARY-REHEARSAL",
+  "classification": "ALPHA_CONTROL",
+  "does_not_satisfy": "EXTERNAL_ALPHA_PROVEN",
+  "participant_class": "operator_controlled",
+  "synthetic": true,
+  "controlled_by_operator": true,
+  "operator_owned": true,
+  "external_alpha_proven": false,
+  "rehearsal": true,
+  "plane": "https://mercmerc.net",
+  "status": "BLOCKED",
+  "observed_at": "2026-08-17T06:38:00Z",
+  "readyz": {
+    "status": "ready",
+    "payment_mode": "test",
+    "live_value_movement": false
+  },
+  "deployed_commit": "19fe0b23940c7e3d4da9b45d9cc5689c2c515d07",
+  "stages": {
+    "buyer_execution": "not run this lane: no .artifacts/alpha-e2e/session.json; L11 receipts show POST /v1/quote HTTP 400 not-advertised on embed",
+    "supplier_execution": "not run; canary allowlist still names superseded r5 hash f4303a751ca2b2af and was not widened",
+    "verification": "did not run",
+    "settlement": "did not run"
+  },
+  "remaining_refusals_from_code": [
+    "Quote 400: normalizeAdvertisedRuntimeModelRef → validateAdvertisedRuntimeJobModel when advertisedRuntimeCapabilities() has no (job, model). Embed is parked on empty engine_build_hash. Infer is document-advertised locally; a live overlay can QUARANTINE it via storedRoutableEntryHasCurrentGlobalAuthority.",
+    "If infer becomes advertised on staging, quote then 503s: validateCurrentUniformCanaryAuthority refuses while MERC_CANARY_MODE is on because canary injects a honeypot and validateCurrentUniformTaskCounts refuses honeypotTasks != 0.",
+    "Worker register: projectWorkerRuntimeCapabilities requires sealed r6 identity 7cc01c442c7f6dbe. Current host merc-agent honeypot-answer emits 2939a8e26ffe6fd2. Canary also requires MERC_CANARY_APPROVED_BUILD_HASHES, still f4303a751ca2b2af."
+  ]
+}

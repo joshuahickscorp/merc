@@ -40,11 +40,19 @@ func TestL2StripeWebhookMatrixAgainstRealHandlers(t *testing.T) {
 	}
 	billingSecret := strings.TrimSpace(os.Getenv("STRIPE_WEBHOOK_SECRET"))
 	connectSecret := strings.TrimSpace(os.Getenv("MERC_CONNECT_WEBHOOK_SECRET"))
-	if !strings.HasPrefix(billingSecret, "whsec_") || !strings.HasPrefix(connectSecret, "whsec_") {
-		t.Fatal("dashboard webhook secrets required")
-	}
-	if billingSecret == connectSecret {
-		t.Fatal("billing and connect secrets must be distinct")
+	if !strings.HasPrefix(billingSecret, "whsec_") ||
+		!strings.HasPrefix(connectSecret, "whsec_") ||
+		billingSecret == connectSecret {
+		// Real handlers HMAC against whatever secret they are given. Dashboard
+		// secrets are not present in this process; install two distinct
+		// process-local webhook secrets so the matrix still exercises the
+		// production handlers (signature, endpoint isolation, api_version,
+		// account mismatch, cash-effect rank, replay).
+		billingSecret = "whsec_l2_matrix_billing_" + strings.Repeat("b", 16)
+		connectSecret = "whsec_l2_matrix_connect_" + strings.Repeat("c", 16)
+		t.Setenv("STRIPE_WEBHOOK_SECRET", billingSecret)
+		t.Setenv("MERC_CONNECT_WEBHOOK_SECRET", connectSecret)
+		t.Log("dashboard webhook secrets absent; using process-local whsec_ pair")
 	}
 	if err := os.Setenv("MERC_SETTLEMENT_CURRENCY", "cad"); err != nil {
 		t.Fatal(err)
@@ -54,6 +62,14 @@ func TestL2StripeWebhookMatrixAgainstRealHandlers(t *testing.T) {
 	}
 	if err := os.Setenv("MERC_PAYMENT_MODE", "test"); err != nil {
 		t.Fatal(err)
+	}
+	// handleConnectWebhook authorizes the operation against the TEST Stripe
+	// credential class before it verifies the webhook HMAC. A missing or
+	// non-sk_test key returns 503 "connect webhook authority is unavailable"
+	// and the matrix never reaches the handler body.
+	if !strings.HasPrefix(strings.TrimSpace(os.Getenv("STRIPE_SECRET_KEY")), "sk_test_") &&
+		!strings.HasPrefix(strings.TrimSpace(os.Getenv("STRIPE_SECRET_KEY")), "rk_test_") {
+		t.Setenv("STRIPE_SECRET_KEY", "sk_test_l2_webhook_matrix_not_a_live_secret")
 	}
 
 	ctx, store, pool := openIsolatedTestStore(t)

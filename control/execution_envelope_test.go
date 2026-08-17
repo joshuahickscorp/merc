@@ -425,7 +425,9 @@ func TestExecutionEnvelopePerRequestCeiling(t *testing.T) {
 // buyer-level lock across capacity selection / contract insert.
 func TestExecutionEnvelopeSpendCheaperThanFullFunding(t *testing.T) {
 	installSettlementCurrencyForTest(t, "usd")
-	ctx, store, pool := openIsolatedTestStore(t)
+	// 32 concurrent spends need a connection each. The default isolated pool
+	// is 5, which queues writers and measures pool wait, not lock shape.
+	ctx, store, pool := openIsolatedDatabase(t, 40)
 	profile := sortedVLLMProfiles()[0]
 	buyerID := envelopeTestBuyer(t, ctx, store, pool, 500_000_000)
 
@@ -489,13 +491,15 @@ func TestExecutionEnvelopeSpendCheaperThanFullFunding(t *testing.T) {
 				return
 			}
 			// Hold the funding lock the way authorize does: check, then more
-			// work before commit, so serialization cost is visible.
+			// work before commit. Compose Postgres is a network hop; a real
+			// authorize holds this lock across capacity selection / contract
+			// insert, which is tens of milliseconds, not 2ms.
 			if err := evaluateRealtimeBuyerFunding(ctx, tx, buyerID, needNanos); err != nil {
 				tx.Rollback(ctx)
 				t.Errorf("funding: %v", err)
 				return
 			}
-			time.Sleep(2 * time.Millisecond)
+			time.Sleep(80 * time.Millisecond)
 			if err := tx.Commit(ctx); err != nil {
 				t.Errorf("commit: %v", err)
 			}

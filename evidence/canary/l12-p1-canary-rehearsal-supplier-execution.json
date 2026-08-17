@@ -1,0 +1,24 @@
+{
+  "cell": "candle-metal-llama1-infer",
+  "classification": "ALPHA_CONTROL",
+  "controlled_by_operator": true,
+  "does_not_satisfy": "EXTERNAL_ALPHA_PROVEN",
+  "enrolment": "sealed r6 identity via POST /v1/worker/register; live merc-agent run cannot match 7cc01c442c7f6dbe",
+  "executor": "merc-agent emit-infer-artifact (production BatchInferRunner)",
+  "external_alpha_proven": false,
+  "gate": "P1-CANARY-REHEARSAL",
+  "job_id": "c045d408-575f-57be-8560-3fef9dff525b",
+  "kind": "p1_canary_rehearsal_supplier-execution",
+  "observed_at": "2026-08-17T06:35:36Z",
+  "operator_owned": true,
+  "participant_class": "operator_controlled",
+  "plane": "local",
+  "rehearsal": true,
+  "schema_version": 1,
+  "status": "PASS",
+  "synthetic": true,
+  "worker_ids": [
+    "19f0f0ab-fad1-49b0-8aec-a6271c60f6e1",
+    "fd69efdb-3ee9-422e-af23-2a735bfa75fd"
+  ]
+}

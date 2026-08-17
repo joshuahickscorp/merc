@@ -4,7 +4,7 @@
   "binding_status": "BOUND",
   "producer_identity": {
     "source_commit": {
-      "value": "50eee0ec"
+      "value": "4c9f66ba"
     },
     "build_digest": {
       "na": "ledger of expected corpus counts; no binary produced"
@@ -29,15 +29,15 @@
     }
   },
   "expected": {
-    "tracked_pointer_files": 95,
-    "unique_payload_oids": 93,
+    "tracked_pointer_files": 96,
+    "unique_payload_oids": 94,
     "missing_objects": 0,
     "corrupt_objects": 0,
     "resolved_payload_mismatches": 0
   },
   "dedup": {
     "duplicate_pointer_count": 2,
-    "note": "95 pointers map to 93 unique content OIDs; the 2 remaining extras are content-addressed aliases kept because both sides are referenced (droplet-device-ceiling.json is cited in docs/DROPLET_SCALING.md alongside heartbeat-ingest-ceiling.json; authorize-auth-tails-*174152Z/-baseline). The 14 timestamped/-after/-baseline duplicates a prior refactor dumped (0-cited exact-OID copies of cited -latest files) were removed. The verifier reports every shared oid and its alias set."
+    "note": "96 pointers map to 94 unique content OIDs; the 2 remaining extras are content-addressed aliases kept because both sides are referenced (droplet-device-ceiling.json is cited in docs/DROPLET_SCALING.md alongside heartbeat-ingest-ceiling.json; authorize-auth-tails-*174152Z/-baseline). The 14 timestamped/-after/-baseline duplicates a prior refactor dumped (0-cited exact-OID copies of cited -latest files) were removed. The verifier reports every shared oid and its alias set. The 96th pointer is .tools/runpodctl (unique OID)."
   },
   "policy": {
     "authority": "sha256(resolved payload bytes) must equal the pointer oid; computed by scripts/verify-lfs-corpus.py and control/lfs_corpus_integrity_test.go. git lfs fsck is a supplementary cross-check only \u2014 it returned OK while two objects were corrupt on 2026-08-04 (see evidence/state/lfs-corruption-incident-20260804.json).",
@@ -104,6 +104,12 @@
       "tracked_pointer_files": "94 -> 95",
       "unique_payload_oids": "92 -> 93",
       "why": "evidence/perf/cycles-device-placement.json: the MEASURED CPU-vs-Metal crossover curve on this host plus the parity verdict. GPU LOSES on light work (0.29-0.99x below ~16.8M pixel-samples) and wins 6.49x wall / 8.29x render at 1024x1024/512spp; a RESIDENT GPU worker crosses far earlier (256/32 at 1.23x). Critically it records that L1 PIXEL_EXACT FAILS between CPU and Metal, and that Metal is not even self-deterministic (1 px on a 256/64 repeat) - so device is part of the quality contract and Merc must not silently mix devices within one project. One new unique LFS payload."
+    },
+    {
+      "at_commit": "suite-nine-lfs-absorb",
+      "tracked_pointer_files": "95 -> 96",
+      "unique_payload_oids": "93 -> 94",
+      "why": "Live corpus from git lfs ls-files --long is 96 pointers / 94 unique OIDs. The missing ledger row is .tools/runpodctl (oid 67cc575f..., Mach-O arm64, filter=lfs in .gitattributes since ae94832e). It is a unique payload, so both counters advance by one; the 2 content-addressed aliases are unchanged. Regenerated from the corpus rather than hand-waving the drift."
     }
   ]
 }

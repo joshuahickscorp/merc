@@ -13,12 +13,12 @@ import (
 func TestCanaryRehearsalReceiptsCannotSatisfyExternalAlpha(t *testing.T) {
 	root := alphaHonestyRepoRoot(t)
 	dir := filepath.Join(root, "evidence", "canary")
-	matches, err := filepath.Glob(filepath.Join(dir, "l11-p1-canary-rehearsal-*.json"))
+	matches, err := filepath.Glob(filepath.Join(dir, "l1[12]-p1-canary-rehearsal-*.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(matches) == 0 {
-		t.Fatal("expected l11-p1-canary-rehearsal-*.json receipts")
+		t.Fatal("expected l11/l12-p1-canary-rehearsal-*.json receipts")
 	}
 	for _, path := range matches {
 		raw, err := os.ReadFile(path)

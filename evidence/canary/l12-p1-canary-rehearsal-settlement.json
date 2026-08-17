@@ -1,0 +1,21 @@
+{
+  "actual_usd": 0.000006,
+  "classification": "ALPHA_CONTROL",
+  "controlled_by_operator": true,
+  "does_not_satisfy": "EXTERNAL_ALPHA_PROVEN",
+  "executed_tasks": 2,
+  "external_alpha_proven": false,
+  "gate": "P1-CANARY-REHEARSAL",
+  "job_id": "c045d408-575f-57be-8560-3fef9dff525b",
+  "kind": "p1_canary_rehearsal_settlement",
+  "observed_at": "2026-08-17T06:35:36Z",
+  "operator_owned": true,
+  "participant_class": "operator_controlled",
+  "plane": "local",
+  "rehearsal": true,
+  "schema_version": 1,
+  "settled_exactly_once": true,
+  "status": "PASS",
+  "supplier_credit_rows": 2,
+  "synthetic": true
+}

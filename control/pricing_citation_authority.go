@@ -137,9 +137,9 @@ func pricingThroughputAuthoritySnapshot(
 			"%s/%s: citation %q is not exact selected cell %s benchmark authority %q",
 			b.ModelID, b.JobType, b.SourceCitation, b.RuntimeCellID, authorityPath)
 	}
-	raw, err := os.ReadFile(full)
+	raw, err := citedReceiptPayload(path, full)
 	if err != nil {
-		return CatalogueThroughputAuthoritySnapshot{}, fmt.Errorf("%s/%s: read cited receipt: %w", b.ModelID, b.JobType, err)
+		return CatalogueThroughputAuthoritySnapshot{}, fmt.Errorf("%s/%s: %w", b.ModelID, b.JobType, err)
 	}
 	var receipt map[string]any
 	if err := json.Unmarshal(raw, &receipt); err != nil {
@@ -479,6 +479,48 @@ func validatePricingRuntimeCellModelArtifact(b measuredThroughput) error {
 		b.ModelID, b.JobType, b.RuntimeCellID)
 }
 
+// citedReceiptPayload returns the receipt bytes a citation may bind. A worktree
+// LFS pointer is not a receipt: resolve the payload from the local object
+// store (same authority as TestLFSCorpusIntegrity) and refuse if the object
+// is missing, corrupt, or hash-mismatched. Never returns pointer-stub text.
+func citedReceiptPayload(citationPath, abs string) ([]byte, error) {
+	raw, err := os.ReadFile(abs)
+	if err != nil {
+		return nil, fmt.Errorf("read cited receipt: %w", err)
+	}
+	oid, size, isPtr := parseLFSPointer(raw)
+	if !isPtr {
+		return raw, nil
+	}
+	var last error
+	for _, root := range pricingRepoRootCandidates() {
+		payload, err := resolveLFSPayload(root, abs, oid)
+		if err != nil {
+			last = err
+			continue
+		}
+		sum := sha256.Sum256(payload)
+		got := fmt.Sprintf("%x", sum[:])
+		if got != oid {
+			return nil, fmt.Errorf(
+				"cited artifact is unbindable: %q LFS payload sha256=%s != oid %s",
+				citationPath, got, oid)
+		}
+		if size >= 0 && int64(len(payload)) != size {
+			return nil, fmt.Errorf(
+				"cited artifact is unbindable: %q LFS payload size %d != pointer size %d",
+				citationPath, len(payload), size)
+		}
+		return payload, nil
+	}
+	if last == nil {
+		last = fmt.Errorf("no repo root resolved LFS oid %s", oid)
+	}
+	return nil, fmt.Errorf(
+		"cited artifact is unbindable: %q is a git-lfs pointer whose payload could not be materialized (oid %s): %w",
+		citationPath, oid, last)
+}
+
 // ensurePricingCitationBindable is the load-bearing check: only a BOUND receipt
 // with complete formal producer identity and a real producer source commit can
 // set a price.
@@ -718,9 +760,9 @@ func measuredPowerAuthoritySnapshot(
 	if err != nil {
 		return CataloguePowerAuthoritySnapshot{}, fmt.Errorf("catalogue publication power authority for %q: %w", hwClass, err)
 	}
-	raw, err := os.ReadFile(full)
+	raw, err := citedReceiptPayload(path, full)
 	if err != nil {
-		return CataloguePowerAuthoritySnapshot{}, fmt.Errorf("catalogue publication power authority for %q: read cited receipt: %w", hwClass, err)
+		return CataloguePowerAuthoritySnapshot{}, fmt.Errorf("catalogue publication power authority for %q: %w", hwClass, err)
 	}
 	actualDigest := fmt.Sprintf("%x", sha256.Sum256(raw))
 	if actualDigest != expectedDigest {

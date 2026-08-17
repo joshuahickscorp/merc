@@ -458,6 +458,7 @@ var declaredMoneyAuthority = []string{
 	"captureEnvelopeSpendTx",                              // execution_envelope.go
 	"canonicalFrozenMercSourceCommit",                     // runtime_cell_performance.go
 	"cellAuthorityBindable",                               // cell_authority_binding.go
+	"citedReceiptPayload",                                 // pricing_citation_authority.go
 	"chargeBuyer",                                         // billing.go
 	"chargeOrDeferJob",                                    // billing.go
 	"chargePaymentIntent",                                 // billing.go

@@ -1,0 +1,20 @@
+{
+  "classification": "ALPHA_CONTROL",
+  "controlled_by_operator": true,
+  "does_not_satisfy": "EXTERNAL_ALPHA_PROVEN",
+  "external_alpha_proven": false,
+  "gate": "P1-CANARY-REHEARSAL",
+  "job_id": "8a54845f-ee61-553a-bcaf-643d7f371e7a",
+  "kind": "p1_canary_rehearsal_verification-reject",
+  "observed_at": "2026-08-17T06:36:10Z",
+  "operator_owned": true,
+  "participant_class": "operator_controlled",
+  "plane": "local",
+  "rehearsal": true,
+  "reject_events": 1,
+  "reject_kind": "redundancy_mismatch_or_honeypot_fail",
+  "schema_version": 1,
+  "status": "PASS",
+  "synthetic": true,
+  "worker_id": "69cab73e-dc7d-4ab6-9ad4-7052b6be5edd"
+}

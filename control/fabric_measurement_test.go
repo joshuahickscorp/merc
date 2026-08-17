@@ -211,7 +211,12 @@ func TestFabricWorkerCertificateIdentityIsAuthenticatedUniqueAndImmutable(t *tes
 	ctx, store, _ := openPayoutTestStore(t)
 	worker, token := newFabricMeasurementWorker(t, ctx, store)
 	handler := NewServer(store, nil, nil, nil).Routes()
-	fingerprint := strings.Repeat("e", 64)
+	// Shared compose Postgres retains append-only fabric identities across suite
+	// runs. A constant digest collides with a leftover row and 409s the first
+	// bind. Hash the new worker id so this run's identity is unique; uniqueness
+	// and immutability are still asserted below.
+	first := sha256.Sum256([]byte("fabric-identity-first:" + worker.WorkerID.String()))
+	fingerprint := hex.EncodeToString(first[:])
 	if got := requestFabricJSON(t, handler, token, "/v1/worker/fabric/identity", FabricWorkerIdentity{CertificateSHA256: fingerprint}).Code; got != http.StatusNoContent {
 		t.Fatalf("fabric identity status=%d", got)
 	}

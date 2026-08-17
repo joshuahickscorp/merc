@@ -202,7 +202,7 @@ func installTestOnlyCombinedTokenAuthority(t *testing.T) {
 	}
 	resolved, err := resolveCitedEvidencePath(receiptPath)
 	mustf(t, err, "resolve TEST_ONLY combined-token source receipt: %v")
-	raw, err := os.ReadFile(resolved)
+	raw, err := citedReceiptPayload(receiptPath, resolved)
 	mustf(t, err, "read TEST_ONLY combined-token source receipt: %v")
 	var receipt map[string]any
 	mustf(t, json.Unmarshal(raw, &receipt), "decode TEST_ONLY combined-token source receipt: %v")

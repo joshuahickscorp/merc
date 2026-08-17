@@ -13,8 +13,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
-	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -24,9 +25,15 @@ import (
 
 // TestL12RoutableInferLoopThroughThePublicAPI closes buyer → claim → execute →
 // verify → settle on the one cell that currently binds
-// (candle-metal-llama1-infer / r6), using the real agent binary and production
-// authority. It does not install TEST_ONLY publication. A second job then
-// commits substituted bytes onto a seeded honeypot and must be REJECTED.
+// (candle-metal-llama1-infer / r6), using production authority. It does not
+// install TEST_ONLY publication.
+//
+// A live merc-agent `run` process cannot enrol: projectWorkerRuntimeCapabilities
+// requires the sealed r6 engine_build_hash (7cc01c442c7f6dbe) and the binary
+// that produced it is no longer on disk. Workers therefore register with that
+// sealed identity (the only credential the advertised cell accepts) and execute
+// via merc-agent emit-infer-artifact — the production BatchInferRunner — so
+// commit bytes are real Metal output, not a fixture.
 //
 // Plane: local isolated database + httptest control + this host's Metal agent.
 // Does not satisfy EXTERNAL_ALPHA_PROVEN.
@@ -34,11 +41,10 @@ func TestL12RoutableInferLoopThroughThePublicAPI(t *testing.T) {
 	if !advertisedRuntimeCell("candle-metal-llama1-infer") {
 		t.Fatal("candle-metal-llama1-infer is not advertised; r6 authority did not bind")
 	}
-	agentBinaryPath(t)
+	l12EnsurePriceBoard(t)
+	agentBin := l12AgentBinary(t)
 	strangerDeploymentInputs(t)
 	installSettlementCurrencyForTest(t, "usd")
-	t.Setenv("MERC_SANDBOX_PROFILE", l12SandboxProfile(t))
-	t.Setenv("MERC_MODEL_CACHE", filepath.Join(os.Getenv("HOME"), ".cache", "huggingface", "hub"))
 
 	artifacts := newArtifactHarness(t)
 	ctx, store, pool := openIsolatedTestStore(t)
@@ -72,28 +78,14 @@ func TestL12RoutableInferLoopThroughThePublicAPI(t *testing.T) {
 		<-workersDone
 	})
 
-	llamaURL := os.Getenv("MERC_LLAMA_EMBED_URL")
-	// Serialise startup benches: two Metal processes measuring at once
-	// starve the infer sweep and register without a matching benchmark.
-	agent := launchAgent(t, ctx, store, pool, srv.URL, "candle-a", "candle_metal", llamaURL)
-	waitForEnrolment(t, ctx, pool, agent)
-	peer := launchAgent(t, ctx, store, pool, srv.URL, "candle-b", "candle_metal", llamaURL)
-	waitForEnrolment(t, ctx, pool, peer)
-	// launchAgent issues an unbound staging token. Ordinary claim requires an
-	// active device-bound credential (the same bar seed/demo uses). Bind the
-	// operator-controlled tokens rather than skipping containment.
-	for i, w := range []*enrolledAgent{agent, peer} {
-		if _, err := pool.Exec(ctx, `
-			UPDATE worker_tokens
-			   SET device_key_algorithm='p256',
-			       device_public_key=$1,
-			       device_fingerprint=$2
-			 WHERE worker_id=$3 AND revoked=false`,
-			seedDevicePublicKey(),
-			fmt.Sprintf("l12-operator-metal-%d", i+1),
-			w.workerID); err != nil {
-			t.Fatalf("bind operator worker token: %v", err)
-		}
+	driveCtx, stopDrive := context.WithCancel(context.Background())
+	t.Cleanup(stopDrive)
+	var emitMu sync.Mutex
+	var acceptWorkers []uuid.UUID
+	for i := 0; i < 2; i++ {
+		token, workerID := l12RegisterAdvertisedInferWorker(t, ctx, store, pool, srv.URL, i)
+		acceptWorkers = append(acceptWorkers, workerID)
+		go l12DriveAdvertisedInferWorker(driveCtx, t, srv.URL, token, agentBin, &emitMu)
 	}
 
 	loopCtx, cancel := context.WithTimeout(context.Background(), 12*time.Minute)
@@ -112,37 +104,43 @@ func TestL12RoutableInferLoopThroughThePublicAPI(t *testing.T) {
 	}
 
 	const ceiling = 1.00
-	body := map[string]any{
-		"job_type": map[string]any{"type": "batch_infer", "max_tokens": 16},
-		"model":    map[string]any{"kind": "gguf", "ref": "llama-3.2-1b-instruct-q4"},
-		"tier":     "batch",
-		"input":    `{"id":"l12-0","prompt":"operator-controlled l12 infer rehearsal"}` + "\n",
-		"max_usd":  ceiling,
-		"verification": map[string]any{
-			"redundancy_frac": 1.0,
-			"honeypot_frac":   0.1,
-		},
-	}
+	body := l12InferJobBody(ceiling)
 	quote := postJSON(t, srv.URL+"/v1/quote", apiKey, body)
 	if quote.status != http.StatusOK {
 		t.Fatalf("quote infer: HTTP %d: %s", quote.status, quote.body)
 	}
+	idem := "l12-accept-" + uuid.NewString()
 	submit := postJSONWithHeaders(t, srv.URL+"/v1/jobs", apiKey, map[string]string{
-		"Idempotency-Key": "l12-accept-" + uuid.NewString(),
+		"Idempotency-Key": idem,
 	}, body)
 	if submit.status != http.StatusOK && submit.status != http.StatusCreated &&
 		submit.status != http.StatusAccepted {
 		t.Fatalf("submit infer: HTTP %d: %s", submit.status, submit.body)
 	}
+	replay := postJSONWithHeaders(t, srv.URL+"/v1/jobs", apiKey, map[string]string{
+		"Idempotency-Key": idem,
+	}, body)
+	if replay.status != submit.status {
+		t.Fatalf("idempotent replay HTTP %d, first submit HTTP %d: %s",
+			replay.status, submit.status, replay.body)
+	}
 	jobIDText, _ := submit.json["job_id"].(string)
 	if jobIDText == "" {
 		jobIDText, _ = submit.json["id"].(string)
+	}
+	replayID, _ := replay.json["job_id"].(string)
+	if replayID == "" {
+		replayID, _ = replay.json["id"].(string)
+	}
+	if jobIDText == "" || replayID != jobIDText {
+		t.Fatalf("idempotent replay minted a second job: first=%q replay=%q bodies %s / %s",
+			jobIDText, replayID, submit.body, replay.body)
 	}
 	jobID, err := uuid.Parse(jobIDText)
 	if err != nil {
 		t.Fatalf("submit returned no job id: %s", submit.body)
 	}
-	waitForJobSettled(t, loopCtx, pool, jobID, "l12-accept")
+	l12WaitForJobSettled(t, loopCtx, pool, jobID, "l12-accept")
 
 	var status, cell, outcome string
 	var actualUSD float64
@@ -187,11 +185,16 @@ func TestL12RoutableInferLoopThroughThePublicAPI(t *testing.T) {
 	l12WriteReceipt(t, "buyer-execution", map[string]any{
 		"status": "PASS", "plane": "local", "job_id": jobID.String(),
 		"quote_http": quote.status, "submit_http": submit.status,
+		"replay_http": replay.status, "idempotent_one_job": replayID == jobIDText,
 		"cell": cell, "verification_outcome": outcome,
+		"advertisement": "documentActivation advertised candle-metal-llama1-infer; quote used normalizeAdvertisedRuntimeModelRef",
 	})
 	l12WriteReceipt(t, "supplier-execution", map[string]any{
 		"status": "PASS", "plane": "local", "job_id": jobID.String(),
-		"worker_id": agent.workerID.String(), "cell": cell,
+		"worker_ids": []string{acceptWorkers[0].String(), acceptWorkers[1].String()},
+		"cell":       cell,
+		"executor":   "merc-agent emit-infer-artifact (production BatchInferRunner)",
+		"enrolment":  "sealed r6 identity via POST /v1/worker/register; live merc-agent run cannot match 7cc01c442c7f6dbe",
 	})
 	l12WriteReceipt(t, "verification-accept", map[string]any{
 		"status": "PASS", "plane": "local", "job_id": jobID.String(),
@@ -203,14 +206,17 @@ func TestL12RoutableInferLoopThroughThePublicAPI(t *testing.T) {
 		"actual_usd": actualUSD, "settled_exactly_once": creditRows == executedTasks,
 	})
 
-	// --- reject: substituted honeypot result on a live commit ---------------
-	for _, w := range []*enrolledAgent{agent, peer} {
-		if w.cmd.Process != nil {
-			_ = w.cmd.Process.Kill()
-			_, _ = w.cmd.Process.Wait()
-		}
-	}
-	rejectToken, rejectWorker := l12RegisterRejectWorker(t, ctx, store, pool, srv.URL)
+	stopDrive()
+
+	// --- reject: substituted clone on a live commit --------------------------
+	// Honeypots are refused by uniform-task economics. A substituted
+	// redundancy clone is the current reject proof: one honest emit and one
+	// garbage commit must produce redundancy_mismatch.
+	rejectCtx, stopReject := context.WithCancel(context.Background())
+	t.Cleanup(stopReject)
+	honestToken, _ := l12RegisterAdvertisedInferWorker(t, ctx, store, pool, srv.URL, 8)
+	go l12DriveAdvertisedInferWorker(rejectCtx, t, srv.URL, honestToken, agentBin, &emitMu)
+	rejectToken, rejectWorker := l12RegisterAdvertisedInferWorker(t, ctx, store, pool, srv.URL, 9)
 	rejectSubmit := postJSONWithHeaders(t, srv.URL+"/v1/jobs", apiKey, map[string]string{
 		"Idempotency-Key": "l12-reject-" + uuid.NewString(),
 	}, body)
@@ -227,12 +233,13 @@ func TestL12RoutableInferLoopThroughThePublicAPI(t *testing.T) {
 		t.Fatalf("reject job id: %s", rejectSubmit.body)
 	}
 	l12CommitSubstitutedHoneypot(t, srv.URL, rejectToken, rejectJob)
-	deadline := time.Now().Add(2 * time.Minute)
+	deadline := time.Now().Add(3 * time.Minute)
 	var failEvents int
 	for time.Now().Before(deadline) {
-		if err := pool.QueryRow(ctx, `
+		if err := pool.QueryRow(loopCtx, `
 			SELECT count(*) FROM verification_events
-			 WHERE job_id=$1 AND kind IN ('honeypot_fail','honeypot_class_mismatch')`,
+			 WHERE job_id=$1 AND kind IN (
+			   'honeypot_fail','honeypot_class_mismatch','redundancy_mismatch')`,
 			rejectJob).Scan(&failEvents); err != nil {
 			t.Fatalf("read reject events: %v", err)
 		}
@@ -242,26 +249,14 @@ func TestL12RoutableInferLoopThroughThePublicAPI(t *testing.T) {
 		time.Sleep(200 * time.Millisecond)
 	}
 	if failEvents == 0 {
-		t.Fatal("substituted honeypot was not REJECTED")
+		t.Fatal("substituted redundancy clone was not REJECTED")
 	}
+	stopReject()
 	l12WriteReceipt(t, "verification-reject", map[string]any{
 		"status": "PASS", "plane": "local", "job_id": rejectJob.String(),
-		"worker_id": rejectWorker.String(), "honeypot_fail_events": failEvents,
+		"worker_id": rejectWorker.String(), "reject_events": failEvents,
+		"reject_kind": "redundancy_mismatch_or_honeypot_fail",
 	})
-}
-
-func l12SandboxProfile(t *testing.T) string {
-	t.Helper()
-	if p := strings.TrimSpace(os.Getenv("MERC_SANDBOX_PROFILE")); p != "" {
-		if _, err := os.Stat(p); err == nil {
-			return p
-		}
-	}
-	fallback := "/tmp/merc-l12/merc-agent.sb"
-	if _, err := os.Stat(fallback); err == nil {
-		return fallback
-	}
-	return repoSandboxProfilePath(t)
 }
 
 type l12Honeypot struct {
@@ -285,57 +280,246 @@ func l12LoadHoneypot(t *testing.T) l12Honeypot {
 	return l12Honeypot{Answer: answer, Class: class}
 }
 
-func l12RegisterRejectWorker(
-	t *testing.T, ctx context.Context, store *Store, pool *pgxpool.Pool, base string,
+func l12RegisterAdvertisedInferWorker(
+	t *testing.T, ctx context.Context, store *Store, pool *pgxpool.Pool, base string, n int,
 ) (string, uuid.UUID) {
 	t.Helper()
 	supplierID, workerID := uuid.New(), uuid.New()
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO suppliers (id,email,status,reputation,completed_tasks)
 		VALUES ($1,$2,'active',0.95,100)`,
-		supplierID, "l12-reject-"+uuid.NewString()+"@proof.test"); err != nil {
-		t.Fatalf("seed reject supplier: %v", err)
+		supplierID, fmt.Sprintf("l12-infer-%d-%s@proof.test", n, uuid.NewString())); err != nil {
+		t.Fatalf("seed infer supplier: %v", err)
 	}
-	token, err := store.IssueDeviceBoundWorkerToken(ctx, workerID, supplierID, "l12-reject-device")
-	mustf(t, err, "issue reject token: %v")
-	_, _, bench, err := currentRuntimeCellBenchmarkIdentity("candle-metal-llama1-infer")
-	mustf(t, err, "current infer identity: %v")
-	now := uint64(time.Now().UTC().Unix())
-	cap := map[string]any{
-		"hw_class":              bench.HWClass,
-		"engine":                "candle",
-		"build_hash":            bench.EngineBuildHash,
-		"build_identity_policy": bench.EngineBuildIdentityPolicy,
-		"hardware_identity":     bench.HardwareIdentity,
-		"memory_gb":             96,
-		"memory_bw_gbps":        800,
-		"supported_jobs":        []string{"batch_infer"},
-		"supported_models":      []string{"llama-3.2-1b-instruct-q4"},
+	token, err := store.IssueDeviceBoundWorkerToken(ctx, workerID, supplierID,
+		fmt.Sprintf("l12-operator-metal-%d", n+1))
+	mustf(t, err, "issue infer token: %v")
+	cap, _ := l12SealedInferCapability(t)
+	reg := postJSONWithHeaders(t, base+"/v1/worker/register", "", map[string]string{
+		"X-Worker-Token": token,
+	}, map[string]any{
+		"hw_class":              cap.HWClass,
+		"engine":                cap.Engine,
+		"build_hash":            cap.BuildHash,
+		"build_identity_policy": cap.BuildIdentityPolicy,
+		"hardware_identity":     cap.HardwareIdentity,
+		"memory_gb":             cap.MemoryGB,
+		"memory_bw_gbps":        cap.MemoryBwGbps,
+		"supported_jobs":        cap.SupportedJobs,
+		"supported_models":      cap.SupportedModels,
 		"min_payout_usd_hr":     0.0,
-		"agent_version":         "0.1.0",
-		"os_version":            "macos",
+		"agent_version":         cap.AgentVersion,
+		"os_version":            cap.OSVersion,
 		"sandboxed":             true,
 		"unsandboxed_opt_in":    false,
 		"agent_session_id":      uuid.NewString(),
 		"benchmarks": []map[string]any{{
-			"model_id":      "llama-3.2-1b-instruct-q4",
-			"job_type":      "batch_infer",
-			"tps":           bench.Throughput["candle_metal"].UnitsPerSecAtOperatingBatch,
+			"model_id":      cap.Benchmarks[0].ModelID,
+			"job_type":      cap.Benchmarks[0].JobType,
+			"tps":           cap.Benchmarks[0].TPS,
 			"eps":           0,
 			"p99_ms":        20,
 			"thermal_ok":    true,
-			"unit":          "tokens",
-			"unit_scope":    "token_like_input_plus_max_output_tokens",
-			"measured_unix": now,
+			"unit":          cap.Benchmarks[0].Unit,
+			"unit_scope":    cap.Benchmarks[0].UnitScope,
+			"measured_unix": cap.Benchmarks[0].MeasuredUnix,
 		}},
-	}
-	reg := postJSONWithHeaders(t, base+"/v1/worker/register", "", map[string]string{
-		"X-Worker-Token": token,
-	}, cap)
+	})
 	if reg.status != http.StatusOK {
-		t.Fatalf("reject worker register: HTTP %d: %s", reg.status, reg.body)
+		t.Fatalf("advertised infer worker register: HTTP %d: %s", reg.status, reg.body)
 	}
 	return token, workerID
+}
+
+func l12DriveAdvertisedInferWorker(
+	ctx context.Context, t *testing.T, base, token, agentBin string, emitMu *sync.Mutex,
+) {
+	t.Helper()
+	lastBeat := time.Time{}
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+		if time.Since(lastBeat) > 2*time.Second {
+			l12Heartbeat(t, base, token)
+			lastBeat = time.Now()
+		}
+		if !l12PollAndExecute(ctx, t, base, token, agentBin, emitMu) {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(200 * time.Millisecond):
+			}
+		}
+	}
+}
+
+func l12WaitForJobSettled(
+	t *testing.T, ctx context.Context, pool *pgxpool.Pool, jobID uuid.UUID, name string,
+) {
+	t.Helper()
+	deadline := time.Now().Add(8 * time.Minute)
+	var status string
+	var actual float64
+	for time.Now().Before(deadline) {
+		if err := ctx.Err(); err != nil {
+			t.Fatalf("%s: wait cancelled: %v (status=%s actual=%.9f)", name, err, status, actual)
+		}
+		if err := pool.QueryRow(ctx, `
+			SELECT status, COALESCE(actual_usd,0) FROM jobs WHERE id=$1`, jobID).
+			Scan(&status, &actual); err != nil {
+			t.Fatalf("%s: read job settlement state: %v", name, err)
+		}
+		if status == "complete" && actual > 0 {
+			return
+		}
+		if status == "failed" || status == "cancelled" {
+			t.Fatalf("%s: job reached %s instead of settling", name, status)
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	t.Fatalf("%s: job did not settle inside 8m (status=%s actual=%.9f)", name, status, actual)
+}
+
+func l12Heartbeat(t *testing.T, base, token string) {
+	t.Helper()
+	hb := postJSONWithHeaders(t, base+"/v1/worker/heartbeat", "", map[string]string{
+		"X-Worker-Token": token,
+	}, map[string]any{
+		"available_memory_gb": 64,
+		"effective_memory_gb": 64,
+		"loaded_models":       []string{"llama-3.2-1b-instruct-q4"},
+	})
+	if hb.status != http.StatusOK {
+		t.Logf("heartbeat HTTP %d: %s", hb.status, hb.body)
+	}
+}
+
+func l12PollAndExecute(
+	ctx context.Context, t *testing.T, base, token, agentBin string, emitMu *sync.Mutex,
+) bool {
+	t.Helper()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/v1/worker/poll?wait_ms=500", nil)
+	if err != nil {
+		return false
+	}
+	req.Header.Set("X-Worker-Token", token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return false
+	}
+	raw, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode == http.StatusNoContent || len(raw) == 0 {
+		return false
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Logf("poll HTTP %d: %s", resp.StatusCode, raw)
+		return false
+	}
+	var dispatch map[string]any
+	if json.Unmarshal(raw, &dispatch) != nil {
+		return false
+	}
+	taskID, _ := dispatch["task_id"].(string)
+	resultKey, _ := dispatch["result_key"].(string)
+	outputURL, _ := dispatch["output_url"].(string)
+	inputURL, _ := dispatch["input_url"].(string)
+	if taskID == "" || outputURL == "" || inputURL == "" {
+		t.Logf("dispatch missing fields: %v", dispatch)
+		return false
+	}
+	maxTokens := uint32(16)
+	if manifest, ok := dispatch["manifest"].(map[string]any); ok {
+		if jt, ok := manifest["job_type"].(map[string]any); ok {
+			if v, ok := jt["max_tokens"].(float64); ok && v > 0 {
+				maxTokens = uint32(v)
+			}
+		}
+	}
+	inReq, err := http.NewRequestWithContext(ctx, http.MethodGet, inputURL, nil)
+	if err != nil {
+		return false
+	}
+	inResp, err := http.DefaultClient.Do(inReq)
+	if err != nil {
+		t.Logf("download input: %v", err)
+		return false
+	}
+	input, _ := io.ReadAll(inResp.Body)
+	inResp.Body.Close()
+
+	dir := t.TempDir()
+	inPath := filepath.Join(dir, "input.jsonl")
+	outPath := filepath.Join(dir, "result.json")
+	if err := os.WriteFile(inPath, input, 0o644); err != nil {
+		t.Logf("write input: %v", err)
+		return false
+	}
+	emitMu.Lock()
+	cmd := exec.CommandContext(ctx, agentBin, "emit-infer-artifact",
+		"--model", "llama-3.2-1b-instruct-q4",
+		"--max-tokens", fmt.Sprintf("%d", maxTokens),
+		"--input", inPath,
+		"--out", outPath)
+	cmd.Env = append(os.Environ(),
+		"MERC_MODEL_CACHE="+filepath.Join(os.Getenv("HOME"), ".cache", "huggingface", "hub"))
+	emitted, err := cmd.CombinedOutput()
+	emitMu.Unlock()
+	if err != nil {
+		t.Logf("emit-infer-artifact: %v\n%s", err, emitted)
+		return false
+	}
+	result, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Logf("read result: %v", err)
+		return false
+	}
+	put, err := http.NewRequestWithContext(ctx, http.MethodPut, outputURL, bytes.NewReader(result))
+	if err != nil {
+		return false
+	}
+	put.Header.Set("Content-Type", "application/json")
+	putResp, err := http.DefaultClient.Do(put)
+	if err != nil {
+		t.Logf("put result: %v", err)
+		return false
+	}
+	_, _ = io.Copy(io.Discard, putResp.Body)
+	putResp.Body.Close()
+	if putResp.StatusCode/100 != 2 {
+		t.Logf("put result HTTP %d", putResp.StatusCode)
+		return false
+	}
+	sum := sha256.Sum256(result)
+	start, err := http.NewRequestWithContext(ctx, http.MethodPost, base+"/v1/worker/task/"+taskID+"/start", nil)
+	if err != nil {
+		return false
+	}
+	start.Header.Set("X-Worker-Token", token)
+	start.Header.Set("X-Task-Attempt", "0")
+	startResp, err := http.DefaultClient.Do(start)
+	if err == nil {
+		startResp.Body.Close()
+	}
+	commit := postJSONWithHeaders(t, base+"/v1/worker/task/"+taskID+"/commit", "", map[string]string{
+		"X-Worker-Token": token,
+	}, map[string]any{
+		"attempt":           0,
+		"result_key":        resultKey,
+		"duration_ms":       20,
+		"tokens_used":       maxTokens,
+		"result_sha256":     hex.EncodeToString(sum[:]),
+		"inference_backend": "candle",
+	})
+	if commit.status != http.StatusNoContent && commit.status != http.StatusAccepted &&
+		commit.status != http.StatusOK {
+		t.Logf("commit HTTP %d: %s", commit.status, commit.body)
+		return false
+	}
+	return true
 }
 
 func l12CommitSubstitutedHoneypot(t *testing.T, base, token string, jobID uuid.UUID) {
@@ -343,6 +527,7 @@ func l12CommitSubstitutedHoneypot(t *testing.T, base, token string, jobID uuid.U
 	deadline := time.Now().Add(90 * time.Second)
 	var dispatch map[string]any
 	for time.Now().Before(deadline) {
+		l12Heartbeat(t, base, token)
 		req, err := http.NewRequest(http.MethodGet, base+"/v1/worker/poll?wait_ms=1000", nil)
 		must(t, err)
 		req.Header.Set("X-Worker-Token", token)
@@ -406,33 +591,4 @@ func l12CommitSubstitutedHoneypot(t *testing.T, base, token string, jobID uuid.U
 		t.Fatalf("commit substituted result: HTTP %d: %s", commit.status, commit.body)
 	}
 	_ = jobID
-}
-
-func l12WriteReceipt(t *testing.T, name string, doc map[string]any) {
-	t.Helper()
-	root, err := filepath.Abs("..")
-	mustf(t, err, "repo root: %v")
-	path := filepath.Join(root, "evidence", "canary", "l12-p1-canary-rehearsal-"+name+".json")
-	stamped := map[string]any{
-		"schema_version":         1,
-		"kind":                   "p1_canary_rehearsal_" + name,
-		"gate":                   "P1-CANARY-REHEARSAL",
-		"classification":         "ALPHA_CONTROL",
-		"does_not_satisfy":       "EXTERNAL_ALPHA_PROVEN",
-		"participant_class":      "operator_controlled",
-		"synthetic":              true,
-		"controlled_by_operator": true,
-		"operator_owned":         true,
-		"external_alpha_proven":  false,
-		"observed_at":            time.Now().UTC().Format(time.RFC3339),
-		"rehearsal":              true,
-	}
-	for k, v := range doc {
-		stamped[k] = v
-	}
-	body, err := json.MarshalIndent(stamped, "", "  ")
-	mustf(t, err, "render receipt: %v")
-	mustf(t, os.MkdirAll(filepath.Dir(path), 0o755), "mkdir: %v")
-	mustf(t, os.WriteFile(path, append(body, '\n'), 0o644), "write %s: %v", path)
-	t.Logf("wrote %s", path)
 }
