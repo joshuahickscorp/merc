@@ -267,6 +267,7 @@ matched-execution pair exists:
   `P1-STAGING` is `SATISFIED`; public TLS webhook delivery is reachable at
   `mercmerc.net`. The remaining wall is Connect signup
   (`evidence/external/stripe-sandbox-matrix.json` status `BLOCKED`,
+(unbound receipt, status BLOCKED — a test-mode snapshot cited as subject, not authority; it does not prove the Connect half of the money path)
   `blocker.id=connect_platform_not_signed_up`). That is `P1-STRIPE-TEST`,
   not a missing host.
 * **8** — the historical `REAL_RUNTIME_PROVEN` chains stand but predate the
@@ -296,6 +297,7 @@ matched-execution pair exists:
 
 **Current wall (2026-08-17):**
 `evidence/external/stripe-sandbox-matrix.json` is `BLOCKED` /
+(unbound receipt, status BLOCKED — a test-mode snapshot cited as subject, not authority; it does not prove the Connect half of the money path)
 `connect_platform_not_signed_up`. Stripe itself refuses:
 *"You can only create new accounts if you've signed up for Connect."*
 Non-Connect test-mode scenarios have been driven against

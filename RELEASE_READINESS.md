@@ -64,6 +64,7 @@ checklist for the remaining 13 points is
   is therefore NOT EXECUTED. Payment evidence is labelled SIMULATED.
 - Stripe test mode has been exercised, but not in a form that closes its gate.
   The formal path `evidence/external/stripe-sandbox-matrix.json` exists:
+(unbound receipt, status BLOCKED — a test-mode snapshot cited as subject, not authority; it does not prove the Connect half of the money path)
   `status: BLOCKED`, `provider_mode: test`, `live_mode: PROHIBITED`,
   `blocker.id: connect_platform_not_signed_up` on `acct_1TxbzMCwPLrR4vaY`.
   `stripe_sandbox_matrix_proven` therefore awards 0/6. An earlier unbound
@@ -112,6 +113,7 @@ Still open:
 - `P1-STRIPE-TEST` (`ALPHA_BLOCKER`) — non-Connect Stripe test-mode scenarios
   have been driven; Connect signup is the remaining wall
   (`evidence/external/stripe-sandbox-matrix.json` status `BLOCKED`,
+(unbound receipt, status BLOCKED — a test-mode snapshot cited as subject, not authority; it does not prove the Connect half of the money path)
   `blocker.id=connect_platform_not_signed_up`).
 - `P1-CANARY-REHEARSAL` (`ALPHA_CONTROL`) — two approved buyers, two
   operator-controlled Metal agents, and the counted scenario matrix. Local

@@ -86,7 +86,8 @@ Persistent staging is public TLS at `https://mercmerc.net`. Observed
 at commit `19fe0b23940c7e3d4da9b45d9cc5689c2c515d07` (`modified: false`,
 `go_version: go1.26.6`). That commit is an ancestor of this HEAD and sits 20
 commits behind it. The execution loop is **not** closed on that host
-(`evidence/canary/l12-p1-canary-rehearsal-live-staging.json` is `BLOCKED`).
+(`evidence/canary/l12-p1-canary-rehearsal-live-staging.json` is `BLOCKED`
+and unbound — a rehearsal record, not authority; it does not prove the loop ran).
 
 The derived score is **87/100** (threshold 95). Local receipts plus the
 independent offsite backup/restore pair account for 87; the remaining 13

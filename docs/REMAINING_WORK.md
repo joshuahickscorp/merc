@@ -36,6 +36,7 @@ Ordered by consequence. **[auto]** / **[you]** / **[blocked]** as before.
 
 **Current.** Stripe test mode is proven up to the Connect boundary.
 `evidence/external/stripe-sandbox-matrix.json` is `BLOCKED` /
+(unbound receipt, status BLOCKED — a test-mode snapshot cited as subject, not authority; it does not prove the Connect half of the money path)
 `connect_platform_not_signed_up` on platform `acct_1TxbzMCwPLrR4vaY`.
 That is the single open `ALPHA_BLOCKER` P1. Live value movement on the
 public host is `false`.

@@ -5,6 +5,11 @@ that describe them. Nothing in this file was repaired. HEAD at audit time:
 `9e31c65b27860d659d7ce972e2de7052691c0642` (one commit past the context pack's
 `645bed17`). All five attack surfaces were driven.
 
+> Every `evidence/…` path named in this audit is cited as the **subject of
+> audit**, not as authority for a claim. Each is UNBOUND historical or
+> rehearsal evidence and proves nothing here beyond its own contents.
+
+
 This worktree is a sparse checkout. `python3 scripts/validate-readiness.py`
 run here printed `FAIL: decision readiness_score 87 != receipt-derived total 11`
 because `evidence/` is not on disk. The same script against the full tree at
@@ -49,6 +54,7 @@ Live `/version` at audit time served `9e31c65b` / `go1.26.6`, not the closeout's
 
 The same file classifies
 `receipt:website_and_buyer_usability:evidence/autonomous/website-validation.json`
+(unbound historical receipt — cited here as the subject of audit, not as authority; it does not prove the claim under discussion)
 as `PUBLIC_LAUNCH` with `harm_reachable_in_this_alpha: false`:
 
 > The product surface is terminal-native and no website is required. A
@@ -98,6 +104,7 @@ contract names as cheating.
 - `ops/backend-alpha-gates.json` ids
   `receipt:security:evidence/external/staging-attack-rehearsal.json`,
   `receipt:website_and_buyer_usability:evidence/autonomous/website-validation.json`,
+(unbound historical receipt — cited here as the subject of audit, not as authority; it does not prove the claim under discussion)
   `p1:P1-STAGING`
 - `evidence/external/staging-alpha-readiness.json` `criteria.tls`
 - `docs/BACKEND_ALPHA_CLOSEOUT.md` posture table ("public TLS")
@@ -199,6 +206,7 @@ Connect is signed, with the live loop still closed. That is rescoping the
 obligation off the start-gate while leaving the words in the contract.
 
 The live plane does not have the loop. `evidence/canary/l12-p1-canary-rehearsal-live-staging.json`
+(unbound historical receipt — cited here as the subject of audit, not as authority; it does not prove the claim under discussion)
 (`status: BLOCKED`, `plane: https://mercmerc.net`):
 
 - buyer / supplier / verification / settlement: **not run**
@@ -216,6 +224,7 @@ the only live-plane receipt says it is blocked; the closeout says conditions
 - `docs/BACKEND_ALPHA_CONTRACT.md` §2.4
 - `ops/backend-alpha-gates.json` `p1:P1-CANARY-REHEARSAL`
 - `git show HEAD:evidence/canary/l12-p1-canary-rehearsal-live-staging.json`
+(unbound historical receipt — cited here as the subject of audit, not as authority; it does not prove the claim under discussion)
 - `git show 645bed17 -- docs/BACKEND_ALPHA_CLOSEOUT.md`
 
 ---
@@ -407,7 +416,9 @@ rg -n "advertisedRuntimeCapabilities|documentAdvertisedCells" control --type go
 
 **Claim.** `source_and_ci` 10/10 and `licensing_and_supply_chain` 2/3 rest on
 `evidence/autonomous/registry-verification.json` (4) and
+(unbound historical receipt — cited here as the subject of audit, not as authority; it does not prove the claim under discussion)
 `evidence/autonomous/supply-chain.json` (3+2). The matching gates' harm is
+(unbound historical receipt — cited here as the subject of audit, not as authority; it does not prove the claim under discussion)
 "the binary on the persistent plane is not the candidate the operator thinks
 it is" / "you cannot say what executed."
 
@@ -436,7 +447,9 @@ The score and the gate harms cite them for more than they recorded.
 
 ```
 git show HEAD:evidence/autonomous/registry-verification.json
+(unbound historical receipt — cited here as the subject of audit, not as authority; it does not prove the claim under discussion)
 git show HEAD:evidence/autonomous/supply-chain.json
+(unbound historical receipt — cited here as the subject of audit, not as authority; it does not prove the claim under discussion)
 curl -sS https://mercmerc.net/version
 python3 scripts/validate-readiness.py   # source_and_ci 10/10
 ```
@@ -551,6 +564,7 @@ true of the process answering today.
 
 > G063. `https://mercmerc.net/version` reports commit `41db85b5` …
 > `evidence/deploy/live-cutover.json` records `stripe_mode: "live"` with its
+(unbound historical receipt — cited here as the subject of audit, not as authority; it does not prove the claim under discussion)
 > own warning that real money moves.
 > That host is missing `a7bf17a6` (the P0: realtime funding under-held …)
 
@@ -573,6 +587,7 @@ can take as current.
 
 ```
 git show HEAD:evidence/deploy/live-cutover.json
+(unbound historical receipt — cited here as the subject of audit, not as authority; it does not prove the claim under discussion)
 rg -n "stripe_mode|Stripe is LIVE" docs/REMAINING_WORK.md docs/RELEASE_SIGNING_AND_STAGING.md
 curl -sS https://mercmerc.net/readyz
 ```
@@ -599,6 +614,7 @@ workspace served today. The readiness checker is `status_in("PASS",
 
 ```
 git show HEAD:evidence/autonomous/website-validation.json
+(unbound historical receipt — cited here as the subject of audit, not as authority; it does not prove the claim under discussion)
 python3 scripts/validate-readiness.py   # website_and_buyer_usability 2/2
 ```
 
@@ -625,6 +641,7 @@ for the non-Connect half, `live_mode: PROHIBITED`).
 
 **Command / file.** `ops/go-no-go.json` `P1-STRIPE-TEST`;
 `git show HEAD:evidence/external/stripe-sandbox-matrix.json` `blocker`,
+(unbound receipt, status BLOCKED — a test-mode snapshot cited as subject, not authority; it does not prove the Connect half of the money path)
 `connect_gated_remainder`, `notes`.
 
 ---
