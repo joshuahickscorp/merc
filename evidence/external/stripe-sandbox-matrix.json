@@ -27,7 +27,7 @@
         "country": "CA",
         "capabilities[card_payments][requested]": "true",
         "capabilities[transfers][requested]": "true",
-        "metadata[cx_matrix_run]": "20260817T030048Z-l9cn",
+        "metadata[cx_matrix_run]": "20260817T212603Z-l9cn",
         "metadata[cx_purpose]": "connect_remainder"
       }
     },
@@ -172,7 +172,7 @@
       "provider_mode": "test",
       "live_mode": "PROHIBITED",
       "fixture_id": "pi_3U5Dy4CwPLrR4vaY19W85ypY",
-      "detail": "same key different body → idempotency_error"
+      "detail": "same key different body \u2192 idempotency_error"
     }
   },
   "fixtures": {
@@ -433,7 +433,7 @@
       "provider_mode": "test",
       "live_mode": "PROHIBITED",
       "fixture_id": "pi_3U5Dy4CwPLrR4vaY19W85ypY",
-      "detail": "same key different body → idempotency_error"
+      "detail": "same key different body \u2192 idempotency_error"
     },
     {
       "id": "payment_failure_decline_codes",
@@ -587,7 +587,7 @@
           "country": "CA",
           "capabilities[card_payments][requested]": "true",
           "capabilities[transfers][requested]": "true",
-          "metadata[cx_matrix_run]": "20260817T030048Z-l9cn",
+          "metadata[cx_matrix_run]": "20260817T212603Z-l9cn",
           "metadata[cx_purpose]": "connect_remainder"
         },
         "dry_run_verified": true,
@@ -611,7 +611,7 @@
           "amount": "100",
           "currency": "cad",
           "destination": "<connected_account>",
-          "metadata[cx_matrix_run]": "20260817T030048Z-l9cn"
+          "metadata[cx_matrix_run]": "20260817T212603Z-l9cn"
         },
         "dry_run_verified": true,
         "sent": false
@@ -708,7 +708,7 @@
         "stripe_account": null,
         "fields": {
           "follow_up_post": "/v1/accounts/<connected_account>",
-          "business_profile[product_description]": "merc connect remainder 20260817T030048Z-l9cn"
+          "business_profile[product_description]": "merc connect remainder 20260817T212603Z-l9cn"
         },
         "dry_run_verified": true,
         "sent": false
@@ -737,7 +737,7 @@
             "payout.paid",
             "payout.failed"
           ],
-          "description": "merc connect remainder 20260817T030048Z-l9cn"
+          "description": "merc connect remainder 20260817T212603Z-l9cn"
         },
         "dry_run_verified": true,
         "sent": false
@@ -759,7 +759,7 @@
   "connect_remainder": {
     "command": "scripts/stripe-sandbox-connect.sh",
     "alias": "scripts/stripe-sandbox.sh connect",
-    "run_id": "20260817T030048Z-l9cn",
+    "run_id": "20260817T212603Z-l9cn",
     "status": "BLOCKED",
     "exit_reason": "blocked: Connect not signed up",
     "stopped_at": {
@@ -774,7 +774,7 @@
         "country": "CA",
         "capabilities[card_payments][requested]": "true",
         "capabilities[transfers][requested]": "true",
-        "metadata[cx_matrix_run]": "20260817T030048Z-l9cn",
+        "metadata[cx_matrix_run]": "20260817T212603Z-l9cn",
         "metadata[cx_purpose]": "connect_remainder"
       }
     },
@@ -820,7 +820,7 @@
         "step": "POST /v1/webhook_endpoints (connect=true probe)",
         "status": "ok",
         "http": 200,
-        "id": "we_1U5Gn7CwPLrR4vaYyf1KDKGR",
+        "id": "we_1U5Y2iCwPLrR4vaYULAn11Bp",
         "connect_flag": null,
         "api_version": "2025-06-30.basil",
         "deleted": true,
@@ -839,7 +839,7 @@
           "country": "CA",
           "capabilities[card_payments][requested]": "true",
           "capabilities[transfers][requested]": "true",
-          "metadata[cx_matrix_run]": "20260817T030048Z-l9cn",
+          "metadata[cx_matrix_run]": "20260817T212603Z-l9cn",
           "metadata[cx_purpose]": "connect_remainder"
         },
         "dry_run_verified": true,
@@ -855,7 +855,7 @@
           "amount": "100",
           "currency": "cad",
           "destination": "<connected_account>",
-          "metadata[cx_matrix_run]": "20260817T030048Z-l9cn"
+          "metadata[cx_matrix_run]": "20260817T212603Z-l9cn"
         },
         "dry_run_verified": true,
         "sent": false
@@ -920,7 +920,7 @@
         "stripe_account": null,
         "fields": {
           "follow_up_post": "/v1/accounts/<connected_account>",
-          "business_profile[product_description]": "merc connect remainder 20260817T030048Z-l9cn"
+          "business_profile[product_description]": "merc connect remainder 20260817T212603Z-l9cn"
         },
         "dry_run_verified": true,
         "sent": false
@@ -941,7 +941,7 @@
             "payout.paid",
             "payout.failed"
           ],
-          "description": "merc connect remainder 20260817T030048Z-l9cn"
+          "description": "merc connect remainder 20260817T212603Z-l9cn"
         },
         "dry_run_verified": true,
         "sent": false
@@ -950,8 +950,8 @@
     "webhook_recreate_probe": {
       "stopped": false,
       "http": 200,
-      "probe_url": "https://mercmerc.net/v1/stripe/connect-webhook-probe/20260817T030048Z-l9cn",
-      "probe_id": "we_1U5Gn7CwPLrR4vaYyf1KDKGR",
+      "probe_url": "https://mercmerc.net/v1/stripe/connect-webhook-probe/20260817T212603Z-l9cn",
+      "probe_id": "we_1U5Y2iCwPLrR4vaYULAn11Bp",
       "requested_connect": true,
       "requested_api_version": "2025-06-30.basil",
       "returned_connect": null,
