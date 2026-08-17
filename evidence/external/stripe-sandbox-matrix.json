@@ -5,7 +5,7 @@
   "provider_mode": "test",
   "live_mode": "PROHIBITED",
   "secret_values_printed": false,
-  "run_id": "20260816T221000Z-l2buyer",
+  "run_id": "20260816T235949Z-l9nc",
   "settlement_currency": "cad",
   "platform_account": "acct_1TxbzMCwPLrR4vaY",
   "platform_country": "CA",
@@ -13,12 +13,13 @@
   "disposable_customer_cleanup": "attempted",
   "blocker": {
     "id": "connect_platform_not_signed_up",
-    "detail": "POST /v1/accounts on acct_1TxbzMCwPLrR4vaY returns: You can only create new accounts if you've signed up for Connect (dashboard.stripe.com/connect). That dashboard action is not reachable from this lane without signing in. MERC_CONNECT_CLIENT_ID (ca_*) is also only revealed in Connect OAuth settings after that signup. stripe-check and stripe-matrix therefore remain EXTERNAL CREDENTIAL REQUIRED with connect_test_account_present=false.",
+    "detail": "POST /v1/accounts on acct_1TxbzMCwPLrR4vaY returns: You can only create new accounts if you've signed up for Connect (dashboard.stripe.com/connect). That dashboard action is not reachable from this lane without signing in. Non-Connect scenarios were driven to completion against test-mode Stripe and recorded below. The Connect webhook we_1U5Cz3CwPLrR4vaYVjElBvu8 has connect=null and must be recreated with connect=true after signup.",
     "unreachable_in_test_mode_api": true
   },
   "harness": {
     "stripe_check": "EXTERNAL CREDENTIAL REQUIRED",
-    "stripe_matrix": "EXTERNAL CREDENTIAL REQUIRED",
+    "stripe_matrix": "BLOCKED-ON-CONNECT",
+    "nonconnect_driver": "scripts/stripe-sandbox-nonconnect.sh",
     "staging_hostname_valid": true,
     "endpoint_ids_distinct": true,
     "api_key_class": "test",
@@ -42,131 +43,182 @@
   "delivery": {
     "internet_staging": {
       "attempted": true,
-      "reachable": false,
+      "reachable": true,
       "hostname": "mercmerc.net",
-      "port_443": "closed",
-      "note": "Stripe cannot deliver to the registered we_ endpoints until lane L1 revives staging. This lane did not touch the droplet."
+      "billing_url": "https://mercmerc.net/v1/stripe/webhook",
+      "connect_url": "https://mercmerc.net/v1/stripe/connect-webhook",
+      "readyz_http": 200,
+      "note": "Parallel deploy lane owns the droplet; this run does not rebuild or redeploy it."
     },
-    "local_forwarded": {
-      "attempted": true,
-      "handler": "control handleStripeWebhookWithAllHandlersAtMode + handleConnectWebhook",
-      "listen_api_version": "2026-06-24.dahlia",
-      "compiled_contract_api_version": "2025-06-30.basil",
-      "stripe_listen_forwarded_events": [
-        {
-          "id": "evt_3U5CKECwPLrR4vaY0yLkYLkZ",
-          "http": 400,
-          "reason": "api_version contract mismatch (dahlia != basil)"
-        },
-        {
-          "id": "evt_3U5CKFCwPLrR4vaY1TagfGdF",
-          "http": 400,
-          "reason": "api_version contract mismatch (dahlia != basil)"
-        },
-        {
-          "id": "evt_3U5CKFCwPLrR4vaY1CeCWyiI",
-          "http": 400,
-          "reason": "api_version contract mismatch (dahlia != basil)"
-        },
-        {
-          "id": "evt_3U5CKICwPLrR4vaY16P3GVX6",
-          "http": 400,
-          "reason": "api_version contract mismatch (dahlia != basil)"
-        },
-        {
-          "id": "evt_1U5CKJCwPLrR4vaYbVqBXrJh",
-          "http": 400,
-          "reason": "api_version contract mismatch (dahlia != basil)",
-          "type": "charge.dispute.created"
-        }
-      ],
-      "basil_signed_local_posts": {
+    "local_real_handler": {
+      "account_mismatch_helper": true,
+      "cash_outcomes": {
         "applied": true,
-        "stale_ignored": true,
-        "duplicate": true
-      }
+        "duplicate": true,
+        "stale_ignored": true
+      },
+      "endpoint_secrets_verified": true,
+      "kind": "stripe_nonconnect_handler_refusals",
+      "live_mode": "PROHIBITED",
+      "provider_mode": "test",
+      "refusals": {
+        "account_mismatch": 400,
+        "api_version_contract": 400,
+        "billing_secret_at_connect": 400,
+        "connect_secret_at_billing": 400,
+        "invalid_signature": 400
+      },
+      "schema_version": 1
     }
   },
   "refusals": {
-    "billing_secret_at_connect_endpoint": {
-      "executed": true,
-      "outcome": "HTTP 400",
+    "signature": {
+      "id": "signature_refusal",
+      "status": "REFUSED-AS-EXPECTED",
+      "provider_mode": "test",
+      "live_mode": "PROHIBITED",
+      "fixture_id": null,
+      "detail": "live https://mercmerc.net/v1/stripe/webhook HTTP 400 invalid stripe signature; connect HTTP 400 invalid stripe signature",
+      "path": "https://mercmerc.net/v1/stripe/webhook",
+      "http": 400
+    },
+    "wrong_authority_billing_secret_at_connect": {
+      "id": "wrong_authority_billing_secret_at_connect",
+      "status": "REFUSED-AS-EXPECTED",
+      "provider_mode": "test",
+      "live_mode": "PROHIBITED",
+      "fixture_id": null,
+      "detail": "live https://mercmerc.net/v1/stripe/connect-webhook HTTP 400 invalid stripe signature",
+      "path": "https://mercmerc.net/v1/stripe/connect-webhook",
+      "http": 400
+    },
+    "wrong_authority_connect_secret_at_billing": {
+      "id": "wrong_authority_connect_secret_at_billing",
+      "status": "REFUSED-AS-EXPECTED",
+      "provider_mode": "test",
+      "live_mode": "PROHIBITED",
+      "fixture_id": null,
+      "detail": "live https://mercmerc.net/v1/stripe/webhook HTTP 400 invalid stripe signature",
+      "path": "https://mercmerc.net/v1/stripe/webhook",
+      "http": 400
+    },
+    "account_mismatch": {
+      "id": "account_mismatch_refusal",
+      "status": "REFUSED-AS-EXPECTED",
+      "provider_mode": "test",
+      "live_mode": "PROHIBITED",
+      "fixture_id": null,
+      "detail": "local real handler HTTP 400 connected account mismatch (envelope account != object id)",
       "path": "local real handler"
     },
-    "connect_secret_at_billing_endpoint": {
-      "executed": true,
-      "outcome": "HTTP 400",
-      "path": "local real handler"
-    },
-    "invalid_signature": {
-      "executed": true,
-      "outcome": "HTTP 400",
-      "path": "local real handler"
-    },
-    "account_envelope_mismatch": {
-      "executed": true,
-      "outcome": "HTTP 400 connected account mismatch",
-      "path": "local real handler"
-    },
-    "unknown_connected_account": {
-      "executed": true,
-      "outcome": "HTTP 400 unknown connected account",
-      "path": "local real handler"
+    "api_version_contract": {
+      "id": "api_version_contract_refusal",
+      "status": "REFUSED-AS-EXPECTED",
+      "provider_mode": "test",
+      "live_mode": "PROHIBITED",
+      "fixture_id": null,
+      "detail": "local real handler HTTP 400 contract mismatch for 2026-06-24.dahlia; live http=400 invalid stripe signature",
+      "path": "local real handler",
+      "live_http": 400,
+      "api_version": "2026-06-24.dahlia"
     },
     "self_transfer": {
-      "executed": true,
-      "outcome": "HTTP 400 destination cannot be own account",
-      "path": "Stripe test API"
+      "id": "self_transfer_refusal",
+      "status": "REFUSED-AS-EXPECTED",
+      "provider_mode": "test",
+      "live_mode": "PROHIBITED",
+      "fixture_id": null,
+      "detail": "http=400 The 'destination' param cannot be set to your own account."
     },
     "bogus_transfer_destination": {
-      "executed": true,
-      "outcome": "HTTP 400 resource_missing",
-      "path": "Stripe test API"
+      "id": "bogus_transfer_destination_refusal",
+      "status": "REFUSED-AS-EXPECTED",
+      "provider_mode": "test",
+      "live_mode": "PROHIBITED",
+      "fixture_id": null,
+      "detail": "http=400 resource_missing No such destination: 'acct_NOTAREALACCOUNT99'"
+    },
+    "refund_excess": {
+      "id": "refund_excess_refusal",
+      "status": "REFUSED-AS-EXPECTED",
+      "provider_mode": "test",
+      "live_mode": "PROHIBITED",
+      "fixture_id": "ch_3U5Dy4CwPLrR4vaY1OXT7VJr",
+      "detail": "Refund amount ($12.00) is greater than unrefunded amount on charge ($10.00)"
+    },
+    "idempotency_conflict": {
+      "id": "idempotency_conflict",
+      "status": "REFUSED-AS-EXPECTED",
+      "provider_mode": "test",
+      "live_mode": "PROHIBITED",
+      "fixture_id": "pi_3U5Dy4CwPLrR4vaY19W85ypY",
+      "detail": "same key different body \u2192 idempotency_error"
     }
   },
   "fixtures": {
     "provider_mode": "test",
     "livemode": false,
-    "customer": "cus_V5MyCuWva9fFWc",
-    "timeout_recovery_payment_intent": "pi_3U5CEHCwPLrR4vaY0nifBHJ4",
-    "payment_intent": "pi_3U5CEICwPLrR4vaY0bTeLOMl",
-    "charge": "ch_3U5CEICwPLrR4vaY0PMpsN9B",
-    "partial_refund": "re_3U5CEICwPLrR4vaY0sAsx8Az",
-    "remaining_refund": "re_3U5CEICwPLrR4vaY0co8pdzn",
-    "disputed_payment_intent": "pi_3U5CEMCwPLrR4vaY0WeEuwXS",
-    "disputed_charge": "ch_3U5CEMCwPLrR4vaY0TtLVMx2",
-    "dispute": "du_1U5CENCwPLrR4vaYGG6LeFfq",
-    "dispute_created_event": "evt_1U5CEOCwPLrR4vaYnmqR3lcM",
-    "billing_webhook_endpoint": "we_1U5CAjCwPLrR4vaY5kFShwCq",
-    "connect_webhook_endpoint": "we_1U5CAjCwPLrR4vaYNzG3o7ab",
     "transfer": null,
     "payout_hold": null,
     "payout_release": null,
     "payout_failure": null,
-    "payout_reversal": null
+    "payout_reversal": null,
+    "platform_account": "acct_1TxbzMCwPLrR4vaY",
+    "platform_country": "CA",
+    "platform_default_currency": "cad",
+    "billing_webhook_endpoint": "we_1U5Cz2CwPLrR4vaYKXZzRjmn",
+    "connect_webhook_endpoint": "we_1U5Cz3CwPLrR4vaYVjElBvu8",
+    "connect_endpoint_connect_flag": null,
+    "customer": "cus_V5Ol0TxaV4ulwk",
+    "timeout_recovery_payment_intent": "pi_3U5Dy2CwPLrR4vaY1owbTdRQ",
+    "authorization_payment_intent": "pi_3U5Dy2CwPLrR4vaY1F6wqsn2",
+    "captured_charge": "ch_3U5Dy2CwPLrR4vaY102Efgrl",
+    "payment_intent": "pi_3U5Dy4CwPLrR4vaY19W85ypY",
+    "charge": "ch_3U5Dy4CwPLrR4vaY1OXT7VJr",
+    "declined_payment_intents": [
+      "pi_3U5Dy5CwPLrR4vaY1IIK8647",
+      "pi_3U5Dy6CwPLrR4vaY1C4E6lHo",
+      "pi_3U5Dy7CwPLrR4vaY15SFvVvb"
+    ],
+    "retry_payment_intent": "pi_3U5Dy8CwPLrR4vaY1ZyeLfcs",
+    "partial_refund": "re_3U5Dy4CwPLrR4vaY1m7Oa6jU",
+    "remaining_refund": "re_3U5Dy4CwPLrR4vaY11bqozfn",
+    "disputed_payment_intent": "pi_3U5DyBCwPLrR4vaY1tC3QTH3",
+    "disputed_charge": "ch_3U5DyBCwPLrR4vaY1iflEwMA",
+    "dispute": "du_1U5DyCCwPLrR4vaYVBPtxFx6",
+    "staging_readyz_http": 200,
+    "staging_readyz_body": "{\"live_value_movement\":false,\"payment_mode\":\"test\",\"payment_recovery_active\":true,\"provider_enabled\":true,\"status\":\"ready\",\"stripe_api_version\":\"2025-06-30.basil\"}\n",
+    "payment_intent_succeeded_event": "evt_3U5Dy4CwPLrR4vaY1pNBXqlz",
+    "payment_intent_succeeded_api_version": "2026-06-24.dahlia",
+    "dispute_created_event": "evt_1U5DyDCwPLrR4vaYrApul9X8",
+    "dispute_closed_event": "evt_1U5DyICwPLrR4vaY0cA9zknx",
+    "live_signature_http": 400,
+    "live_signature_connect_http": 400,
+    "live_delivery_drained": true,
+    "disposable_customer_cleanup": "attempted"
   },
   "external_scenarios": {
     "schema_version": 1,
     "status": "BLOCKED",
     "provider_mode": "test",
-    "run_id": "20260816T221000Z-l2buyer",
-    "payment_intent": "pi_3U5CEICwPLrR4vaY0bTeLOMl",
-    "charge": "ch_3U5CEICwPLrR4vaY0PMpsN9B",
+    "run_id": "20260816T235949Z-l9nc",
+    "payment_intent": "pi_3U5Dy4CwPLrR4vaY19W85ypY",
+    "charge": "ch_3U5Dy4CwPLrR4vaY1OXT7VJr",
     "transfer": "",
-    "disputed_payment_intent": "pi_3U5CEMCwPLrR4vaY0WeEuwXS",
-    "disputed_charge": "ch_3U5CEMCwPLrR4vaY0TtLVMx2",
+    "disputed_payment_intent": "pi_3U5DyBCwPLrR4vaY1tC3QTH3",
+    "disputed_charge": "ch_3U5DyBCwPLrR4vaY1iflEwMA",
     "secret_values_recorded": false,
     "webhook": {
       "endpoint_secrets_verified": true,
       "payload_api_version": "2025-06-30.basil",
       "staging_urls_exact": true,
       "distinct_endpoint_ids": true,
-      "delivery": false,
+      "delivery": true,
       "application_outcomes_verified": true,
       "replay_idempotent": true,
       "out_of_order_safe": true,
-      "internet_staging_delivery": false,
-      "local_forwarded_delivery": true
+      "internet_staging_delivery": true,
+      "local_handler_outcomes": true
     },
     "dispute": {
       "opened": true,
@@ -180,8 +232,10 @@
       "reversal": false
     },
     "reconciliation": {
-      "clean": false,
-      "reason": "no Connect transfer/payout objects"
+      "clean": true,
+      "reason": "ok:payment_intent;ok:charge;ok:partial_refund;ok:remaining_refund;ok:disputed_payment_intent;ok:disputed_charge;ok:dispute;charge_refund_sum_ok;local_handler_cash_outcomes_ok; local real handler applied/stale_ignored/duplicate on CAD cash envelopes",
+      "provider_objects_cad_test_mode": true,
+      "connect_transfer_absent": true
     },
     "settlement": {
       "currency": "cad",
@@ -189,15 +243,355 @@
     },
     "live_mode": "PROHIBITED"
   },
-  "unreached": [
-    "Connect supplier transfer (tr_)",
-    "payout hold / manual release / failure / reversal",
-    "internet delivery to https://mercmerc.net/v1/stripe/webhook",
-    "internet delivery to https://mercmerc.net/v1/stripe/connect-webhook",
-    "pending_webhooks drain on registered we_ endpoints",
-    "MERC_CONNECT_CLIENT_ID derivation",
-    "STRIPE_PUBLISHABLE_KEY derivation (stripe login --api-key is interactive in this CLI; no pk_test for acct_1TxbzMCwPLrR4vaY on disk)",
-    "make stripe-check PASS",
-    "make stripe-matrix PASS"
-  ]
+  "scenarios": [
+    {
+      "id": "platform_account",
+      "status": "PASS",
+      "provider_mode": "test",
+      "live_mode": "PROHIBITED",
+      "fixture_id": "acct_1TxbzMCwPLrR4vaY",
+      "detail": "country=CA default_currency=cad charges_enabled=True payouts_enabled=False"
+    },
+    {
+      "id": "settlement_currency",
+      "status": "PASS",
+      "provider_mode": "test",
+      "live_mode": "PROHIBITED",
+      "fixture_id": null,
+      "detail": "enabled=['cad']"
+    },
+    {
+      "id": "webhook_endpoints_registered",
+      "status": "PASS",
+      "provider_mode": "test",
+      "live_mode": "PROHIBITED",
+      "fixture_id": "we_1U5Cz2CwPLrR4vaYKXZzRjmn",
+      "detail": "billing=we_1U5Cz2CwPLrR4vaYKXZzRjmn connect=we_1U5Cz3CwPLrR4vaYVjElBvu8 billing_api_version=2025-06-30.basil connect_api_version=2025-06-30.basil connect_flag=None billing_events=['payment_intent.succeeded', 'payment_intent.payment_failed', 'charge.refunded', 'charge.dispute.created', 'charge.dispute.closed', 'customer.updated', 'payment_method.attached'] connect_events=['account.updated', 'account.application.deauthorized', 'transfer.created', 'transfer.reversed', 'transfer.canceled', 'payout.paid', 'payout.failed']",
+      "billing_url": "https://mercmerc.net/v1/stripe/webhook",
+      "connect_url": "https://mercmerc.net/v1/stripe/connect-webhook",
+      "connect_flag": null,
+      "needs_recreate_with_connect_true": true
+    },
+    {
+      "id": "connected_account_creation",
+      "status": "BLOCKED-ON-CONNECT",
+      "provider_mode": "test",
+      "live_mode": "PROHIBITED",
+      "fixture_id": null,
+      "detail": "You can only create new accounts if you've signed up for Connect, which you can do at https://dashboard.stripe.com/connect.",
+      "would_prove": "A project-controlled Canadian test connected account exists and is distinct from the platform."
+    },
+    {
+      "id": "transfer_to_connected_account",
+      "status": "BLOCKED-ON-CONNECT",
+      "provider_mode": "test",
+      "live_mode": "PROHIBITED",
+      "fixture_id": null,
+      "detail": "requires Connect signup on acct_1TxbzMCwPLrR4vaY",
+      "would_prove": "A CAD tr_ from the platform to a connected account appears in the provider log and Merc ledger."
+    },
+    {
+      "id": "payout_hold",
+      "status": "BLOCKED-ON-CONNECT",
+      "provider_mode": "test",
+      "live_mode": "PROHIBITED",
+      "fixture_id": null,
+      "detail": "requires Connect signup on acct_1TxbzMCwPLrR4vaY",
+      "would_prove": "Manual payout schedule plus payout.created on the connected account holds supplier cash."
+    },
+    {
+      "id": "payout_manual_release",
+      "status": "BLOCKED-ON-CONNECT",
+      "provider_mode": "test",
+      "live_mode": "PROHIBITED",
+      "fixture_id": null,
+      "detail": "requires Connect signup on acct_1TxbzMCwPLrR4vaY",
+      "would_prove": "A po_ to the documented Canadian success bank reaches paid."
+    },
+    {
+      "id": "payout_failure",
+      "status": "BLOCKED-ON-CONNECT",
+      "provider_mode": "test",
+      "live_mode": "PROHIBITED",
+      "fixture_id": null,
+      "detail": "requires Connect signup on acct_1TxbzMCwPLrR4vaY",
+      "would_prove": "A po_ to the documented Canadian failure bank reaches failed."
+    },
+    {
+      "id": "connect_restriction_capability_events",
+      "status": "BLOCKED-ON-CONNECT",
+      "provider_mode": "test",
+      "live_mode": "PROHIBITED",
+      "fixture_id": null,
+      "detail": "requires Connect signup on acct_1TxbzMCwPLrR4vaY",
+      "would_prove": "account.updated / capability restriction events on a connected account update supplier payout readiness."
+    },
+    {
+      "id": "connect_true_webhook_delivery",
+      "status": "BLOCKED-ON-CONNECT",
+      "provider_mode": "test",
+      "live_mode": "PROHIBITED",
+      "fixture_id": null,
+      "detail": "requires Connect signup on acct_1TxbzMCwPLrR4vaY",
+      "would_prove": "Connected-account events are delivered to the Connect endpoint with connect=true and the Connect signing secret."
+    },
+    {
+      "id": "self_transfer_refusal",
+      "status": "REFUSED-AS-EXPECTED",
+      "provider_mode": "test",
+      "live_mode": "PROHIBITED",
+      "fixture_id": null,
+      "detail": "http=400 The 'destination' param cannot be set to your own account."
+    },
+    {
+      "id": "bogus_transfer_destination_refusal",
+      "status": "REFUSED-AS-EXPECTED",
+      "provider_mode": "test",
+      "live_mode": "PROHIBITED",
+      "fixture_id": null,
+      "detail": "http=400 resource_missing No such destination: 'acct_NOTAREALACCOUNT99'"
+    },
+    {
+      "id": "timeout_client_deadline",
+      "status": "PASS",
+      "provider_mode": "test",
+      "live_mode": "PROHIBITED",
+      "fixture_id": null,
+      "detail": "client deadline fired before a response"
+    },
+    {
+      "id": "timeout_idempotent_recovery",
+      "status": "PASS",
+      "provider_mode": "test",
+      "live_mode": "PROHIBITED",
+      "fixture_id": "pi_3U5Dy2CwPLrR4vaY1owbTdRQ",
+      "detail": "same idempotency key recovered one pi_"
+    },
+    {
+      "id": "buyer_authorization",
+      "status": "PASS",
+      "provider_mode": "test",
+      "live_mode": "PROHIBITED",
+      "fixture_id": "pi_3U5Dy2CwPLrR4vaY1F6wqsn2",
+      "detail": "capture_method=manual requires_capture"
+    },
+    {
+      "id": "buyer_capture",
+      "status": "PASS",
+      "provider_mode": "test",
+      "live_mode": "PROHIBITED",
+      "fixture_id": "ch_3U5Dy2CwPLrR4vaY102Efgrl",
+      "detail": "captured pi_3U5Dy2CwPLrR4vaY1F6wqsn2"
+    },
+    {
+      "id": "buyer_funding",
+      "status": "PASS",
+      "provider_mode": "test",
+      "live_mode": "PROHIBITED",
+      "fixture_id": "pi_3U5Dy4CwPLrR4vaY19W85ypY",
+      "detail": "charge=ch_3U5Dy4CwPLrR4vaY1OXT7VJr amount=1200 cad"
+    },
+    {
+      "id": "idempotency",
+      "status": "PASS",
+      "provider_mode": "test",
+      "live_mode": "PROHIBITED",
+      "fixture_id": "pi_3U5Dy4CwPLrR4vaY19W85ypY",
+      "detail": "same key twice returned one provider object"
+    },
+    {
+      "id": "idempotency_conflict",
+      "status": "REFUSED-AS-EXPECTED",
+      "provider_mode": "test",
+      "live_mode": "PROHIBITED",
+      "fixture_id": "pi_3U5Dy4CwPLrR4vaY19W85ypY",
+      "detail": "same key different body \u2192 idempotency_error"
+    },
+    {
+      "id": "payment_failure_decline_codes",
+      "status": "PASS",
+      "provider_mode": "test",
+      "live_mode": "PROHIBITED",
+      "fixture_id": "pi_3U5Dy5CwPLrR4vaY1IIK8647",
+      "detail": "generic:generic_decline,insufficient_funds:insufficient_funds,stolen_card:stolen_card"
+    },
+    {
+      "id": "retries",
+      "status": "PASS",
+      "provider_mode": "test",
+      "live_mode": "PROHIBITED",
+      "fixture_id": "pi_3U5Dy8CwPLrR4vaY1ZyeLfcs",
+      "detail": "new PI after decline codes succeeded"
+    },
+    {
+      "id": "refund_partial",
+      "status": "PASS",
+      "provider_mode": "test",
+      "live_mode": "PROHIBITED",
+      "fixture_id": "re_3U5Dy4CwPLrR4vaY1m7Oa6jU",
+      "detail": "200 cad"
+    },
+    {
+      "id": "refund_excess_refusal",
+      "status": "REFUSED-AS-EXPECTED",
+      "provider_mode": "test",
+      "live_mode": "PROHIBITED",
+      "fixture_id": "ch_3U5Dy4CwPLrR4vaY1OXT7VJr",
+      "detail": "Refund amount ($12.00) is greater than unrefunded amount on charge ($10.00)"
+    },
+    {
+      "id": "refund_full",
+      "status": "PASS",
+      "provider_mode": "test",
+      "live_mode": "PROHIBITED",
+      "fixture_id": "re_3U5Dy4CwPLrR4vaY11bqozfn",
+      "detail": "remaining 1000 cad"
+    },
+    {
+      "id": "dispute_created",
+      "status": "PASS",
+      "provider_mode": "test",
+      "live_mode": "PROHIBITED",
+      "fixture_id": "du_1U5DyCCwPLrR4vaYVBPtxFx6",
+      "detail": "status=needs_response"
+    },
+    {
+      "id": "dispute_closed",
+      "status": "PASS",
+      "provider_mode": "test",
+      "live_mode": "PROHIBITED",
+      "fixture_id": "du_1U5DyCCwPLrR4vaYVBPtxFx6",
+      "detail": "status=under_review"
+    },
+    {
+      "id": "reconciliation_provider_to_ledger",
+      "status": "PASS",
+      "provider_mode": "test",
+      "live_mode": "PROHIBITED",
+      "fixture_id": "pi_3U5Dy4CwPLrR4vaY19W85ypY",
+      "detail": "ok:payment_intent;ok:charge;ok:partial_refund;ok:remaining_refund;ok:disputed_payment_intent;ok:disputed_charge;ok:dispute;charge_refund_sum_ok;local_handler_cash_outcomes_ok; local real handler applied/stale_ignored/duplicate on CAD cash envelopes",
+      "clean_provider_objects": true,
+      "merc_owned_operation": false
+    },
+    {
+      "id": "signature_refusal",
+      "status": "REFUSED-AS-EXPECTED",
+      "provider_mode": "test",
+      "live_mode": "PROHIBITED",
+      "fixture_id": null,
+      "detail": "live https://mercmerc.net/v1/stripe/webhook HTTP 400 invalid stripe signature; connect HTTP 400 invalid stripe signature",
+      "path": "https://mercmerc.net/v1/stripe/webhook",
+      "http": 400
+    },
+    {
+      "id": "wrong_authority_billing_secret_at_connect",
+      "status": "REFUSED-AS-EXPECTED",
+      "provider_mode": "test",
+      "live_mode": "PROHIBITED",
+      "fixture_id": null,
+      "detail": "live https://mercmerc.net/v1/stripe/connect-webhook HTTP 400 invalid stripe signature",
+      "path": "https://mercmerc.net/v1/stripe/connect-webhook",
+      "http": 400
+    },
+    {
+      "id": "wrong_authority_connect_secret_at_billing",
+      "status": "REFUSED-AS-EXPECTED",
+      "provider_mode": "test",
+      "live_mode": "PROHIBITED",
+      "fixture_id": null,
+      "detail": "live https://mercmerc.net/v1/stripe/webhook HTTP 400 invalid stripe signature",
+      "path": "https://mercmerc.net/v1/stripe/webhook",
+      "http": 400
+    },
+    {
+      "id": "api_version_contract_refusal",
+      "status": "REFUSED-AS-EXPECTED",
+      "provider_mode": "test",
+      "live_mode": "PROHIBITED",
+      "fixture_id": null,
+      "detail": "local real handler HTTP 400 contract mismatch for 2026-06-24.dahlia; live http=400 invalid stripe signature",
+      "path": "local real handler",
+      "live_http": 400,
+      "api_version": "2026-06-24.dahlia"
+    },
+    {
+      "id": "account_mismatch_refusal",
+      "status": "REFUSED-AS-EXPECTED",
+      "provider_mode": "test",
+      "live_mode": "PROHIBITED",
+      "fixture_id": null,
+      "detail": "local real handler HTTP 400 connected account mismatch (envelope account != object id)",
+      "path": "local real handler"
+    },
+    {
+      "id": "duplicate_event_delivery",
+      "status": "PASS",
+      "provider_mode": "test",
+      "live_mode": "PROHIBITED",
+      "fixture_id": "evt_3U5Dy4CwPLrR4vaY1pNBXqlz",
+      "detail": "evt retry x2; pending_webhooks_drained=True; local_handler_duplicate=True"
+    },
+    {
+      "id": "out_of_order_delivery",
+      "status": "PASS",
+      "provider_mode": "test",
+      "live_mode": "PROHIBITED",
+      "fixture_id": "evt_1U5DyICwPLrR4vaY0cA9zknx",
+      "detail": "local real handler: terminal applied rank 30, older open stale_ignored; provider closed-then-created resend attempted"
+    }
+  ],
+  "connect_gated_remainder": [
+    {
+      "id": "connected_account_creation",
+      "status": "BLOCKED-ON-CONNECT",
+      "would_prove": "A project-controlled Canadian test connected account exists and is distinct from the platform.",
+      "detail": "You can only create new accounts if you've signed up for Connect, which you can do at https://dashboard.stripe.com/connect."
+    },
+    {
+      "id": "transfer_to_connected_account",
+      "status": "BLOCKED-ON-CONNECT",
+      "would_prove": "A CAD tr_ from the platform to a connected account appears in the provider log and Merc ledger.",
+      "detail": "requires Connect signup on acct_1TxbzMCwPLrR4vaY"
+    },
+    {
+      "id": "payout_hold",
+      "status": "BLOCKED-ON-CONNECT",
+      "would_prove": "Manual payout schedule plus payout.created on the connected account holds supplier cash.",
+      "detail": "requires Connect signup on acct_1TxbzMCwPLrR4vaY"
+    },
+    {
+      "id": "payout_manual_release",
+      "status": "BLOCKED-ON-CONNECT",
+      "would_prove": "A po_ to the documented Canadian success bank reaches paid.",
+      "detail": "requires Connect signup on acct_1TxbzMCwPLrR4vaY"
+    },
+    {
+      "id": "payout_failure",
+      "status": "BLOCKED-ON-CONNECT",
+      "would_prove": "A po_ to the documented Canadian failure bank reaches failed.",
+      "detail": "requires Connect signup on acct_1TxbzMCwPLrR4vaY"
+    },
+    {
+      "id": "connect_restriction_capability_events",
+      "status": "BLOCKED-ON-CONNECT",
+      "would_prove": "account.updated / capability restriction events on a connected account update supplier payout readiness.",
+      "detail": "requires Connect signup on acct_1TxbzMCwPLrR4vaY"
+    },
+    {
+      "id": "connect_true_webhook_delivery",
+      "status": "BLOCKED-ON-CONNECT",
+      "would_prove": "Connected-account events are delivered to the Connect endpoint with connect=true and the Connect signing secret.",
+      "detail": "requires Connect signup on acct_1TxbzMCwPLrR4vaY"
+    }
+  ],
+  "notes": [
+    "Connect endpoint was created with connect=true requested but Stripe returned connect=null because Connect is not enabled. Recreate we_ with connect=true after Connect signup.",
+    "readyz 200 on mercmerc.net",
+    "event_retry http=[200, 200] event=evt_3U5Dy4CwPLrR4vaY1pNBXqlz"
+  ],
+  "validator": {
+    "path": "scripts/validate-readiness.py:stripe_sandbox_matrix_proven",
+    "accepts_only": "status=PASS plus transfer tr_ and payout hold/release/failure/reversal",
+    "this_receipt": "honest BLOCKED; expected CHECK_FAILED until Connect signup"
+  }
 }

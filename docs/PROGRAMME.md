@@ -2623,7 +2623,7 @@ python3 scripts/validate-readiness.py
 Expected on a host with no staging, no offsite storage, and no human approvers:
 
 ```text
-readiness: PASS (84/100 derived, P0=0, P1=8, Level B NO_GO)
+readiness: PASS (87/100 derived, P0=0, P1=8, Level B NO_GO)
 ```
 
 | Domain | Derived | Gap | Blocker class |
@@ -2632,9 +2632,9 @@ readiness: PASS (84/100 derived, P0=0, P1=8, Level B NO_GO)
 | `security` | 14/15 | 1 | external staging attack rehearsal |
 | `money_and_reconciliation` | 9/15 | 6 | Stripe Connect client id, public TLS host, webhook matrix |
 | `lifecycle_and_concurrency` | 10/10 | 0 | — |
-| `artifacts_and_storage` | 6/8 | 2 | independent offsite copy |
+| `artifacts_and_storage` | 8/8 | 0 | independent offsite copy (Cloudflare R2 rehearsal) |
 | `agent_and_sandbox` | 8/8 | 0 | — |
-| `database_and_recovery` | 7/8 | 1 | external offsite restore |
+| `database_and_recovery` | 8/8 | 0 | isolated offsite restore (Cloudflare R2 rehearsal) |
 | `deployment_and_rollback` | 5/8 | 3 | qualifying 24 h soak on persistent staging |
 | `observability_and_alerting` | 6/6 | 0 | — (staffed paging remains a release P1, not a facet gap) |
 | `privacy_and_data_governance` | 3/4 | 1 | qualified privacy approval / external subprocessor deletion |
@@ -2642,28 +2642,30 @@ readiness: PASS (84/100 derived, P0=0, P1=8, Level B NO_GO)
 | `abuse_and_trust` | 1/2 | 1 | staffed human route or qualified tabletop |
 | `support_and_incident_response` | 1/1 | 0 | — |
 | `website_and_buyer_usability` | 2/2 | 0 | — |
-| **Total** | **84/100** | **16** | all external |
+| **Total** | **87/100** | **13** | remaining external |
 
-**Machine-reachable ceiling: 84/100.** On a host that lacks persistent staging,
-independent offsite storage, and human approvers, 84 is the maximum the receipt
-schedule can derive. It is not underachievement and there is no missing local
-code path that raises it.
+**Machine-reachable ceiling without staging/approvers: 87/100** once the
+already-configured Cloudflare R2 rehearsal (`make offsite-independent-restore`)
+passes. On a host that also lacks that offsite credential, the ceiling is
+84/100. Neither figure is underachievement; remaining gaps are Stripe,
+soak, public-hostname rehearsal, and human approvals.
 
-### How the remaining 16 points are represented in the scorer
+### How the remaining 13 points are represented in the scorer
 
 `DOMAIN_RECEIPTS` in `scripts/validate-readiness.py` fixes each domain's
 `possible` total. Earned points are the sum of **wired** receipt rows that
-exist on disk and pass their content check. The remaining 16 points each have
+exist on disk and pass their content check. The remaining 13 points each have
 a receipt row under `evidence/external/` with a content check as strict as
-`alert_delivery_proven`. Those files are absent today, so they contribute
-zero; inventing a `status: PASS` stub will not pass the check.
+`alert_delivery_proven`. Inventing a `status: PASS` stub will not pass the
+check. The offsite pair is present and passing after
+`make offsite-independent-restore`.
 
-| Domain | Pts | Wired path (absent until real work) |
+| Domain | Pts | Wired path |
 |---|---:|---|
-| `money_and_reconciliation` | 6 | `evidence/external/stripe-sandbox-matrix.json` |
+| `money_and_reconciliation` | 6 | `evidence/external/stripe-sandbox-matrix.json` (absent/failing until the matrix) |
 | `deployment_and_rollback` | 3 | `evidence/external/qualifying-soak-24h.json` (+ raw samples JSONL named in the receipt) |
-| `artifacts_and_storage` | 2 | `evidence/external/offsite-backup-verification.json` |
-| `database_and_recovery` | 1 | `evidence/external/offsite-independent-restore.json` |
+| `artifacts_and_storage` | 2 | `evidence/external/offsite-backup-verification.json` (present; R2 rehearsal) |
+| `database_and_recovery` | 1 | `evidence/external/offsite-independent-restore.json` (present; R2 rehearsal) |
 | `security` | 1 | `evidence/external/staging-attack-rehearsal.json` |
 | `privacy_and_data_governance` | 1 | `evidence/external/privacy-qualified-approval.json` |
 | `licensing_and_supply_chain` | 1 | `evidence/external/licensing-provenance-approval.json` |
@@ -2680,7 +2682,8 @@ So the operator loop for each gap is:
    new derived total (the validator fails closed if they disagree).
 
 Until genuine evidence lands at those paths and passes the content checks,
-`validate-readiness.py` will still print `84/100`. The P1 exit criteria in
+`validate-readiness.py` prints the derived total (87/100 with the R2
+offsite pair; 84/100 without it). The P1 exit criteria in
 `ops/go-no-go.json` and `make release-doctor` still close on real evidence;
 the facet score moves only when a content-checked external receipt is present.
 
@@ -2868,13 +2871,15 @@ provider boundary**.
 ### Commands / gate
 
 ```bash
-set -a; . ./.env.go-closure; set +a
-make release-doctor CHECK=backup
-# On persistent staging (preferred) or an authorized host with offsite creds:
-bash scripts/backup.sh
-# Independent download, decrypt, restore in isolation — the rollback rehearsal
-# binds backup + restore + prior/candidate image recovery:
-bash scripts/go-closure-rollback-rehearsal.sh --target ssh --execute
+make offsite-independent-restore-check
+make offsite-independent-restore
+# Maps already-configured .merc-secrets.env R2_* keys onto MERC_BACKUP_*.
+# Uploads only age ciphertext to s3://<R2_BUCKET>/offsite-alpha/<backup_id>,
+# independently re-downloads and hashes, restores into a new isolated
+# Postgres/MinIO, and writes:
+#   evidence/external/offsite-backup-verification.json
+#   evidence/external/offsite-independent-restore.json
+# Does not dump or destroy the live droplet volume.
 ```
 
 Expect a schema-v2 encrypted offsite backup manifest bound to the exact offsite

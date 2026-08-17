@@ -5,7 +5,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 # shellcheck source=scripts/lib/stripe-sandbox-contract.sh
 source "$ROOT/scripts/lib/stripe-sandbox-contract.sh"
 MODE="${1:-}"
-case "$MODE" in check|matrix) ;; *) echo "usage: scripts/stripe-sandbox.sh check|matrix" >&2; exit 2 ;; esac
+case "$MODE" in check|matrix|nonconnect) ;; *) echo "usage: scripts/stripe-sandbox.sh check|matrix|nonconnect" >&2; exit 2 ;; esac
 
 ENV_FILE="${MERC_GO_CLOSURE_ENV_FILE:-$ROOT/.env.go-closure}"
 if [ -f "$ENV_FILE" ]; then
@@ -70,6 +70,17 @@ ready=true
 [ "$provided_settlement_currency" = "$settlement_currency" ] || ready=false
 
 if [ "$ready" != true ]; then
+  # check stays a no-network preflight. matrix/nonconnect still drive every
+  # scenario that is not gated on Connect signup when the test key and
+  # reviewed currency/hostname are present.
+  connect_only_gap=true
+  [ "$secret_class" = test ] || connect_only_gap=false
+  [ "$staging_hostname_ready" = true ] || connect_only_gap=false
+  [ "$provided_settlement_currency" = "$settlement_currency" ] || connect_only_gap=false
+  if { [ "$MODE" = matrix ] || [ "$MODE" = nonconnect ]; } && [ "$connect_only_gap" = true ]; then
+    echo "stripe-sandbox: Connect inputs missing; driving non-Connect matrix" >&2
+    exec "$ROOT/scripts/stripe-sandbox-nonconnect.sh"
+  fi
   jq -nc --arg mode "$MODE" --arg secret "$secret_class" \
     --arg billing "$billing_webhook_class" --arg connect "$connect_webhook_class" \
     --argjson account "$connected_account_ready" \

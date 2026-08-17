@@ -907,15 +907,24 @@ Recovering after real traffic means re-registering every webhook.
 ## Part 4 — off-host backup and a real restore
 
 ```bash
-scripts/go-closure-rollback-rehearsal.sh --target ssh --execute
+make offsite-independent-restore-check
+make offsite-independent-restore
 ```
-*Verifies:* runs `backup.sh` to the offsite bucket, independently re-downloads
-both ciphertext and manifest, compares both hashes, restores into an isolated
-database, and **starts a control plane against the restored data**. A backup that
-cannot boot is not a backup.
+*Verifies:* encrypts an isolated source, uploads **only ciphertext** to the
+already-configured Cloudflare R2 prefix, independently re-downloads both
+manifest and ciphertext, compares both SHA-256 values computed on the
+verifying side, decrypts in isolation, restores into a new Postgres/MinIO
+with new credentials, and matches ledger/object/application invariants.
+Does not touch `merc-postgres-1` or `merc_pgdata`.
 
-**Gate:** a schema-v2 receipt under `evidence/` with the offsite URI and both
-digests.
+**Gate:** `evidence/external/offsite-backup-verification.json` and
+`evidence/external/offsite-independent-restore.json`. The receipts name the
+exact independence boundary (`cloudflare_r2_operator_controlled`) and do
+not claim a third-party-held account or a live-droplet snapshot.
+
+The older rollback rehearsal (`scripts/go-closure-rollback-rehearsal.sh`)
+still exists for staging image recovery; it is not this alpha's offsite
+receipt path.
 
 ---
 

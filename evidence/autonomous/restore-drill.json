@@ -2,10 +2,10 @@
   "schema_version": 1,
   "kind": "restore_drill",
   "status": "PASS",
-  "drill_id": "20260816T224913Z-74932",
-  "completed_at": "2026-08-16T22:49:22Z",
+  "drill_id": "20260816T235750Z-86549",
+  "completed_at": "2026-08-16T23:57:59Z",
   "runtime": "docker",
-  "rto_seconds_measured": 2.706,
+  "rto_seconds_measured": 2.945,
   "thresholds": {
     "min_jobs": 10000,
     "min_ledger_entries": 1000,
@@ -27,10 +27,10 @@
   },
   "source_object_count": 1000,
   "restored_object_count": 1000,
-  "db_dump_sha256": "4494539b62900bde6a53ac4de8a9e13fc83318001f9051f929b8123f7d400c1b",
+  "db_dump_sha256": "c7b518264bd8407b02d0b4bd36de590a6f0ca72f9bf928e65a38b63cdfc979ad",
   "restored_state_sha256": "f02ada7dd23758f6b143abb1d3d2df21fca3976715be1f871fac5688982811a1",
   "restored_object_manifest_sha256": "552d03ff74f49566905be14249485b678f502f3763cf234bf03e7c35ccb541a7",
-  "corrupt_backup_evidence": "/Users/scammermike/Downloads/merc/evidence/autonomous/corrupt-backup-refused.json",
+  "corrupt_backup_evidence": "/Users/scammermike/.claude-grok/worktrees/alpha-offsite-20260816-194201/evidence/autonomous/corrupt-backup-refused.json",
   "assertions_derived_from_observation": [
     "source and restored row-count JSON match",
     "jobs/ledger/objects meet production-shaped minima",
@@ -39,7 +39,7 @@
   ],
   "producer_identity": {
     "source_commit": {
-      "value": "11813c8f14613ee46d86f2629c4a992d55da5098"
+      "value": "a5bca8c0abcfda4158f5c681fa67f5ae5ebccb05"
     },
     "build_digest": {
       "value": "71b2f4d51a2e17e9b508b9b0f3a777e2767eff0acc70bdd7b024875d2716cf6a"
@@ -57,7 +57,7 @@
       "na": "no external corpus; synthetic seed only"
     },
     "exact_config": {
-      "value": "restore-drill clean path; drill_id=20260816T224913Z-74932 min_jobs=10000"
+      "value": "restore-drill clean path; drill_id=20260816T235750Z-86549 min_jobs=10000"
     },
     "raw_samples": {
       "value": "embedded source/restored counts and hashes in receipt body"

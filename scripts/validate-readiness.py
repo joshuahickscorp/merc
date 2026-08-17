@@ -6,10 +6,11 @@ Where a named receipt is missing or fails its content check, that receipt
 contributes zero points. Live money / public launch must stay NO_GO_PROHIBITED.
 
 Machine-reachable ceiling: with every currently wired local receipt present
-and passing, the derived total is 84/100. The remaining 16 points have
-receipt rows wired to external evidence paths under evidence/external/, but
-those artifacts are absent today and their content checks refuse local or
-paper substitutes — so the score stays 84 until real external work lands.
+and passing, the derived total is 84/100. The offsite backup/restore pair
+under evidence/external/offsite-*.json is a real provider rehearsal and
+adds 3 when those content checks pass (87/100). The remaining 13 points
+have receipt rows wired to other evidence/external/ paths; their content
+checks refuse local or paper substitutes.
 The 3-point qualifying soak stays on evidence/external/qualifying-soak-24h.json
 (persistent staging + two Metal devices). Local deterministic coverage of
 named time-dependent mechanisms is recorded at
@@ -337,6 +338,53 @@ def _truthy_map(block: Any, required: set[str]) -> bool:
         if block.get(key) is not True:
             return False
     return True
+
+
+def stripe_sandbox_matrix_failure_reason(doc: Any) -> str:
+    """Why stripe_sandbox_matrix_proven rejected this receipt.
+
+    The 6-point award still requires a Connect-complete PASS. An honest
+    BLOCKED receipt after the non-Connect wall is a CHECK_FAILED, not a
+    silent zero.
+    """
+    if not isinstance(doc, dict):
+        return "receipt is not an object"
+    if str(doc.get("kind", "")) != "stripe_sandbox_matrix":
+        return "kind is not stripe_sandbox_matrix"
+    if str(doc.get("status", "")).upper() != "PASS":
+        status = str(doc.get("status", ""))
+        blocker = doc.get("blocker") if isinstance(doc.get("blocker"), dict) else {}
+        blocker_id = str(blocker.get("id") or "")
+        if status.upper() == "BLOCKED" and blocker_id:
+            return (
+                f"status={status} blocker={blocker_id}; "
+                "stripe_sandbox_matrix_proven requires Connect-complete "
+                "PASS with tr_ transfer and payout hold/release/failure/reversal"
+            )
+        return (
+            f"status={status or 'missing'}; "
+            "Connect-complete PASS required (transfer tr_ + payouts)"
+        )
+    if str(doc.get("provider_mode", "")).lower() != "test":
+        return "provider_mode is not test"
+    if str(doc.get("live_mode", "")).upper() != "PROHIBITED":
+        return "live_mode is not PROHIBITED"
+    payment_objects = doc.get("payment_objects")
+    if isinstance(payment_objects, dict) and payment_objects.get("transfer") is not True:
+        return "payment_objects.transfer is not true (no synthesized tr_)"
+    external = doc.get("external_scenarios")
+    if isinstance(external, dict):
+        if str(external.get("status", "")).upper() != "PASS":
+            return "external_scenarios.status is not PASS"
+        payout = external.get("payout")
+        if isinstance(payout, dict) and not all(
+            payout.get(key) is True for key in ("hold", "release", "failure", "reversal")
+        ):
+            return "external_scenarios.payout hold/release/failure/reversal incomplete"
+        transfer = str(external.get("transfer", "")).strip()
+        if not transfer.startswith("tr_"):
+            return "external_scenarios.transfer is not a real tr_ id"
+    return "content check failed"
 
 
 def stripe_sandbox_matrix_proven(doc: Any) -> bool:
@@ -1670,7 +1718,13 @@ def derive_domain_score(domain_id: str) -> tuple[int, int, list[str]]:
             notes.append(f"{relative}: UNREADABLE → 0/{points}")
             continue
         if not checker(doc):
-            notes.append(f"{relative}: CHECK_FAILED → 0/{points}")
+            if checker is stripe_sandbox_matrix_proven:
+                notes.append(
+                    f"{relative}: CHECK_FAILED → 0/{points} "
+                    f"({stripe_sandbox_matrix_failure_reason(doc)})"
+                )
+            else:
+                notes.append(f"{relative}: CHECK_FAILED → 0/{points}")
             continue
         earned += int(points)
         notes.append(f"{relative}: OK → {points}/{points}")
@@ -1933,7 +1987,8 @@ def main() -> None:
     if declared_alpha.get("EXTERNAL_ALPHA_PROVEN") != external_proven:
         fail("backend_alpha_score.EXTERNAL_ALPHA_PROVEN disagrees with derived claim")
 
-    # Full-bar Level B number is still 84/100 when local receipts pass.
+    # Full-bar Level B number is 84/100 on local receipts alone, 87/100
+    # once the independent offsite backup/restore pair also passes.
     # Refuse a ledger that silently retargets the 100-point possible.
     if possible_total != 100:
         fail(f"domain possibles sum to {possible_total}, want 100")

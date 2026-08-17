@@ -259,20 +259,20 @@ scripts/alpha/stripe-test.sh --execute
 
 **Exit criterion (quoted):** "Upload only ciphertext, independently download/decrypt in isolation, restore database and objects, and match checksums plus application/ledger invariants."
 
-**Scaffold:** `scripts/alpha/offsite-restore.sh`. Reuses
-`scripts/backup.sh` (dump → age → upload → independent re-download →
-checksum) and `scripts/restore.sh` (scratch database).
+**Scaffold:** `scripts/offsite-independent-restore.sh` (`make offsite-independent-restore`).
+The older `scripts/alpha/offsite-restore.sh` runbook remains as a
+supervisor/self-contained split around `backup.sh` / `restore.sh`.
 
-Independent boundary: `MERC_BACKUP_OFFSITE=s3://…` at a provider that
-is **not** the droplet MinIO. Prefer Cloudflare R2
-(`MERC_BACKUP_S3_ENDPOINT=https://<account>.r2.cloudflarestorage.com`)
-with keys that cannot read the on-box store. The age identity file
-stays off the droplet.
+Independent boundary: already-configured Cloudflare R2
+(`.merc-secrets.env` `R2_*` keys), **not** the droplet MinIO. The
+rehearsal mints a throwaway age identity on the verifying host, uploads
+only ciphertext, destroys the isolated source, then independently
+downloads and restores into a new isolated pair. It never targets
+`merc-postgres-1` or `merc_pgdata`.
 
 `--check` refuses a loopback/MinIO endpoint and does not dump.
-`--execute-restore` is the self-contained half (download + scratch PG).
-The upload half is supervisor (`scripts/backup.sh` against
-`merc-postgres-1`).
+`--execute` is the full isolated rehearsal and writes the two
+`evidence/external/offsite-*.json` receipts.
 
 ---
 

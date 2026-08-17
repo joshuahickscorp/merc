@@ -13,7 +13,7 @@
     "verification_command": "make release-doctor",
     "expected_evidence": {
       "staging": "TLS certificate/headers, external health and source identity, persistent-volume restart, prior-digest rollback and candidate forward-recovery receipts, plus a raw-sample-derived 24-hour soak on one uninterrupted immutable candidate container",
-      "backup": "fresh schema-v2 encrypted-backup manifest bound to the exact offsite URI and ciphertext, a closed verification receipt with independently downloaded manifest/ciphertext SHA-256 values, isolated decrypt/restore, restored database/object checksums and application verification",
+      "backup": "fresh schema-v2 encrypted-backup manifest bound to the exact offsite URI and ciphertext, a closed verification receipt with independently downloaded manifest/ciphertext SHA-256 values, isolated decrypt/restore, restored database/object checksums and application verification. Repeatable command: make offsite-independent-restore (maps already-configured .merc-secrets.env R2_* keys; does not create paid resources)",
       "stripe": "redacted test-mode fixture IDs covering success, decline, retry/idempotency, refund, dispute, Connect restriction, payout hold/manual release/failure, webhook replay/out-of-order, and reconciliation",
       "alert": "redacted receiver delivery ID, delivery timestamp, acknowledgement, deduplication, and resolved notification",
       "canary": "two approved synthetic buyers and two distinct operator-controlled Metal worker identities exercised within every configured bound, with both agent restarts proven by durable process-session transitions",

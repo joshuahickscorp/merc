@@ -37,7 +37,7 @@
     }
   },
   "backend_alpha_score": {
-    "earned": 82,
+    "earned": 85,
     "possible": 91,
     "open_alpha_blocker_p1": 4,
     "open_alpha_control_p1": 1,
@@ -72,7 +72,7 @@
     "out_of_scope_p0": ["independently controlled supplier devices remain prohibited without contractual, location, egress, and attestation controls"]
   },
   "weighted_score": {
-    "earned": 83,
+    "earned": 87,
     "possible": 100,
     "go_threshold": 95,
     "p0_or_p1_override": "any open target-scope P0 or P1 forces NO_GO",
@@ -81,9 +81,9 @@
       {"id": "security", "earned": 14, "possible": 15, "reason": "hostile local review repairs, 110-route matrix, cross-tenant denial tabletop, and audited break-glass replay pass; external staging attack rehearsal/reviewer pending"},
       {"id": "money_and_reconciliation", "earned": 9, "possible": 15, "reason": "ledger/billing tests and 4,096-sequence deterministic provider simulator pass; Stripe sandbox matrix and provider reconciliation remain unexecuted"},
       {"id": "lifecycle_and_concurrency", "earned": 10, "possible": 10, "reason": "schema, race, attempt fencing, dispute lock, idempotency, and two-agent proof pass"},
-      {"id": "artifacts_and_storage", "earned": 6, "possible": 8, "reason": "artifact integrity, encrypted envelope, source destruction and isolated object restore pass; independent external offsite copy absent"},
+      {"id": "artifacts_and_storage", "earned": 8, "possible": 8, "reason": "artifact integrity, encrypted envelope, source destruction and isolated object restore pass; independent Cloudflare R2 offsite copy verified by independently downloaded checksums"},
       {"id": "agent_and_sandbox", "earned": 8, "possible": 8, "reason": "Metal workloads, deadline, model integrity, admission policy, and sandbox checks pass locally"},
-      {"id": "database_and_recovery", "earned": 7, "possible": 8, "reason": "schema apply-twice, independent local logical restore, corrupt-backup rejection, migration interruption and rollback recovery pass; external offsite restore absent"},
+      {"id": "database_and_recovery", "earned": 8, "possible": 8, "reason": "schema apply-twice, independent local logical restore, corrupt-backup rejection, migration interruption and rollback recovery pass; isolated Cloudflare R2 offsite restore reconstitutes ledger and objects"},
       {"id": "deployment_and_rollback", "earned": 5, "possible": 8, "reason": "immutable staging validation, native-image workloads, prior smoke, forward recovery, seeded restart storm, and a derived deterministic recovery suite pass locally; persistent staging plus two external Metal devices remain the 3-point qualifying soak, which the derivation shows is not a 24-hour mechanism gap"},
       {"id": "observability_and_alerting", "earned": 6, "possible": 6, "reason": "24 alerts, 13 panels, harness-controlled failure matrix, and an observed Alertmanager fire→HTTP sink→resolve delivery receipt pass; external staffed receiver remains a release gate"},
       {"id": "privacy_and_data_governance", "earned": 3, "possible": 4, "reason": "scoped DSAR, deletion, authentication revocation, artifact expiry and restore-time tombstone replay pass; qualified privacy approval and external subprocessor deletion remain absent"},
@@ -103,7 +103,7 @@
     "governance_validator": "PASS means the artifacts are internally consistent and honestly remain fail-closed; it is not an approval",
     "observability": "PASS static: 24 alert rules and 13 dashboard panels",
     "website": "PASS static/automated browser: desktop/mobile layout, focus order, labelled forms, dialog keyboard flow, memory-only credentials, reduced motion, and WCAG AA minimum contrast 6.06:1",
-    "backup_envelope": "PASS local age encrypt/decrypt round trip plus isolated logical database/object restore, with a fail-closed formal contract binding fresh encrypted bytes and manifest to the exact offsite URI and independently downloaded checksums; independent offsite copy remains NOT EXECUTED",
+    "backup_envelope": "PASS local age encrypt/decrypt plus isolated logical restore; independent Cloudflare R2 copy verified by independently downloaded manifest/ciphertext SHA-256 and isolated decrypt/restore. Boundary is operator-controlled R2, not a third-party-held account; live droplet volume was not the source",
     "staging_scaffold": "PASS static: 9 services, immutable image references, and explicit test-only Stripe/CAD payment authority",
     "local_production_shape": "PASS: custom-CA TLS, HSTS/CSP, protected APIs, PostgreSQL, S3-compatible storage, metrics, alert router, backup worker, and two host Metal agents",
     "local_resilience": "PASS: prior-digest smoke, candidate forward recovery, six fault injections, zero measured job loss, seeded nine-component restart storm, stale-lease recovery, zero duplicate financial effects, a fail-closed formal two-agent restart contract derived from durable process-session transitions, a formal soak contract bound to one uninterrupted candidate container with independently re-derived raw samples, and a derived deterministic recovery suite that re-derives the 24-hour soak as unnecessary for named time-dependent mechanisms; external staging soak on two Metal devices remains NOT EXECUTED",

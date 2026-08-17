@@ -104,6 +104,18 @@ func TestL2StripeWebhookMatrixAgainstRealHandlers(t *testing.T) {
 		t.Fatalf("billing secret at connect: %d %s", rec.Code, rec.Body.String())
 	}
 
+	// api_version contract refusal (dahlia != compiled basil) after a valid signature.
+	drift := []byte(fmt.Sprintf(
+		`{"id":"evt_cx_drift_%s","type":"cx.sandbox.secret_probe","api_version":"2026-06-24.dahlia","livemode":false,"created":%d,"data":{"object":{"id":"cx_sandbox_probe"}}}`,
+		runID, time.Now().Unix(),
+	))
+	if rec := l2Post(billing, "/v1/stripe/webhook", billingSecret, drift); rec.Code != http.StatusBadRequest {
+		t.Fatalf("billing api_version drift: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := l2Post(connect, "/v1/stripe/connect-webhook", connectSecret, drift); rec.Code != http.StatusBadRequest {
+		t.Fatalf("connect api_version drift: %d %s", rec.Code, rec.Body.String())
+	}
+
 	// Account mismatch: envelope account != object id
 	mismatch := []byte(fmt.Sprintf(
 		`{"id":"evt_cx_mismatch_%s","type":"account.updated","account":"acct_OTHERACCOUNT99","api_version":"2025-06-30.basil","livemode":false,"created":%d,"data":{"object":{"id":"acct_CONFIGUREDACCT1","payouts_enabled":true}}}`,

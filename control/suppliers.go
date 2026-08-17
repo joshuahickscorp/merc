@@ -315,6 +315,14 @@ func (s *Server) handleSupplierStatus(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// stripeConnectedAccountMismatch is the Connect envelope check: the event-level
+// account and the object id must name the same connected account when both are
+// present. Extracted so the non-Connect refusal matrix can fire this path
+// without standing up a Store.
+func stripeConnectedAccountMismatch(envelopeAccount, objectID string) bool {
+	return envelopeAccount != "" && objectID != "" && envelopeAccount != objectID
+}
+
 func (s *Server) handleConnectWebhook(w http.ResponseWriter, r *http.Request) {
 	if !s.requireOperationalControlActive(w, r, controlWebhooks) ||
 		!s.requireOperationalControlActive(w, r, controlPayments) {
@@ -359,7 +367,7 @@ func (s *Server) handleConnectWebhook(w http.ResponseWriter, r *http.Request) {
 	if ev.Type == "account.updated" {
 		obj := ev.Data.Object
 		acct, _ := obj["id"].(string)
-		if ev.Account != "" && acct != "" && ev.Account != acct {
+		if stripeConnectedAccountMismatch(ev.Account, acct) {
 			writeErr(w, http.StatusBadRequest, "connected account mismatch")
 			return
 		}

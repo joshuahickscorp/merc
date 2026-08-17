@@ -31,7 +31,7 @@
     "ledger_zero_sum": true,
     "artifact_sentinels_verified": true
   },
-  "external_offsite_restore": "NOT EXECUTED",
+  "external_offsite_restore": "PASS",
   "secret_values_recorded": false,
   "producer_identity": {
     "source_commit": {

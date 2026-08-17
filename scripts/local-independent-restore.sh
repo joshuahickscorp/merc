@@ -162,7 +162,15 @@ object_count="$(docker run --rm --network "$B_NET" --entrypoint /bin/sh "$MC_IMA
 mkdir -p "$ROOT/evidence/autonomous"
 receipt="$ROOT/evidence/autonomous/logical-independent-restore.json"
 payload="$(mktemp "${TMPDIR:-/tmp}/merc-logical-restore.XXXXXX.json")"
+offsite_marker="NOT EXECUTED"
+if [ -f "$ROOT/evidence/external/offsite-independent-restore.json" ]; then
+  if jq -e '.kind=="external_offsite_restore" and (.status|ascii_upcase)=="PASS"' \
+    "$ROOT/evidence/external/offsite-independent-restore.json" >/dev/null 2>&1; then
+    offsite_marker="PASS"
+  fi
+fi
 jq -n --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg cipher "$expected" \
+  --arg offsite "$offsite_marker" \
   --argjson semantic "$semantic" --argjson objects "$object_count" --argjson destroyed "$SOURCE_DESTROYED" \
   '{schema_version:1,kind:"logical_independent_restore",status:"PASS",completed_at:$at,
     separation:{source_environment_destroyed:$destroyed,separate_transfer_process:true,
@@ -170,7 +178,7 @@ jq -n --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg cipher "$expected" \
     integrity:{ciphertext_sha256:$cipher,ciphertext_verified:true,corrupt_backup_rejected:true,
       payload_checksums_verified:true,database_semantics:$semantic,object_count:$objects,
       ledger_zero_sum:true,artifact_sentinels_verified:true},
-    external_offsite_restore:"NOT EXECUTED",secret_values_recorded:false}' > "$payload"
+    external_offsite_restore:$offsite,secret_values_recorded:false}' > "$payload"
 # shellcheck source=scripts/lib/write-bound-evidence.sh
 . "$ROOT/scripts/lib/write-bound-evidence.sh"
 merc_emit_bound_json "$receipt" "scripts/local-independent-restore.sh" "$payload" \
@@ -180,5 +188,5 @@ merc_emit_bound_json "$receipt" "scripts/local-independent-restore.sh" "$payload
   --image-na "drill uses ephemeral docker images; not programme image digests" \
   --corpus-na "no external corpus; synthetic seed only"
 rm -f "$payload"
-echo "PASS logical independent restore; external offsite restore NOT EXECUTED"
+echo "PASS logical independent restore; external offsite restore $offsite_marker"
 echo "$receipt"

@@ -51,6 +51,9 @@ export MERC_BACKUP_S3_ENDPOINT=\${MERC_BACKUP_S3_ENDPOINT}   # R2
 export MERC_BACKUP_OFFSITE=\${MERC_BACKUP_OFFSITE}           # s3://bucket/prefix
 export MERC_BACKUP_DECRYPTION_IDENTITY_FILE=\${MERC_BACKUP_DECRYPTION_IDENTITY_FILE}
 scripts/alpha/offsite-restore.sh --execute-restore
+# Repeatable isolated rehearsal (preferred; maps .merc-secrets.env R2_*):
+#   make offsite-independent-restore-check
+#   make offsite-independent-restore
 # or the existing isolated drill:
 #   scripts/restore.sh --latest --to merc_alpha_restore_\$\$
 #   scripts/local-independent-restore.sh   # local mechanism proof, not the offsite copy

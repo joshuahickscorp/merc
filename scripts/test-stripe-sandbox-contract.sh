@@ -108,6 +108,29 @@ for script in scripts/stripe-sandbox.sh scripts/stripe-sandbox-scenarios.sh; do
   rg -q 'merc_stripe_endpoint_contract' "$ROOT/$script" \
     || die "$script does not enforce endpoint identity"
 done
+rg -q 'scripts/lib/stripe-sandbox-contract[.]sh' "$ROOT/scripts/stripe-sandbox-nonconnect.sh" \
+  || die "nonconnect driver does not source the shared candidate authority"
+rg -q 'scripts/lib/stripe-sandbox-nonconnect.py' "$ROOT/scripts/stripe-sandbox-nonconnect.sh" \
+  || die "nonconnect wrapper does not invoke the python driver"
+rg -q 'check|matrix|nonconnect' "$ROOT/scripts/stripe-sandbox.sh" \
+  || die "stripe-sandbox.sh does not accept nonconnect"
+for required in \
+  'connected_account_creation' \
+  'transfer_to_connected_account' \
+  'payout_hold' \
+  'signature_refusal' \
+  'wrong_authority_billing_secret_at_connect' \
+  'api_version_contract_refusal' \
+  'account_mismatch_refusal' \
+  'BLOCKED-ON-CONNECT' \
+  'REFUSED-AS-EXPECTED'; do
+  rg -Fq -- "$required" "$ROOT/scripts/lib/stripe-sandbox-nonconnect.py" \
+    || die "nonconnect driver does not name scenario: $required"
+done
+if rg -q 'merc-secrets[.]env' "$ROOT/scripts/stripe-sandbox-nonconnect.sh" \
+  && ! rg -q 'refusing to read .merc-secrets.env' "$ROOT/scripts/stripe-sandbox-nonconnect.sh"; then
+  die "nonconnect wrapper mentions live-secret file without refusing it"
+fi
 for required in \
   'verify_cash_outcome "$cash_probe_closed_payload" applied 30' \
   'verify_cash_outcome "$cash_probe_opened_payload" stale_ignored 30' \

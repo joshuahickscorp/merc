@@ -8,7 +8,7 @@
     "backend_alpha_external_proven": "NO_GO",
     "live_money_or_public_launch": "NO_GO_PROHIBITED"
   },
-  "readiness_score": 84,
+  "readiness_score": 87,
   "go_threshold": 95,
   "backend_alpha": {
     "contract": "docs/BACKEND_ALPHA_CONTRACT.md",
@@ -40,15 +40,15 @@
       "id": "P1-OFFSITE-RESTORE",
       "owner": "operations",
       "classification": "ALPHA_BLOCKER",
-      "blocker": "No encrypted backup has been uploaded across an independent provider/credential boundary and restored from an independently downloaded copy.",
+      "blocker": "Isolated Cloudflare R2 rehearsal now uploads ciphertext and restores it (evidence/external/offsite-backup-verification.json, evidence/external/offsite-independent-restore.json). The live droplet volume was not the source; a droplet-sourced backup still needs remote execution onto that host.",
       "exit_criterion": "Upload only ciphertext, independently download/decrypt in isolation, restore database and objects, and match checksums plus application/ledger invariants."
     },
     {
       "id": "P1-STRIPE-TEST",
       "owner": "payments",
       "classification": "ALPHA_BLOCKER",
-      "blocker": "The full Stripe test-mode payment, refund, dispute, Connect restriction, payout hold/release/failure, replay/out-of-order webhook, and provider reconciliation matrix has not run.",
-      "exit_criterion": "Execute every scenario with sk_test/whsec test credentials and distinct endpoint secrets; preserve redacted provider IDs and reconciliation receipts."
+      "blocker": "Non-Connect Stripe test-mode scenarios are driven by scripts/stripe-sandbox-nonconnect.sh against acct_1TxbzMCwPLrR4vaY. The remaining wall is Connect signup: no connected account, no tr_/payout objects, and we_1U5Cz3CwPLrR4vaYVjElBvu8 has connect=null. Dashboard: https://dashboard.stripe.com/connect, then recreate the Connect endpoint with connect=true.",
+      "exit_criterion": "Sign up for Connect on acct_1TxbzMCwPLrR4vaY, create a Canadian test connected account, recreate the Connect webhook with connect=true, and re-run make stripe-matrix until stripe_sandbox_matrix_proven accepts a PASS with a real tr_ and payout hold/release/failure/reversal."
     },
     {
       "id": "P1-ALERT-DELIVERY",

@@ -1,6 +1,6 @@
 DATABASE_URL ?= postgres://cx:cx@localhost:5432/cx?sslmode=disable
 
-.PHONY: credentials credentials-check droplet-deploy private-canary realtime-sdk-conformance up down dev-up dev-down test-unit license-register release-gates alert-delivery-test backup-age-metric-test migrate seed control agent-run agent-bench agent-characterize prove-local metrics build fmt test test-integration ci audit loc docker-build install uninstall backup restore-drill backup-envelope-test local-independent-restore local-production-tls local-rollback restart-storm-local technical-exercises recovery-suite alert-check alert-page render-staging validate-staging soak-15m soak-2h soak-24h soak-24h-persistent soak-24h-status release-doctor stripe-simulate stripe-check stripe-matrix secret-audit approvals-check mutation-test mutation-test-parallel mutation-fast mutation-authority mutation-full mutation-deep alpha-security
+.PHONY: credentials credentials-check droplet-deploy private-canary realtime-sdk-conformance up down dev-up dev-down test-unit license-register release-gates alert-delivery-test backup-age-metric-test migrate seed control agent-run agent-bench agent-characterize prove-local metrics build fmt test test-integration ci audit loc docker-build install uninstall backup restore-drill backup-envelope-test local-independent-restore offsite-independent-restore offsite-independent-restore-check local-production-tls local-rollback restart-storm-local technical-exercises recovery-suite alert-check alert-page render-staging validate-staging soak-15m soak-2h soak-24h soak-24h-persistent soak-24h-status release-doctor stripe-simulate stripe-check stripe-matrix secret-audit approvals-check mutation-test mutation-test-parallel mutation-fast mutation-authority mutation-full mutation-deep alpha-security stripe-nonconnect
 
 up:
 	docker compose up -d --build
@@ -230,6 +230,12 @@ backup-age-metric-test:
 local-independent-restore:
 	bash scripts/local-independent-restore.sh
 
+offsite-independent-restore-check:
+	bash scripts/offsite-independent-restore.sh --check
+
+offsite-independent-restore:
+	bash scripts/offsite-independent-restore.sh --execute
+
 local-production-tls:
 	bash scripts/local-production-rehearsal.sh
 
@@ -297,6 +303,9 @@ stripe-check:
 
 stripe-matrix:
 	bash scripts/stripe-sandbox.sh matrix
+
+stripe-nonconnect:
+	bash scripts/stripe-sandbox-nonconnect.sh
 
 # Local alpha security suite. Drives Server.Routes() plus authority, containment,
 # supply-chain and secret probes. Exits non-zero on any finding. Does not touch

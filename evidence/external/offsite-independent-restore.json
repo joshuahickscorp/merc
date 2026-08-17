@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "kind": "external_offsite_restore",
+  "status": "PASS",
+  "backup_id": "20260816T235445Z",
+  "offsite_uri": "s3://merc/offsite-alpha/20260816T235445Z",
+  "ciphertext_sha256": "8897ad2eb87521a8733fa021f9234a1a9818761dd926a41a9f0cb3fc1e11d218",
+  "completed_at": "2026-08-16T23:55:03Z",
+  "secret_values_recorded": false,
+  "independent_download": true,
+  "ciphertext_checksum_verified": true,
+  "decrypt_isolated": true,
+  "source_environment_destroyed": true,
+  "new_database_credentials": true,
+  "new_object_credentials": true,
+  "new_namespace": true,
+  "integrity": {
+    "ciphertext_verified": true,
+    "payload_checksums_verified": true,
+    "corrupt_backup_rejected": true,
+    "ledger_zero_sum": true,
+    "artifact_sentinels_verified": true,
+    "database_semantics": {
+      "buyers": 1,
+      "workers": 2,
+      "completed_embed": 1,
+      "completed_batch": 1,
+      "cancelled": 1,
+      "retried": 1,
+      "held_payout": 1,
+      "webhooks": 1,
+      "ledger_sum": "0.000000"
+    },
+    "object_count": 2
+  },
+  "independence": {
+    "boundary": "cloudflare_r2_operator_controlled",
+    "provider": "cloudflare_r2",
+    "endpoint_host": "b0b28181939a4f2a9169fb4a0df36cae.r2.cloudflarestorage.com",
+    "operator_controlled": true,
+    "source_kind": "isolated_rehearsal_environment",
+    "live_droplet_volume_not_the_source": true,
+    "offsite_credential_distinct_from_source_object_store": true,
+    "ciphertext_only_crossed_the_boundary": true,
+    "verifying_side_hashed_its_own_download": true
+  },
+  "producer_identity": {
+    "source_commit": {
+      "value": "a5bca8c0abcfda4158f5c681fa67f5ae5ebccb05"
+    },
+    "build_digest": {
+      "value": "cae1adfea643d2948e09435a60342881ae610009a9f66a082db2750912625f7f"
+    },
+    "model_artifact_digest": {
+      "na": "offsite restore does not load model weights"
+    },
+    "image_digest": {
+      "na": "isolated postgres/minio pins live in the harness, not this measurement"
+    },
+    "harness_revision": {
+      "value": "scripts/offsite-independent-restore.sh"
+    },
+    "corpus_digest": {
+      "na": "no external corpus; isolated seed only"
+    },
+    "exact_config": {
+      "value": "offsite independent restore backup_id=20260816T235445Z offsite=s3://merc/offsite-alpha/20260816T235445Z boundary=cloudflare_r2_operator_controlled"
+    },
+    "raw_samples": {
+      "value": "embedded database_semantics and object_count"
+    }
+  },
+  "binding_status": "BOUND"
+}

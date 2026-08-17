@@ -11,16 +11,18 @@ prohibited**.
 | B — private canary | NO-GO | persistent private staging, approved synthetic participants, Stripe test mode, no value |
 | C — live pilot/public launch | NO-GO / prohibited | no real charges, transfers, payouts, public signup, or independent suppliers |
 
-The machine-derived readiness score is **84/100**. That figure is the
-**machine-reachable ceiling** on a host with no persistent staging, no
-independent offsite storage, and no human approvers: every remaining point is
-reserved for external credentials, hosts, soak time, or qualified approvals, and
-cannot be earned by writing more local code. It is not underachievement. GO
-requires at least 95, zero open P0/P1, all mandatory scenarios, and a passing
-24-hour soak. Recompute with `python3 scripts/validate-readiness.py`. The
-decision ledger is `ops/go-no-go.json`; the advisory domain ledger is
-`ops/readiness.json` (hand-typed `earned` is ignored). The operator checklist
-for the remaining 16 points is `docs/PROGRAMME.md § "Facet external action pack"`.
+The machine-derived readiness score is **87/100** after the Cloudflare R2
+offsite rehearsal. On a host with no persistent staging, no offsite
+credential, and no human approvers the ceiling is still 84/100; the extra
+3 points require the already-configured R2 keys and
+`make offsite-independent-restore`. Remaining points are Stripe, soak,
+public-hostname rehearsal, or qualified approvals, and cannot be earned by
+writing more local code. GO requires at least 95, zero open P0/P1, all
+mandatory scenarios, and a passing 24-hour soak. Recompute with
+`python3 scripts/validate-readiness.py`. The decision ledger is
+`ops/go-no-go.json`; the advisory domain ledger is `ops/readiness.json`
+(hand-typed `earned` is ignored). The operator checklist for the remaining
+13 points is `docs/PROGRAMME.md § "Facet external action pack"`.
 
 ## What is proven
 
