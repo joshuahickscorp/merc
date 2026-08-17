@@ -155,6 +155,11 @@ func loadCanaryPolicyFromEnv() CanaryPolicy {
 		p.configError = fmt.Errorf("MERC_CANARY_APPROVED_AGENT_VERSIONS must contain at least one reviewed agent version")
 	} else if len(p.ApprovedBuildHashes) == 0 {
 		p.configError = fmt.Errorf("MERC_CANARY_APPROVED_BUILD_HASHES must contain at least one reviewed source-bound build hash")
+	} else if _, sealed := p.ApprovedBuildHashes[sealedCandleMetalLlama1InferBuildHash]; !sealed {
+		p.configError = fmt.Errorf(
+			"MERC_CANARY_APPROVED_BUILD_HASHES must include the sealed production engine_build_hash %s (candle-metal-llama1-infer r6); a superseded measurement hash is not that identity",
+			sealedCandleMetalLlama1InferBuildHash,
+		)
 	} else if p.MaxActiveBuyers > len(p.ApprovedBuyerEmails) {
 		p.configError = fmt.Errorf("MERC_CANARY_MAX_ACTIVE_BUYERS exceeds the buyer allowlist")
 	} else if p.MaxActiveWorkers > len(p.ApprovedWorkerIDs) {

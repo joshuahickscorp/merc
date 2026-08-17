@@ -3,7 +3,7 @@
   "purpose": "Bounded private-canary allowlist for the mercmerc.net backend alpha. Not a disable-canary decision and not an open-signup record.",
   "environment": "staging",
   "canary_mode": true,
-  "source_commit": "8283ae583057d6265947a473023e4f05102704b4",
+  "source_commit": "9e31c65b27860d659d7ce972e2de7052691c0642",
   "buyers": [
     {
       "email": "joshuahicksboba@gmail.com",
@@ -21,8 +21,8 @@
   "agent_versions": ["0.1.0"],
   "build_hashes": [
     {
-      "hash": "f4303a751ca2b2af",
-      "origin": "evidence/perf/runtime-benchmarks/candle-metal-llama1-q4-r5.json engine_build_hash"
+      "hash": "7cc01c442c7f6dbe",
+      "origin": "sealed r6 candle-metal-llama1-infer engine_build_hash (control/pricing.go sealedCandleMetalLlama1InferBuildHash / evidence/perf/runtime-benchmarks/candle-metal-llama1-q4-r6.json). Replaces superseded r5 hash f4303a751ca2b2af, which is not the running-executable identity the advertised cell accepts. Does not add host-observed 2939a8e26ffe6fd2 — that binary cannot project the sealed cell."
     }
   ],
   "ceilings": {

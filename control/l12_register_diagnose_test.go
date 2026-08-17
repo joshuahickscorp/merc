@@ -195,7 +195,7 @@ func TestL12QuoteRefusalChainFromSource(t *testing.T) {
 	activeRuntimeActivation.Store(documentActivation())
 
 	if err := validateAdvertisedRuntimeJobModel("embed", "all-minilm-l6-v2"); err == nil {
-		t.Fatal("embed is advertised; the parked empty engine_build_hash demotion is gone")
+		t.Fatal("embed is advertised; CANARY+BOUND cells must stay off the sold surface")
 	} else if !strings.Contains(err.Error(), "not advertised") {
 		t.Fatalf("embed refusal=%v, want not-advertised", err)
 	}
@@ -216,8 +216,8 @@ func TestL12QuoteRefusalChainFromSource(t *testing.T) {
 			}
 		}
 	}
-	if embedOK {
-		t.Fatalf("embed binds; expected parked: %s", embedReason)
+	if !embedOK {
+		t.Fatalf("embed does not bind under r3: %s", embedReason)
 	}
 	if !inferOK {
 		t.Fatalf("infer does not bind: %s", inferReason)

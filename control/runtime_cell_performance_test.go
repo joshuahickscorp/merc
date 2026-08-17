@@ -487,19 +487,20 @@ func TestFrozenMiniLMPerformanceCarriesOnlyTheSelectedCellArtifact(t *testing.T)
 // Settlement-compatible admission is the CLOSED current production set:
 // candle-metal-llama1-infer (ACTIVE, buyer-advertised, tokens / token_like
 // input-plus-output) and candle-metal-scene-render (CANARY+BOUND, pixels /
-// declared_output_pixels_per_scene). ffmpeg is document-routable but its
-// receipt scope is not the governed transcode settlement unit, so it must
-// not admit. Embed stays parked. A wrong extra binding still fails.
-// Advertised buyer traffic remains the llama cell alone
-// (see TestRegistryAndDocumentAgreeOnEveryRoutableCell).
+// declared_output_pixels_per_scene). ffmpeg and MiniLM embed are
+// document-routable but their receipt scopes are not the governed settlement
+// units, so they must not admit. Advertised buyer traffic remains the llama
+// cell alone (see TestRegistryAndDocumentAgreeOnEveryRoutableCell).
 func TestExactlyLlamaLaneHasSettlementCompatibleAdmission(t *testing.T) {
 	const wantLlama = "candle-metal-llama1-infer"
 	const wantRender = "candle-metal-scene-render"
 	const wantFFmpeg = "candle-metal-ffmpeg-transcode"
+	const wantEmbed = "candle-metal-minilm-embed"
 	wantDocumentRoutable := map[string]bool{
 		wantLlama:  true,
 		wantFFmpeg: true,
 		wantRender: true,
+		wantEmbed:  true,
 	}
 	wantAdmitted := map[string]performanceUnitAuthority{
 		wantLlama: {Unit: "tokens", Scope: performanceUnitScopeTokenLikeInputPlusOutputTokens},
@@ -1116,7 +1117,7 @@ func TestPerformanceResolutionUsesOnlyTheCellsTheJobCanReach(t *testing.T) {
 // is measured. A supplier would have been offered roughly a thousandth of the
 // rate the cell it actually runs on can produce.
 func TestDirectedWorkloadResolvesItsCellButCannotBypassUnitCompatibility(t *testing.T) {
-	const authorityPath = "evidence/perf/runtime-benchmarks/embed-cell-candle-vs-llama-cpp-r2.json"
+	const authorityPath = "evidence/perf/runtime-benchmarks/embed-cell-candle-vs-llama-cpp-r3.json"
 	saved := benchmarkAuthorityManifest[authorityPath]
 	synthetic := cloneBenchmarkReceiptSummary(saved)
 	synthetic.EngineBuildHash = testOnlyEngineBuildHash

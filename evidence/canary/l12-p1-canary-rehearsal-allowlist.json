@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "kind": "p1_canary_rehearsal_allowlist",
+  "gate": "P1-CANARY-REHEARSAL",
+  "classification": "ALPHA_CONTROL",
+  "does_not_satisfy": "EXTERNAL_ALPHA_PROVEN",
+  "participant_class": "operator_controlled",
+  "synthetic": true,
+  "controlled_by_operator": true,
+  "operator_owned": true,
+  "external_alpha_proven": false,
+  "rehearsal": true,
+  "plane": "local-source",
+  "status": "PASS",
+  "observed_at": "2026-08-17T15:38:16Z",
+  "action": "replaced_superseded_hash_with_sealed_identity",
+  "widened": false,
+  "path": "ops/staging/alpha-participants.json",
+  "removed_hash": "f4303a751ca2b2af",
+  "removed_origin": "evidence/perf/runtime-benchmarks/candle-metal-llama1-q4-r5.json engine_build_hash",
+  "named_hash": "7cc01c442c7f6dbe",
+  "named_origin": "sealed r6 candle-metal-llama1-infer / control/pricing.go sealedCandleMetalLlama1InferBuildHash",
+  "not_added": [
+    {
+      "hash": "2939a8e26ffe6fd2",
+      "reason": "observed on this host by TestL12CurrentHostBinaryIsRefusedUnlessItCarriesTheSealedHash; cannot project the sealed cell"
+    }
+  ],
+  "compose_pin": {
+    "path": "ops/staging/compose.alpha.yml",
+    "MERC_CANARY_APPROVED_BUILD_HASHES": "7cc01c442c7f6dbe"
+  },
+  "boot_check": "loadCanaryPolicyFromEnv refuses an allowlist that omits sealedCandleMetalLlama1InferBuildHash",
+  "binding_status": "UNBOUND",
+  "missing_identity_fields": [
+    "source_commit",
+    "build_digest",
+    "model_artifact_digest",
+    "image_digest",
+    "harness_revision",
+    "corpus_digest",
+    "exact_config",
+    "raw_samples"
+  ]
+}

@@ -92,6 +92,10 @@ func installTestOnlyExactIdentityForLegacyBenchmark(t *testing.T, cellID string)
 	summary.Harness += "; TEST_ONLY exact identity wrapper for unit/scope mechanics"
 	path := filepath.Join(t.TempDir(), "TEST_ONLY-unit-scope-benchmark.json")
 	edited.Runtimes[profileIndex].Cells[cellIndex].BenchmarkAuthority = path
+	// Production may keep a sealed cell CANARY (bindable, not sold). Mechanism
+	// tests that install this wrapper need ACTIVE so ordinary admission and
+	// promotion incumbents see the cell buyers would be served by.
+	edited.Runtimes[profileIndex].Cells[cellIndex].Lifecycle = runtimeLifecycleActive
 	runtimeAuthority = edited
 	benchmarkAuthorityManifest[path] = summary
 	installed := currentActivation()

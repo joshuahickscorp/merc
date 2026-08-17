@@ -12,23 +12,60 @@
   "rehearsal": true,
   "plane": "https://mercmerc.net",
   "status": "BLOCKED",
-  "observed_at": "2026-08-17T06:38:00Z",
+  "observed_at": "2026-08-17T15:38:16Z",
   "readyz": {
     "status": "ready",
     "payment_mode": "test",
-    "live_value_movement": false
+    "live_value_movement": false,
+    "payment_recovery_active": true,
+    "provider_enabled": true,
+    "stripe_api_version": "2025-06-30.basil"
   },
-  "deployed_commit": "19fe0b23940c7e3d4da9b45d9cc5689c2c515d07",
+  "version": {
+    "http": 200,
+    "commit": "9e31c65b27860d659d7ce972e2de7052691c0642",
+    "build_date": "2026-08-17T15:33:33Z",
+    "go_version": "go1.26.6",
+    "platform": "linux/amd64",
+    "modified": false
+  },
+  "deployed_commit": "9e31c65b27860d659d7ce972e2de7052691c0642",
+  "probes": {
+    "GET /readyz": {"http": 200},
+    "GET /healthz": {"http": 200, "body": {"status": "ok"}},
+    "GET /version": {"http": 200, "commit": "9e31c65b27860d659d7ce972e2de7052691c0642"},
+    "GET /v1/public/config": {"http": 200, "settlement_currency": "usd", "stripe_payment_form_enabled": false},
+    "GET /pricing/board.json": {"http": 503, "error": "current catalogue price authority unavailable"},
+    "POST /v1/quote (no auth, infer, redundancy_frac=1, honeypot_frac=0)": {"http": 401, "code": "unauthorized"},
+    "POST /v1/signup (not allowlisted)": {"http": 403, "error": "email is not approved for this private canary"},
+    "POST /v1/signup (operator email, wrong password, no login attempt after)": {"http": 409, "error": "email already registered"}
+  },
   "stages": {
-    "buyer_execution": "not run this lane: no .artifacts/alpha-e2e/session.json; L11 receipts show POST /v1/quote HTTP 400 not-advertised on embed",
-    "supplier_execution": "not run; canary allowlist still names superseded r5 hash f4303a751ca2b2af and was not widened",
+    "buyer_execution": "not run: no operator session; unauthenticated quote 401; public catalogue 503",
+    "supplier_execution": "not run; tree allowlist now names sealed 7cc01c442c7f6dbe; droplet .env was not modified from this lane",
     "verification": "did not run",
     "settlement": "did not run"
   },
+  "allowlist_in_tree": {
+    "path": "ops/staging/alpha-participants.json",
+    "widened": false,
+    "removed_hash": "f4303a751ca2b2af",
+    "named_hash": "7cc01c442c7f6dbe",
+    "not_added": "2939a8e26ffe6fd2"
+  },
   "remaining_refusals_from_code": [
-    "Quote 400: normalizeAdvertisedRuntimeModelRef → validateAdvertisedRuntimeJobModel when advertisedRuntimeCapabilities() has no (job, model). Embed is parked on empty engine_build_hash. Infer is document-advertised locally; a live overlay can QUARANTINE it via storedRoutableEntryHasCurrentGlobalAuthority.",
-    "If infer becomes advertised on staging, quote then 503s: validateCurrentUniformCanaryAuthority refuses while MERC_CANARY_MODE is on because canary injects a honeypot and validateCurrentUniformTaskCounts refuses honeypotTasks != 0.",
-    "Worker register: projectWorkerRuntimeCapabilities requires sealed r6 identity 7cc01c442c7f6dbe. Current host merc-agent honeypot-answer emits 2939a8e26ffe6fd2. Canary also requires MERC_CANARY_APPROVED_BUILD_HASHES, still f4303a751ca2b2af."
+    "GET /pricing/board.json HTTP 503: Server.handlePriceBoardData → loadCurrentPublicCatalogue (control/api.go) when advertised set is empty or LoadCataloguePriceAuthority fails. Observed live against commit 9e31c65b: {\"error\":\"current catalogue price authority unavailable\"}.",
+    "Quote/submit HTTP 503 while MERC_CANARY_MODE is on: validateCurrentUniformCanaryAuthority (control/task_economic_authority.go:25-31) returns fmt.Errorf(\"%w: private canary requires a heterogeneous honeypot that has no exact per-task allocation\", errHeterogeneousTaskEconomicsUnavailable) whenever canaryEnabled is true, before task counts are considered.",
+    "Canary honeypot floor (control/job_submit_validate.go:23-31): if s.canary.Enabled && !isBinaryMediaJob(sub) && HoneypotFrac <= 0 { HoneypotFrac = 0.1 }. On a one-record infer job fracCount(1, 0.1) == 0 so validateCurrentUniformTaskCounts would pass; the unconditional canary refuse still 503s.",
+    "validateCurrentUniformTaskCounts (control/task_economic_authority.go:76-79) refuses honeypotTasks != 0: \"current pricing cannot assign the primary task's money to %d heterogeneous honeypot tasks\".",
+    "Worker register: projectWorkerRuntimeCapabilities requires sealed r6 identity 7cc01c442c7f6dbe. Current host merc-agent was observed (L12 diagnose) as 2939a8e26ffe6fd2. Tree allowlist now names 7cc01c442c7f6dbe; a live merc-agent run still cannot match the sealed cell.",
+    "Buyer session: POST /v1/signup for a non-allowlisted email is 403 \"email is not approved for this private canary\" (control/accounts.go). The operator email is already registered (409). This lane does not hold the password and did not read .merc-secrets.env."
+  ],
+  "operator_decisions_required": [
+    "Deploy ops/staging/compose.alpha.yml so MERC_CANARY_APPROVED_BUILD_HASHES=7cc01c442c7f6dbe is what the running control process loads (this lane cannot modify the droplet).",
+    "Change validateCurrentUniformCanaryAuthority to allow canary jobs that already satisfy uniform v1 (one primary + exact redundancy clones, honeypot_tasks=0) and stop job_submit_validate.go from flooring honeypot_frac to 0.1; do not enable honeypot tasks until TaskReceipt.IsHoneypot is removed from the buyer receipt.",
+    "Either re-seal candle-metal-llama1-infer against the binary that exists on the worker host, or register the sealed r6 identity the way TestL12RoutableInferLoopThroughThePublicAPI does locally — a live merc-agent run cannot enrol as 7cc01c442c7f6dbe.",
+    "Republish or un-quarantine the staging catalogue so GET /pricing/board.json is no longer 503; do not flip a cell lifecycle by hand."
   ],
   "binding_status": "UNBOUND",
   "missing_identity_fields": [

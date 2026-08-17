@@ -7,10 +7,15 @@
   "external_alpha_proven": false,
   "status": "PARTIAL",
   "plane": "https://mercmerc.net",
-  "deployed_commit": "a5bca8c0abcfda4158f5c681fa67f5ae5ebccb05",
-  "started_against_commit": "8283ae583057d6265947a473023e4f05102704b4",
+  "deployed_commit": "9e31c65b27860d659d7ce972e2de7052691c0642",
+  "started_against_commit": "9e31c65b27860d659d7ce972e2de7052691c0642",
   "allowlist": "ops/staging/alpha-participants.json",
   "allowlist_widened": false,
+  "allowlist_hash_replaced": {
+    "removed": "f4303a751ca2b2af",
+    "added": "7cc01c442c7f6dbe",
+    "reason": "named the sealed r6 running-executable identity; did not widen to host-observed 2939a8e26ffe6fd2"
+  },
   "participants_exercised": {
     "synthetic_or_operator_buyers": 1,
     "operator_controlled_workers": 1,

@@ -4,9 +4,11 @@
 #                  -f docker-compose.smallhost.yml \
 #                  -f ops/staging/compose.alpha.yml
 #
-# Forces MERC_ENV=staging and MERC_CANARY_MODE=true. Allowlist values come
-# from the host .env (see ops/staging/alpha-participants.json). This file
-# contains no secrets.
+# Forces MERC_ENV=staging and MERC_CANARY_MODE=true. Buyer/worker allowlist
+# values come from the host .env (see ops/staging/alpha-participants.json).
+# The build-hash allowlist is pinned here to the sealed r6 infer identity
+# so a stale host .env cannot re-admit superseded r5 hash f4303a751ca2b2af.
+# This file contains no secrets.
 name: merc
 
 services:
@@ -16,6 +18,7 @@ services:
       MERC_CANARY_MODE: "true"
       MERC_PAYMENT_MODE: test
       MERC_PAYMENT_PROVIDER: stripe
+      MERC_CANARY_APPROVED_BUILD_HASHES: "7cc01c442c7f6dbe"
       MERC_CANARY_MAX_ACTIVE_BUYERS: "1"
       MERC_CANARY_MAX_ACTIVE_WORKERS: "1"
       MERC_CANARY_MAX_QUEUED_JOBS: "20"

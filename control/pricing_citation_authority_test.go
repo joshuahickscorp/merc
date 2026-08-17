@@ -433,9 +433,17 @@ func TestUnpricedMediaThroughputIsRefusedUntilBound(t *testing.T) {
 			t.Fatalf("%s/%s citation unexpectedly binds; promote it to repricingBenchmarks",
 				b.ModelID, b.JobType)
 		}
+		// The `err == nil` check above is the assertion that matters: a quarantined
+		// row must still be refused. This list only guards that it is refused for a
+		// reason about authority rather than by accident. "is not exact selected
+		// cell" joined the list when the embed cell gained a real sealed identity
+		// (r3, engine_build_hash 2939a8e26ffe6fd2): the citation now points at a
+		// different artifact than the selected cell's authority, which is a
+		// stricter refusal than "unbindable", not a weaker one.
 		if !strings.Contains(err.Error(), "unbindable") &&
 			!strings.Contains(err.Error(), "not current-bindable") &&
 			!strings.Contains(err.Error(), "not a git object") &&
+			!strings.Contains(err.Error(), "is not exact selected cell") &&
 			!strings.Contains(err.Error(), "lacks exact canonical build/device identity") {
 			t.Fatalf("%s/%s refusal should name unbindable artifact or current identity refusal, got: %v",
 				b.ModelID, b.JobType, err)

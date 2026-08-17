@@ -1,6 +1,6 @@
 DATABASE_URL ?= postgres://cx:cx@localhost:5432/cx?sslmode=disable
 
-.PHONY: credentials credentials-check droplet-deploy private-canary realtime-sdk-conformance up down dev-up dev-down test-unit license-register release-gates alert-delivery-test backup-age-metric-test migrate seed control agent-run agent-bench agent-characterize prove-local metrics build fmt test test-integration ci audit loc docker-build install uninstall backup restore-drill backup-envelope-test local-independent-restore offsite-independent-restore offsite-independent-restore-check offsite-droplet-restore offsite-droplet-restore-check local-production-tls local-rollback restart-storm-local technical-exercises recovery-suite alert-check alert-page render-staging validate-staging soak-15m soak-2h soak-24h soak-24h-persistent soak-24h-status release-doctor stripe-simulate stripe-check stripe-matrix secret-audit approvals-check mutation-test mutation-test-parallel mutation-fast mutation-authority mutation-full mutation-deep alpha-security stripe-nonconnect stripe-endpoint-subscriptions alpha-e2e-rehearsal
+.PHONY: credentials credentials-check droplet-deploy private-canary realtime-sdk-conformance up down dev-up dev-down test-unit license-register release-gates alert-delivery-test backup-age-metric-test migrate seed control agent-run agent-bench agent-characterize prove-local metrics build fmt test test-integration ci audit loc docker-build install uninstall backup restore-drill backup-envelope-test local-independent-restore offsite-independent-restore offsite-independent-restore-check offsite-droplet-restore offsite-droplet-restore-check local-production-tls local-rollback restart-storm-local technical-exercises recovery-suite alert-check alert-page render-staging validate-staging soak-15m soak-2h soak-24h soak-24h-persistent soak-24h-status release-doctor stripe-simulate stripe-check stripe-matrix secret-audit approvals-check mutation-test mutation-test-parallel mutation-fast mutation-authority mutation-full mutation-deep alpha-security stripe-nonconnect stripe-endpoint-subscriptions alpha-e2e-rehearsal test-money-contract
 
 up:
 	docker compose up -d --build
@@ -309,6 +309,22 @@ stripe-simulate:
 	    --corpus-na 'no external corpus'; \
 	  rm -f "$$tmp"
 	jq -e '.status == "SIMULATED PASS" and .evidence_label == "SIMULATED" and .generated_sequences.count == 4096 and .binding_status == "BOUND"' evidence/autonomous/payment-simulator.json >/dev/null
+
+test-money-contract:
+	@# The L2 Stripe matrix and the Connect handler need the REAL dashboard pair
+	@# plus a real sk_test_ key: the Connect route answers 503 without payment
+	@# authority, and distinct whsec_ secrets are the authority boundary itself.
+	@# An earlier pass made these tests pass by substituting synthetic secrets,
+	@# which is why the requirement is spelled out here instead of assumed.
+	@set -e; \
+	  K="$$(awk -F= '/^export STRIPE_SECRET_KEY=/{print $$2}' .merc-credentials.env)"; \
+	  B="$$(awk -F= '/^STRIPE_WEBHOOK_SECRET=/{print $$2}' .env)"; \
+	  C="$$(awk -F= '/^MERC_CONNECT_WEBHOOK_SECRET=/{print $$2}' .env)"; \
+	  case "$$K" in sk_test_*|rk_test_*) ;; *) echo "refusing: STRIPE_SECRET_KEY is not a test key" >&2; exit 1;; esac; \
+	  [ -n "$$B" ] && [ -n "$$C" ] && [ "$$B" != "$$C" ] || { echo "refusing: need distinct billing and Connect whsec_ secrets" >&2; exit 1; }; \
+	  cd control && STRIPE_SECRET_KEY="$$K" STRIPE_WEBHOOK_SECRET="$$B" MERC_CONNECT_WEBHOOK_SECRET="$$C" \
+	    MERC_TEST_DATABASE_URL="$${MERC_TEST_DATABASE_URL:-postgres://cx:cx@192.168.148.2:5432/cx?sslmode=disable}" \
+	    go test . -count=1 -run 'TestL2Stripe|TestLiveActivation|TestAdvertisedSurface|TestDocumentAdvertised'
 
 stripe-endpoint-subscriptions:
 	python3 scripts/validate-stripe-endpoint-subscriptions.py

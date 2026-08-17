@@ -235,6 +235,10 @@ func installBoundCataloguePublicationAuthorityWithMutationsForTest(
 		benchmarkAuthorityManifest[path] = syntheticSummary
 		installedBenchmarkAuthorities = append(installedBenchmarkAuthorities, path)
 		editedRuntimeAuthority.Runtimes[profileIndex].Cells[cellIndex].BenchmarkAuthority = path
+		// Production keeps embed CANARY so the sold surface stays infer-only
+		// (different execution identity than r6). Mechanism tests that install
+		// this fixture need the cell ACTIVE to exercise ordinary admission.
+		editedRuntimeAuthority.Runtimes[profileIndex].Cells[cellIndex].Lifecycle = runtimeLifecycleActive
 		repricingBenchmarks = append(repricingBenchmarks, measuredThroughput{
 			ModelID:                   fixture.modelID,
 			ModelArtifactDigest:       fixture.modelDigest,

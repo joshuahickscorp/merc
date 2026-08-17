@@ -201,9 +201,9 @@ func TestArtifactReplacementMovesTheDigestThatGatesTheCell(t *testing.T) {
 }
 
 // Lifecycle alone never widens the advertised set beyond the ACTIVE+BOUND
-// surface. G070 sells exactly candle-metal-llama1-infer; embed stays parked
-// and media/render stay CANARY (document-routable, not advertised). Any extra
-// cell is a real surface widening.
+// surface. G070 sells exactly candle-metal-llama1-infer; embed/media/render
+// stay CANARY (document-routable, not advertised). Any extra cell is a real
+// surface widening.
 func TestCellLifecyclesDidNotWidenTheAdvertisedSurface(t *testing.T) {
 	got := documentAdvertisedCells()
 	if len(got) != 1 || got[0].ID != "candle-metal-llama1-infer" || got[0].Job != "batch_infer" {

@@ -34,26 +34,30 @@ func l2Post(handler http.HandlerFunc, path, secret string, payload []byte) *http
 	return rec
 }
 
-func TestL2StripeWebhookMatrixAgainstRealHandlers(t *testing.T) {
+func requireL2TestDatabase(t *testing.T) {
+	t.Helper()
 	if strings.TrimSpace(os.Getenv("MERC_TEST_DATABASE_URL")) == "" {
 		t.Skip("MERC_TEST_DATABASE_URL is not set")
 	}
-	billingSecret := strings.TrimSpace(os.Getenv("STRIPE_WEBHOOK_SECRET"))
-	connectSecret := strings.TrimSpace(os.Getenv("MERC_CONNECT_WEBHOOK_SECRET"))
-	if !strings.HasPrefix(billingSecret, "whsec_") ||
-		!strings.HasPrefix(connectSecret, "whsec_") ||
-		billingSecret == connectSecret {
-		// Real handlers HMAC against whatever secret they are given. Dashboard
-		// secrets are not present in this process; install two distinct
-		// process-local webhook secrets so the matrix still exercises the
-		// production handlers (signature, endpoint isolation, api_version,
-		// account mismatch, cash-effect rank, replay).
-		billingSecret = "whsec_l2_matrix_billing_" + strings.Repeat("b", 16)
-		connectSecret = "whsec_l2_matrix_connect_" + strings.Repeat("c", 16)
-		t.Setenv("STRIPE_WEBHOOK_SECRET", billingSecret)
-		t.Setenv("MERC_CONNECT_WEBHOOK_SECRET", connectSecret)
-		t.Log("dashboard webhook secrets absent; using process-local whsec_ pair")
+}
+
+// requireDashboardWebhookSecrets fails closed on the dashboard pair.
+// Synthetics are not a substitute.
+func requireDashboardWebhookSecrets(t *testing.T) (billingSecret, connectSecret string) {
+	t.Helper()
+	billingSecret = strings.TrimSpace(os.Getenv("STRIPE_WEBHOOK_SECRET"))
+	connectSecret = strings.TrimSpace(os.Getenv("MERC_CONNECT_WEBHOOK_SECRET"))
+	if !strings.HasPrefix(billingSecret, "whsec_") || !strings.HasPrefix(connectSecret, "whsec_") {
+		t.Fatal("dashboard webhook secrets required")
 	}
+	if billingSecret == connectSecret {
+		t.Fatal("billing and connect secrets must be distinct")
+	}
+	return billingSecret, connectSecret
+}
+
+func prepareL2WebhookMatrixProcess(t *testing.T) {
+	t.Helper()
 	if err := os.Setenv("MERC_SETTLEMENT_CURRENCY", "cad"); err != nil {
 		t.Fatal(err)
 	}
@@ -63,15 +67,45 @@ func TestL2StripeWebhookMatrixAgainstRealHandlers(t *testing.T) {
 	if err := os.Setenv("MERC_PAYMENT_MODE", "test"); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// TestL2StripeWebhookMatrixRequiresDashboardSecrets fails when the
+// dashboard pair is absent, even if no test database is configured.
+func TestL2StripeWebhookMatrixRequiresDashboardSecrets(t *testing.T) {
+	_, _ = requireDashboardWebhookSecrets(t)
+}
+
+// TestL2StripeWebhookMatrixAgainstRealHandlers is the production webhook
+// contract: dashboard secrets, then the handler matrix against that pair.
+func TestL2StripeWebhookMatrixAgainstRealHandlers(t *testing.T) {
+	requireL2TestDatabase(t)
+	billingSecret, connectSecret := requireDashboardWebhookSecrets(t)
+	prepareL2WebhookMatrixProcess(t)
+	runL2StripeWebhookHandlerMatrix(t, billingSecret, connectSecret)
+}
+
+// TestL2StripeWebhookHandlerHMACWithSyntheticSecrets covers handler HMAC
+// with process-local secrets. It is not the dashboard contract.
+func TestL2StripeWebhookHandlerHMACWithSyntheticSecrets(t *testing.T) {
+	requireL2TestDatabase(t)
+	billingSecret := "whsec_l2_matrix_billing_" + strings.Repeat("b", 16)
+	connectSecret := "whsec_l2_matrix_connect_" + strings.Repeat("c", 16)
+	t.Setenv("STRIPE_WEBHOOK_SECRET", billingSecret)
+	t.Setenv("MERC_CONNECT_WEBHOOK_SECRET", connectSecret)
 	// handleConnectWebhook authorizes the operation against the TEST Stripe
 	// credential class before it verifies the webhook HMAC. A missing or
 	// non-sk_test key returns 503 "connect webhook authority is unavailable"
-	// and the matrix never reaches the handler body.
+	// and this narrower handler-HMAC case never reaches the body.
 	if !strings.HasPrefix(strings.TrimSpace(os.Getenv("STRIPE_SECRET_KEY")), "sk_test_") &&
 		!strings.HasPrefix(strings.TrimSpace(os.Getenv("STRIPE_SECRET_KEY")), "rk_test_") {
 		t.Setenv("STRIPE_SECRET_KEY", "sk_test_l2_webhook_matrix_not_a_live_secret")
 	}
+	prepareL2WebhookMatrixProcess(t)
+	runL2StripeWebhookHandlerMatrix(t, billingSecret, connectSecret)
+}
 
+func runL2StripeWebhookHandlerMatrix(t *testing.T, billingSecret, connectSecret string) {
+	t.Helper()
 	ctx, store, pool := openIsolatedTestStore(t)
 	defer pool.Close()
 	_ = ctx

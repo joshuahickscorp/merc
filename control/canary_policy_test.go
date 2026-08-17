@@ -1,6 +1,10 @@
 package main
 
 import (
+	"encoding/json"
+	"errors"
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -12,7 +16,9 @@ func setValidCanaryEnv(t *testing.T, workerID uuid.UUID) {
 	t.Setenv("MERC_CANARY_APPROVED_BUYER_EMAILS", "buyer@example.test, second@example.test")
 	t.Setenv("MERC_CANARY_APPROVED_WORKER_IDS", workerID.String()+","+uuid.NewString())
 	t.Setenv("MERC_CANARY_APPROVED_AGENT_VERSIONS", "0.1.0")
-	t.Setenv("MERC_CANARY_APPROVED_BUILD_HASHES", "0123456789abcdef")
+	// Extra reviewed hash plus the sealed r6 identity. Canary must name the
+	// sealed production hash; a test-only extra hash is allowed beside it.
+	t.Setenv("MERC_CANARY_APPROVED_BUILD_HASHES", sealedCandleMetalLlama1InferBuildHash+",0123456789abcdef")
 	t.Setenv("MERC_CANARY_MAX_ACTIVE_BUYERS", "2")
 	t.Setenv("MERC_CANARY_MAX_ACTIVE_WORKERS", "2")
 	t.Setenv("MERC_CANARY_MAX_QUEUED_JOBS", "20")
@@ -93,6 +99,79 @@ func TestCanaryPolicyRejectsMalformedBuildAllowlist(t *testing.T) {
 				t.Fatal("malformed build hash allowlist was accepted")
 			}
 		})
+	}
+}
+
+func TestCanaryPolicyRequiresSealedCatalogueBuildHash(t *testing.T) {
+	setValidCanaryEnv(t, uuid.New())
+	t.Setenv("MERC_CANARY_APPROVED_BUILD_HASHES", "f4303a751ca2b2af")
+	p := loadCanaryPolicyFromEnv()
+	if p.configError == nil {
+		t.Fatal("superseded r5 measurement hash was accepted as the sole canary build identity")
+	}
+	if !strings.Contains(p.configError.Error(), sealedCandleMetalLlama1InferBuildHash) {
+		t.Fatalf("refusal did not name the sealed hash: %v", p.configError)
+	}
+	t.Setenv("MERC_CANARY_APPROVED_BUILD_HASHES", sealedCandleMetalLlama1InferBuildHash)
+	p = loadCanaryPolicyFromEnv()
+	if p.configError != nil {
+		t.Fatalf("sealed r6 hash was refused: %v", p.configError)
+	}
+	sessionID := uuid.New()
+	if !p.allowsWorkerRuntime(WorkerCapability{
+		AgentVersion: "0.1.0", BuildHash: sealedCandleMetalLlama1InferBuildHash,
+		AgentSessionID: &sessionID,
+	}) {
+		t.Fatal("sealed r6 worker runtime was rejected")
+	}
+}
+
+func TestStagingParticipantsAllowlistNamesSealedHashNotSupersededR5(t *testing.T) {
+	raw, err := os.ReadFile("../ops/staging/alpha-participants.json")
+	if err != nil {
+		t.Fatalf("read staging allowlist: %v", err)
+	}
+	var doc struct {
+		BuildHashes []struct {
+			Hash string `json:"hash"`
+		} `json:"build_hashes"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("parse staging allowlist: %v", err)
+	}
+	seen := map[string]bool{}
+	for _, entry := range doc.BuildHashes {
+		seen[entry.Hash] = true
+	}
+	if !seen[sealedCandleMetalLlama1InferBuildHash] {
+		t.Fatalf("ops/staging/alpha-participants.json does not name sealed hash %s",
+			sealedCandleMetalLlama1InferBuildHash)
+	}
+	if seen["f4303a751ca2b2af"] {
+		t.Fatal("ops/staging/alpha-participants.json still allowlists superseded r5 hash f4303a751ca2b2af")
+	}
+}
+
+// TestPrivateCanaryStillRefusedByUniformTaskEconomics pins the remaining
+// live-staging 503. Quote and submit call validateCurrentUniformCanaryAuthority
+// with s.canary.Enabled; that function (control/task_economic_authority.go)
+// refuses every canary job because private-canary policy is still defined as
+// requiring a heterogeneous honeypot, which uniform v1 cannot allocate.
+// Lifting this without first removing TaskReceipt.IsHoneypot from the buyer
+// receipt would open a verification-evasion channel (see receipt_test.go).
+func TestPrivateCanaryStillRefusedByUniformTaskEconomics(t *testing.T) {
+	err := validateCurrentUniformCanaryAuthority(true)
+	if err == nil {
+		t.Fatal("canary admission is no longer refused; confirm TaskReceipt.IsHoneypot is gone from the buyer surface before enabling honeypot tasks")
+	}
+	if !errors.Is(err, errHeterogeneousTaskEconomicsUnavailable) {
+		t.Fatalf("want errHeterogeneousTaskEconomicsUnavailable, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "private canary requires a heterogeneous honeypot") {
+		t.Fatalf("refusal text changed: %v", err)
+	}
+	if err := validateCurrentUniformCanaryAuthority(false); err != nil {
+		t.Fatalf("non-canary admission was refused: %v", err)
 	}
 }
 

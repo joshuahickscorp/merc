@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
-"""Seal candle media_transcode and media_rendering receipts from a real agent bench.
+"""Seal candle media, render, and MiniLM embed cell receipts from a real agent bench.
 
-Reads /tmp/merc-l12/worker-capability.json plus the agent log that recorded the
-actual wall times. Does not invent rates. Opt-in:
+Media/render read /tmp/merc-l12/worker-capability.json plus the agent log that
+recorded the actual wall times. Embed re-runs merc-agent bench-embed (or reuses
+MERC_EMBED_RAW) and refuses unless the agent emitted a 16-lowerhex
+engine_build_hash. Does not invent rates or hashes. Opt-in:
 
     MERC_MEDIA_CELL_PERF=1 python3 scripts/seal-media-and-render-cell-receipts.py
+    MERC_EMBED_CELL_PERF=1 python3 scripts/seal-media-and-render-cell-receipts.py
 """
 
 from __future__ import annotations
@@ -39,6 +42,18 @@ AGENT_POLICY = "merc_agent_running_executable_sha256_v1"
 def die(msg: str) -> None:
     print(f"seal-media-render: FAIL {msg}", file=sys.stderr)
     raise SystemExit(2)
+
+
+EMBED_OUT_REL = "evidence/perf/runtime-benchmarks/embed-cell-candle-vs-llama-cpp-r3.json"
+EMBED_MODEL = "all-minilm-l6-v2"
+# Candle cell's primary weight (safetensors); full artifact list lives in the body.
+EMBED_SAFETENSORS = "53aa51172d142c89d9012cce15ae4d6cc0ca6895895114379cacb4fab128d9db"
+EMBED_GGUF = "797b70c4edf85907fe0a49eb85811256f65fa0f7bf52166b147fd16be2be4662"
+EMBED_CONFIG = "953f9c0d463486b10a6871cc2fd59f223b2c70184f49815e7efbcab5d8908b41"
+EMBED_TOKENIZER = "be50c3628f2bf5bb5e3a7f17b1f74611b2561a3a27eeab05e5aa30f411572037"
+EMBED_BATCH_SIZES_DEFAULT = "1,8,32,128"
+EMBED_REPS_DEFAULT = "5"
+EMBED_LLAMA_URL_DEFAULT = "http://127.0.0.1:8188"
 
 
 def git_head() -> str:
@@ -119,9 +134,265 @@ def seal(path: Path, payload: dict, harness: str, model_na: str, corpus_na: str,
     print(f"sealed {path}")
 
 
+def _lowerhex16(value: str) -> bool:
+    return len(value) == 16 and all(c in "0123456789abcdef" for c in value)
+
+
+def embed_throughput_from_measurements(rows: list[dict]) -> dict[str, dict]:
+    """Derive admission floors from the slowest rep, never from the median rate."""
+    by_profile: dict[str, list[dict]] = {}
+    for row in rows:
+        profile = str(row.get("runtime_profile_id") or "")
+        if not profile:
+            die("measurement row missing runtime_profile_id")
+        by_profile.setdefault(profile, []).append(row)
+    out: dict[str, dict] = {}
+    for profile, profile_rows in by_profile.items():
+        best_rate = -1.0
+        best_batch = 0
+        op_row = None
+        for row in profile_rows:
+            batch = int(row["batch"])
+            median_rate = float(row["texts_per_sec"])
+            if median_rate > best_rate:
+                best_rate = median_rate
+                best_batch = batch
+            if batch == 128:
+                op_row = row
+        if op_row is None:
+            die(f"{profile} sweep missing batch=128 operating row")
+        max_wall = float(op_row["max_wall_s"])
+        if max_wall <= 0:
+            die(f"{profile} batch=128 max_wall_s={max_wall} is not a measured wall")
+        floor = 128.0 / max_wall
+        out[profile] = {
+            "operating_batch": 128,
+            "units_per_sec_at_operating_batch": floor,
+            "best_observed_units_per_sec": best_rate,
+            "best_observed_batch": best_batch,
+            "max_wall_s": max_wall,
+            "median_texts_per_sec_at_operating_batch": float(op_row["texts_per_sec"]),
+        }
+    return out
+
+
+def measure_embed_raw() -> dict:
+    raw_reuse = os.environ.get("MERC_EMBED_RAW", "").strip()
+    if raw_reuse:
+        path = Path(raw_reuse)
+        if not path.is_file():
+            die(f"MERC_EMBED_RAW={raw_reuse} is not a file")
+        print(f"reusing measured raw {path}")
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    if not AGENT_BIN.is_file():
+        die(f"missing agent {AGENT_BIN}")
+    llama_url = os.environ.get("LLAMA_BASE_URL", EMBED_LLAMA_URL_DEFAULT).rstrip("/")
+    try:
+        subprocess.check_call(
+            ["curl", "-sf", f"{llama_url}/health"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        die(
+            f"llama-server not healthy at {llama_url} "
+            "(need --embedding --pooling mean on MiniLM F16 GGUF)"
+        )
+    commit = git_head()
+    batch_sizes = os.environ.get("BATCH_SIZES", EMBED_BATCH_SIZES_DEFAULT)
+    reps = os.environ.get("REPS", EMBED_REPS_DEFAULT)
+    out_path = Path("/tmp/merc-l12/embed-cell-raw-r3.json")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    print(f"measuring embed cell at source_commit={commit}")
+    print(f"agent={AGENT_BIN} batch_sizes={batch_sizes} reps={reps}")
+    cmd = [
+        str(AGENT_BIN),
+        "bench-embed",
+        "--model",
+        EMBED_MODEL,
+        "--source-commit",
+        commit,
+        "--llama-base-url",
+        llama_url,
+        "--batch-sizes",
+        batch_sizes,
+        "--reps",
+        reps,
+        "--out",
+        str(out_path),
+    ]
+    rc = subprocess.call(cmd)
+    if rc != 0:
+        die(f"bench-embed failed (exit {rc})")
+    return json.loads(out_path.read_text(encoding="utf-8"))
+
+
+def seal_embed() -> int:
+    raw = measure_embed_raw()
+    engine_build_hash = str(
+        raw.get("engine_build_hash") or raw.get("build_hash") or ""
+    ).strip()
+    engine_build_identity_policy = str(
+        raw.get("engine_build_identity_policy") or raw.get("build_identity_policy") or ""
+    ).strip()
+    hardware_identity = str(raw.get("hardware_identity") or "").strip()
+    if not hardware_identity:
+        hardware = raw.get("hardware") if isinstance(raw.get("hardware"), dict) else {}
+        hardware_identity = str(hardware.get("hardware_identity") or "").strip()
+    hw_class = ""
+    hardware = raw.get("hardware") if isinstance(raw.get("hardware"), dict) else {}
+    if isinstance(hardware, dict):
+        hw_class = str(hardware.get("hw_class") or "").strip()
+    if not hw_class:
+        hw_class = "apple_silicon_ultra"
+    if not _lowerhex16(engine_build_hash):
+        die(f"engine_build_hash {engine_build_hash!r} is not 16-lowerhex")
+    if engine_build_identity_policy != AGENT_POLICY:
+        die(
+            f"engine_build_identity_policy {engine_build_identity_policy!r} "
+            f"is not {AGENT_POLICY}"
+        )
+    if not hardware_identity.startswith("apple_silicon_v1|"):
+        die(
+            f"hardware_identity {hardware_identity!r} is not the exact "
+            "apple_silicon_v1 fingerprint"
+        )
+    quality = raw.get("quality") if isinstance(raw.get("quality"), dict) else {}
+    if not quality.get("passes"):
+        die(f"cosine quality gate failed: {quality}")
+    corpus = raw.get("corpus") if isinstance(raw.get("corpus"), dict) else {}
+    corpus_digest = str(corpus.get("sha256") or "").strip()
+    if len(corpus_digest) != 64:
+        die(f"corpus.sha256 {corpus_digest!r} is not a sha256")
+    measurements = raw.get("measurements")
+    if not isinstance(measurements, list) or not measurements:
+        die("bench-embed output has no measurements")
+    rates = embed_throughput_from_measurements(measurements)
+    if "candle_metal" not in rates:
+        die("measurements missing candle_metal")
+
+    commit = git_head()
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    batch_sizes = os.environ.get("BATCH_SIZES", EMBED_BATCH_SIZES_DEFAULT)
+    reps = os.environ.get("REPS", EMBED_REPS_DEFAULT)
+    payload = dict(raw)
+    payload["measured_at"] = now
+    payload["merc_source_commit"] = commit
+    payload["engine_build_hash"] = engine_build_hash
+    payload["engine_build_identity_policy"] = engine_build_identity_policy
+    payload["hardware_identity"] = hardware_identity
+    payload["hardware_class"] = hw_class
+    payload["cell_id"] = "candle-metal-minilm-embed"
+    payload["runtime_profile_id"] = "candle_metal"
+    payload["runtime_profile_ids"] = ["candle_metal", "llama_cpp_metal"]
+    payload["kind"] = "runtime_benchmark"
+    payload["physical_throughput"] = {
+        "unit": "embeddings",
+        "unit_scope": "completed_embedding_records",
+        "operating_batch": 128,
+        "units_per_sec_at_operating_batch": rates["candle_metal"][
+            "units_per_sec_at_operating_batch"
+        ],
+        "serial_tokens_per_sec": rates["candle_metal"]["units_per_sec_at_operating_batch"],
+        "peak_tokens_per_sec": rates["candle_metal"]["best_observed_units_per_sec"],
+        "peak_batch": rates["candle_metal"]["best_observed_batch"],
+        "by_profile": {
+            profile: {
+                "unit": "embeddings",
+                "unit_scope": "completed_embedding_records",
+                "operating_batch": row["operating_batch"],
+                "units_per_sec_at_operating_batch": row["units_per_sec_at_operating_batch"],
+                "best_observed_units_per_sec": row["best_observed_units_per_sec"],
+                "best_observed_batch": row["best_observed_batch"],
+                "basis": (
+                    f"128 texts divided by max_wall_s={row['max_wall_s']} at batch 128: "
+                    "the SLOWEST of five repetitions, not the median rate the receipt quotes"
+                ),
+            }
+            for profile, row in rates.items()
+        },
+    }
+    payload["benchmark_status"] = "PHYSICAL_THROUGHPUT_MEASURED"
+    payload["supersedes"] = {
+        "paths": [
+            "evidence/perf/runtime-benchmarks/embed-cell-candle-vs-llama-cpp-r2.json",
+            "evidence/perf/runtime-benchmarks/embed-cell-candle-vs-llama-cpp-r1.json",
+            "evidence/perf/runtime-benchmarks/llama-cpp-metal-embed-cosine-gate.json",
+        ],
+        "reasons": [
+            "r2 is BOUND under the eight-field producer-identity bar but has an empty engine_build_hash, so cellAuthorityBindable parks candle-metal-minilm-embed",
+            "r2 hardware_identity is only hw_class/device, not the exact apple_silicon_v1 configuration fingerprint",
+            "r2 lacks engine_build_identity_policy on the receipt body required by the strict gate",
+            "r3 re-ran merc-agent bench-embed on this host and sealed the execution build identity the agent emitted",
+        ],
+    }
+    for k in (
+        "producer_identity",
+        "binding_status",
+        "missing_identity_fields",
+        "validity",
+        "profile_revision",
+    ):
+        payload.pop(k, None)
+
+    out = ROOT / EMBED_OUT_REL
+    identity = default_bound_identity(
+        ROOT,
+        harness_revision=(
+            "agent/src/main.rs:run_bench_embed "
+            "(merc-agent 0.1.0 bench-embed, r3 execution-identity re-measure)"
+        ),
+        build_binary_path=AGENT_BIN,
+        exact_config=(
+            f"embedded engine_configuration + batch_sizes={batch_sizes} "
+            f"reps={reps} model={EMBED_MODEL} "
+            f"engine_build_hash={engine_build_hash}"
+        ),
+        raw_samples=(
+            "embedded measurements[] wall times and texts_per_sec; "
+            "quality cosine over corpus"
+        ),
+        model_na="unused; model digest supplied as value",
+        image_na="in-process candle + local llama-server process; no container image",
+        corpus_na="unused; corpus digest supplied as value",
+    )
+    identity["model_artifact_digest"] = slot_value(EMBED_SAFETENSORS)
+    identity["corpus_digest"] = slot_value(corpus_digest)
+    # The first seal() already wrote a BOUND file; rewrite with the exact
+    # model/corpus slots so the eight-field bar names the measured artifacts.
+    write_bound_evidence(
+        path=out,
+        payload=payload,
+        identity=identity,
+        repo_root=ROOT,
+        build_binary_path=AGENT_BIN,
+        authority_id="",
+    )
+    print(f"sealed {out}")
+    print(f"engine_build_hash {engine_build_hash}")
+    print(f"engine_build_identity_policy {engine_build_identity_policy}")
+    print(f"hardware_identity {hardware_identity}")
+    print(f"corpus_digest {corpus_digest}")
+    print("quality", json.dumps(quality, sort_keys=True))
+    for profile, row in rates.items():
+        print(
+            f"throughput {profile} floor={row['units_per_sec_at_operating_batch']} "
+            f"best={row['best_observed_units_per_sec']} "
+            f"best_batch={row['best_observed_batch']} "
+            f"max_wall_s={row['max_wall_s']}"
+        )
+    return 0
+
+
 def main() -> int:
+    if os.environ.get("MERC_EMBED_CELL_PERF") == "1":
+        return seal_embed()
     if os.environ.get("MERC_MEDIA_CELL_PERF") != "1":
-        die("set MERC_MEDIA_CELL_PERF=1 to seal media/render authority")
+        die(
+            "set MERC_MEDIA_CELL_PERF=1 to seal media/render authority "
+            "or MERC_EMBED_CELL_PERF=1 to seal embed authority"
+        )
     if not AGENT_BIN.is_file():
         die(f"missing agent {AGENT_BIN}")
     cap = load_capability()

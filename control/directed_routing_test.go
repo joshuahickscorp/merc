@@ -126,8 +126,8 @@ func TestDirectedSetIsASupersetThatDoesNotWidenTheCatalogue(t *testing.T) {
 		}
 	}
 	// G070: candle-metal-llama1-infer is the one ACTIVE+BOUND production cell
-	// under r6 settlement geometry. Media/render are CANARY+BOUND
-	// (document-routable, directed, not advertised). Embed stays parked.
+	// under r6 settlement geometry. Media/render/embed are CANARY+BOUND
+	// (document-routable, directed, not advertised).
 	if len(advertised) != 1 || advertised[0].ID != "candle-metal-llama1-infer" {
 		ids := make([]string, 0, len(advertised))
 		for _, c := range advertised {

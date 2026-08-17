@@ -73,6 +73,47 @@ fenced by the retry-attempt epoch.
   reads of common credential and personal-data locations. The agent can be
   configured to fail closed if sandbox re-exec is unavailable.
 
+## Public hostname rehearsal
+
+`scripts/alpha-security-suite.py --surface external` drives the authorization
+matrix as an internet client against `https://mercmerc.net`. It is a different
+surface from the local `Server.Routes()` rehearsal (`--surface local`, the
+`make alpha-security` default). The receipt at
+`evidence/external/staging-attack-rehearsal.json` records the public-hostname
+run.
+
+The 2026-08-17 external run (`kind=external_staging_attack_rehearsal`,
+`surface=persistent_staging_tls`, `qualification=EXTERNAL`) executed 265
+attacks over 255 HTTPS requests on 112 distinct routes. No finding. Per class:
+
+| Class | Attempted | Blocked | Finding | Notes |
+|---|---|---|---|---|
+| identity | 167 | 167 | 0 | anonymous + cross-role on every authenticated matrix route |
+| identity_webhook | 8 | 8 | 0 | stripped, forged, and correct signature from the wrong authority in both directions |
+| money | 15 | 15 | 0 | unauthenticated / wrong-role money routes; no matching-authority cash event sent |
+| authority | 62 | 62 | 0 | operator surface plus `/readyz` payment_mode=test before and after |
+| tls | 12 | 12 | 0 | TLS 1.3, SAN `mercmerc.net`, Caddyfile headers, `:80` 308 to https |
+| containment | 1 | 1 | 0 | public `GET /metrics` returned 404 as the Caddyfile claims |
+| concurrency | 0 | 0 | 0 | not driven — would race live rows |
+| resource | 0 | 0 | 0 | not driven — a flood would take the endpoint down |
+| supply_chain | 0 | 0 | 0 | not driven — those probes read the checkout |
+
+TLS: Let's Encrypt, protocol TLSv1.3, SAN `mercmerc.net`. Observed headers
+matched the Caddyfile (`Strict-Transport-Security`, CSP, `Permissions-Policy`,
+`Cross-Origin-Opener-Policy`, `X-Content-Type-Options`, `X-Frame-Options`,
+`Referrer-Policy`; `Server` stripped). No error body leaked internals.
+`payment_mode` was `test` and `/readyz` was 200 before and after.
+
+Cross-role tokens were namespace-shaped stand-ins. Public signup is
+canary-gated, so this process did not mint a live buyer or worker credential.
+Wrong-authority webhooks used the live distinct endpoint secrets and were
+rejected as invalid signatures. The matching-authority cash path was not sent.
+
+`scripts/validate-readiness.py:external_staging_attack_proven` still refuses
+this receipt on `reviewer.name` and `reviewer.organization`. No named human
+reviewer was available; the receipt does not invent one. That is why the
+security domain stays 14/15.
+
 ## Residual limitations
 
 - The macOS sandbox restricts outbound direction and ports, not destination host.
@@ -96,4 +137,6 @@ fenced by the retry-attempt epoch.
 Before release, run `make ci`, `make prove-local`, and the macOS sandbox profile
 test. Review dependency updates, census output, schema apply-twice evidence, live
 two-agent receipts, money invariants, and the exact source fingerprint. Treat
-skipped physical execution as a skip, never as a pass.
+skipped physical execution as a skip, never as a pass. Drive the public
+hostname with `python3 scripts/alpha-security-suite.py --surface external`
+rather than relabeling a local `Server.Routes()` receipt.

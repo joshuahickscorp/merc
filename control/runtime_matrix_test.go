@@ -523,14 +523,44 @@ func TestAdvertisedRuntimeCatalogFailsClosedOnDrift(t *testing.T) {
 	})
 }
 
+func TestDocumentAdvertisedRuntimeCapabilitiesBindCanonicalWireKind(t *testing.T) {
+	assertAdvertisedWireKinds(t, documentAdvertisedCells(), "document advertised projection")
+}
+
 func TestGeneratedRuntimeCapabilitiesBindCanonicalWireKind(t *testing.T) {
+	// Live catalogue. An empty advertised set is a failure, not a vacuous pass.
+	assertAdvertisedWireKinds(t, advertisedRuntimeCapabilities(), "live activation advertised projection")
+}
+
+func TestLiveActivationAdvertisedProjectionIsNotEmptyOrQuarantined(t *testing.T) {
+	caps := advertisedRuntimeCapabilities()
+	if len(caps) == 0 {
+		t.Fatal("live activation advertised projection is empty or quarantined")
+	}
+	if len(caps) != 1 || caps[0].ID != "candle-metal-llama1-infer" || caps[0].Job != "batch_infer" {
+		ids := make([]string, 0, len(caps))
+		for _, cap := range caps {
+			ids = append(ids, cap.ID+"/"+cap.Job)
+		}
+		t.Fatalf("live advertised projection=%v, want exactly [candle-metal-llama1-infer/batch_infer]", ids)
+	}
+	if !advertisedRuntimeCell("candle-metal-llama1-infer") {
+		t.Fatal("candle-metal-llama1-infer is not in currentActivation().advertised")
+	}
+}
+
+func assertAdvertisedWireKinds(t *testing.T, caps []generatedRuntimeCapability, label string) {
+	t.Helper()
+	if len(caps) == 0 {
+		t.Fatalf("%s is empty or quarantined", label)
+	}
 	want := map[string]string{
 		"all-minilm-l6-v2":         "hf",
 		"llama-3.2-1b-instruct-q4": "gguf",
 		"ffmpeg-transcode-v1":      "builtin",
 		"svg-scene-render-v1":      "builtin",
 	}
-	for _, cap := range advertisedRuntimeCapabilities() {
+	for _, cap := range caps {
 		if cap.ModelKind == "" {
 			t.Fatalf("advertised cell %q has no generated model kind", cap.ID)
 		}

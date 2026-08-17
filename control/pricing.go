@@ -55,6 +55,14 @@ type measuredThroughput struct {
 //
 // Media rows remain unpriced (ffmpeg names a non-git merc_source_commit;
 // rendering has no source commit). See unpricedThroughputUntilBound.
+
+// sealedCandleMetalLlama1InferBuildHash is the r6 running-executable identity
+// of the only current-bindable production infer cell. The staging canary
+// allowlist must name this hash. The superseded r5 measurement hash
+// f4303a751ca2b2af is not it, and neither is a later host binary that no
+// longer matches the sealed receipt.
+const sealedCandleMetalLlama1InferBuildHash = "7cc01c442c7f6dbe"
+
 var repricingBenchmarks = []measuredThroughput{
 	{
 		ModelID:                   "llama-3.2-1b-instruct-q4",
@@ -64,7 +72,7 @@ var repricingBenchmarks = []measuredThroughput{
 		RuntimeProfileID:          "candle_metal",
 		ProfileRevision:           "r9",
 		Engine:                    "candle",
-		EngineBuildHash:           "7cc01c442c7f6dbe",
+		EngineBuildHash:           sealedCandleMetalLlama1InferBuildHash,
 		EngineBuildIdentityPolicy: "merc_agent_running_executable_sha256_v1",
 		HardwareIdentity:          "apple_silicon_v1|brand=Apple M3 Ultra|model=Mac15,14|memory_bytes=103079215104|cpu_cores=28|gpu_cores=60",
 		Unit:                      "tokens",

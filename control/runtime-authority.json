@@ -214,9 +214,9 @@
           "runner": "embed",
           "min_memory_gb": 2,
           "verification": "cosine",
-          "lifecycle": "ACTIVE",
+          "lifecycle": "CANARY",
           "quality_tier": "OUTCOME_EQUIVALENT",
-          "benchmark_authority": "evidence/perf/runtime-benchmarks/embed-cell-candle-vs-llama-cpp-r2.json",
+          "benchmark_authority": "evidence/perf/runtime-benchmarks/embed-cell-candle-vs-llama-cpp-r3.json",
           "max_batch": 128
         },
         {
@@ -380,7 +380,7 @@
           "verification": "cosine",
           "lifecycle": "REAL_RUNTIME_PROVEN",
           "quality_tier": "OUTCOME_EQUIVALENT",
-          "benchmark_authority": "evidence/perf/runtime-benchmarks/embed-cell-candle-vs-llama-cpp-r2.json",
+          "benchmark_authority": "evidence/perf/runtime-benchmarks/embed-cell-candle-vs-llama-cpp-r3.json",
           "max_batch": 128,
           "max_concurrency": 128
         }

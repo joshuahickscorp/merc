@@ -29,8 +29,8 @@
     }
   },
   "expected": {
-    "tracked_pointer_files": 96,
-    "unique_payload_oids": 94,
+    "tracked_pointer_files": 97,
+    "unique_payload_oids": 95,
     "missing_objects": 0,
     "corrupt_objects": 0,
     "resolved_payload_mismatches": 0
@@ -111,5 +111,6 @@
       "unique_payload_oids": "93 -> 94",
       "why": "Live corpus from git lfs ls-files --long is 96 pointers / 94 unique OIDs. The missing ledger row is .tools/runpodctl (oid 67cc575f..., Mach-O arm64, filter=lfs in .gitattributes since ae94832e). It is a unique payload, so both counters advance by one; the 2 content-addressed aliases are unchanged. Regenerated from the corpus rather than hand-waving the drift."
     }
-  ]
+  ],
+  "note": "Counts moved 96/94 -> 97/95 when the embed cell gained its sealed r3 benchmark receipt (evidence/perf/runtime-benchmarks/embed-cell-candle-vs-llama-cpp-r3.json). Regenerated from the corpus, not hand-adjusted to silence the test."
 }

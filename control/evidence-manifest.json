@@ -323,6 +323,54 @@
     "merc_source_commit": "f137430fc5fce06f8967807a619b1d3fed43f50a",
     "harness": "merc-agent 0.1.0 bench-embed",
     "binding_status": "BOUND",
+    "validity": "SUPERSEDED",
+    "model_artifact_sha256s": [
+      "797b70c4edf85907fe0a49eb85811256f65fa0f7bf52166b147fd16be2be4662",
+      "953f9c0d463486b10a6871cc2fd59f223b2c70184f49815e7efbcab5d8908b41",
+      "be50c3628f2bf5bb5e3a7f17b1f74611b2561a3a27eeab05e5aa30f411572037",
+      "53aa51172d142c89d9012cce15ae4d6cc0ca6895895114379cacb4fab128d9db"
+    ]
+  },
+  "evidence/perf/runtime-benchmarks/embed-cell-candle-vs-llama-cpp-r3.json": {
+    "runtime_profile_ids": [
+      "candle_metal",
+      "llama_cpp_metal"
+    ],
+    "throughput_measured": true,
+    "byte_deterministic": false,
+    "model_ids": [
+      "all-minilm-l6-v2"
+    ],
+    "measured_at": "2026-08-17T15:38:58Z",
+    "hw_class": "apple_silicon_ultra",
+    "throughput": {
+      "candle_metal": {
+        "unit": "embeddings",
+        "unit_scope": "completed_embedding_records",
+        "precision": "none (fp32 safetensors)",
+        "operating_batch": 128,
+        "units_per_sec_at_operating_batch": 3344.095748149461,
+        "best_observed_units_per_sec": 3379.64208692582,
+        "best_observed_batch": 128,
+        "basis": "128 texts divided by max_wall_s=0.038276416 at batch 128: the SLOWEST of five repetitions, not the median rate the receipt quotes. best_observed_units_per_sec is that receipt-quoted texts_per_sec at its best batch, which is a MEDIAN of five repetitions and not a peak; it is a ceiling to refuse, not a rate anything may be offered at."
+      },
+      "llama_cpp_metal": {
+        "unit": "embeddings",
+        "unit_scope": "completed_embedding_records",
+        "precision": "F16 GGUF",
+        "operating_batch": 128,
+        "units_per_sec_at_operating_batch": 1443.8485385737333,
+        "best_observed_units_per_sec": 1487.7089899883229,
+        "best_observed_batch": 32,
+        "basis": "128 texts divided by max_wall_s=0.088651958 at batch 128: the SLOWEST of five repetitions, not the median rate the receipt quotes. best_observed_units_per_sec is that receipt-quoted texts_per_sec at its best batch, which is a MEDIAN of five repetitions and not a peak; it is a ceiling to refuse, not a rate anything may be offered at."
+      }
+    },
+    "merc_source_commit": "9e31c65b27860d659d7ce972e2de7052691c0642",
+    "harness": "merc-agent 0.1.0 bench-embed",
+    "binding_status": "BOUND",
+    "engine_build_hash": "2939a8e26ffe6fd2",
+    "engine_build_identity_policy": "merc_agent_running_executable_sha256_v1",
+    "hardware_identity": "apple_silicon_v1|brand=Apple M3 Ultra|model=Mac15,14|memory_bytes=103079215104|cpu_cores=28|gpu_cores=60",
     "model_artifact_sha256s": [
       "797b70c4edf85907fe0a49eb85811256f65fa0f7bf52166b147fd16be2be4662",
       "953f9c0d463486b10a6871cc2fd59f223b2c70184f49815e7efbcab5d8908b41",

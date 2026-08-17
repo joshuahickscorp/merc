@@ -826,7 +826,8 @@ func TestWireKindBelongsToTheRuntimeModelPair(t *testing.T) {
 
 // The llama.cpp embed cell stays on a non-ACTIVE profile and must not reach the
 // advertised projection. G070 sells exactly candle-metal-llama1-infer; the
-// Candle MiniLM embed row remains parked (embeddings/s, not settlement geometry).
+// Candle MiniLM embed row is CANARY+BOUND (r3 has execution identity, but
+// embeddings/s is not settlement geometry and its hash is not the r6 infer identity).
 func TestTheNewEmbedCellIsNotYetSellable(t *testing.T) {
 	advertised := documentAdvertisedCells()
 	for _, cap := range advertised {
