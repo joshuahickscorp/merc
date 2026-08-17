@@ -23,9 +23,11 @@ once.
 | **Website** | NOT REQUIRED, classified `PUBLIC_LAUNCH` |
 | **Live money** | `NO_GO_PROHIBITED` and unchanged |
 
-Scores: **Level B 87/100** (threshold 95, P1=8, `NO_GO`) ·
+Scores: **Level B 87/100** (threshold 95, P1=6, `NO_GO`) ·
 **backend alpha 85/91**, `ALPHA_ENGINEERING_READY: NO_GO`,
-`EXTERNAL_ALPHA_PROVEN: NO_GO`.
+`EXTERNAL_ALPHA_PROVEN: NO_GO`. Open P1s fell from eight to six when
+`P1-STAGING` and `P1-RECOVERY-SOAK` were satisfied by evidence, not by
+reclassification.
 
 ## What the rescoping did and did not do
 
@@ -80,8 +82,8 @@ or not Connect is onboarded. Fixed, with a regression test.
 
 | # | Condition | Status |
 |---|---|---|
-| 1 | Current candidate boots | **PASS** — deployed commit serves `/readyz` 200 |
-| 2 | Deployment reproducible | **PASS** — image built by digest, rollback and forward proven |
+| 1 | Current candidate boots | **PASS** — `a5bca8c0` @ `sha256:2b2f85c9` serves `/readyz` 200; note the tree has since taken the go1.26.6 bump, so a rebuild is due before the deployed image is byte-current |
+| 2 | Deployment reproducible | **PASS** — rollback to `7bf0ab9d` and forward to `2b2f85c9`, both observed with timestamps |
 | 3 | Real Postgres and object storage | **PASS** — both healthy behind the live plane |
 | 4 | Buyer execution | see "Open" below |
 | 5 | Supplier execution | see "Open" below |
@@ -117,8 +119,12 @@ of `working-tree-before-media-authority`, and a missing `merc_source_commit`).
 Reachable harm: without this, buyer execution, supplier execution, verification
 and settlement are unproven — the four conditions that say the network works.
 
-**The derived soak has not completed.** 3600 seconds against the persistent
-plane on the deployed candidate.
+The derived soak is **done**: 3600 seconds against the persistent plane on the
+deployed candidate, 2026-08-16T23:58:47Z to 2026-08-17T00:58:47Z, 121 samples at
+30-second intervals, every sample carrying the deployed commit and
+`payment_mode=test`. Wall clock equals requested equals actual, and the receipt
+sets `qualifies_for_24h_gate: false` — it does not pretend to be the 24-hour
+gate, which stays unearned at Level B and C.
 
 ## Live money — the actual remaining inputs
 
