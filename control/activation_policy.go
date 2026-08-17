@@ -339,36 +339,55 @@ func documentActivationEntries() ([]ActivationPolicyEntry, error) {
 	return out, nil
 }
 
-// syncActivationPolicy seeds policy for any profile or cell that has none.
+// syncActivationPolicy seeds policy for any profile or cell that has none,
+// and rewrites a document seed that no longer equals the current document.
 //
-// It seeds, it does not overwrite. An operator promotion recorded in the policy
-// table must survive a redeploy of the control plane; a sync that re-asserted the
+// It does not overwrite an operator promotion. A sync that re-asserted the
 // document on every migration would silently revert every decision an operator
-// had made, which is the failure mode this table exists to prevent.
+// had made, which is the failure mode this table exists to prevent. A document
+// seed whose promotion_receipt still names a superseded benchmark (r4 after an
+// r6 reseal) is not an operator decision — CapabilityDigest excludes that
+// path, so the row is not dropped as stale and would otherwise quarantine the
+// advertised catalogue.
 func syncActivationPolicy(ctx context.Context, tx pgx.Tx) error {
 	entries, err := documentActivationEntries()
 	if err != nil {
 		return err
 	}
-	var missing []ActivationPolicyEntry
+	var toWrite []ActivationPolicyEntry
+	var note string
 	for _, entry := range entries {
-		var exists bool
-		if err := tx.QueryRow(ctx, `
-			SELECT EXISTS (SELECT 1 FROM runtime_activation_policies
-			                WHERE runtime_profile_id=$1 AND profile_revision=$2 AND cell_id=$3)`,
-			entry.RuntimeProfileID, entry.ProfileRevision, entry.CellID).Scan(&exists); err != nil {
+		var stored ActivationPolicyEntry
+		err := tx.QueryRow(ctx, `
+			SELECT source, profile_revision, capability_digest, lifecycle, promotion_receipt
+			  FROM runtime_activation_policies
+			 WHERE runtime_profile_id=$1 AND cell_id=$2
+			 ORDER BY policy_revision DESC
+			 LIMIT 1`,
+			entry.RuntimeProfileID, entry.CellID).Scan(
+			&stored.Source, &stored.ProfileRevision, &stored.CapabilityDigest,
+			&stored.Lifecycle, &stored.PromotionReceipt)
+		switch {
+		case errors.Is(err, pgx.ErrNoRows):
+			toWrite = append(toWrite, entry)
+			if note == "" {
+				note = "seeded from the embedded capability document"
+			}
+		case err != nil:
 			return fmt.Errorf("read activation policy for %s: %w",
 				activationKey(entry.RuntimeProfileID, entry.CellID), err)
-		}
-		if !exists {
-			missing = append(missing, entry)
+		case documentActivationSeedDrifted(stored, entry):
+			toWrite = append(toWrite, entry)
+			note = "refreshed document seed after benchmark-authority reseal"
 		}
 	}
-	if len(missing) == 0 {
+	if len(toWrite) == 0 {
 		return nil
 	}
-	_, err = insertActivationPolicy(ctx, tx, missing, activationSourceDocument, nil,
-		"seeded from the embedded capability document")
+	if note == "" {
+		note = "seeded from the embedded capability document"
+	}
+	_, err = insertActivationPolicy(ctx, tx, toWrite, activationSourceDocument, nil, note)
 	return err
 }
 
@@ -626,6 +645,18 @@ func activationSnapshotFrom(entries []ActivationPolicyEntry) (*runtimeActivation
 		lifecycle := entry.Lifecycle
 		if runtimeLifecycleRoutable(lifecycle) &&
 			!storedRoutableEntryHasCurrentGlobalAuthority(entry, documentByKey[key]) {
+			// A document seed (or a rollback that restored one) whose
+			// promotion_receipt no longer equals the document is stale in the
+			// same way a digest mismatch is stale. Quarantining it empties the
+			// advertised set and 503s GET /pricing/board.json even when the
+			// current document is ACTIVE+BOUND and a schedule is published.
+			// Operator rows still quarantine: that is the gate-v4 rule.
+			if documentSourcedActivationFallsBackToDocument(entry) {
+				stale = append(stale, fmt.Sprintf(
+					"%s: policy r%d document seed no longer equals the current document; falling back to document",
+					key, entry.PolicyRevision))
+				continue
+			}
 			lifecycle = runtimeLifecycleQuarantined
 			stale = append(stale, fmt.Sprintf(
 				"%s: policy r%d %s %s statement has no current global authority; effective lifecycle is QUARANTINED",
