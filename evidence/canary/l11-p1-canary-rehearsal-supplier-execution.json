@@ -165,5 +165,16 @@
   "schema_version": 1,
   "status": "PARTIAL",
   "synthetic": true,
-  "workers_exercised": 1
+  "workers_exercised": 1,
+  "binding_status": "UNBOUND",
+  "missing_identity_fields": [
+    "source_commit",
+    "build_digest",
+    "model_artifact_digest",
+    "image_digest",
+    "harness_revision",
+    "corpus_digest",
+    "exact_config",
+    "raw_samples"
+  ]
 }

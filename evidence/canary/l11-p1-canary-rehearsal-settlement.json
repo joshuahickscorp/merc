@@ -51,5 +51,16 @@
   },
   "schema_version": 1,
   "status": "BLOCKED",
-  "synthetic": true
+  "synthetic": true,
+  "binding_status": "UNBOUND",
+  "missing_identity_fields": [
+    "source_commit",
+    "build_digest",
+    "model_artifact_digest",
+    "image_digest",
+    "harness_revision",
+    "corpus_digest",
+    "exact_config",
+    "raw_samples"
+  ]
 }

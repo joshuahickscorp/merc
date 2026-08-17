@@ -15,6 +15,7 @@ via the single write path.
 
     python3 scripts/stamp-evidence-binding.py
     python3 scripts/stamp-evidence-binding.py --dry-run
+    python3 scripts/stamp-evidence-binding.py --no-census
 """
 
 from __future__ import annotations
@@ -36,11 +37,19 @@ from lib.evidence_binding import (  # noqa: E402
     default_bound_identity,
     is_job_contract_payload,
     missing_fields_for_object,
+    read_evidence_text,
     stamp_binding_fields,
     strip_binding_meta,
     write_bound_evidence,
     EvidenceBindingError,
 )
+
+VALID_STATUSES = {
+    BINDING_BOUND,
+    BINDING_UNBOUND,
+    BINDING_SUPERSEDED,
+    BINDING_WITHDRAWN,
+}
 
 EVIDENCE = ROOT / "evidence"
 CENSUS_PATH = EVIDENCE / "state" / "evidence-binding-census.json"
@@ -77,8 +86,41 @@ def iter_evidence_files() -> list[Path]:
     return out
 
 
+def _load_json(path: Path):
+    """Load JSON, resolving a git-lfs pointer to the recorded payload."""
+    return json.loads(read_evidence_text(path, ROOT))
+
+
+def _load_sidecar_doc(side: Path) -> dict:
+    """Load an existing sidecar, resolving LFS. Empty dict if unreadable."""
+    if not side.is_file():
+        return {}
+    try:
+        data = _load_json(side)
+    except (OSError, json.JSONDecodeError, EvidenceBindingError, UnicodeDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _already_stamped(data: dict, status: str) -> bool:
+    """True when the object already carries a truthful binding label.
+
+    Skip the rewrite so already-stamped LFS receipts stay pointers instead of
+    being exploded into working-tree JSON. Still rewrite when the label is
+    missing, invalid, or UNBOUND with an empty missing list (validator fail).
+    """
+    existing = str(data.get("binding_status") or "").upper()
+    if existing != status or status not in VALID_STATUSES:
+        return False
+    if status == BINDING_UNBOUND and not list(
+        data.get("missing_identity_fields") or []
+    ):
+        return False
+    return True
+
+
 def stamp_json_object(path: Path, dry_run: bool) -> tuple[str, list[str]]:
-    data = json.loads(path.read_text(encoding="utf-8"))
+    data = _load_json(path)
     if not isinstance(data, dict):
         return stamp_sidecar(path, dry_run, note="non-object JSON")
     # Job-result payloads (embed vectors, batch_infer completions, …) are
@@ -90,6 +132,8 @@ def stamp_json_object(path: Path, dry_run: bool) -> tuple[str, list[str]]:
         # A hand-written UNBOUND with an empty/omitted list is still UNBOUND;
         # recover the checklist so the validator does not treat it as malformed.
         missing = missing_fields_for_object(data, ROOT)
+    if _already_stamped(data, status):
+        return status, missing
     stamped = stamp_binding_fields(data, status, missing)
     if not dry_run:
         text = json.dumps(stamped, indent=2, ensure_ascii=False) + "\n"
@@ -109,21 +153,19 @@ def stamp_payload_object(
     side = binding_sidecar_path(path)
     payload = strip_binding_meta(data)
     # Prefer sidecar status when already present (re-stamp is idempotent).
-    if side.is_file():
-        try:
-            existing = json.loads(side.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            existing = {}
-        if isinstance(existing, dict) and existing.get("binding_status"):
-            status = str(existing["binding_status"]).upper()
-            missing = list(existing.get("missing_identity_fields") or [])
-            if not dry_run and set(data.keys()) != set(payload.keys()):
-                # Body still carries binding meta from a bad stamp — remove it.
-                path.write_text(
-                    json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
-                    encoding="utf-8",
-                )
-            return status, missing
+    # Resolve LFS so a pointer sidecar is not mistaken for an unreadable file
+    # and rewritten (which would explode the pointer).
+    existing = _load_sidecar_doc(side)
+    if existing.get("binding_status"):
+        status = str(existing["binding_status"]).upper()
+        missing = list(existing.get("missing_identity_fields") or [])
+        if not dry_run and set(data.keys()) != set(payload.keys()):
+            # Body still carries binding meta from a bad stamp — remove it.
+            path.write_text(
+                json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
+                encoding="utf-8",
+            )
+        return status, missing
 
     status, missing = classify_existing_artifact(payload, ROOT)
     # If the body still has binding meta (wrong prior stamp), use that status
@@ -159,15 +201,11 @@ def stamp_sidecar(
 ) -> tuple[str, list[str]]:
     """For jsonl/non-object files: write path+'.binding.json' only."""
     side = binding_sidecar_path(path)
-    if side.is_file():
-        try:
-            existing = json.loads(side.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            existing = {}
-        if isinstance(existing, dict) and existing.get("binding_status"):
-            status = str(existing["binding_status"]).upper()
-            missing = list(existing.get("missing_identity_fields") or [])
-            return status, missing
+    existing = _load_sidecar_doc(side)
+    if existing.get("binding_status"):
+        status = str(existing["binding_status"]).upper()
+        missing = list(existing.get("missing_identity_fields") or [])
+        return status, missing
 
     # Non-object historical files are UNBOUND: they carry no producer identity.
     status = BINDING_UNBOUND
@@ -251,6 +289,11 @@ def write_census(counts: dict[str, int], artifacts: list[dict], dry_run: bool) -
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument(
+        "--no-census",
+        action="store_true",
+        help="classify and stamp receipts only; do not rewrite the census",
+    )
     args = ap.parse_args()
 
     counts = {
@@ -265,9 +308,8 @@ def main() -> int:
         rel = path.relative_to(ROOT).as_posix()
         try:
             if path.suffix == ".json":
-                # Peek: object vs array
-                raw = path.read_text(encoding="utf-8")
-                data = json.loads(raw)
+                # Peek: object vs array. Resolve LFS so pointer files classify.
+                data = _load_json(path)
                 if isinstance(data, dict):
                     status, missing = stamp_json_object(path, args.dry_run)
                 else:
@@ -276,7 +318,7 @@ def main() -> int:
                     )
             else:
                 status, missing = stamp_sidecar(path, args.dry_run)
-        except (OSError, json.JSONDecodeError) as exc:
+        except (OSError, json.JSONDecodeError, EvidenceBindingError) as exc:
             print(f"stamp: FAIL {rel}: {exc}", file=sys.stderr)
             return 1
 
@@ -288,6 +330,8 @@ def main() -> int:
         print(f"  {status:10} {rel}" + (f"  missing={missing}" if missing else ""))
 
     print("counts:", counts)
+    if args.no_census:
+        return 0
     try:
         write_census(counts, artifacts, args.dry_run)
     except EvidenceBindingError as exc:

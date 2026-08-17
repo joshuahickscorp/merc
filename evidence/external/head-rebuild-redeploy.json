@@ -155,5 +155,16 @@
     "secret_values_recorded": false,
     "live_plane_interrupted_only_for_control_recreate": true
   },
-  "finished_at": "2026-08-17T02:43:29Z"
+  "finished_at": "2026-08-17T02:43:29Z",
+  "binding_status": "UNBOUND",
+  "missing_identity_fields": [
+    "source_commit",
+    "build_digest",
+    "model_artifact_digest",
+    "image_digest",
+    "harness_revision",
+    "corpus_digest",
+    "exact_config",
+    "raw_samples"
+  ]
 }

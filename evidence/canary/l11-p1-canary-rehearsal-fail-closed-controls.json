@@ -14,10 +14,18 @@
       "version": 4
     },
     "during_pause": {
-      "GET /v1/jobs": {"http": 200, "body": {"jobs": []}},
+      "GET /v1/jobs": {
+        "http": 200,
+        "body": {
+          "jobs": []
+        }
+      },
       "GET /v1/jobs/{unknown}/results": {
         "http": 404,
-        "body": {"error": "job not found", "code": "not_found"},
+        "body": {
+          "error": "job not found",
+          "code": "not_found"
+        },
         "note": "retrieval still answers; 404 is a real response, not a hang or 503"
       }
     },
@@ -91,5 +99,16 @@
   ],
   "schema_version": 1,
   "status": "PARTIAL",
-  "synthetic": true
+  "synthetic": true,
+  "binding_status": "UNBOUND",
+  "missing_identity_fields": [
+    "source_commit",
+    "build_digest",
+    "model_artifact_digest",
+    "image_digest",
+    "harness_revision",
+    "corpus_digest",
+    "exact_config",
+    "raw_samples"
+  ]
 }

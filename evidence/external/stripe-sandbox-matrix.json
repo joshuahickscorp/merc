@@ -172,7 +172,7 @@
       "provider_mode": "test",
       "live_mode": "PROHIBITED",
       "fixture_id": "pi_3U5Dy4CwPLrR4vaY19W85ypY",
-      "detail": "same key different body \u2192 idempotency_error"
+      "detail": "same key different body → idempotency_error"
     }
   },
   "fixtures": {
@@ -433,7 +433,7 @@
       "provider_mode": "test",
       "live_mode": "PROHIBITED",
       "fixture_id": "pi_3U5Dy4CwPLrR4vaY19W85ypY",
-      "detail": "same key different body \u2192 idempotency_error"
+      "detail": "same key different body → idempotency_error"
     },
     {
       "id": "payment_failure_decline_codes",
@@ -1044,5 +1044,15 @@
     ],
     "secret_values_printed": false,
     "live_mode": "PROHIBITED"
-  }
+  },
+  "binding_status": "UNBOUND",
+  "missing_identity_fields": [
+    "source_commit",
+    "build_digest",
+    "model_artifact_digest",
+    "image_digest",
+    "corpus_digest",
+    "exact_config",
+    "raw_samples"
+  ]
 }
