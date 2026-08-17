@@ -28,7 +28,7 @@
   "infer_bindable": true,
   "infer_document_advertised": true,
   "kind": "p1_canary_rehearsal_quote-refusal-chain",
-  "observed_at": "2026-08-17T17:36:38Z",
+  "observed_at": "2026-08-17T20:58:44Z",
   "operator_owned": true,
   "participant_class": "operator_controlled",
   "plane": "local-source",
@@ -36,16 +36,5 @@
   "schema_version": 1,
   "sealed_infer_engine_hash": "7cc01c442c7f6dbe",
   "status": "PASS",
-  "synthetic": true,
-  "binding_status": "UNBOUND",
-  "missing_identity_fields": [
-    "source_commit",
-    "build_digest",
-    "model_artifact_digest",
-    "image_digest",
-    "harness_revision",
-    "corpus_digest",
-    "exact_config",
-    "raw_samples"
-  ]
+  "synthetic": true
 }

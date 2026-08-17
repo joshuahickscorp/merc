@@ -279,6 +279,53 @@ genuinely is not proven.
 `stripe_mode: "live"` in the present tense while `/readyz` answers
 `payment_mode=test`. Reframed as historical; the measurement was not altered.
 
+## Why the loop still does not run on staging
+
+Both refusals that stood between local success and staging success are fixed and
+deployed. `https://mercmerc.net` serves current HEAD, `/readyz` is 200,
+`/pricing/board.json` is 200 (it was 503 — the pricing document seed named the
+superseded r4 promotion receipt while the cell is resealed to r6), and real
+Stripe test-mode events return 200 with zero 500s.
+
+What remains is not those fixes:
+
+**No allowlisted buyer bearer is available to this process.** One unrevoked
+session exists, but Caddy redacts `Authorization`, so it cannot be recovered from
+access logs, and reading `.merc-secrets.env` is prohibited. This is an operator
+credential, not an engineering gap.
+
+**Only one supplier can be admitted.** `max_active_workers=1`, and that worker's
+supplier is owned by the buyer, so a claim refuses `BUYER_SUPPLIER_LINKED` and
+redundancy refuses `NO_INDEPENDENT_SUPPLIER`.
+
+The second one exposed a hole in a decision made during this closeout. Canary was
+allowed to skip the heterogeneous honeypot for operator-controlled participants,
+on the argument that redundancy detects the same defect and fails only to
+collusion. It also fails to having nobody to be redundant with — and with one
+admissible supplier the honeypot was being skipped while redundancy could never
+produce an independent vote, which trades a real control for nothing and only
+notices at verification, after the work is done.
+
+The skip now additionally requires enough admissible independent suppliers for
+redundancy to be independent, with the floor derived from what
+`control/verification.go` actually enforces. One supplier refuses at quote,
+before any write, naming the reason. So staging will 503 on quote until a second
+operator-reserved worker is admitted — the intended refusal, and an ops decision
+rather than something to fix by editing the allowlist.
+
+## Control suite
+
+Exactly two expected failures: `TestL2StripeWebhookMatrixRequiresDashboardSecrets`
+and `TestL2StripeWebhookMatrixAgainstRealHandlers`. Both exist because an audit
+found the production webhook contract had been made to pass with synthetic
+secrets, and the requirement was restored. They pass under
+`make test-money-contract`, which supplies the real dashboard pair and a real
+`sk_test_` key and refuses a non-test key or identical secrets. Everything else
+passes. Supplying those credentials suite-wide is wrong and the suite proves it:
+one test carries its own configured credential and rejects a different one, and a
+guard panics rather than run unhardened verification sampling with money rails
+present.
+
 ## Live money — the actual remaining inputs
 
 Do not perform any of this without explicit operator authorization. Live money
