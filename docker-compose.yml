@@ -3,7 +3,16 @@ services:
     image: postgres:17@sha256:a426e44bac0b759c95894d68e1a0ac03ecc20b619f498a91aae373bf06d8508d
     environment: {POSTGRES_USER: cx, POSTGRES_PASSWORD: cx, POSTGRES_DB: cx}
     ports: ["5432:5432"]
-    volumes: [pgdata:/var/lib/postgresql/data]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./ops/local/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+    # config_file= so lock-table knobs apply on restart of an existing volume,
+    # not only on first init. Values and rationale: ops/local/postgresql.conf.
+    command: ["postgres", "-c", "config_file=/etc/postgresql/postgresql.conf"]
+    # Image default /dev/shm is 64 MB. Parallel CREATE INDEX during schema
+    # apply uses DSM in shm; 256 MB keeps that off the 53200 path that
+    # max_locks_per_transaction is meant to own.
+    shm_size: 256mb
     healthcheck:
       test: [CMD-SHELL, pg_isready -U cx -d cx]
       interval: 5s

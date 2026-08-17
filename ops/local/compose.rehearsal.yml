@@ -11,7 +11,11 @@ services:
       POSTGRES_USER: cx
       POSTGRES_PASSWORD: ${MERC_LOCAL_POSTGRES_PASSWORD:?required}
       POSTGRES_DB: cx
-    volumes: [pgdata:/var/lib/postgresql/data]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./postgresql.conf:/etc/postgresql/postgresql.conf:ro
+    command: ["postgres", "-c", "config_file=/etc/postgresql/postgresql.conf"]
+    shm_size: 256mb
     healthcheck:
       test: [CMD-SHELL, pg_isready -U cx -d cx]
       interval: 3s
