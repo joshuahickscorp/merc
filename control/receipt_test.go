@@ -108,18 +108,25 @@ func TestTaskReceiptNeverLeaksHoneypotAnswer(t *testing.T) {
 // TaskReceipt.IsHoneypot tells the buyer which task was the probe, and the test
 // directly above deliberately pins that exposure. Worker dispatch correctly omits
 // the flag, so today only the buyer can see it — which is safe for exactly one
-// reason: no honeypot task can be admitted at all. validateCurrentUniformCanaryAuthority
-// refuses quote and submit whenever canary honeypots are enabled, because a
-// heterogeneous honeypot has no exact per-task allocation under the bounded v1
-// posture. The field is therefore always false on accepted work.
+// reason: no honeypot task can be admitted at all. An independent-supplier
+// canary still requires a heterogeneous honeypot that uniform v1 cannot
+// allocate, and validateCurrentUniformTaskCounts refuses any honeypot task
+// even on the operator-controlled path that may quote without one. The field
+// is therefore always false on accepted work.
 //
-// If that refusal is ever lifted while the buyer surface still carries the flag,
-// a buyer colluding with a supplier can tell it exactly which task is the probe,
-// and honeypot verification stops proving anything. The buyer surface must
-// change FIRST. This test fails at that moment and names the change.
+// If those refusals are ever lifted while the buyer surface still carries the
+// flag, a buyer colluding with a supplier can tell it exactly which task is the
+// probe, and honeypot verification stops proving anything. The buyer surface
+// must change FIRST. This test fails at that moment and names the change.
 func TestHoneypotIdentityExposureStaysUnreachable(t *testing.T) {
-	if err := validateCurrentUniformCanaryAuthority(true); err == nil {
-		t.Fatal("honeypot admission is no longer refused, so TaskReceipt.IsHoneypot is now a " +
+	if err := validateCurrentUniformCanaryAuthority(CanaryPolicy{Enabled: true}); err == nil {
+		t.Fatal("honeypot admission is no longer refused for an independent-supplier canary, so " +
+			"TaskReceipt.IsHoneypot is now a live verification-evasion channel: stop exposing " +
+			"is_honeypot on the buyer receipt (control/receipt.go TaskReceipt) before enabling " +
+			"honeypot tasks")
+	}
+	if err := validateCurrentUniformTaskCounts(1, 1, 1); err == nil {
+		t.Fatal("honeypot tasks are now admitted, so TaskReceipt.IsHoneypot is now a " +
 			"live verification-evasion channel: stop exposing is_honeypot on the buyer receipt " +
 			"(control/receipt.go TaskReceipt) before enabling honeypot tasks")
 	}

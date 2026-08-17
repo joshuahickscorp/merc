@@ -152,17 +152,77 @@ func TestStagingParticipantsAllowlistNamesSealedHashNotSupersededR5(t *testing.T
 	}
 }
 
-// TestPrivateCanaryStillRefusedByUniformTaskEconomics pins the remaining
-// live-staging 503. Quote and submit call validateCurrentUniformCanaryAuthority
-// with s.canary.Enabled; that function (control/task_economic_authority.go)
-// refuses every canary job because private-canary policy is still defined as
-// requiring a heterogeneous honeypot, which uniform v1 cannot allocate.
-// Lifting this without first removing TaskReceipt.IsHoneypot from the buyer
-// receipt would open a verification-evasion channel (see receipt_test.go).
+func operatorControlledCanaryForTest() CanaryPolicy {
+	return CanaryPolicy{
+		Enabled: true,
+		ApprovedWorkerIDs: map[uuid.UUID]struct{}{
+			operatorReservedWorkerID(1): {},
+		},
+		MaxOutputTokens:        32,
+		MaxJobDurationSecs:     defaultMaxJobDurationSecs,
+		MaxShadowValueUSD:      5,
+		MaxArtifactBytes:       33554432,
+		MaxInputBytes:          33554432,
+		MaxTasksPerJob:         64,
+		MaxActiveBuyers:        2,
+		MaxActiveWorkers:       1,
+		MaxQueuedJobs:          20,
+		MaxDailyJobs:           100,
+		MaxHeldShadowPayoutUSD: 10,
+	}
+}
+
+func independentSupplierCanaryForTest() CanaryPolicy {
+	p := operatorControlledCanaryForTest()
+	p.ApprovedWorkerIDs = map[uuid.UUID]struct{}{uuid.New(): {}}
+	return p
+}
+
+func TestOperatorReservedWorkerIDMatchesStagingAllowlistIdentity(t *testing.T) {
+	got := operatorReservedWorkerID(1)
+	want := uuid.MustParse("7d2bb6c8-c45a-505e-ae39-6b9fc73989f5")
+	if got != want {
+		t.Fatalf("operator-reserved worker 1 = %s, want the alpha-participants identity %s", got, want)
+	}
+	if !isOperatorReservedWorkerID(got) || isOperatorReservedWorkerID(uuid.New()) {
+		t.Fatal("operator-reserved classification does not match the reserved namespace")
+	}
+}
+
+func TestAdmittedSupplierClassIsReservedOperatorWorkers(t *testing.T) {
+	if got := operatorControlledCanaryForTest().admittedSupplierClass(); got != supplierParticipantClassOperatorControlled {
+		t.Fatalf("closed reserved allowlist class=%q", got)
+	}
+	if !operatorControlledCanaryForTest().Enabled || operatorControlledCanaryForTest().requiresHeterogeneousHoneypot() {
+		t.Fatal("operator-controlled canary must not require a heterogeneous honeypot")
+	}
+	independent := independentSupplierCanaryForTest()
+	if got := independent.admittedSupplierClass(); got != supplierParticipantClassIndependent {
+		t.Fatalf("non-reserved allowlist class=%q, want independent", got)
+	}
+	if !independent.requiresHeterogeneousHoneypot() {
+		t.Fatal("a canary that names a non-reserved worker must still require a honeypot")
+	}
+	empty := CanaryPolicy{Enabled: true}
+	if got := empty.admittedSupplierClass(); got != supplierParticipantClassIndependent {
+		t.Fatalf("empty allowlist class=%q, want independent", got)
+	}
+	if (CanaryPolicy{}).requiresHeterogeneousHoneypot() {
+		t.Fatal("canary-off must not trip the canary honeypot gate")
+	}
+}
+
+// TestPrivateCanaryStillRefusedByUniformTaskEconomics pins the narrower
+// refusal: a canary that can admit a supplier which is not operator-controlled
+// still requires a heterogeneous honeypot, which uniform v1 cannot allocate.
+// Operator-controlled canary is the other class and must pass this gate.
+// Lifting the independent-supplier refusal without first removing
+// TaskReceipt.IsHoneypot from the buyer receipt would open a
+// verification-evasion channel (see receipt_test.go).
 func TestPrivateCanaryStillRefusedByUniformTaskEconomics(t *testing.T) {
-	err := validateCurrentUniformCanaryAuthority(true)
+	err := validateCurrentUniformCanaryAuthority(independentSupplierCanaryForTest())
 	if err == nil {
-		t.Fatal("canary admission is no longer refused; confirm TaskReceipt.IsHoneypot is gone from the buyer surface before enabling honeypot tasks")
+		t.Fatal("independent-supplier canary admission is no longer refused; confirm TaskReceipt.IsHoneypot is gone from the buyer surface before enabling honeypot tasks")
 	}
 	if !errors.Is(err, errHeterogeneousTaskEconomicsUnavailable) {
 		t.Fatalf("want errHeterogeneousTaskEconomicsUnavailable, got %v", err)
@@ -170,8 +230,14 @@ func TestPrivateCanaryStillRefusedByUniformTaskEconomics(t *testing.T) {
 	if !strings.Contains(err.Error(), "private canary requires a heterogeneous honeypot") {
 		t.Fatalf("refusal text changed: %v", err)
 	}
-	if err := validateCurrentUniformCanaryAuthority(false); err != nil {
+	if !strings.Contains(err.Error(), supplierParticipantClassIndependent) {
+		t.Fatalf("refusal did not name the independent participant class: %v", err)
+	}
+	if err := validateCurrentUniformCanaryAuthority(CanaryPolicy{}); err != nil {
 		t.Fatalf("non-canary admission was refused: %v", err)
+	}
+	if err := validateCurrentUniformCanaryAuthority(operatorControlledCanaryForTest()); err != nil {
+		t.Fatalf("operator-controlled canary was refused: %v", err)
 	}
 }
 

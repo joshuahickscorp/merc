@@ -160,3 +160,46 @@ func TestQuoteAndSubmitRejectUnknownObjective(t *testing.T) {
 		t.Fatalf("submit error did not name the unknown objective: %s", herr.msg)
 	}
 }
+
+func TestNormalizeWorkloadRequestOperatorControlledLeavesHoneypotZero(t *testing.T) {
+	server := &Server{canary: operatorControlledCanaryForTest()}
+	in := jobSubmit{
+		JobType:     JobType{Type: "batch_infer", MaxTokens: 16},
+		Constraints: JobConstraints{MaxDurationSecs: 600},
+		MaxUSD:      1,
+		Verification: VerificationPolicy{
+			RedundancyFrac: 1,
+			HoneypotFrac:   0,
+		},
+	}
+	out, herr := server.normalizeWorkloadRequest(in, false)
+	if herr != nil {
+		t.Fatalf("operator-controlled shape refused: %s", herr.msg)
+	}
+	if out.Verification.HoneypotFrac != 0 {
+		t.Fatalf("honeypot_frac=%v, want 0 (redundancy-only substitute)", out.Verification.HoneypotFrac)
+	}
+	if out.Verification.RedundancyFrac != 1 {
+		t.Fatalf("redundancy_frac=%v, want 1", out.Verification.RedundancyFrac)
+	}
+}
+
+func TestNormalizeWorkloadRequestIndependentCanaryStillFloorsHoneypot(t *testing.T) {
+	server := &Server{canary: independentSupplierCanaryForTest()}
+	in := jobSubmit{
+		JobType:     JobType{Type: "batch_infer", MaxTokens: 16},
+		Constraints: JobConstraints{MaxDurationSecs: 600},
+		MaxUSD:      1,
+		Verification: VerificationPolicy{
+			RedundancyFrac: 1,
+			HoneypotFrac:   0,
+		},
+	}
+	out, herr := server.normalizeWorkloadRequest(in, false)
+	if herr != nil {
+		t.Fatalf("independent-supplier shape refused: %s", herr.msg)
+	}
+	if out.Verification.HoneypotFrac != 0.1 {
+		t.Fatalf("honeypot_frac=%v, want the 0.1 independent-supplier floor", out.Verification.HoneypotFrac)
+	}
+}

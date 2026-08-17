@@ -230,6 +230,65 @@ func (p CanaryPolicy) allowsWorkerRuntime(cap WorkerCapability) bool {
 		cap.AgentSessionID != nil && *cap.AgentSessionID != uuid.Nil
 }
 
+// Supplier participant classes. These are derived from who this envelope can
+// enroll, not from a trust-me flag. An environment variable that says the
+// operator should be believed cannot change the class.
+const (
+	supplierParticipantClassOperatorControlled = "operator_controlled"
+	supplierParticipantClassIndependent        = "independent"
+)
+
+// maxOperatorReservedWorkers is this alpha's operator-controlled Metal bound.
+// Identities are uuid5(NAMESPACE_DNS, "mercmerc.net:alpha-worker-N") as named
+// in ops/staging/alpha-participants.json. This is classification, not an
+// allowlist expansion: allowsWorker still decides who may enroll.
+const maxOperatorReservedWorkers = 2
+
+func operatorReservedWorkerID(n int) uuid.UUID {
+	return uuid.NewSHA1(uuid.NameSpaceDNS, []byte(fmt.Sprintf("mercmerc.net:alpha-worker-%d", n)))
+}
+
+func isOperatorReservedWorkerID(id uuid.UUID) bool {
+	for n := 1; n <= maxOperatorReservedWorkers; n++ {
+		if id == operatorReservedWorkerID(n) {
+			return true
+		}
+	}
+	return false
+}
+
+// admittedSupplierClass is the class of every supplier this canary envelope
+// can enroll. operator_controlled requires a closed, non-empty worker
+// allowlist whose every identity is operator-reserved. Any other canary-on
+// posture — empty allowlist, config error, or a non-reserved worker — is
+// independent, which is the class at which a honeypot is still required.
+//
+// Canary-off self-serve enrollment is also independent; the honeypot-for-
+// independent-supplier gate only applies while canary is on.
+func (p CanaryPolicy) admittedSupplierClass() string {
+	if !p.Enabled {
+		return supplierParticipantClassIndependent
+	}
+	if p.configError != nil || len(p.ApprovedWorkerIDs) == 0 {
+		return supplierParticipantClassIndependent
+	}
+	for id := range p.ApprovedWorkerIDs {
+		if !isOperatorReservedWorkerID(id) {
+			return supplierParticipantClassIndependent
+		}
+	}
+	return supplierParticipantClassOperatorControlled
+}
+
+// requiresHeterogeneousHoneypot is true when canary is on and this envelope
+// can admit a supplier that is not operator-controlled. Redundancy is a
+// sound substitute only for the operator-controlled class: every current
+// alpha supplier is operator-owned, so collusion between suppliers is not a
+// reachable harm. Independent suppliers restore the honeypot requirement.
+func (p CanaryPolicy) requiresHeterogeneousHoneypot() bool {
+	return p.Enabled && p.admittedSupplierClass() != supplierParticipantClassOperatorControlled
+}
+
 func (p CanaryPolicy) validateJobShape(sub jobSubmit) error {
 	if !p.Enabled {
 		return nil

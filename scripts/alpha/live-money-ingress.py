@@ -6,6 +6,7 @@ each event type plus both cross-authority refusals.
 """
 from __future__ import annotations
 
+import argparse
 import hashlib
 import hmac
 import json
@@ -20,6 +21,14 @@ import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "scripts"))
+from lib.evidence_binding import (  # noqa: E402
+    default_bound_identity,
+    slot_na,
+    slot_value,
+    write_bound_evidence,
+)
+
 HOST = "mercmerc.net"
 API_VERSION = "2025-06-30.basil"
 EVENTS = [
@@ -212,11 +221,35 @@ def classify_body(status: int, body: str) -> str:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.parse_args()
     key = load_test_key()
     billing = remote_secret("stripe-billing-webhook")
     connect = remote_secret("stripe-connect-webhook")
     if billing == connect:
         die("billing and Connect webhook secrets are identical")
+
+    def https_json(path: str) -> tuple[int, dict | str]:
+        req = urllib.request.Request(
+            f"https://{HOST}{path}",
+            headers={"User-Agent": "merc-l7-live-money-ingress"},
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=20, context=ssl.create_default_context()) as resp:
+                raw = resp.read().decode()
+                try:
+                    return resp.status, json.loads(raw)
+                except json.JSONDecodeError:
+                    return resp.status, raw
+        except urllib.error.HTTPError as exc:
+            raw = exc.read().decode(errors="replace")
+            try:
+                return exc.code, json.loads(raw)
+            except json.JSONDecodeError:
+                return exc.code, raw
+
+    ready_before_code, ready_before = https_json("/readyz")
+    version_before_code, version_before = https_json("/version")
 
     inventory = stripe_api(key, "GET", "webhook_endpoints?limit=100")
     endpoints = []
@@ -313,17 +346,16 @@ def main() -> int:
         "awk '/billing webhook|connect webhook|stripe/ {print}' | tail -80"
     )
 
-    version_code, version_body = None, {}
-    try:
-        req = urllib.request.Request(
-            f"https://{HOST}/version",
-            headers={"User-Agent": "merc-l7-live-money-ingress"},
-        )
-        with urllib.request.urlopen(req, timeout=20, context=ssl.create_default_context()) as resp:
-            version_code = resp.status
-            version_body = json.loads(resp.read().decode())
-    except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
-        die(f"cannot read /version after webhook matrix: {exc}")
+    version_code, version_body = https_json("/version")
+    if version_code != 200 or not isinstance(version_body, dict):
+        die(f"cannot read /version after webhook matrix: {version_code} {version_body}")
+    ready_after_code, ready_after = https_json("/readyz")
+    if ready_after_code != 200 or not isinstance(ready_after, dict):
+        die(f"/readyz after webhook matrix is {ready_after_code} {ready_after}")
+    if ready_after.get("status") != "ready" or ready_after.get("payment_mode") != "test":
+        die(f"/readyz after webhook matrix is not test/ready: {ready_after}")
+    if ready_after.get("live_value_movement") is not False:
+        die(f"/readyz live_value_movement is not false: {ready_after}")
     image_id = remote("docker inspect -f '{{.Image}}' merc-control-1").strip()
 
     access_log = []
@@ -402,10 +434,36 @@ def main() -> int:
         "unknown_customer_acknowledged": any(
             "unknown customer" in line for line in control_logs.splitlines()
         ),
+        "readyz_before": {"http": ready_before_code, "body": ready_before},
+        "readyz_after": {"http": ready_after_code, "body": ready_after},
+        "version_before": {"http": version_before_code, "body": version_before},
     }
     tmp_out = Path("/tmp/merc-l7-money-ingress.json")
     tmp_out.write_text(json.dumps(receipt, indent=2) + "\n")
     print(f"wrote {tmp_out}")
+    identity = default_bound_identity(
+        ROOT,
+        harness_revision="scripts/alpha/live-money-ingress.py",
+        build_binary_path=Path(__file__).resolve(),
+        exact_config="embedded in receipt body",
+        raw_samples="embedded in receipt body",
+        model_na="no model weights in this staging-plane receipt",
+        image_na="no container image in this measurement",
+        corpus_na="no external corpus in this staging-plane receipt",
+    )
+    identity["image_digest"] = slot_value(image_id.removeprefix("sha256:"))
+    identity["model_artifact_digest"] = slot_na(
+        "no model weights in this staging-plane receipt"
+    )
+    dest = ROOT / "evidence/external/staging-money-ingress.json"
+    write_bound_evidence(
+        path=dest,
+        payload=receipt,
+        identity=identity,
+        repo_root=ROOT,
+        build_binary_path=Path(__file__).resolve(),
+    )
+    print(f"wrote {dest}")
     if any(r["http_status"] == 500 for r in results):
         die("a signed post returned 500")
     if any(row["cli_rc"] != 0 for row in cli_rows):

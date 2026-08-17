@@ -799,7 +799,7 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 		return JobSubmitResponse{}, verr
 	}
 	sub = normalized
-	if err := validateCurrentUniformCanaryAuthority(s.canary.Enabled); err != nil {
+	if err := validateCurrentUniformCanaryAuthority(s.canary); err != nil {
 		return JobSubmitResponse{}, &httpError{http.StatusServiceUnavailable,
 			"exact task-economic authority unavailable: " + err.Error()}
 	}

@@ -4,31 +4,31 @@
   "status": "PASS",
   "host": "mercmerc.net",
   "deploy_root": "/opt/merc",
-  "candidate_commit": "9e31c65b27860d659d7ce972e2de7052691c0642",
-  "candidate_image_id": "sha256:e0b642220dcd195c84290466cdaf90c2083c8740a87e6c3166d5817683f59fd3",
-  "candidate_loaded_id": "sha256:e0b642220dcd195c84290466cdaf90c2083c8740a87e6c3166d5817683f59fd3",
-  "prior_commit": "19fe0b23940c7e3d4da9b45d9cc5689c2c515d07",
-  "prior_image_id": "sha256:245dc92a5fffc1b9ffefe2452277797a498dc9cfb779dd915ae2631802175768",
-  "prior_retained": "prior_id=sha256:245dc92a5fffc1b9ffefe2452277797a498dc9cfb779dd915ae2631802175768 tags=[\"computexchange/control:19fe0b23940c7e3d4da9b45d9cc5689c2c515d07\",\"merc/control:19fe0b23940c\"]",
-  "build_date": "2026-08-17T15:33:33Z",
+  "candidate_commit": "aa1f189e8dca8d0964929897859c71f445f89b1e",
+  "candidate_image_id": "sha256:b656365974f4849f612e27e4ab2b187b8ced07201d3401bf02d7b4d238901f77",
+  "candidate_loaded_id": "sha256:b656365974f4849f612e27e4ab2b187b8ced07201d3401bf02d7b4d238901f77",
+  "prior_commit": "9e31c65b27860d659d7ce972e2de7052691c0642",
+  "prior_image_id": "sha256:e0b642220dcd195c84290466cdaf90c2083c8740a87e6c3166d5817683f59fd3",
+  "prior_retained": "id=sha256:e0b642220dcd195c84290466cdaf90c2083c8740a87e6c3166d5817683f59fd3 tags=[\"computexchange/control:9e31c65b27860d659d7ce972e2de7052691c0642\",\"merc/control:9e31c65b2786\"]",
+  "historic_prior_commit": "19fe0b23940c7e3d4da9b45d9cc5689c2c515d07",
+  "historic_prior_image_id": "sha256:245dc92a5fffc1b9ffefe2452277797a498dc9cfb779dd915ae2631802175768",
+  "historic_prior_retained": "id=sha256:245dc92a5fffc1b9ffefe2452277797a498dc9cfb779dd915ae2631802175768 tags=[\"computexchange/control:19fe0b23940c7e3d4da9b45d9cc5689c2c515d07\",\"merc/control:19fe0b23940c\"]",
+  "build_date": "2026-08-17T20:10:40Z",
   "toolchain": "golang:1.26.6@sha256:0d1d3a794be25f809dd2cb3160d8c73276c4056a9f8242a138e908ddeee7b6b6",
-  "pre": {
-    "at": "2026-08-17T15:34:44Z",
-    "inspect": "/merc-control-1 started=2026-08-17T02:43:22.15967797Z image=sha256:245dc92a5fffc1b9ffefe2452277797a498dc9cfb779dd915ae2631802175768 status=running health=healthy\n/merc-postgres-1 started=2026-08-16T23:58:11.006751471Z image=sha256:a426e44bac0b759c95894d68e1a0ac03ecc20b619f498a91aae373bf06d8508d status=running health=healthy\n/merc-minio-1 started=2026-08-16T23:58:23.587891976Z image=sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e status=running health=healthy\n",
-    "prior": "prior_id=sha256:245dc92a5fffc1b9ffefe2452277797a498dc9cfb779dd915ae2631802175768 tags=[\"computexchange/control:19fe0b23940c7e3d4da9b45d9cc5689c2c515d07\",\"merc/control:19fe0b23940c\"]",
-    "version": {
-      "version": "v0.1.0-merc-staging",
-      "commit": "19fe0b23940c7e3d4da9b45d9cc5689c2c515d07",
-      "build_date": "2026-08-17T02:38:51Z",
-      "go_version": "go1.26.6",
-      "platform": "linux/amd64",
-      "modified": false,
-      "price_board_sha256": "440909b34593487d8bd5d00c1b65244cc0a971755507b665014334505a34f48c",
-      "price_board_source": "release",
-      "capability_matrix_sha256": "0b569a272b2bef7f553cad0efbe7bac9fc42a18944b16ac60b590763f497d60c",
-      "authority_document_sha256": "d03a7596c026744bcfa824d03bee5d5950218fe2cbcd93f7900643ccf047915d"
-    },
-    "readyz": {
+  "compose": "docker compose -f docker-compose.prod.yml -f docker-compose.smallhost.yml -f docker-compose.canary.yml -f ops/staging/compose.alpha.yml",
+  "compose_pin": {
+    "local_path": "ops/staging/compose.alpha.yml",
+    "remote_path": "/opt/merc/ops/staging/compose.alpha.yml",
+    "sha256": "736044fb11f1654843d427b91429b6713d07bed721b50f38b376c48ce196d0e1",
+    "pinned_hash": "7cc01c442c7f6dbe",
+    "merged_compose_build_hash": "7cc01c442c7f6dbe",
+    "host_env_build_hash": "f4303a751ca2b2af",
+    "host_env_rewritten": false,
+    "note": "compose overlay pins sealed r6 hash; host .env still carries f4303a751ca2b2af and was not rewritten"
+  },
+  "readyz_before": {
+    "http": 200,
+    "body": {
       "live_value_movement": false,
       "payment_mode": "test",
       "payment_recovery_active": true,
@@ -37,15 +37,25 @@
       "stripe_api_version": "2025-06-30.basil"
     }
   },
-  "first_activate": {
-    "at": "2026-08-17T15:34:56Z",
-    "finished_at": "2026-08-17T15:35:05Z",
-    "commit": "9e31c65b27860d659d7ce972e2de7052691c0642",
-    "configured_image": "computexchange/control:9e31c65b27860d659d7ce972e2de7052691c0642",
-    "image_id": "sha256:e0b642220dcd195c84290466cdaf90c2083c8740a87e6c3166d5817683f59fd3",
-    "inspect": "/merc-control-1 started=2026-08-17T15:34:58.604856425Z image=sha256:e0b642220dcd195c84290466cdaf90c2083c8740a87e6c3166d5817683f59fd3 status=running health=starting\n/merc-postgres-1 started=2026-08-16T23:58:11.006751471Z image=sha256:a426e44bac0b759c95894d68e1a0ac03ecc20b619f498a91aae373bf06d8508d status=running health=healthy\n/merc-minio-1 started=2026-08-16T23:58:23.587891976Z image=sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e status=running health=healthy\n",
-    "postgres_started_at": "2026-08-16T23:58:11.006751471Z",
-    "minio_started_at": "2026-08-16T23:58:23.587891976Z",
+  "readyz_after": {
+    "http": 200,
+    "body": {
+      "live_value_movement": false,
+      "payment_mode": "test",
+      "payment_recovery_active": true,
+      "provider_enabled": true,
+      "status": "ready",
+      "stripe_api_version": "2025-06-30.basil"
+    }
+  },
+  "pre": {
+    "at": "2026-08-17T20:12:50Z",
+    "inspect": "/merc-control-1 started=2026-08-17T15:35:21.0997652Z image=sha256:e0b642220dcd195c84290466cdaf90c2083c8740a87e6c3166d5817683f59fd3 status=running health=healthy\n/merc-postgres-1 started=2026-08-16T23:58:11.006751471Z image=sha256:a426e44bac0b759c95894d68e1a0ac03ecc20b619f498a91aae373bf06d8508d status=running health=healthy\n/merc-minio-1 started=2026-08-16T23:58:23.587891976Z image=sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e status=running health=healthy\n",
+    "prior_commit": "9e31c65b27860d659d7ce972e2de7052691c0642",
+    "prior_image_id": "sha256:e0b642220dcd195c84290466cdaf90c2083c8740a87e6c3166d5817683f59fd3",
+    "historic_prior": "id=sha256:245dc92a5fffc1b9ffefe2452277797a498dc9cfb779dd915ae2631802175768 tags=[\"computexchange/control:19fe0b23940c7e3d4da9b45d9cc5689c2c515d07\",\"merc/control:19fe0b23940c\"]",
+    "live_prior": "id=sha256:e0b642220dcd195c84290466cdaf90c2083c8740a87e6c3166d5817683f59fd3 tags=[\"computexchange/control:9e31c65b27860d659d7ce972e2de7052691c0642\",\"merc/control:9e31c65b2786\"]",
+    "version_http": 200,
     "version": {
       "version": "v0.1.0-merc-staging",
       "commit": "9e31c65b27860d659d7ce972e2de7052691c0642",
@@ -58,6 +68,40 @@
       "capability_matrix_sha256": "0b569a272b2bef7f553cad0efbe7bac9fc42a18944b16ac60b590763f497d60c",
       "authority_document_sha256": "d03a7596c026744bcfa824d03bee5d5950218fe2cbcd93f7900643ccf047915d"
     },
+    "readyz_http": 200,
+    "readyz": {
+      "live_value_movement": false,
+      "payment_mode": "test",
+      "payment_recovery_active": true,
+      "provider_enabled": true,
+      "status": "ready",
+      "stripe_api_version": "2025-06-30.basil"
+    },
+    "host_env_build_hash": "f4303a751ca2b2af",
+    "running_canary_hash": "f4303a751ca2b2af"
+  },
+  "first_activate": {
+    "at": "2026-08-17T20:13:07Z",
+    "finished_at": "2026-08-17T20:13:18Z",
+    "commit": "aa1f189e8dca8d0964929897859c71f445f89b1e",
+    "configured_image": "computexchange/control:aa1f189e8dca8d0964929897859c71f445f89b1e",
+    "image_id": "sha256:b656365974f4849f612e27e4ab2b187b8ced07201d3401bf02d7b4d238901f77",
+    "inspect": "/merc-control-1 started=2026-08-17T20:13:10.822343404Z image=sha256:b656365974f4849f612e27e4ab2b187b8ced07201d3401bf02d7b4d238901f77 status=running health=starting\n/merc-postgres-1 started=2026-08-16T23:58:11.006751471Z image=sha256:a426e44bac0b759c95894d68e1a0ac03ecc20b619f498a91aae373bf06d8508d status=running health=healthy\n/merc-minio-1 started=2026-08-16T23:58:23.587891976Z image=sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e status=running health=healthy\n",
+    "postgres_started_at": "2026-08-16T23:58:11.006751471Z",
+    "minio_started_at": "2026-08-16T23:58:23.587891976Z",
+    "canary_approved_build_hashes": "7cc01c442c7f6dbe",
+    "version": {
+      "version": "v0.1.0-merc-staging",
+      "commit": "aa1f189e8dca8d0964929897859c71f445f89b1e",
+      "build_date": "2026-08-17T20:10:40Z",
+      "go_version": "go1.26.6",
+      "platform": "linux/amd64",
+      "modified": false,
+      "price_board_sha256": "440909b34593487d8bd5d00c1b65244cc0a971755507b665014334505a34f48c",
+      "price_board_source": "release",
+      "capability_matrix_sha256": "0b569a272b2bef7f553cad0efbe7bac9fc42a18944b16ac60b590763f497d60c",
+      "authority_document_sha256": "7c7538f6763054fc383da664d48779a8caea6735f67ad4749dbf6a341691d7be"
+    },
     "readyz": {
       "live_value_movement": false,
       "payment_mode": "test",
@@ -69,18 +113,19 @@
     "readyz_http": 200
   },
   "rollback": {
-    "at": "2026-08-17T15:35:05Z",
-    "finished_at": "2026-08-17T15:35:17Z",
-    "commit": "19fe0b23940c7e3d4da9b45d9cc5689c2c515d07",
-    "configured_image": "computexchange/control:19fe0b23940c7e3d4da9b45d9cc5689c2c515d07",
-    "image_id": "sha256:245dc92a5fffc1b9ffefe2452277797a498dc9cfb779dd915ae2631802175768",
-    "inspect": "/merc-control-1 started=2026-08-17T15:35:09.427948839Z image=sha256:245dc92a5fffc1b9ffefe2452277797a498dc9cfb779dd915ae2631802175768 status=running health=starting\n/merc-postgres-1 started=2026-08-16T23:58:11.006751471Z image=sha256:a426e44bac0b759c95894d68e1a0ac03ecc20b619f498a91aae373bf06d8508d status=running health=healthy\n/merc-minio-1 started=2026-08-16T23:58:23.587891976Z image=sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e status=running health=healthy\n",
+    "at": "2026-08-17T20:13:18Z",
+    "finished_at": "2026-08-17T20:13:25Z",
+    "commit": "9e31c65b27860d659d7ce972e2de7052691c0642",
+    "configured_image": "computexchange/control:9e31c65b27860d659d7ce972e2de7052691c0642",
+    "image_id": "sha256:e0b642220dcd195c84290466cdaf90c2083c8740a87e6c3166d5817683f59fd3",
+    "inspect": "/merc-control-1 started=2026-08-17T20:13:20.314154475Z image=sha256:e0b642220dcd195c84290466cdaf90c2083c8740a87e6c3166d5817683f59fd3 status=running health=starting\n/merc-postgres-1 started=2026-08-16T23:58:11.006751471Z image=sha256:a426e44bac0b759c95894d68e1a0ac03ecc20b619f498a91aae373bf06d8508d status=running health=healthy\n/merc-minio-1 started=2026-08-16T23:58:23.587891976Z image=sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e status=running health=healthy\n",
     "postgres_started_at": "2026-08-16T23:58:11.006751471Z",
     "minio_started_at": "2026-08-16T23:58:23.587891976Z",
+    "canary_approved_build_hashes": "7cc01c442c7f6dbe",
     "version": {
       "version": "v0.1.0-merc-staging",
-      "commit": "19fe0b23940c7e3d4da9b45d9cc5689c2c515d07",
-      "build_date": "2026-08-17T02:38:51Z",
+      "commit": "9e31c65b27860d659d7ce972e2de7052691c0642",
+      "build_date": "2026-08-17T15:33:33Z",
       "go_version": "go1.26.6",
       "platform": "linux/amd64",
       "modified": false,
@@ -100,25 +145,26 @@
     "readyz_http": 200
   },
   "forward": {
-    "at": "2026-08-17T15:35:19Z",
-    "finished_at": "2026-08-17T15:35:28Z",
-    "commit": "9e31c65b27860d659d7ce972e2de7052691c0642",
-    "configured_image": "computexchange/control:9e31c65b27860d659d7ce972e2de7052691c0642",
-    "image_id": "sha256:e0b642220dcd195c84290466cdaf90c2083c8740a87e6c3166d5817683f59fd3",
-    "inspect": "/merc-control-1 started=2026-08-17T15:35:21.0997652Z image=sha256:e0b642220dcd195c84290466cdaf90c2083c8740a87e6c3166d5817683f59fd3 status=running health=starting\n/merc-postgres-1 started=2026-08-16T23:58:11.006751471Z image=sha256:a426e44bac0b759c95894d68e1a0ac03ecc20b619f498a91aae373bf06d8508d status=running health=healthy\n/merc-minio-1 started=2026-08-16T23:58:23.587891976Z image=sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e status=running health=healthy\n",
+    "at": "2026-08-17T20:13:27Z",
+    "finished_at": "2026-08-17T20:13:35Z",
+    "commit": "aa1f189e8dca8d0964929897859c71f445f89b1e",
+    "configured_image": "computexchange/control:aa1f189e8dca8d0964929897859c71f445f89b1e",
+    "image_id": "sha256:b656365974f4849f612e27e4ab2b187b8ced07201d3401bf02d7b4d238901f77",
+    "inspect": "/merc-control-1 started=2026-08-17T20:13:30.159793557Z image=sha256:b656365974f4849f612e27e4ab2b187b8ced07201d3401bf02d7b4d238901f77 status=running health=starting\n/merc-postgres-1 started=2026-08-16T23:58:11.006751471Z image=sha256:a426e44bac0b759c95894d68e1a0ac03ecc20b619f498a91aae373bf06d8508d status=running health=healthy\n/merc-minio-1 started=2026-08-16T23:58:23.587891976Z image=sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e status=running health=healthy\n",
     "postgres_started_at": "2026-08-16T23:58:11.006751471Z",
     "minio_started_at": "2026-08-16T23:58:23.587891976Z",
+    "canary_approved_build_hashes": "7cc01c442c7f6dbe",
     "version": {
       "version": "v0.1.0-merc-staging",
-      "commit": "9e31c65b27860d659d7ce972e2de7052691c0642",
-      "build_date": "2026-08-17T15:33:33Z",
+      "commit": "aa1f189e8dca8d0964929897859c71f445f89b1e",
+      "build_date": "2026-08-17T20:10:40Z",
       "go_version": "go1.26.6",
       "platform": "linux/amd64",
       "modified": false,
       "price_board_sha256": "440909b34593487d8bd5d00c1b65244cc0a971755507b665014334505a34f48c",
       "price_board_source": "release",
       "capability_matrix_sha256": "0b569a272b2bef7f553cad0efbe7bac9fc42a18944b16ac60b590763f497d60c",
-      "authority_document_sha256": "d03a7596c026744bcfa824d03bee5d5950218fe2cbcd93f7900643ccf047915d"
+      "authority_document_sha256": "7c7538f6763054fc383da664d48779a8caea6735f67ad4749dbf6a341691d7be"
     },
     "readyz": {
       "live_value_movement": false,
@@ -131,16 +177,16 @@
     "readyz_http": 200
   },
   "markers_before": {
-    "postgres_marker": "lane-b-rebuild-20260817|present-before-rollback",
-    "minio_marker": "lane-b-rebuild-20260817"
+    "postgres_marker": "lane-s3-rebuild-20260817|present-before-rollback",
+    "minio_marker": "lane-s3-rebuild-20260817"
   },
   "markers_rollback": {
-    "postgres_marker": "lane-b-rebuild-20260817|present-before-rollback",
-    "minio_marker": "lane-b-rebuild-20260817"
+    "postgres_marker": "lane-s3-rebuild-20260817|present-before-rollback",
+    "minio_marker": "lane-s3-rebuild-20260817"
   },
   "markers_forward": {
-    "postgres_marker": "lane-b-rebuild-20260817|present-before-rollback",
-    "minio_marker": "lane-b-rebuild-20260817"
+    "postgres_marker": "lane-s3-rebuild-20260817|present-before-rollback",
+    "minio_marker": "lane-s3-rebuild-20260817"
   },
   "data_plane": {
     "postgres_started_at": "2026-08-16T23:58:11.006751471Z",
@@ -153,11 +199,14 @@
   "policy": {
     "stripe_live_mode": false,
     "secret_values_recorded": false,
-    "live_plane_interrupted_only_for_control_recreate": true
+    "live_plane_interrupted_only_for_control_recreate": true,
+    "host_env_build_hash_rewritten": false,
+    "canary_boot_check_defeated": false,
+    "compose_pin_shipped": true
   },
-  "finished_at": "2026-08-17T15:35:30Z",
+  "finished_at": "2026-08-17T20:13:39Z",
   "webhook_status_table": {
-    "observed_at": "2026-08-17T15:36:22Z",
+    "observed_at": "2026-08-17T20:14:18Z",
     "signed_posts": [
       {
         "source": "hmac_signed_live_post",
@@ -246,18 +295,19 @@
     ],
     "five_hundreds": 0
   },
+  "money_ingress_receipt": "evidence/external/staging-money-ingress.json",
   "producer_identity": {
     "source_commit": {
-      "value": "9e31c65b27860d659d7ce972e2de7052691c0642"
+      "value": "aa1f189e8dca8d0964929897859c71f445f89b1e"
     },
     "build_digest": {
-      "value": "0ff159ba29430d392d7a6389b0ec70382a0753fbfdc81beff04e603b6b3e8b37"
+      "value": "4fc0b9417ba8f855f4c6c97f0ed7569667cf305952fbcab9936448703d34f252"
     },
     "model_artifact_digest": {
       "na": "no model weights in this staging-plane receipt"
     },
     "image_digest": {
-      "value": "e0b642220dcd195c84290466cdaf90c2083c8740a87e6c3166d5817683f59fd3"
+      "value": "b656365974f4849f612e27e4ab2b187b8ced07201d3401bf02d7b4d238901f77"
     },
     "harness_revision": {
       "value": "scripts/alpha/rebuild-redeploy.py"

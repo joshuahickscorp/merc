@@ -746,7 +746,7 @@ var (
 )
 
 func (s *Server) buildQuoteWithSchedule(ctx context.Context, buyerID uuid.UUID, sub jobSubmit, inputBytes []byte, workload WorkloadDecision, schedule EconomicSchedule) (Quote, error) {
-	if err := validateCurrentUniformCanaryAuthority(s.canary.Enabled); err != nil {
+	if err := validateCurrentUniformCanaryAuthority(s.canary); err != nil {
 		return Quote{}, fmt.Errorf("%w: %w", errQuotePhysicalAuthorityUnavailable, err)
 	}
 	jobType := sub.JobType.Type

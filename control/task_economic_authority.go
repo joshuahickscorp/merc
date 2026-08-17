@@ -19,15 +19,19 @@ var errHeterogeneousTaskEconomicsUnavailable = errors.New(
 	"exact heterogeneous per-task economics are unavailable")
 
 // Current private-canary policy injects a known-answer honeypot into every
-// physical job. That is deliberately heterogeneous work and cannot borrow the
-// sole primary's money under the bounded v1 posture. Refuse quote and submit at
-// the same pre-side-effect boundary until per-task allocation is frozen.
-func validateCurrentUniformCanaryAuthority(canaryEnabled bool) error {
-	if canaryEnabled {
-		return fmt.Errorf("%w: private canary requires a heterogeneous honeypot that has no exact per-task allocation",
-			errHeterogeneousTaskEconomicsUnavailable)
+// physical job that can admit a supplier which is not operator-controlled.
+// That is deliberately heterogeneous work and cannot borrow the sole primary's
+// money under the bounded v1 posture. Operator-controlled suppliers are a
+// different participant class: redundancy is the verifier, because collusion
+// between operator-owned workers is not a reachable harm in this alpha.
+// Refuse quote and submit at the same pre-side-effect boundary whenever the
+// envelope can still enroll an independent supplier.
+func validateCurrentUniformCanaryAuthority(policy CanaryPolicy) error {
+	if !policy.requiresHeterogeneousHoneypot() {
+		return nil
 	}
-	return nil
+	return fmt.Errorf("%w: private canary requires a heterogeneous honeypot that has no exact per-task allocation when admitted suppliers are not operator-controlled (class %q)",
+		errHeterogeneousTaskEconomicsUnavailable, policy.admittedSupplierClass())
 }
 
 // validateQuoteUniformTaskEconomicAuthority proves that the bytes a quote

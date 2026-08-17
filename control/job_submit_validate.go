@@ -24,13 +24,19 @@ func (s *Server) normalizeWorkloadRequest(
 		if sub.Verification.RedundancyFrac < 1 {
 			sub.Verification.RedundancyFrac = 1
 		}
-		// Binary media has no JSONL known-answer corpus. The media runner's
-		// independent byte-exact execution is the canary verifier; injecting a
-		// text honeypot here would make a valid media request unquotable.
-		if !isBinaryMediaJob(sub) && sub.Verification.HoneypotFrac <= 0 {
-			sub.Verification.HoneypotFrac = 0.1
-		} else if isBinaryMediaJob(sub) {
-			sub.Verification.HoneypotFrac = 0
+		// Operator-controlled canary: redundancy is the verifier. Do not inject
+		// a honeypot that uniform v1 cannot allocate. A honeypot is still
+		// required — and still unallocatable — if this envelope can admit a
+		// supplier that is not operator-controlled.
+		if s.canary.requiresHeterogeneousHoneypot() {
+			// Binary media has no JSONL known-answer corpus. The media runner's
+			// independent byte-exact execution is the canary verifier; injecting a
+			// text honeypot here would make a valid media request unquotable.
+			if !isBinaryMediaJob(sub) && sub.Verification.HoneypotFrac <= 0 {
+				sub.Verification.HoneypotFrac = 0.1
+			} else if isBinaryMediaJob(sub) {
+				sub.Verification.HoneypotFrac = 0
+			}
 		}
 		if sub.Verification.PayoutHoldSecs < 7*24*60*60 {
 			sub.Verification.PayoutHoldSecs = 7 * 24 * 60 * 60
