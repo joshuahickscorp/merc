@@ -87,8 +87,7 @@ attempt ran in a sparse worktree, and its failures were artifacts of the
 checkout rather than facts about the product — one lane correctly refused to
 report against such a tree at all. Running it on a full tree found three more.
 
-**Fixtures are lying about currency, and it looks like two defects — diagnosed,
-not yet fixed.** Eleven currency tests and six scheduler tests fail. The job and
+**Fixtures were lying about currency, and it looked like two defects.** Eleven currency tests and six scheduler tests fail. The job and
 economic-plan fixtures insert rows without a currency column, falling through to
 the schema's `DEFAULT 'usd'`, while the platform settles CAD — the Stripe account
 is CA/CAD. So `job_economic_plans_json_currency_bound` fires correctly, and the
@@ -105,12 +104,21 @@ numbers say so plainly:
 | with the currency fix | 80 — fixed 17, broke 73 |
 | reverting only its `usd`→`cad` test default | 77 |
 | reverting the whole change | 27 |
+| **the fix at the right radius** | **9** |
 
-The obvious hypothesis — that the damage was the package-wide default flip — was
-wrong, and testing it first (one line, one suite run) is what showed that:
-reverting that line alone recovered three tests, not seventy-three. The fixture
-writes are what broke the rest. The diagnosis above stands and the remedy has to
-be re-attempted at a much smaller radius.
+The obvious hypothesis — that the damage was the package-wide default flip — read
+as wrong when tested alone: reverting that line recovered three tests, not
+seventy-three, which pointed the blame at the fixture writes. That reading was
+incomplete. `installSettlementCurrencyForTest` is **process-global**, so pinning
+CAD inside the six `TestClaimTasksTx*` also requires dropping `t.Parallel()` on
+them — otherwise they flip settlement under whatever else is running, and the
+default revert cannot show its true effect.
+
+With that correction the change is a clear win: the package default stays `usd`,
+the six claim tests pin CAD and run serially, the three USD-platform Stripe
+preflight tests pin USD, and the fixtures keep writing the settlement currency
+explicitly. The suite goes from 25 failures to 9, and none of the nine is the
+currency defect.
 
 **26 test failures were the wrong database.** The dev Postgres ran with the
 image default `max_locks_per_transaction = 64`, which cannot hold a schema apply
