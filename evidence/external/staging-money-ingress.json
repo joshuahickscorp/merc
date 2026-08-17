@@ -2,10 +2,10 @@
   "schema_version": 1,
   "kind": "live_staging_money_ingress",
   "status": "PASS",
-  "observed_at": "2026-08-16T23:55:49Z",
+  "observed_at": "2026-08-17T15:36:22Z",
   "host": "mercmerc.net",
-  "deployed_commit": "a5bca8c0abcfda4158f5c681fa67f5ae5ebccb05",
-  "deployed_image_id": "sha256:2b2f85c969176dd5cc84f66e402e0853519f7784bc9f60fcf86841372e9fb28c",
+  "deployed_commit": "9e31c65b27860d659d7ce972e2de7052691c0642",
+  "deployed_image_id": "sha256:e0b642220dcd195c84290466cdaf90c2083c8740a87e6c3166d5817683f59fd3",
   "stripe_api_version": "2025-06-30.basil",
   "provider_mode": "test",
   "live_mode": "PROHIBITED",
@@ -23,7 +23,7 @@
       "url": "https://mercmerc.net/v1/stripe/webhook",
       "status": "enabled",
       "api_version": "2025-06-30.basil",
-      "enabled_events_count": 7
+      "enabled_events_count": 9
     }
   ],
   "signed_posts": [
@@ -114,147 +114,98 @@
   ],
   "stripe_delivered_access_log": [
     {
-      "ts": 1786924455.3974798,
-      "uri": "/v1/stripe/webhook",
-      "status": 200,
-      "bytes_read": 1695,
-      "user_agent_class": "stripe"
-    },
-    {
-      "ts": 1786924456.0763223,
-      "uri": "/v1/stripe/webhook",
-      "status": 200,
-      "bytes_read": 1238,
-      "user_agent_class": "stripe"
-    },
-    {
-      "ts": 1786924457.4525828,
-      "uri": "/v1/stripe/webhook",
-      "status": 200,
-      "bytes_read": 2488,
-      "user_agent_class": "stripe"
-    },
-    {
-      "ts": 1786924458.484997,
-      "uri": "/v1/stripe/webhook",
-      "status": 200,
-      "bytes_read": 2155,
-      "user_agent_class": "stripe"
-    },
-    {
-      "ts": 1786924459.7574663,
-      "uri": "/v1/stripe/webhook",
-      "status": 200,
-      "bytes_read": 4035,
-      "user_agent_class": "stripe"
-    },
-    {
-      "ts": 1786924528.2985296,
+      "ts": 1786980959.4944987,
       "uri": "/v1/stripe/webhook",
       "status": 200,
       "bytes_read": 336,
       "user_agent_class": "operator_hmac"
     },
     {
-      "ts": 1786924528.361685,
+      "ts": 1786980959.552879,
       "uri": "/v1/stripe/webhook",
       "status": 200,
       "bytes_read": 335,
       "user_agent_class": "operator_hmac"
     },
     {
-      "ts": 1786924528.4572551,
+      "ts": 1786980959.6273532,
       "uri": "/v1/stripe/webhook",
       "status": 200,
       "bytes_read": 303,
       "user_agent_class": "operator_hmac"
     },
     {
-      "ts": 1786924528.555624,
+      "ts": 1786980959.6832964,
       "uri": "/v1/stripe/webhook",
       "status": 200,
       "bytes_read": 324,
       "user_agent_class": "operator_hmac"
     },
     {
-      "ts": 1786924528.614614,
+      "ts": 1786980959.751667,
       "uri": "/v1/stripe/webhook",
       "status": 200,
       "bytes_read": 241,
       "user_agent_class": "operator_hmac"
     },
     {
-      "ts": 1786924528.6823404,
+      "ts": 1786980959.8171115,
       "uri": "/v1/stripe/webhook",
       "status": 200,
       "bytes_read": 259,
       "user_agent_class": "operator_hmac"
     },
     {
-      "ts": 1786924528.7414923,
+      "ts": 1786980959.8739774,
       "uri": "/v1/stripe/connect-webhook",
       "status": 400,
       "bytes_read": 245,
       "user_agent_class": "operator_hmac"
     },
     {
-      "ts": 1786924528.79463,
+      "ts": 1786980959.938047,
       "uri": "/v1/stripe/webhook",
       "status": 400,
       "bytes_read": 245,
       "user_agent_class": "operator_hmac"
     },
     {
-      "ts": 1786924530.0134902,
+      "ts": 1786980961.6363862,
       "uri": "/v1/stripe/webhook",
       "status": 200,
       "bytes_read": 2488,
       "user_agent_class": "stripe"
     },
     {
-      "ts": 1786924533.0155907,
-      "uri": "/v1/stripe/webhook",
-      "status": 200,
-      "bytes_read": 4066,
-      "user_agent_class": "stripe"
-    },
-    {
-      "ts": 1786924535.9022396,
+      "ts": 1786980967.4430995,
       "uri": "/v1/stripe/webhook",
       "status": 200,
       "bytes_read": 2155,
       "user_agent_class": "stripe"
     },
     {
-      "ts": 1786924537.1081164,
+      "ts": 1786980968.8285942,
       "uri": "/v1/stripe/webhook",
       "status": 200,
       "bytes_read": 4035,
       "user_agent_class": "stripe"
     },
     {
-      "ts": 1786924540.5267127,
+      "ts": 1786980971.9657793,
       "uri": "/v1/stripe/webhook",
       "status": 200,
       "bytes_read": 2155,
       "user_agent_class": "stripe"
     },
     {
-      "ts": 1786924540.8239331,
+      "ts": 1786980972.329682,
       "uri": "/v1/stripe/webhook",
       "status": 200,
       "bytes_read": 2356,
       "user_agent_class": "stripe"
     },
     {
-      "ts": 1786924543.179515,
-      "uri": "/v1/stripe/webhook",
-      "status": 200,
-      "bytes_read": 1238,
-      "user_agent_class": "stripe"
-    },
-    {
-      "ts": 1786924546.3839426,
+      "ts": 1786980977.8456526,
       "uri": "/v1/stripe/webhook",
       "status": 200,
       "bytes_read": 1695,
@@ -262,47 +213,39 @@
     }
   ],
   "control_observations": [
-    "2026/08/16 23:53:52 control: payment authority: mode=test provider_enabled=true live_value_movement=false stripe_api_version=2025-06-30.basil",
-    "2026/08/16 23:53:54 control: WARNING: stripe settlement preflight failed [account CA/CAD]: stripe platform cannot settle USD (enabled settlement currencies: cad); every supplier payout would fail with balance_insufficient. Add USD as a settlement currency on the Stripe account, or use a platform whose country supports it",
-    "2026/08/16 23:54:15 control: billing webhook: ignoring payment-method update for unknown customer",
-    "2026/08/16 23:54:15 control: req id=\"3b185028-1c1d-4ee7-b5b3-432c395b4ae1\" method=\"POST\" path=\"/v1/stripe/webhook\" status=200 duration_ms=8",
-    "2026/08/16 23:54:16 control: req id=\"14742fa8-634c-4b0d-a8bf-47c87fdb19d8\" method=\"POST\" path=\"/v1/stripe/webhook\" status=200 duration_ms=1",
-    "2026/08/16 23:54:17 control: req id=\"1101af74-6fcf-4401-b4ad-df0223f71ab2\" method=\"POST\" path=\"/v1/stripe/webhook\" status=200 duration_ms=1",
-    "2026/08/16 23:54:18 control: req id=\"42b3179d-27f2-4bfc-b817-b7889f57c8e6\" method=\"POST\" path=\"/v1/stripe/webhook\" status=200 duration_ms=0",
-    "2026/08/16 23:54:19 control: req id=\"c5757e90-da31-4c05-885d-563048948988\" method=\"POST\" path=\"/v1/stripe/webhook\" status=200 duration_ms=16",
-    "2026/08/16 23:55:28 control: req id=\"59c6d24f-806e-4085-a969-3aa0c7ae6e9e\" method=\"POST\" path=\"/v1/stripe/webhook\" status=200 duration_ms=2",
-    "2026/08/16 23:55:28 control: req id=\"e10a8c34-ee94-437f-afe1-fa02e5eebdcf\" method=\"POST\" path=\"/v1/stripe/webhook\" status=200 duration_ms=1",
-    "2026/08/16 23:55:28 control: req id=\"f0cdbffa-78a3-4356-8180-7ebaf6e1bb92\" method=\"POST\" path=\"/v1/stripe/webhook\" status=200 duration_ms=31",
-    "2026/08/16 23:55:28 control: req id=\"d06da158-7479-434f-8266-c6476db0bf29\" method=\"POST\" path=\"/v1/stripe/webhook\" status=200 duration_ms=26",
-    "2026/08/16 23:55:28 control: req id=\"6996d2b6-629b-4e77-b7b7-3fb8ffb55922\" method=\"POST\" path=\"/v1/stripe/webhook\" status=200 duration_ms=3",
-    "2026/08/16 23:55:28 control: billing webhook: ignoring payment-method update for unknown customer",
-    "2026/08/16 23:55:28 control: req id=\"fe41a873-b226-4c5e-8a0e-9f3b77e39eb6\" method=\"POST\" path=\"/v1/stripe/webhook\" status=200 duration_ms=7",
-    "2026/08/16 23:55:28 control: req id=\"fc7f71ac-b10b-4bc5-8a29-448133ba197a\" method=\"POST\" path=\"/v1/stripe/connect-webhook\" status=400 duration_ms=2",
-    "2026/08/16 23:55:28 control: req id=\"1349e1c3-b093-4915-b0f0-52cda1b4d81b\" method=\"POST\" path=\"/v1/stripe/webhook\" status=400 duration_ms=1",
-    "2026/08/16 23:55:30 control: req id=\"a675b68f-d867-4882-9896-29040ff85242\" method=\"POST\" path=\"/v1/stripe/webhook\" status=200 duration_ms=3",
-    "2026/08/16 23:55:33 control: req id=\"05c456d1-e6f0-4de1-bb40-66731f632559\" method=\"POST\" path=\"/v1/stripe/webhook\" status=200 duration_ms=2",
-    "2026/08/16 23:55:35 control: req id=\"45086057-d1d7-4591-8067-3a382511443c\" method=\"POST\" path=\"/v1/stripe/webhook\" status=200 duration_ms=4",
-    "2026/08/16 23:55:37 control: req id=\"fa00a64d-2d9f-4ed6-b4b2-ce001791ac0d\" method=\"POST\" path=\"/v1/stripe/webhook\" status=200 duration_ms=8",
-    "2026/08/16 23:55:40 control: req id=\"542092a0-91f5-40b4-a003-cebd5903cb4d\" method=\"POST\" path=\"/v1/stripe/webhook\" status=200 duration_ms=1",
-    "2026/08/16 23:55:40 control: req id=\"3c627f1c-2895-4a5f-a48c-f9ac0ee6a41f\" method=\"POST\" path=\"/v1/stripe/webhook\" status=200 duration_ms=6",
-    "2026/08/16 23:55:43 control: req id=\"163814df-38ad-4f89-99d4-bbbaf84e224e\" method=\"POST\" path=\"/v1/stripe/webhook\" status=200 duration_ms=1",
-    "2026/08/16 23:55:46 control: billing webhook: ignoring payment-method update for unknown customer",
-    "2026/08/16 23:55:46 control: req id=\"1fb92d26-6f44-46f3-96ed-a6cb3a54a880\" method=\"POST\" path=\"/v1/stripe/webhook\" status=200 duration_ms=4"
+    "2026/08/17 15:35:21 control: payment authority: mode=test provider_enabled=true live_value_movement=false stripe_api_version=2025-06-30.basil",
+    "2026/08/17 15:35:23 control: WARNING: stripe settlement preflight failed [account CA/CAD]: stripe platform cannot settle USD (enabled settlement currencies: cad); every supplier payout would fail with balance_insufficient. Add USD as a settlement currency on the Stripe account, or use a platform whose country supports it",
+    "2026/08/17 15:35:59 control: req id=\"b035b203-480d-4e75-98f6-77aaf5eb455a\" method=\"POST\" path=\"/v1/stripe/webhook\" status=200 duration_ms=3",
+    "2026/08/17 15:35:59 control: req id=\"90d1fad5-a3fc-4be1-af2f-c7f9ef2fa560\" method=\"POST\" path=\"/v1/stripe/webhook\" status=200 duration_ms=1",
+    "2026/08/17 15:35:59 control: req id=\"8ea4a179-eb82-4c71-9479-e7741ee88e48\" method=\"POST\" path=\"/v1/stripe/webhook\" status=200 duration_ms=16",
+    "2026/08/17 15:35:59 control: req id=\"133bbf47-3e86-4ebb-99a9-855d2d4844ec\" method=\"POST\" path=\"/v1/stripe/webhook\" status=200 duration_ms=6",
+    "2026/08/17 15:35:59 control: req id=\"9a4ebac2-f82c-49ef-bb55-e6c2d16ff024\" method=\"POST\" path=\"/v1/stripe/webhook\" status=200 duration_ms=2",
+    "2026/08/17 15:35:59 control: billing webhook: ignoring payment-method update for unknown customer",
+    "2026/08/17 15:35:59 control: req id=\"12f829ac-9f1a-4f75-834e-d3b837cc0137\" method=\"POST\" path=\"/v1/stripe/webhook\" status=200 duration_ms=3",
+    "2026/08/17 15:35:59 control: req id=\"5b39cdc7-bcce-46ef-8009-527237d6e9be\" method=\"POST\" path=\"/v1/stripe/connect-webhook\" status=400 duration_ms=1",
+    "2026/08/17 15:35:59 control: req id=\"44fe285a-e724-4f63-b0f9-c216c235b372\" method=\"POST\" path=\"/v1/stripe/webhook\" status=400 duration_ms=1",
+    "2026/08/17 15:36:01 control: req id=\"3aac64c2-17d1-431e-9c31-054fc9e12632\" method=\"POST\" path=\"/v1/stripe/webhook\" status=200 duration_ms=1",
+    "2026/08/17 15:36:07 control: req id=\"25331d5c-92af-4f02-a081-e27156bb7a47\" method=\"POST\" path=\"/v1/stripe/webhook\" status=200 duration_ms=2",
+    "2026/08/17 15:36:08 control: req id=\"f753b2e4-27dc-47ba-9c49-412df945516b\" method=\"POST\" path=\"/v1/stripe/webhook\" status=200 duration_ms=16",
+    "2026/08/17 15:36:11 control: req id=\"6a93fb66-56d0-4f1b-a469-57ad8e86a357\" method=\"POST\" path=\"/v1/stripe/webhook\" status=200 duration_ms=1",
+    "2026/08/17 15:36:12 control: req id=\"6d0cc782-e134-4d2e-ab0d-187cae7b30d1\" method=\"POST\" path=\"/v1/stripe/webhook\" status=200 duration_ms=5",
+    "2026/08/17 15:36:17 control: billing webhook: ignoring payment-method update for unknown customer",
+    "2026/08/17 15:36:17 control: req id=\"f34ce4ab-eb19-427b-a251-0b971d4fd144\" method=\"POST\" path=\"/v1/stripe/webhook\" status=200 duration_ms=2"
   ],
   "five_hundreds": 0,
   "unknown_customer_acknowledged": true,
   "producer_identity": {
     "source_commit": {
-      "value": "a5bca8c0abcfda4158f5c681fa67f5ae5ebccb05"
+      "value": "9e31c65b27860d659d7ce972e2de7052691c0642"
     },
     "build_digest": {
-      "value": "5ceec3ae610a7368b9b86cea77a6d1fc4c5d514dddd1ec7c9dd5a4cc6d59939a"
+      "value": "a9b49352d1df51ace5fa9802458c6c5d271f3fbfabc637a33896a1552c5061cf"
     },
     "model_artifact_digest": {
       "na": "no model weights in this staging-plane receipt"
     },
     "image_digest": {
-      "value": "2b2f85c969176dd5cc84f66e402e0853519f7784bc9f60fcf86841372e9fb28c"
+      "value": "e0b642220dcd195c84290466cdaf90c2083c8740a87e6c3166d5817683f59fd3"
     },
     "harness_revision": {
       "value": "scripts/alpha/live-money-ingress.py"

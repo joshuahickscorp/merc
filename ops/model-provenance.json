@@ -72,16 +72,54 @@
       "upstream_license_declaration": "Llama 3.2 Community License",
       "upstream_license_source": "https://github.com/meta-llama/llama-models/blob/main/models/llama3_2/LICENSE",
       "acceptable_use_policy_source": "https://github.com/meta-llama/llama-models/blob/main/models/llama3_2/USE_POLICY.md",
-      "license_file_sha256": null,
+      "license_file_sha256": "8cc15535a8a34b41888f644b339a1a9eb428af793a4f5e24df58a3e5b1487d74",
+      "license_file_sha256_binding": "upstream GitHub blob only; not an in-repo vendored copy. Retrieved 2026-08-17 via GET https://api.github.com/repos/meta-llama/llama-models/contents/models/llama3_2/LICENSE ; decoded size 7669; git blob sha 83f13c3a5da0106959dd8cbee0eecfd4e6cef3d2; last path commit 8d29d93fa5700a60532e0061a02ffa89d0acd3fc (2024-09-25T17:29:42Z). Same sha256 also observed from https://cdn.jsdelivr.net/gh/meta-llama/llama-models@main/models/llama3_2/LICENSE.",
+      "aup_file_sha256": "40e2777d7faa6beaf98400654170f414d8ab29b921b5163ad4ea0a1d39894201",
+      "aup_file_sha256_binding": "upstream GitHub blob only. Retrieved 2026-08-17 via GET https://api.github.com/repos/meta-llama/llama-models/contents/models/llama3_2/USE_POLICY.md ; decoded size 6021; git blob sha ac3c5f21b9779e3da0677d6d3c587778fe3a331e; last path commit 8d29d93fa5700a60532e0061a02ffa89d0acd3fc.",
       "model_card_sha256": null,
+      "unsloth_readme_sha256": "0735a2a005c6ab7788f40951a29a807e439061d30ff4abe8e582ee469c00d8bb",
+      "unsloth_readme_binding": "https://huggingface.co/unsloth/Llama-3.2-1B-Instruct-GGUF/raw/b69aef112e9f895e6f98d7ae0949f72ff09aa401/README.md ; 5824 bytes; YAML license: llama3.2 ; base_model: meta-llama/Llama-3.2-1B-Instruct. This is Unsloth's card, not Meta's gated model card.",
+      "hf_tree_verification": {
+        "retrieved_at": "2026-08-17",
+        "url": "https://huggingface.co/api/models/unsloth/Llama-3.2-1B-Instruct-GGUF/tree/b69aef112e9f895e6f98d7ae0949f72ff09aa401",
+        "repo_sha": "b69aef112e9f895e6f98d7ae0949f72ff09aa401",
+        "gated": false,
+        "license_file_present_in_repo": false,
+        "q4_k_m": {
+          "path": "Llama-3.2-1B-Instruct-Q4_K_M.gguf",
+          "lfs_oid": "3f5a22426976ab26cfe84dba63c1d08391717abb1af893e10f1b2968d862dcc1",
+          "size_bytes": 807694368,
+          "matches_declared_artifact": true
+        }
+      },
+      "official_meta_repo": {
+        "id": "meta-llama/Llama-3.2-1B-Instruct",
+        "gated": true,
+        "license_raw_http_status": 401,
+        "note": "Official weights require Meta clickwrap. Merc does not fetch this repo; it fetches the Unsloth GGUF derivative."
+      },
       "acceptance_receipt": null,
       "mirror": null,
       "review_status": "BLOCKED",
+      "priced_catalogue_cell": {
+        "model_id": "llama-3.2-1b-instruct-q4",
+        "job_type": "batch_infer",
+        "runtime_cell_id": "candle-metal-llama1-infer",
+        "runtime_profile_id": "candle_metal",
+        "profile_revision": "r9",
+        "model_artifact_digest": "3f5a22426976ab26cfe84dba63c1d08391717abb1af893e10f1b2968d862dcc1",
+        "authority": "control/pricing.go var repricingBenchmarks (sole entry at HEAD 9e31c65b)",
+        "withdraw_for_backend_alpha": "NOT required to keep readiness Level B / backend-alpha scores. REQUIRED before make license-register can pass without this row being genuinely cleared. Unpricing while still serving the GGUF does not discharge Llama 3.2 Community License section 1.b.i. This file cannot change pricing.go.",
+        "register_label": "Llama 3.2 1B Instruct GGUF"
+      },
       "blockers": [
-        "Revision and file verification exist only in the uncommitted closure worktree and are not bound to a final candidate receipt.",
-        "The full agreement is not included in the repository or release bundle.",
-        "Prominent attribution and required Notice coverage are not verified across all surfaces.",
-        "Acceptable-use enforcement and counsel review are incomplete."
+        "Pin/hash for Llama-3.2-1B-Instruct-Q4_K_M.gguf matches the Hugging Face LFS oid at unsloth revision b69aef112e9f895e6f98d7ae0949f72ff09aa401, but artifact_verification_status remains IMPLEMENTED_IN_CLOSURE_WORKTREE_PENDING_FINAL_CANDIDATE_TEST_AND_BINDING.",
+        "The Llama 3.2 Community License was retrieved and hashed (license_file_sha256) but is not vendored into the repository or release bundle. NOTICE still says the full agreement is not vendored.",
+        "Section 1.b.i requires a copy of the Agreement with the Llama Materials and a prominent Built with Llama display on a related website, user interface, about page, or product documentation. NOTICE and draft CANARY_TERMS contain the phrase; prominence across every availability surface is not verified.",
+        "Section 1.b.iii requires the specified attribution sentence in a Notice file distributed as part of every copy. Agent download to the supplier Hugging Face cache is distribution of the Unsloth Q4_K_M derivative; no per-copy Notice is shipped with that GGUF.",
+        "Section 1.b.iv incorporates the AUP (aup_file_sha256). The AUP prohibits using or allowing others to use Llama 3.2 for listed categories. docs/ACCEPTABLE_USE_AND_ABUSE_RESPONSE.md is DRAFT_PENDING_COUNSEL_AND_TRUST_SAFETY.",
+        "acceptance_receipt is null. Official meta-llama/Llama-3.2-1B-Instruct is gated; unsloth/Llama-3.2-1B-Instruct-GGUF is ungated and contains no LICENSE file. Using or distributing any portion binds the licensee (Agreement preamble); this repository records no named-entity acceptance.",
+        "ops/legal-review.json approvals.license is PENDING; reviewer and approved_at remain null. scripts/validate-governance.py requires this review_status to stay BLOCKED until that approval exists."
       ]
     }
   ],

@@ -24,10 +24,27 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from remote import REMOTE_HOST, copy_to_remote, run_remote  # noqa: E402
 
-CANDIDATE = "19fe0b23940c7e3d4da9b45d9cc5689c2c515d07"
+def _git_head() -> str:
+    proc = subprocess.run(
+        ["git", "-C", str(ROOT), "rev-parse", "HEAD"],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if proc.returncode != 0:
+        die(f"cannot resolve HEAD: {proc.stderr.strip()}")
+    commit = proc.stdout.strip()
+    if len(commit) != 40:
+        die(f"HEAD is not a 40-char commit: {commit!r}")
+    return commit
+
+
+# Candidate is current HEAD. Prior is the digest now running on the droplet
+# (19fe0b23 / sha256:245dc92a…), which must stay loaded for rollback.
+CANDIDATE = _git_head()
 CANDIDATE_SHORT = CANDIDATE[:12]
-PRIOR = "a5bca8c0abcfda4158f5c681fa67f5ae5ebccb05"
-PRIOR_IMAGE_ID = "sha256:2b2f85c969176dd5cc84f66e402e0853519f7784bc9f60fcf86841372e9fb28c"
+PRIOR = "19fe0b23940c7e3d4da9b45d9cc5689c2c515d07"
+PRIOR_IMAGE_ID = "sha256:245dc92a5fffc1b9ffefe2452277797a498dc9cfb779dd915ae2631802175768"
 HOST = "mercmerc.net"
 COMPOSE = (
     "docker compose "
@@ -251,7 +268,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--archive",
-        default="/tmp/merc-control-19fe0b23940c.tar.gz",
+        default=f"/tmp/merc-control-{CANDIDATE_SHORT}.tar.gz",
         help="gzipped docker save of the candidate",
     )
     parser.add_argument(

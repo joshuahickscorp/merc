@@ -1,0 +1,118 @@
+{
+  "schema_version": 1,
+  "kind": "qualifying_24h_https_observer",
+  "status": "IN_PROGRESS",
+  "mode": "qualifying",
+  "started_at": "2026-08-17T15:39:03Z",
+  "updated_at": "2026-08-17T15:42:05Z",
+  "host": "mercmerc.net",
+  "base_url": "https://mercmerc.net",
+  "expected_commit": "9e31c65b27860d659d7ce972e2de7052691c0642",
+  "duration": {
+    "requested_seconds": 86400,
+    "elapsed_seconds": 182,
+    "observed_window_seconds": 180,
+    "interval_seconds": 60,
+    "samples": 4,
+    "ok_samples": 4,
+    "failed_samples": 0,
+    "max_inter_sample_gap_seconds": 60
+  },
+  "qualification": {
+    "qualifies_for_24h_gate": false,
+    "reason": "in_progress_elapsed_below_86400"
+  },
+  "candidate": {
+    "expected_commit": "9e31c65b27860d659d7ce972e2de7052691c0642",
+    "observed_commits": [
+      "9e31c65b27860d659d7ce972e2de7052691c0642"
+    ],
+    "changed": false,
+    "first_changed_at": null,
+    "modified_seen": false,
+    "continuity": "uninterrupted"
+  },
+  "payment": {
+    "required_payment_mode": "test",
+    "required_live_value_movement": false,
+    "left_test_envelope": false,
+    "first_left_at": null
+  },
+  "observer": {
+    "kind": "https_public_tls",
+    "paths": [
+      "/version",
+      "/readyz"
+    ],
+    "harness": "scripts/soak/soak24.py",
+    "tmux_session": "merc-qualifying-soak-24h"
+  },
+  "commands": {
+    "status": "python3 scripts/soak/soak24.py status",
+    "stamp": "python3 scripts/soak/soak24.py stamp",
+    "resume": "python3 scripts/soak/soak24.py resume",
+    "finish": "python3 scripts/soak/soak24.py finish"
+  },
+  "samples": {
+    "path": "evidence/external/qualifying-soak-24h-samples.jsonl"
+  },
+  "last_version": {
+    "version": "v0.1.0-merc-staging",
+    "commit": "9e31c65b27860d659d7ce972e2de7052691c0642",
+    "build_date": "2026-08-17T15:33:33Z",
+    "go_version": "go1.26.6",
+    "platform": "linux/amd64",
+    "modified": false,
+    "price_board_sha256": "440909b34593487d8bd5d00c1b65244cc0a971755507b665014334505a34f48c",
+    "price_board_source": "release",
+    "capability_matrix_sha256": "0b569a272b2bef7f553cad0efbe7bac9fc42a18944b16ac60b590763f497d60c",
+    "authority_document_sha256": "d03a7596c026744bcfa824d03bee5d5950218fe2cbcd93f7900643ccf047915d"
+  },
+  "last_readyz": {
+    "live_value_movement": false,
+    "payment_mode": "test",
+    "payment_recovery_active": true,
+    "provider_enabled": true,
+    "status": "ready",
+    "stripe_api_version": "2025-06-30.basil"
+  },
+  "observed_bounds": {
+    "control_restart_count": null,
+    "control_oom_samples": null,
+    "note": "https observer does not inspect docker restart or OOM counters"
+  },
+  "secret_values_recorded": false,
+  "policy": {
+    "stripe_test_mode": true,
+    "stripe_live_mode": false,
+    "real_value": false,
+    "secret_values_recorded": false
+  },
+  "producer_identity": {
+    "source_commit": {
+      "value": "9e31c65b27860d659d7ce972e2de7052691c0642"
+    },
+    "build_digest": {
+      "value": "2f85169a9f0812687e72a5514d1f19c1a1565d68861866ac72224eef8b62bc75"
+    },
+    "model_artifact_digest": {
+      "na": "soak does not load model weights"
+    },
+    "image_digest": {
+      "na": "https observer does not inspect the control container image"
+    },
+    "harness_revision": {
+      "value": "scripts/soak/soak24.py"
+    },
+    "corpus_digest": {
+      "na": "no external corpus"
+    },
+    "exact_config": {
+      "value": "qualifying_24h_https_observer requested=86400 interval=60 host=mercmerc.net"
+    },
+    "raw_samples": {
+      "value": "evidence/external/qualifying-soak-24h-samples.jsonl"
+    }
+  },
+  "binding_status": "BOUND"
+}

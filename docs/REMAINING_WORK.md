@@ -1,48 +1,75 @@
 # Everything remaining
 
-State at 2026-08-10. Ledger: 44 verified / 25 open. `main` at `353840cb`.
+State at 2026-08-17. HEAD `9e31c65b`. Re-derived from
+`python3 scripts/validate-readiness.py` and live `https://mercmerc.net`
+probes, not from the 2026-08-10 narrative below.
 
-Since the 2026-08-09 pass: the network-v2 branch is merged into `main` (one line
-of work, one writer); the corrected scale rerun turned out to have finished and
-its realtime cells were refusals, not measurements; the realtime candidate
-ranking is 1.75x faster on a measured paired A/B; the buyer funding rails gained
-the ordering test they never had; and mutants 28, 29 and 34 point at live code
-again — one of which was hiding a real gap in the legacy pricing branch.
+| Axis | Derived | Decision |
+|---|---|---|
+| Level A software | — | `GO` |
+| Level B private canary | **87/100** (threshold 95, P0=0, P1=5) | `NO_GO` |
+| Backend alpha | **85/91** | `ALPHA_ENGINEERING_READY NO_GO`, `EXTERNAL_ALPHA_PROVEN NO_GO` |
+| Level C live money / public launch | — | `NO_GO_PROHIBITED` |
 
-Ordered by consequence, not by step number. Each item says what closes it and
-who has to do it — **[auto]** runs unattended here, **[you]** needs a human once,
-**[blocked]** names a dependency that does not exist yet.
+Open P1s: `P1-STRIPE-TEST` (`ALPHA_BLOCKER`, Connect not signed up),
+`P1-CANARY-REHEARSAL` (`ALPHA_CONTROL`; local L12 PASS, live staging
+`BLOCKED`; does not satisfy `EXTERNAL_ALPHA_PROVEN`),
+`P1-ALERT-DELIVERY` / `P1-INDEPENDENT-APPROVAL` / `P1-GOVERNANCE`
+(`PUBLIC_LAUNCH`). Satisfied on evidence: `P1-STAGING`,
+`P1-RECOVERY-SOAK` (3600 s alpha soak; 24 h unearned),
+`P1-OFFSITE-RESTORE`. 44 gates classified (28 `ALPHA_BLOCKER`, 7
+`ALPHA_CONTROL`, 7 `PUBLIC_LAUNCH`, 2 `POST_ALPHA`). Governance
+documents are unapproved drafts.
+
+Live `https://mercmerc.net` (2026-08-17): public Let's Encrypt TLS;
+`GET /readyz` HTTP 200, `payment_mode=test`, `live_value_movement=false`,
+`provider_enabled=true`; `GET /version` HTTP 200, commit
+`19fe0b23940c7e3d4da9b45d9cc5689c2c515d07`, `modified: false`,
+`go_version: go1.26.6` — 20 commits behind this HEAD, not 733, and
+not live money.
+
+Ordered by consequence. **[auto]** / **[you]** / **[blocked]** as before.
 
 ---
 
-## 0. Urgent — a live payment rail is running stale money code
+## 0. Current money-path wall — Connect signup, not a live stale host
 
-**G063.** `https://mercmerc.net/version` reports commit `41db85b5`,
-`"modified": true`, **733 commits behind** HEAD (re-verified 2026-08-10), and
-`evidence/deploy/live-cutover.json` (unbound historical cutover record) records
-`stripe_mode: "live"` with its own warning that real money moves.
+**Current.** Stripe test mode is proven up to the Connect boundary.
+`evidence/external/stripe-sandbox-matrix.json` is `BLOCKED` /
+`connect_platform_not_signed_up` on platform `acct_1TxbzMCwPLrR4vaY`.
+That is the single open `ALPHA_BLOCKER` P1. Live value movement on the
+public host is `false`.
 
-That host is missing `a7bf17a6` (the P0: realtime funding under-held open prepaid
-exposure — no service-lease term at all, and `estimated_usd` where the reserved
-residual belonged, which is roughly half) and `dd59aa62` (the P1: prepaid
-admission never took the buyer funding advisory lock). Both were reproduced with
-failing-before tests today.
+**G063 — historical (2026-08-10), superseded by the live probe above.**
+At that date `https://mercmerc.net/version` reported commit `41db85b5`,
+`"modified": true`, 733 commits behind then-HEAD, and
+`evidence/deploy/live-cutover.json` (still `UNBOUND`, still a historical
+cutover record) recorded `stripe_mode: "live"`. `/readyz` then returned
+only `{"status":"ready"}`. That is **not** the 2026-08-17 host: `/readyz`
+now carries `payment_mode` / `live_value_movement`, and both say test /
+false.
 
-There is no remote way to check whether live payments are already sealed:
-`GET /readyz` on that host returns `{"status":"ready"}` and nothing else, while
-current code returns `payment_mode`, `provider_enabled` and `live_value_movement`
-there. The host predates the probe that would answer the question about it.
+The 2026-08-10 missing-commit list (`a7bf17a6` prepaid under-hold,
+`dd59aa62` advisory lock) is retained as the finding that was true of
+`41db85b5`. It is not a claim about `19fe0b23`.
 
-- **[you]** Seal payments (`MERC_PAYMENT_MODE=sealed`) **or** deploy current code.
-  No SSH key to that host exists on this machine — probed, and `docs/RUNBOOKS.md`
-  says the same. Steps are prepared in `docs/RELEASE_SIGNING_AND_STAGING.md` §4.
-- Two traps from the runbook: `MERC_TOKEN_KEY` must be byte-identical or every
-  sealed token in Postgres becomes undecryptable; `MERC_VERIFICATION_SAMPLE_SECRET`
-  must be set or verification silently uses a **published** default.
+- **[you]** Sign up for Connect on the test account, recreate the
+  Connect endpoint with `connect=true`, re-run `make stripe-matrix`.
+- Two traps from the runbook still apply on any deploy: `MERC_TOKEN_KEY`
+  must be byte-identical or every sealed token in Postgres becomes
+  undecryptable; `MERC_VERIFICATION_SAMPLE_SECRET` must be set or
+  verification silently uses a **published** default.
 
 ---
 
 ## 1. Network V2 obligations still open
+
+> **Historical inventory — state at 2026-08-10, `main` at `353840cb`.**
+> Ledger then: 44 verified / 25 open. The G00x/G0xx rows below were not
+> re-probed against this HEAD. They are retained so the 2026-08-10 remainder
+> is not silently dropped. Current release remainder is §0 plus the five
+> open P1s in the header. Do not close a gate from a row in this section
+> without a new receipt.
 
 ### Decision-chain steps — the spine
 
@@ -93,6 +120,11 @@ design report exists for both.
 
 ## 2. Shippability (G030) — the 24-item gauntlet
 
+> **Historical (2026-08-10).** Offsite restore, persistent TLS staging, and
+> the alpha recovery soak have since closed on evidence. Signed
+> distribution, licence counsel, 24 h soak, staffed paging, and the Stripe
+> Connect remainder remain.
+
 **[auto], already done or reachable:** source/evidence reproducibility, validation
 inside budgets, receipts rejecting tampering, money reconciliation, worker/provider
 loss recovery, POOL/fabric refusals, exact-HEAD checkpoint.
@@ -128,6 +160,11 @@ anything needing fleet evidence stays a §26 residual.
 ---
 
 ## 3. Cloudflare consolidation — the honest migration plan
+
+> **Historical plan (2026-08-10).** `mercmerc.app` still serves the black
+> landing page (HTTP 200, re-verified 2026-08-17). `mercmerc.net` now
+> terminates public Let's Encrypt TLS on the droplet and answers `/readyz`
+> 200 in test mode. DNS-proxy and Containers steps were not re-probed.
 
 ### Already done
 
@@ -199,6 +236,9 @@ by design, which is the whole product.
 ---
 
 ## 4. Handoff (G031)
+
+> Still last. Current machine remainder is the five open P1s and
+> `EXTERNAL_ALPHA_PROVEN=false`. Live money stays `NO_GO_PROHIBITED`.
 
 Final artifact: grades, receipts, validation wall times, network-scale curves,
 money reconciliation, and every external blocker named against its Bible §26

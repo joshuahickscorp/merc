@@ -22,4 +22,5 @@ gunzip -c "$ARCHIVE" | docker load
 docker tag "merc/control:${COMMIT:0:12}" "computexchange/control:${COMMIT}"
 docker image inspect "computexchange/control:${COMMIT}" --format '{{.Id}} {{.Os}}/{{.Architecture}} {{index .Config.Labels "org.opencontainers.image.revision"}}'
 # Keep the previous candidate so rollback does not require a rebuild.
-docker image inspect sha256:2b2f85c969176dd5cc84f66e402e0853519f7784bc9f60fcf86841372e9fb28c --format 'prior {{.Id}} still present'
+# 19fe0b23 is the digest currently serving mercmerc.net (observed 2026-08-17).
+docker image inspect sha256:245dc92a5fffc1b9ffefe2452277797a498dc9cfb779dd915ae2631802175768 --format 'prior {{.Id}} still present'

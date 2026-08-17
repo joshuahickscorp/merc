@@ -59,28 +59,43 @@ Go embeds the runtime authority and the agent binds the same bytes.
 
 **Not approved for a pilot that moves real buyer or supplier money.**
 [ops/go-no-go.json](ops/go-no-go.json) records Level A software GO, Level B
-private canary NO-GO, and live money or public launch NO-GO and prohibited.
-There are no open target-scope P0s. Eight P1 gates remain. None of them can be
-closed by writing more local code.
+private canary NO-GO, backend-alpha engineering-ready NO-GO, backend-alpha
+external-proven NO-GO, and live money or public launch NO-GO and prohibited.
+There are no open target-scope P0s. Five P1 gates remain. Recompute with
+`python3 scripts/validate-readiness.py` (derived at this HEAD:
+**Level B 87/100**, P0=0, P1=5, `NO_GO`; **backend alpha 85/91**,
+`ALPHA_ENGINEERING_READY NO_GO`, `EXTERNAL_ALPHA_PROVEN NO_GO`). The only open
+`ALPHA_BLOCKER` P1 is `P1-STRIPE-TEST`.
 
-The five workstation-impossible operational proofs in
-[docs/PROGRAMME.md](docs/PROGRAMME.md) § "Near term" are still the live list for
-a money-moving private pilot: offsite backup upload and restore, a TLS staging
-host, a rollback rehearsal, the full Stripe test-mode money matrix, and a real
-alert page to an on-call receiver. That list is not the whole Level B ledger.
-The other three open P1s are a two-device canary rehearsal, an independent
-repository reviewer, and qualified governance approvals.
+| P1 | Classification | State |
+|---|---|---|
+| `P1-STRIPE-TEST` | `ALPHA_BLOCKER` | open — Stripe Connect is not signed up on `acct_1TxbzMCwPLrR4vaY` |
+| `P1-CANARY-REHEARSAL` | `ALPHA_CONTROL` | open — local L12 buyer/supplier/verify/settle receipts PASS; live staging BLOCKED; does not satisfy `EXTERNAL_ALPHA_PROVEN` |
+| `P1-ALERT-DELIVERY` | `PUBLIC_LAUNCH` | open — local fire→sink→resolve is not a staffed paging receiver |
+| `P1-INDEPENDENT-APPROVAL` | `PUBLIC_LAUNCH` | open |
+| `P1-GOVERNANCE` | `PUBLIC_LAUNCH` | open — governance documents are unapproved drafts |
 
-A staging control process has been driven to the go-live line and held:
-`/readyz` returns 503 `canary_policy_unconfigured`, and there is no public TLS.
-The alpha boot receipt is bound to an earlier commit, not this HEAD.
+Three P1s closed on evidence, not by reclassification: `P1-STAGING`,
+`P1-RECOVERY-SOAK` (alpha 3600 s exit; the 24-hour Level B/C clause stays
+unearned), and `P1-OFFSITE-RESTORE`. See [docs/PROGRAMME.md](docs/PROGRAMME.md)
+§ "Near term" and § "Facet external action pack".
 
-The machine-reachable ceiling is still documented as 84/100. The scorer
-currently derives **73/100**, because its authorization-matrix pin is 123
-routes and the reviewed matrix is 126. That is a tripwire lag, not a missing
-local receipt. `make ci` runs the scorer, so it fails at this HEAD. The
-remaining 16 points still require external receipts under `evidence/external/`.
-The detail is in [RELEASE_READINESS.md](RELEASE_READINESS.md).
+Persistent staging is public TLS at `https://mercmerc.net`. Observed
+2026-08-17: `GET /readyz` HTTP 200 with `payment_mode=test`,
+`live_value_movement=false`, `provider_enabled=true`; `GET /version` HTTP 200
+at commit `19fe0b23940c7e3d4da9b45d9cc5689c2c515d07` (`modified: false`,
+`go_version: go1.26.6`). That commit is an ancestor of this HEAD and sits 20
+commits behind it. The execution loop is **not** closed on that host
+(`evidence/canary/l12-p1-canary-rehearsal-live-staging.json` is `BLOCKED`).
+
+The derived score is **87/100** (threshold 95). Local receipts plus the
+independent offsite backup/restore pair account for 87; the remaining 13
+points are Stripe sandbox matrix (6), 24-hour qualifying soak (3), external
+staging-attack rehearsal (1), qualified privacy approval (1), licensing
+approval (1), and staffed abuse route (1). The authorization-matrix pin is
+126 routes with default deny — it matches the reviewed matrix. The detail is
+in [RELEASE_READINESS.md](RELEASE_READINESS.md). Backend-alpha meaning is
+[docs/BACKEND_ALPHA_CONTRACT.md](docs/BACKEND_ALPHA_CONTRACT.md).
 
 What is and is not established:
 
@@ -115,10 +130,13 @@ known limitations. It is a register, not a certification.
 
 ## What's next
 
-The eight Level B P1s, then the missing buyer account features. On the code
-side: rebind embed and media authority if those lanes are to be advertised,
-close the claim-time v4 pin, and stop treating the 123-route readiness pin as
-84/100. See [docs/PROGRAMME.md](docs/PROGRAMME.md).
+The five open Level B P1s — Connect signup first, then the counted canary
+rehearsal, then the three `PUBLIC_LAUNCH` gates — then the missing buyer
+account features. Live money stays `NO_GO_PROHIBITED` even if every Level B
+P1 closes. On the code side: rebind embed (the candle embed cell is not
+bindable: empty `engine_build_hash`) and media authority if those lanes are
+to be advertised, and close the claim-time v4 pin. See
+[docs/PROGRAMME.md](docs/PROGRAMME.md).
 
 Also: the [runtime notes](docs/RUNTIME_AND_PERF.md),
 [runbooks](docs/RUNBOOKS.md), and the

@@ -313,12 +313,61 @@ def main() -> int:
         "awk '/billing webhook|connect webhook|stripe/ {print}' | tail -80"
     )
 
+    version_code, version_body = None, {}
+    try:
+        req = urllib.request.Request(
+            f"https://{HOST}/version",
+            headers={"User-Agent": "merc-l7-live-money-ingress"},
+        )
+        with urllib.request.urlopen(req, timeout=20, context=ssl.create_default_context()) as resp:
+            version_code = resp.status
+            version_body = json.loads(resp.read().decode())
+    except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
+        die(f"cannot read /version after webhook matrix: {exc}")
+    image_id = remote("docker inspect -f '{{.Image}}' merc-control-1").strip()
+
+    access_log = []
+    for line in logs.splitlines():
+        try:
+            parsed = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        req = parsed.get("request") or {}
+        ua = ""
+        headers = req.get("headers") or {}
+        ua_list = headers.get("User-Agent") or headers.get("user-agent") or []
+        if isinstance(ua_list, list) and ua_list:
+            ua = str(ua_list[0])
+        if "Stripe/" in ua:
+            ua_class = "stripe"
+        elif "merc-l7-live-money-ingress" in ua:
+            ua_class = "operator_hmac"
+        else:
+            ua_class = "other"
+        access_log.append(
+            {
+                "ts": parsed.get("ts"),
+                "uri": req.get("uri"),
+                "status": parsed.get("status"),
+                "bytes_read": parsed.get("bytes_read"),
+                "user_agent_class": ua_class,
+            }
+        )
+
+    five_hundreds = sum(1 for row in results if row["http_status"] == 500)
+    five_hundreds += sum(1 for row in access_log if row.get("status") == 500)
+    if billing_on_connect == 500 or connect_on_billing == 500:
+        five_hundreds += 1
+
     receipt = {
         "schema_version": 1,
         "kind": "live_staging_money_ingress",
         "status": "PASS",
         "observed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "host": HOST,
+        "deployed_commit": version_body.get("commit") if isinstance(version_body, dict) else None,
+        "deployed_image_id": image_id,
+        "version_http": version_code,
         "stripe_api_version": API_VERSION,
         "provider_mode": "test",
         "live_mode": "PROHIBITED",
@@ -343,17 +392,20 @@ def main() -> int:
             }
             for row in cli_rows
         ],
-        "caddy_webhook_log_tail": logs.splitlines()[-80:],
-        "control_log_tail": [
+        "stripe_delivered_access_log": access_log,
+        "control_observations": [
             line
             for line in control_logs.splitlines()
             if "whsec_" not in line and "sk_" not in line
         ][-80:],
-        "five_hundreds": 0,
+        "five_hundreds": five_hundreds,
+        "unknown_customer_acknowledged": any(
+            "unknown customer" in line for line in control_logs.splitlines()
+        ),
     }
-    out = Path("/tmp/merc-l7-money-ingress.json")
-    out.write_text(json.dumps(receipt, indent=2) + "\n")
-    print(f"wrote {out}")
+    tmp_out = Path("/tmp/merc-l7-money-ingress.json")
+    tmp_out.write_text(json.dumps(receipt, indent=2) + "\n")
+    print(f"wrote {tmp_out}")
     if any(r["http_status"] == 500 for r in results):
         die("a signed post returned 500")
     if any(row["cli_rc"] != 0 for row in cli_rows):

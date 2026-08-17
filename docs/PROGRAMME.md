@@ -27,6 +27,20 @@ Merged programme surface (PLAN_300K L6).
 
 <!-- source: docs/MASTER_PROGRAMME_LEDGER.md -->
 
+> **Current readiness (re-derived 2026-08-17, HEAD `9e31c65b`).**
+> `python3 scripts/validate-readiness.py`: Level B **87/100** (threshold 95,
+> P0=0, P1=5, `NO_GO`); backend alpha **85/91**,
+> `ALPHA_ENGINEERING_READY NO_GO`, `EXTERNAL_ALPHA_PROVEN NO_GO`. Open P1s:
+> `P1-STRIPE-TEST` (`ALPHA_BLOCKER`), `P1-CANARY-REHEARSAL` (`ALPHA_CONTROL`),
+> `P1-ALERT-DELIVERY` / `P1-INDEPENDENT-APPROVAL` / `P1-GOVERNANCE`
+> (`PUBLIC_LAUNCH`). Satisfied on evidence: `P1-STAGING`, `P1-RECOVERY-SOAK`
+> (3600 s alpha soak; 24 h still unearned), `P1-OFFSITE-RESTORE`.
+> `live_money_or_public_launch` is `NO_GO_PROHIBITED`. Live
+> `https://mercmerc.net/readyz` is HTTP 200, `payment_mode=test`,
+> `live_value_movement=false`. Session tables below that still say eight P1s,
+> 84/100, no staging host, `/readyz` 503, or `/version` 404 are
+> **historical** unless restated here.
+
 # Master Programme Ledger
 
 The 22-step execution order this session is grinding through, and the evidence
@@ -76,7 +90,7 @@ the tree. Not from prose.
 | 17 | Merc Agent one-click experience | `PARTIAL` | `agent/` builds and benchmarks, `clients/macapp/` exists; limit/schedule surface unverified |
 | 18 | Workload IR and project detectors | `ABSENT` | `WorkloadDecision` is an admission artefact, not a project graph |
 | 19 | Pool, replica and local-cluster modes | `ABSENT` as declared modes | placement authority exists; no mode taxonomy, no refusal rule |
-| 20 | Level-B security and operational closure | `EXTERNALLY_BLOCKED` | `ops/go-no-go.json`: 0 P0, 8 open P1, 7 of them external |
+| 20 | Level-B security and operational closure | `EXTERNALLY_BLOCKED` | `ops/go-no-go.json` at this HEAD: 0 P0, 5 open P1. Only `P1-STRIPE-TEST` is an `ALPHA_BLOCKER`. `P1-STAGING`, `P1-RECOVERY-SOAK` (alpha exit) and `P1-OFFSITE-RESTORE` are `SATISFIED`. Historical session tables that said 8 open P1s are superseded. |
 | 21 | Audit against §20 "what Merc must not do" | pending | — |
 | 22 | Prove the §21 first complete loop | `TEST_ONLY_MECHANICS`; production physical admission `REFUSED` | `TestFirstCompleteLoopThroughThePublicAPI` uses explicit synthetic performance/publication authority and writes no candidate evidence. Historical real-runtime receipts remain non-current. |
 
@@ -114,7 +128,7 @@ existing.
 | # | Step | Status | What changed |
 | -: | ---- | ------ | ------------ |
 | 3 | Boot the production image | historical boot proof retained; current candidate `REFUSED` | The earlier tree served every probe with no host files, recorded by `evidence/state/release-image-boot.json` (an UNBOUND inventory, not release authority). That result does not carry forward: current startup rejects the shipped UNBOUND throughput receipt and ASSUMED watts before publication. The image-boot gate must remain red until a BOUND benchmark plus exact MEASURED power row can authorize a fresh catalogue schedule. |
-| 4 | Canary packaging and readiness | `DONE`, already tested at entry | `/readyz` returns 503 with `reason_code: canary_policy_unconfigured` — a direct configuration error, not an unexplained buyer-facing 403 — and it reads BOTH the boot copy and a live re-read, so a decision that stops resolving on a running process cannot leave the probe green while payouts halt. `TestReadyzGoesRedWhenTheDisableDecisionStopsResolving` and `TestReadyzNamesCanaryMisconfigurationAndProbesStayReachable` |
+| 4 | Canary packaging and readiness | `DONE`, already tested at entry | **Historical local observation (unconfigured process):** `/readyz` returned 503 with `reason_code: canary_policy_unconfigured` — a direct configuration error, not an unexplained buyer-facing 403 — and it reads BOTH the boot copy and a live re-read. `TestReadyzGoesRedWhenTheDisableDecisionStopsResolving` and `TestReadyzNamesCanaryMisconfigurationAndProbesStayReachable`. **Current live staging (2026-08-17):** `https://mercmerc.net/readyz` is HTTP 200, `status=ready`, `payment_mode=test`, `live_value_movement=false`. |
 | 10 | Paired cohorts and regret | `WITHDRAWN AS ECONOMIC AUTHORITY` | The harness drove 40 executions, but its mixed receipt used the wrong price unit and pooled an insufficient scope. `evidence/perf/selector/paired-cohort-embed.json` and the derived cell-economics, economic-selector, and governed-shadow receipts are retained as `WITHDRAWN`; their latency rows are historical diagnostics, not matched-pair, economic, or promotion proof. |
 | 12 | 128-request coalescing | bound money-path proofs (double upstream) | Bound proofs at commit `4ef1922a` (`evidence/reuse/public-path-128-to-1.json`, `evidence/reuse/public-path-coalescing-128-to-1.json`) show 128 deliveries to 1 upstream call through the real public handler against an HTTP upstream double. They prove control-plane reuse/coalescing money and receipt paths; they do not measure GPU performance. Store-level follower money/isolation remains in `control/coalesced_cluster_money_test.go` |
 | 15 | Governed vLLM CUDA cell | harness ready, credential still dead | `scripts/runpod-spend-guard.py` converts a dollar cap into a pod lifetime with a self-test, holds back 20% for teardown delay, rounds spend up, and marks a receipt **inadmissible** on unverified teardown, an overrun lifetime, a floating image tag or a leftover pod. `runpod-vllm.sh experiment` wires that around the existing provisioner and refuses to start while anything else is billing. The self-test runs in `make ci` |
@@ -248,28 +262,49 @@ matched-execution pair exists:
   loop that depends on all three. *(Steps 3, 4 and 12 were in this list and have
   since moved — see the second pass above.)*
 * **5, 6** — already `PRODUCTION_WIRED` at entry. The provider half of 6 is
-  `P1-STRIPE-TEST`, and the Stripe **test** credential in `.env` is live and
-  working (`GET /v1/balance` → `livemode:false`, CAD bucket). The matrix is still
-  blocked: `scripts/stripe-sandbox.sh check` reports
-  `staging_hostname_valid: false`, because Stripe has to reach a public webhook
-  endpoint and there is no staging host. That is `P1-STAGING`, not a payments gap.
+  `P1-STRIPE-TEST`. **Historical (this session's entry):** the matrix was
+  blocked on `staging_hostname_valid: false` / `P1-STAGING`. **Current:**
+  `P1-STAGING` is `SATISFIED`; public TLS webhook delivery is reachable at
+  `mercmerc.net`. The remaining wall is Connect signup
+  (`evidence/external/stripe-sandbox-matrix.json` status `BLOCKED`,
+  `blocker.id=connect_platform_not_signed_up`). That is `P1-STRIPE-TEST`,
+  not a missing host.
 * **8** — the historical `REAL_RUNTIME_PROVEN` chains stand but predate the
   candidate. A candidate-bound stranger run needs the canary rehearsal driver.
 * **15** — **the stored RunPod credential returns HTTP 401.** Everything up to the
   paid experiment can be built; the experiment itself cannot run until the key is
   replaced.
-* **20** — `EXTERNALLY_BLOCKED` by construction: 7 of the 8 open P1 gates need a
-  staging host, an offsite provider, a real paging receiver, two external Metal
-  devices, a non-author reviewer, or eight named governance approvals.
+* **20** — `EXTERNALLY_BLOCKED` by construction. **Historical:** 7 of 8 open
+  P1s needed a staging host, offsite provider, paging receiver, two Metal
+  devices, a non-author reviewer, or eight named approvals. **Current:** 5
+  open P1s. Staging, alpha recovery-soak, and offsite restore closed on
+  evidence. Still external: Connect signup, the counted canary rehearsal,
+  staffed paging, independent review, and qualified governance.
 
 ## Third pass — the credential arrived
 
 | # | Step | Status | What happened |
 | -: | ---- | ------ | ------------- |
 | 15 | Governed vLLM CUDA cell | harness `ECONOMICALLY_PROVEN`, Merc chain still `ABSENT` | A live RunPod key was supplied. **First governed paid experiment ran end to end**: RTX A5000 on SECURE, pinned `vllm/vllm-openai:v0.26.0-cu129`, vLLM served, teardown **verified**, zero orphan pods — 105s against an 18,000s budget from a $1.00 cap at $0.16/hr, **$0.01 spent**. `evidence/runpod/spend-rr7b6uwmivaolh.json` is now **WITHDRAWN** (mutable image tag; runtime unidentifiable) and citable by nothing; the paid run happened, but the receipt backs no cost or performance claim. The chain did not run: no quote, selector decision, verification, charge, payable or receipt went through the pod, and `vllm_cuda` r3 stays `DRAFT` |
-| 6 | Stripe provider matrix | still `OPEN`, and now for two *named* reasons | A public HTTPS control plane was stood up and reached from the internet at `status: ready, payment_mode: test, live_value_movement: false` — the exact `/readyz` gate the staging plan names — through a `cloudflared` quick tunnel, then torn down. So webhook delivery is reachable in principle. What blocks the matrix is below |
+| 6 | Stripe provider matrix | still `OPEN`, Connect signup | **Historical:** a `cloudflared` quick tunnel reached `/readyz` ready / test / no live value, then was torn down. **Current:** persistent public TLS at `mercmerc.net` answers the same `/readyz` shape. What still blocks the matrix is Connect signup, below. |
 
 ### What the Stripe matrix actually needs now
+
+> **Historical (tunnel-era).** The two `we_1Txf…` endpoints with
+> `api_version: null` pointing at a dead `trycloudflare.com` host were a
+> session finding. They are not the current wall.
+
+**Current wall (2026-08-17):**
+`evidence/external/stripe-sandbox-matrix.json` is `BLOCKED` /
+`connect_platform_not_signed_up`. Stripe itself refuses:
+*"You can only create new accounts if you've signed up for Connect."*
+Non-Connect test-mode scenarios have been driven against
+`acct_1TxbzMCwPLrR4vaY`. Persistent staging is public HTTPS at
+`mercmerc.net`. `MERC_CONNECT_CLIENT_ID` (`ca_…`) remains a dashboard
+value, not an API one.
+
+Historical tunnel-era remainder, retained as the finding that was true
+then:
 
 1. **Both webhook endpoints must be recreated.** `we_1Txf…jyO3LpJ` and
    `we_1Txf…fW72ynZ` carry `api_version: null`, and the contract fails closed on a
@@ -988,7 +1023,7 @@ candidate-bound `CANARY_PROVEN`.
 | Processor-fee allocation | local database `TESTED`; provider reconciliation `OPEN` | New batch fees use deterministic Hamilton/largest-remainder allocation at micro-USD precision with immutable job-ID tie-breaking. Pre-upgrade allocations are preserved and explicitly marked `legacy_order_residual_v0`, never silently rewritten. The database binds every allocation to its exact batch, job, provider reference, and method; serializes concurrent allocators; preserves append-only rows; rejects partial/mismatched replays; and requires exact fee conservation. Invoices and clearing receipts expose the per-job allocation, versioned method, and platform net after that fee without exposing Stripe identifiers; batch invoices fail closed on an incomplete allocation. Ten thousand randomized order/permutation/quota cases and fresh-PostgreSQL concurrency/mutation tests pass. No Stripe object or provider cash evidence is claimed. |
 | Refunds / disputes | `IMPLEMENTED` | 21 files reference disputes. Transfer reversal has never met real Stripe. |
 | Stripe sandbox end to end | historical capability evidence; formal gate `OPEN` (`NO_GO`) | Historical CAD-settlement provider evidence is retained without promotion. The current formal candidate still lacks the complete test-mode matrix and provider-reconciliation receipt required by `P1-STRIPE-TEST`; live activation is sealed and Level C remains prohibited. |
-| Production deployment / TLS | `EXTERNALLY_BLOCKED` | No SSH key in session. Droplet still serves the pre-session build (`/version` 404s). |
+| Production deployment / TLS | persistent staging `READY`; live money `NO_GO_PROHIBITED` | **Historical (this shippability pass):** no SSH key in session; droplet `/version` 404s. **Current (2026-08-17):** `https://mercmerc.net/version` HTTP 200, commit `19fe0b23`, `modified: false`, `go1.26.6`; `/readyz` 200, `payment_mode=test`, `live_value_movement=false`; Let's Encrypt public TLS. That commit is 20 behind HEAD. |
 | Backup / restore | `TESTED` | Gates present and passing. |
 | Alerts / status / rollback | `REAL_RUNTIME_PROVEN` private | 27 alerts validated; Alertmanager fire→HTTP sink→resolve was observed through the real local webhook path in `evidence/autonomous/alert-delivery-r1.json` (unbound local path receipt; not external paging authority); external staffed paging remains open. |
 | Licence scope | `PARTIAL` | Split done; `validate-license-register` deliberately red pending counsel. |
@@ -1028,18 +1063,19 @@ execution, external staffed alert delivery, and the formal external release
 exercises remain unproven. The private local alert receiver path is proven, but
 it is not staffed paging authority.
 
-The last machine-derived readiness tool still prints **84/100**, **P0=0** and
-the eight recorded external P1 gates. That score is no longer a sufficient
-candidate statement and **84 is not the current machine-reachable maximum**:
-the stronger V2 reconciliation exposed two additional local physical-authority
-prerequisites. New admission needs a BOUND performance receipt whose unit scope
-matches settlement, and fresh catalogue publication needs BOUND throughput plus
-exact MEASURED sustained power. Until those measurements exist, the current
-tree intentionally refuses physical work and production-image boot. The
-external Stripe, soak, offsite restore, staging, attack-rehearsal and qualified
-governance blockers remain independently open. Level B is `NO_GO`; Level C live
-money/public launch is prohibited. No historical credential, deployment, boot,
-or canary receipt overrides any of those gates.
+The last machine-derived readiness tool prints **87/100**, **P0=0** and
+**five** open P1s (`python3 scripts/validate-readiness.py` at this HEAD).
+84/100 is the local-receipt ceiling before the offsite pair; that pair is now
+present and the derived total is 87. The remaining 13 points are Stripe (6),
+24-hour soak (3), external staging-attack rehearsal (1), and three qualified
+human approvals (privacy, licensing, staffed abuse). Staging, the 3600 s
+alpha soak, and offsite restore are no longer independently open.
+`P1-STRIPE-TEST` is the remaining `ALPHA_BLOCKER`. Level B is `NO_GO`;
+`EXTERNAL_ALPHA_PROVEN` is false; Level C live money/public launch is
+prohibited. No historical credential, deployment, boot, or canary receipt
+overrides any of those gates. New admission still needs a BOUND performance
+receipt whose unit scope matches settlement, and fresh catalogue publication
+still needs BOUND throughput plus exact MEASURED sustained power.
 
 
 <!-- source: docs/MERC_SHIPPABILITY_DIRECTIVE.md -->
@@ -2470,11 +2506,11 @@ costs a week rather than another quarter of engineering.
 Everything below needs a human, an account, paid infrastructure, or a decision
 that is not the code's to make. Nothing here can be closed by writing software.
 
-For the **readiness facet** specifically (current machine-derived **84/100**,
-which is the machine-reachable ceiling without staging/offsite/approvers), use
-the ordered operator checklist in `docs/PROGRAMME.md § "Facet external action pack"`. This
-queue remains the broader external inventory for canary inputs and rename
-cutovers.
+For the **readiness facet** specifically (current machine-derived **87/100**,
+P1=5; 84/100 is the local-only ceiling before the offsite pair, which has
+landed), use the ordered operator checklist in
+`docs/PROGRAMME.md § "Facet external action pack"`. This queue remains the
+broader external inventory for canary inputs and rename cutovers.
 
 Generated from measured probes, not from intent. Re-derive with:
 
@@ -2500,10 +2536,12 @@ present.
 
 Candidate-bound canary lanes: **0 of 21**.
 
-## 1. Staging deployment — blocks the most
+## 1. Staging deployment — **historical blocker; now SATISFIED**
 
-The go-closure canary rehearsal cannot run without a real staging host. This one
-item gates the majority of the 21 lanes.
+`P1-STAGING` is `SATISFIED` (2026-08-16). Persistent staging serves
+`https://mercmerc.net` over public TLS. The go-closure canary rehearsal
+still needs the remaining participant/adapter inputs in the table; it is
+no longer blocked on the absence of a host.
 
 | Input | What it is |
 |---|---|
@@ -2620,17 +2658,22 @@ ignored. The score is trustworthy precisely because empty prose cannot raise it.
 python3 scripts/validate-readiness.py
 ```
 
-Expected on a host with no staging, no offsite storage, and no human approvers:
+Expected at this HEAD (offsite pair present, 24 h soak and Stripe matrix
+not, no qualified human approvals):
 
 ```text
-readiness: PASS (87/100 derived, P0=0, P1=8, Level B NO_GO)
+readiness: PASS (87/100 derived, P0=0, P1=5, Level B NO_GO)
 ```
+
+On a host with no offsite credential the derived total is 84/100. The P1
+count is 5, not 8: `P1-STAGING`, `P1-RECOVERY-SOAK` (alpha exit) and
+`P1-OFFSITE-RESTORE` are `SATISFIED`.
 
 | Domain | Derived | Gap | Blocker class |
 |---|---:|---:|---|
 | `source_and_ci` | 10/10 | 0 | — |
 | `security` | 14/15 | 1 | external staging attack rehearsal |
-| `money_and_reconciliation` | 9/15 | 6 | Stripe Connect client id, public TLS host, webhook matrix |
+| `money_and_reconciliation` | 9/15 | 6 | Stripe Connect signup + Connect-complete matrix (`tr_` / payout hold/release/failure/reversal). Public TLS host is no longer the gap. |
 | `lifecycle_and_concurrency` | 10/10 | 0 | — |
 | `artifacts_and_storage` | 8/8 | 0 | independent offsite copy (Cloudflare R2 rehearsal) |
 | `agent_and_sandbox` | 8/8 | 0 | — |
@@ -2698,26 +2741,23 @@ Do work in this order. Rationale is effort and sequencing, not ceremony.
 
 | Order | Domain(s) | Pts | Why first / next |
 |---:|---|---:|---|
-| **1** | `money_and_reconciliation` | **6** | Highest absolute return. Once a public HTTPS staging hostname exists, the remaining inputs are two dashboard values (Connect client id + recreated webhooks) and a scripted matrix. Roughly minutes of dashboard work plus one command pass. |
-| **2** | `licensing_and_supply_chain` | **1** | Pure paper. No staging host. Can run in parallel with infra work. Provenance register and named reviewer only. |
+| **1** | `money_and_reconciliation` | **6** | Highest absolute return. Public HTTPS staging exists. Remaining wall is Connect signup on `acct_1TxbzMCwPLrR4vaY`, then `make stripe-matrix` until `stripe_sandbox_matrix_proven` accepts a PASS. |
+| **2** | `licensing_and_supply_chain` | **1** | Pure paper. Provenance register and named reviewer only. |
 | **3** | `privacy_and_data_governance` | **1** | Also paper / counsel. Can run in parallel with (2). |
-| **4** | `artifacts_and_storage` + `database_and_recovery` | **2+1=3** | Same offsite bucket exercise closes both domains. One rehearsal, three facet points. |
-| **5** | `deployment_and_rollback` | **3** | Persistent staging already required for (1). The extra cost is mostly wall-clock: a qualifying ≥86400 s soak on the uninterrupted candidate container. Low active effort after deploy. |
-| **6** | `security` | **1** | Needs the staging surface from (1)/(5). External attack rehearsal against that host; local tabletops already scored. |
-| **7** | `abuse_and_trust` | **1** | Lowest points per coordination cost: needs a staffed human route or qualified multi-role tabletop on calendars you do not control. |
+| **4** | `artifacts_and_storage` + `database_and_recovery` | **0 remaining** | **Done.** Offsite pair is `PASS` / `BOUND` and already in the 87. Listed so this table is not mistaken for a to-do. |
+| **5** | `deployment_and_rollback` | **3** | Persistent staging exists. Remaining is the qualifying ≥86400 s soak. The 3600 s alpha soak does not award these 3 points. |
+| **6** | `security` | **1** | External named-reviewer attack rehearsal against the public TLS host. The local 1551-attack rehearsal is `qualification: LOCAL` and does not score this point. |
+| **7** | `abuse_and_trust` | **1** | Staffed human route or qualified multi-role tabletop. |
 
-**Do first if you can only do one thing:** stand up `STAGING_TLS_HOSTNAME` and
-close the Stripe block. Six points, shared prerequisite for soak and attack
-rehearsal, and the payments P1 (`P1-STRIPE-TEST`) the release ledger already
-names.
+**Do first if you can only do one thing:** Connect signup, then the Stripe
+matrix. Six points, and the remaining `ALPHA_BLOCKER` P1.
 
-**Do not start with** the abuse tabletop or a lone security drill if staging and
-Stripe are still open — one staffed meeting buys 1 point; the same afternoon on
-Connect + webhooks buys 6 and unblocks more.
+**Do not start with** the abuse tabletop or a lone security drill if Stripe
+is still open — one staffed meeting buys 1 point; the same afternoon on
+Connect + webhooks buys 6.
 
-Shared prerequisite note: items 1, 5, and 6 all need a project-controlled
-persistent TLS staging host. Item 4 needs a **different** storage provider from
-that host. Items 2 and 3 need neither.
+Shared prerequisite note: items 1, 5, and 6 share the already-standing
+persistent TLS host. Item 4 is closed. Items 2 and 3 need neither.
 
 ---
 
@@ -2774,7 +2814,7 @@ and that file then passes `stripe_sandbox_matrix_proven`:
 ```bash
 python3 scripts/validate-readiness.py
 # expect: money_and_reconciliation: derived=15/15
-# expect: readiness: PASS (90/100 …)   # 84 + 6
+# expect: readiness: PASS (93/100 …)   # current 87 + 6, not 84 + 6
 ```
 
 Until that file lands with the full matrix shape, the matrix can still pass and
@@ -2935,7 +2975,9 @@ scripts/go-closure-soak.sh --target ssh --duration 86400 --interval 60 --execute
 # retain the schema-v2 qualifying soak receipt the script emits
 ```
 
-Related release gates: `P1-STAGING`, `P1-RECOVERY-SOAK`.
+Related release gates: `P1-STAGING` and the alpha exit of `P1-RECOVERY-SOAK`
+are `SATISFIED`. The 24-hour clause of `P1-RECOVERY-SOAK` remains the
+Level B/C bar.
 
 ### How to verify the facet moved
 
@@ -3090,20 +3132,23 @@ existing content checks are unchanged. Empty or fabricated files still score 0.*
 
 # Level-B operator handoff
 
-Current committed candidate: `54ab790d5926d3eb671a754e8d07dbb48557fbde`.
-The plan command binds the actual candidate to exact clean `HEAD`; reseal after
-any commit. Readiness is **84/100**, P0 is **0**, P1 is **8**, Level B is
-**NO-GO**, and Level C is **NO-GO / NOT ASSESSED**. **84/100 is the
-machine-reachable ceiling** without staging, offsite storage, or human
-approvers; the remaining 16 points are external-only (see
-`docs/PROGRAMME.md § "Facet external action pack"`). A Stripe live credential is prohibited
-and is not an input to this procedure.
+Current committed candidate: reseal to exact clean `HEAD` (this tree is
+`9e31c65b`; live staging serves `19fe0b23`). Readiness is **87/100**, P0 is
+**0**, P1 is **5**, Level B is **NO-GO**, backend alpha is **85/91**
+`ALPHA_ENGINEERING_READY NO_GO` / `EXTERNAL_ALPHA_PROVEN NO_GO`, and Level C
+is **NO-GO_PROHIBITED**. **87/100 is the current derived total** (84 local +
+3 offsite). The remaining 13 points are external-only (see
+`docs/PROGRAMME.md § "Facet external action pack"`). A Stripe live
+credential is prohibited and is not an input to this procedure.
 
-The eight P1s are: persistent TLS staging; independent encrypted offsite
-backup and isolated restore; complete Stripe sandbox CAD matrix; external
-staffed alert fire and resolution; approved buyer/worker canary; rollback/restart storm and
-24-hour soak; independent accountable review/retest; and candidate-bound
-governance approvals. No local or simulated receipt closes one of them.
+The five open P1s are: complete Stripe sandbox CAD matrix including Connect
+(`P1-STRIPE-TEST`); approved buyer/worker canary (`P1-CANARY-REHEARSAL`);
+external staffed alert fire and resolution (`P1-ALERT-DELIVERY`);
+independent accountable review/retest (`P1-INDEPENDENT-APPROVAL`); and
+candidate-bound governance approvals (`P1-GOVERNANCE`). Staging, alpha
+rollback/restart/3600 s soak, and offsite restore are `SATISFIED`. The
+24-hour soak remains unearned at Level B/C. No local or simulated receipt
+closes an open P1.
 
 ## External bundles
 
@@ -3183,9 +3228,13 @@ The current decision remains:
 
 ```text
 Level A software candidate: GO
-Level B supervised Stripe-test-mode canary: NO-GO
-Level C live money/public launch: prohibited
+Backend alpha: 85/91, ALPHA_ENGINEERING_READY NO_GO, EXTERNAL_ALPHA_PROVEN NO_GO
+Level B supervised Stripe-test-mode canary: NO-GO (87/100, P1=5)
+Level C live money/public launch: NO_GO_PROHIBITED
 ```
+
+`P1-STAGING` and `P1-OFFSITE-RESTORE` in the table above are operator
+runbook rows for a repeat; they are not currently open P1s.
 
 
 <!-- source: ROADMAP.md -->
@@ -3201,22 +3250,28 @@ plan yet.
 
 ## Near term
 
-These five are the only things standing between the current build and a private
-pilot that moves real money. None of them can be done from the development
-machine; they all need real infrastructure or a real payment account.
+> **Updated 2026-08-17.** A private pilot that moves **real** money remains
+> `NO_GO_PROHIBITED` even after every item below. These were the five
+> workstation-impossible proofs on the path to a test-mode private canary.
 
-- Upload a backup to independent offsite storage and restore from that uploaded
-  copy. Only the local drill has passed so far.
-- Deploy to a real staging host with TLS and run the full buyer, supplier, and
-  operator path there.
-- Rehearse a rollback to the previous container image in staging. The rollback
-  script has only been syntax-checked.
-- Run the full Stripe test-mode money matrix end to end: authorize and capture,
-  the actual fee, refund, dispute, payout success and failure, an unknown payout
-  outcome, duplicate and out-of-order webhooks, and reconciliation.
-- Wire the alert rules to a real on-call receiver and prove that one synthetic
-  page is delivered, acknowledged, and resolved. A rule that has never paged is
-  not a proven alert.
+- ~~Upload a backup to independent offsite storage and restore from that
+  uploaded copy.~~ **Done.** `P1-OFFSITE-RESTORE` `SATISFIED`
+  (`evidence/external/offsite-backup-verification.json` and
+  `evidence/external/offsite-independent-restore.json`, both `PASS` /
+  `BOUND`).
+- ~~Deploy to a real staging host with TLS.~~ **Done as a host.**
+  `P1-STAGING` `SATISFIED`. `https://mercmerc.net/readyz` is 200,
+  `payment_mode=test`. The full buyer/supplier/operator path on that host is
+  **not** done (`l12-p1-canary-rehearsal-live-staging.json` is `BLOCKED`).
+- ~~Rehearse a rollback to the previous container image in staging.~~
+  **Done (alpha).** `evidence/external/staging-rollback-and-forward.json`
+  `PASS`. The 24-hour soak is still unearned.
+- Run the full Stripe test-mode money matrix end to end, including Connect
+  transfers and payout hold/release/failure. **Still open**
+  (`P1-STRIPE-TEST`; matrix `BLOCKED` on Connect signup).
+- Wire the alert rules to a real on-call receiver and prove that one
+  synthetic page is delivered, acknowledged, and resolved. **Still open**
+  (`P1-ALERT-DELIVERY`, classified `PUBLIC_LAUNCH`).
 
 ## Later
 
@@ -3245,6 +3300,10 @@ machine; they all need real infrastructure or a real payment account.
 <!-- source: RELEASE_GATES.md -->
 
 # Execution-network release gates
+
+> **Historical snapshot from the absorbed `RELEASE_GATES.md`.** Not the
+> 2026-08-17 readiness ledger. Current scores and open P1s are in the
+> banner at the top of this file and in `ops/go-no-go.json`.
 
 The realtime lane is **NO-GO** for private canary and production.
 

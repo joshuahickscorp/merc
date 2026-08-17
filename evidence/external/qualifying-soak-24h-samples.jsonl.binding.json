@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "kind": "evidence_binding_sidecar",
+  "target": "evidence/external/qualifying-soak-24h-samples.jsonl",
+  "binding_status": "BOUND",
+  "producer_identity": {
+    "source_commit": {
+      "value": "9e31c65b27860d659d7ce972e2de7052691c0642"
+    },
+    "build_digest": {
+      "value": "2f85169a9f0812687e72a5514d1f19c1a1565d68861866ac72224eef8b62bc75"
+    },
+    "model_artifact_digest": {
+      "na": "soak does not load model weights"
+    },
+    "image_digest": {
+      "na": "https observer does not inspect the control container image"
+    },
+    "harness_revision": {
+      "value": "scripts/soak/soak24.py"
+    },
+    "corpus_digest": {
+      "na": "no external corpus"
+    },
+    "exact_config": {
+      "value": "qualifying_24h_https_observer requested=86400 interval=60 host=mercmerc.net"
+    },
+    "raw_samples": {
+      "value": "evidence/external/qualifying-soak-24h-samples.jsonl"
+    }
+  },
+  "note": "sidecar for non-object evidence written via bound path"
+}

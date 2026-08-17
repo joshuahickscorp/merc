@@ -1108,11 +1108,7 @@ async fn heartbeat_service_leases(
         let p95_ok = p95 <= lease.maximum_p95_latency_milliseconds;
         let p99_ok = lease.maximum_p99_latency_milliseconds <= 0
             || p99 <= lease.maximum_p99_latency_milliseconds;
-        let status = if p95_ok && p99_ok {
-            "READY"
-        } else {
-            "FAILED"
-        };
+        let status = if p95_ok && p99_ok { "READY" } else { "FAILED" };
         let heartbeat = ServiceLeaseHeartbeat {
             warm_replicas: if status == "READY" {
                 service.available_warm_replicas

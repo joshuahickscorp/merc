@@ -1,41 +1,50 @@
 # Release readiness: scope-separated NO-GO
 
-As of 2026-07-20, the hardened software candidate passes its full local
-two-agent proof, but the requested supervised Stripe-test-mode private canary is
-still **NO-GO**. Live money and public access are separately **NO-GO and
-prohibited**.
+As of 2026-08-17 (`python3 scripts/validate-readiness.py` at HEAD
+`9e31c65b`), the software candidate is Level A **GO**. The supervised
+Stripe-test-mode private canary is still Level B **NO-GO** (87/100, threshold
+95, P0=0, P1=5). Backend alpha is an additional axis, not a replacement:
+**85/91**, `ALPHA_ENGINEERING_READY NO_GO`, `EXTERNAL_ALPHA_PROVEN NO_GO`.
+The only open `ALPHA_BLOCKER` P1 is `P1-STRIPE-TEST`. Live money and public
+access are separately **NO-GO and prohibited**.
 
 | Level | Decision | Boundary |
 |---|---|---|
 | A — software candidate | GO | exact-head CI, artifacts, signed registry images, and fresh-clone proof |
+| backend alpha | NO-GO | persistent backend, Stripe test-mode money path, local execution/recovery; see `docs/BACKEND_ALPHA_CONTRACT.md` |
 | B — private canary | NO-GO | persistent private staging, approved synthetic participants, Stripe test mode, no value |
 | C — live pilot/public launch | NO-GO / prohibited | no real charges, transfers, payouts, public signup, or independent suppliers |
 
-The machine-derived readiness score is **87/100** after the Cloudflare R2
-offsite rehearsal. On a host with no persistent staging, no offsite
-credential, and no human approvers the ceiling is still 84/100; the extra
-3 points require the already-configured R2 keys and
-`make offsite-independent-restore`. Remaining points are Stripe, soak,
-public-hostname rehearsal, or qualified approvals, and cannot be earned by
-writing more local code. GO requires at least 95, zero open P0/P1, all
-mandatory scenarios, and a passing 24-hour soak. Recompute with
-`python3 scripts/validate-readiness.py`. The decision ledger is
-`ops/go-no-go.json`; the advisory domain ledger is `ops/readiness.json`
-(hand-typed `earned` is ignored). The operator checklist for the remaining
-13 points is `docs/PROGRAMME.md § "Facet external action pack"`.
+The machine-derived readiness score is **87/100**. Local receipts score 84;
+the independent offsite backup/restore pair
+(`evidence/external/offsite-backup-verification.json` and
+`evidence/external/offsite-independent-restore.json`, both `PASS` / `BOUND`)
+adds the extra 3. Remaining 13 points are Stripe sandbox matrix (6),
+24-hour qualifying soak (3), external staging-attack rehearsal (1),
+qualified privacy approval (1), licensing approval (1), and staffed abuse
+route (1). They cannot be earned by writing more local code. GO requires at
+least 95, zero open P0/P1, all mandatory scenarios, and a passing 24-hour
+soak. Recompute with `python3 scripts/validate-readiness.py`. The decision
+ledger is `ops/go-no-go.json`; the advisory domain ledger is
+`ops/readiness.json` (hand-typed `earned` is ignored). The operator
+checklist for the remaining 13 points is
+`docs/PROGRAMME.md § "Facet external action pack"`.
 
 ## What is proven
 
 - Go format, vet, unit/integration/race tests and schema apply-twice pass.
-- Rust format and strict clippy pass; all 75 tests pass.
+- Rust format and strict clippy pass. The historical "75 tests pass" count is
+  stale (the agent tree now has 175 `#[test]` / `#[tokio::test]` attributes);
+  this pass did not re-run `cargo test`.
 - Two distinct local Metal agents completed `embed` and `batch_infer` through
   Candle. A late/wrong-attempt commit was rejected without a money effect; the
   ledger remained zero-sum with no duplicate task effects.
 - Exact model/tokenizer revisions, byte sizes, SHA-256 values, agent source,
   runtime authority, tuning, and hardware class are bound into admission.
-- The 76-route authorization matrix covers eight identity roles with default
-  deny; all 61 credential-protected routes reject anonymous and wrong-namespace
-  credentials before storage access.
+- The 126-route authorization matrix covers eight identity roles with default
+  deny. Eighteen routes are explicit public inventory (`public_read` 14,
+  `public_bootstrap` 4); the other 108 reject anonymous and wrong-namespace
+  credentials before storage access. The readiness pin is 126.
 - All privileged mutations are actor-bound and audit-atomic. Disputes freeze
   settlement, and intake, dispatch, payment, and webhook stops are durable.
 - Static validators pass for the nine-service immutable staging harness, local
@@ -45,21 +54,24 @@ mandatory scenarios, and a passing 24-hour soak. Recompute with
   DSAR/tombstone replay, technical incident scenarios, and 4,096 generated
   deterministic payment sequences also pass. The longest retained soak receipt is
   `evidence/autonomous/local-soak-300s.json` (300 s; unbound historical soak, not
-  a bound qualifying soak); the only other is `local-soak-60s.json`, which
-  carries a single sample. No 15-minute, two-hour or 24-hour soak receipt exists,
-  and `.artifacts/local-soak-failures/` records the 15-minute attempts that ended
-  in an OOM kill and in a control restart. Soak duration is therefore NOT
-  EXECUTED beyond 300 s. Payment evidence is labelled SIMULATED.
+  a bound qualifying soak); the only other local file is `local-soak-60s.json`,
+  which carries a single sample. A derived backend-alpha soak of 3600 s on
+  `mercmerc.net` is `PASS` at
+  `evidence/external/qualifying-soak-alpha.json` (`qualifies_for_24h_gate:
+  false`). No 15-minute, two-hour or 24-hour qualifying soak receipt exists,
+  and `.artifacts/local-soak-failures/` records the 15-minute attempts that
+  ended in an OOM kill and in a control restart. The Level B/C 24-hour soak
+  is therefore NOT EXECUTED. Payment evidence is labelled SIMULATED.
 - Stripe test mode has been exercised, but not in a form that closes its gate.
-  `evidence/canary/stripe-cad-supplier-matrix-0a4b66cb.json` records real
-  test-mode provider object identifiers with `provider_mode: test`,
-  `live_mode: PROHIBITED` and status PASS. That receipt is **UNBOUND** and does
-  not sit at the formal `evidence/external/stripe-sandbox_matrix` path, so
-  `P1-STRIPE-TEST` correctly remains open in `ops/go-no-go.json`. Corrected
-  2026-08-09: this bullet previously read "Stripe test mode remains NOT
-  EXECUTED", which was not true of the work and made an unbound-evidence problem
-  look like an unattempted one. The gate is open because the receipt is not
-  bound, not because nothing ran.
+  The formal path `evidence/external/stripe-sandbox-matrix.json` exists:
+  `status: BLOCKED`, `provider_mode: test`, `live_mode: PROHIBITED`,
+  `blocker.id: connect_platform_not_signed_up` on `acct_1TxbzMCwPLrR4vaY`.
+  `stripe_sandbox_matrix_proven` therefore awards 0/6. An earlier unbound
+  canary file `evidence/canary/stripe-cad-supplier-matrix-0a4b66cb.json`
+  (`status: PASS`, test-mode provider objects) still does not close the
+  gate. Corrected 2026-08-09: this bullet previously read "Stripe test mode
+  remains NOT EXECUTED". Corrected 2026-08-17: the wall is Connect signup,
+  not a missing formal path.
 - Fourteen **agent** review domains contain the required scope, failure model,
   findings, severity, evidence, repair, verification, and residual risk fields in
   `ops/agent-review-notes.json`. Corrected 2026-08-09: this bullet previously
@@ -87,16 +99,31 @@ cannot be embedded inside the commit it identifies without self-reference.
 
 ## Why Level B is still NO-GO
 
-Eight P1 gates remain. They require resources or authority not available in this
-workspace: persistent TLS staging and published-image external
-rollback/restart/24-hour soak (no local soak window beyond 300 s has produced a
-passing receipt);
-independently uploaded and restored encrypted backup; Stripe test-mode fixtures
-and reconciliation; a real alert receiver; two approved buyers/two
-operator-controlled Metal agents and scenario adapters; an independent
-repository reviewer; qualified governance approvals; and qualified human
-incident/provenance closure. Local technical versions of the incident and
-privacy exercises pass but do not constitute those approvals.
+Five P1 gates remain (`ops/go-no-go.json` `open_p1`). Three others are in
+`dropped_p1` as `SATISFIED` on evidence: `P1-STAGING` (public TLS at
+`mercmerc.net`, `/readyz` 200, `payment_mode=test`), `P1-RECOVERY-SOAK`
+(rollback/forward + restart-storm + 3600 s derived soak; the 24-hour clause
+of this same P1 stays the Level B/C bar), and `P1-OFFSITE-RESTORE`
+(independent R2 download and isolated restore from the live droplet
+volumes).
+
+Still open:
+
+- `P1-STRIPE-TEST` (`ALPHA_BLOCKER`) — non-Connect Stripe test-mode scenarios
+  have been driven; Connect signup is the remaining wall
+  (`evidence/external/stripe-sandbox-matrix.json` status `BLOCKED`,
+  `blocker.id=connect_platform_not_signed_up`).
+- `P1-CANARY-REHEARSAL` (`ALPHA_CONTROL`) — two approved buyers, two
+  operator-controlled Metal agents, and the counted scenario matrix. Local
+  L12 receipts PASS and must not be read as `EXTERNAL_ALPHA_PROVEN`.
+- `P1-ALERT-DELIVERY` (`PUBLIC_LAUNCH`) — a real staffed paging receiver.
+- `P1-INDEPENDENT-APPROVAL` (`PUBLIC_LAUNCH`) — a named non-author reviewer.
+- `P1-GOVERNANCE` (`PUBLIC_LAUNCH`) — eight qualified approvals. Governance
+  documents are drafts marked *DRAFT · INTERNAL · NOT LEGAL ADVICE*.
+
+Local technical versions of the incident and privacy exercises pass but do
+not constitute those approvals. `EXTERNAL_ALPHA_PROVEN` is false. Live money
+stays `NO_GO_PROHIBITED`.
 
 Exact-head run `29711174514` passed all five CI jobs at `7502d1d`; all four
 artifact bundles and their embedded checksums verified. Registry run

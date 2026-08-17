@@ -1,7 +1,7 @@
 {
   "kind": "staging_alpha_readiness",
   "schema_version": 1,
-  "observed_at": "2026-08-16T23:58:47Z",
+  "observed_at": "2026-08-17T15:36:22Z",
   "host": {
     "alias": "merc-droplet",
     "address": "192.241.134.31",
@@ -9,24 +9,30 @@
     "deploy_root": "/opt/merc"
   },
   "deployed": {
-    "commit": "a5bca8c0abcfda4158f5c681fa67f5ae5ebccb05",
-    "image": "computexchange/control:a5bca8c0abcfda4158f5c681fa67f5ae5ebccb05",
-    "image_id": "sha256:2b2f85c969176dd5cc84f66e402e0853519f7784bc9f60fcf86841372e9fb28c",
-    "linux_amd64_manifest": "sha256:18169c8bb1cc888725d2e7713eeacdd23bc579706fc0eafb82878112909f670c",
-    "image_config": "sha256:f87cc531ea22f791067be8bc8e6704d7be94d2ead3d4d279ce3e1bda5e2daa43",
-    "build_date": "2026-08-16T23:52:36Z",
+    "commit": "9e31c65b27860d659d7ce972e2de7052691c0642",
+    "image": "computexchange/control:9e31c65b27860d659d7ce972e2de7052691c0642",
+    "image_id": "sha256:e0b642220dcd195c84290466cdaf90c2083c8740a87e6c3166d5817683f59fd3",
+    "linux_amd64_manifest": "sha256:467631473e244dacd4f6b905a05bbcf4091f567e2d3439d34202b359ab6031fe",
+    "image_config": "sha256:d7a13849150fe87b4ecedc9296885dd85c49bac1534625d72d49a7097f0d9a6c",
+    "build_date": "2026-08-17T15:33:33Z",
     "registry": "local docker image store on the droplet; not pushed to a remote registry",
-    "source_note": "built linux/amd64 on the operator Mac from repo HEAD a5bca8c0 after git lfs pull of evidence/perf/runtime-benchmarks; first build without LFS smudge crash-looped and was rolled back before this digest was loaded"
+    "source_note": "built linux/amd64 on the operator Mac from repo HEAD 9e31c65b27860d659d7ce972e2de7052691c0642 after assert-control-receipts-not-lfs PASS; loaded via scripts/alpha/rebuild-redeploy.py"
   },
   "prior": {
-    "commit": "8283ae583057d6265947a473023e4f05102704b4",
-    "image": "computexchange/control:8283ae583057d6265947a473023e4f05102704b4",
-    "image_id": "sha256:7bf0ab9d69ed36d2203161dd161fabe8977bce83ca53c2629bff16297a7bdd1b"
+    "commit": "19fe0b23940c7e3d4da9b45d9cc5689c2c515d07",
+    "image": "computexchange/control:19fe0b23940c7e3d4da9b45d9cc5689c2c515d07",
+    "image_id": "sha256:245dc92a5fffc1b9ffefe2452277797a498dc9cfb779dd915ae2631802175768",
+    "retained": true
   },
   "backup_before_deploy": {
-    "path": "/opt/merc/.artifacts/backups/cx-20260816T234903Z.dump",
-    "sha256": "a18ad84e9f2db9950e22b6fc587545bc6e3b14d3e3488fcc6d2fb4621bb76e52",
-    "bytes": 642388
+    "taken_this_run": false,
+    "retained_prior_dump": {
+      "path": "/opt/merc/.artifacts/backups/cx-20260816T234903Z.dump",
+      "sha256": "a18ad84e9f2db9950e22b6fc587545bc6e3b14d3e3488fcc6d2fb4621bb76e52",
+      "bytes": 642388,
+      "still_present": true
+    },
+    "note": "this run did not take a new pg_dump; recoverability was shown by marker survival and unchanged postgres/minio StartedAt across rollback/forward"
   },
   "criteria": {
     "tls": {
@@ -55,11 +61,12 @@
       "status": "PROVEN",
       "method": "docker inspect + GET https://mercmerc.net/version",
       "observed": {
-        "commit": "a5bca8c0abcfda4158f5c681fa67f5ae5ebccb05",
-        "image_id": "sha256:2b2f85c969176dd5cc84f66e402e0853519f7784bc9f60fcf86841372e9fb28c",
-        "digest_record": "computexchange/control@sha256:2b2f85c969176dd5cc84f66e402e0853519f7784bc9f60fcf86841372e9fb28c",
-        "version_endpoint_commit": "a5bca8c0abcfda4158f5c681fa67f5ae5ebccb05",
-        "started_at": "2026-08-16T23:58:01.515291205Z"
+        "commit": "9e31c65b27860d659d7ce972e2de7052691c0642",
+        "image_id": "sha256:e0b642220dcd195c84290466cdaf90c2083c8740a87e6c3166d5817683f59fd3",
+        "digest_record": "computexchange/control@sha256:e0b642220dcd195c84290466cdaf90c2083c8740a87e6c3166d5817683f59fd3",
+        "version_endpoint_commit": "9e31c65b27860d659d7ce972e2de7052691c0642",
+        "version_modified": false,
+        "started_at": "2026-08-17T15:35:21.0997652Z"
       }
     },
     "isolated_test_configuration": {
@@ -76,16 +83,15 @@
     },
     "recoverable_data_plane": {
       "status": "PROVEN",
-      "method": "logical pg_dump before deploy; marker row and MinIO object survive rollback/forward and restart-storm of control, postgres, and minio",
+      "method": "postgres and minio StartedAt unchanged across control recreate; marker row and MinIO object survive rollback/forward",
       "observed": {
         "backup": "/opt/merc/.artifacts/backups/cx-20260816T234903Z.dump",
         "backup_sha256": "a18ad84e9f2db9950e22b6fc587545bc6e3b14d3e3488fcc6d2fb4621bb76e52",
-        "postgres_marker_after_restart": "restart-storm|present-before-restarts",
-        "postgres_restarted_at": "2026-08-16T23:58:11.006751471Z",
-        "minio_object_after_restart": "l7/restart-storm.txt -> l7-restart-storm-marker",
-        "minio_restarted_at": "2026-08-16T23:58:23.587891976Z",
-        "control_restart_readyz": 200,
-        "control_restarted_at": "2026-08-16T23:58:01.515291205Z"
+        "postgres_marker_after_swap": "lane-b-rebuild-20260817|present-before-rollback",
+        "postgres_started_at": "2026-08-16T23:58:11.006751471Z",
+        "minio_object_after_swap": "lane-b/rebuild-redeploy.txt -> lane-b-rebuild-20260817",
+        "minio_started_at": "2026-08-16T23:58:23.587891976Z",
+        "volumes_destroyed": false
       }
     },
     "correct_stripe_mode": {
@@ -105,7 +111,8 @@
         "healthz": 200,
         "readyz": 200,
         "readyz_status": "ready",
-        "version_commit": "a5bca8c0abcfda4158f5c681fa67f5ae5ebccb05",
+        "version_commit": "9e31c65b27860d659d7ce972e2de7052691c0642",
+        "version_modified": false,
         "version_via_tls": 200
       }
     },
@@ -120,49 +127,45 @@
           "status": 403,
           "error": "email is not approved for this private canary"
         },
-        "allowlist_buyers": [
-          "joshuahicksboba@gmail.com"
-        ],
-        "allowlist_workers": [
-          "7d2bb6c8-c45a-505e-ae39-6b9fc73989f5"
-        ],
+        "allowlist_buyer_count": 1,
+        "allowlist_worker_count": 1,
         "admin_cidrs": "127.0.0.1/32,::1/128",
-        "connect_platform": "absent (no MERC_CONNECT_CLIENT_ID)"
+        "connect_platform": "absent (MERC_CONNECT_CLIENT_ID empty)"
       }
     },
     "rollback_capability": {
       "status": "PROVEN",
       "method": "compose recreate onto the prior tag, GET /version, then recreate onto the candidate tag",
       "observed": {
-        "rollback_at": "2026-08-16T23:57:25Z",
-        "rollback_image_id": "sha256:7bf0ab9d69ed36d2203161dd161fabe8977bce83ca53c2629bff16297a7bdd1b",
-        "rollback_commit": "8283ae583057d6265947a473023e4f05102704b4",
+        "rollback_at": "2026-08-17T15:35:05Z",
+        "rollback_image_id": "sha256:245dc92a5fffc1b9ffefe2452277797a498dc9cfb779dd915ae2631802175768",
+        "rollback_commit": "19fe0b23940c7e3d4da9b45d9cc5689c2c515d07",
         "rollback_readyz": 200,
-        "forward_at": "2026-08-16T23:57:38Z",
-        "forward_image_id": "sha256:2b2f85c969176dd5cc84f66e402e0853519f7784bc9f60fcf86841372e9fb28c",
-        "forward_commit": "a5bca8c0abcfda4158f5c681fa67f5ae5ebccb05",
+        "forward_at": "2026-08-17T15:35:19Z",
+        "forward_image_id": "sha256:e0b642220dcd195c84290466cdaf90c2083c8740a87e6c3166d5817683f59fd3",
+        "forward_commit": "9e31c65b27860d659d7ce972e2de7052691c0642",
         "forward_readyz": 200,
         "postgres_marker_still_present": true,
         "minio_marker_still_present": true,
-        "note": "An earlier candidate build that shipped Git LFS pointer files crash-looped; that digest was rolled back to 7bf0ab9d before the smudged-receipt rebuild (2b2f85c9) was loaded. The observed rollback/forward below is the later clean pair on the booting candidate."
+        "prior_digest_retained": true
       }
     }
   },
   "producer_identity": {
     "source_commit": {
-      "value": "a5bca8c0abcfda4158f5c681fa67f5ae5ebccb05"
+      "value": "9e31c65b27860d659d7ce972e2de7052691c0642"
     },
     "build_digest": {
-      "value": "0795932d6c3f0cb2f7a4b31e1473332a7f951ee7c1717a2b05deeb527b867cd1"
+      "value": "0ff159ba29430d392d7a6389b0ec70382a0753fbfdc81beff04e603b6b3e8b37"
     },
     "model_artifact_digest": {
       "na": "no model weights in this staging-plane receipt"
     },
     "image_digest": {
-      "value": "2b2f85c969176dd5cc84f66e402e0853519f7784bc9f60fcf86841372e9fb28c"
+      "value": "e0b642220dcd195c84290466cdaf90c2083c8740a87e6c3166d5817683f59fd3"
     },
     "harness_revision": {
-      "value": "scripts/write-bound-evidence.py"
+      "value": "scripts/alpha/rebuild-redeploy.py"
     },
     "corpus_digest": {
       "na": "no external corpus in this staging-plane receipt"
