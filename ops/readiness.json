@@ -39,7 +39,7 @@
   "backend_alpha_score": {
     "earned": 85,
     "possible": 91,
-    "open_alpha_blocker_p1": 2,
+    "open_alpha_blocker_p1": 1,
     "open_alpha_control_p1": 1,
     "ALPHA_ENGINEERING_READY": "NO_GO",
     "EXTERNAL_ALPHA_PROVEN": "NO_GO",
@@ -67,7 +67,7 @@
   },
   "severity": {
     "target_scope_open_p0": 0,
-    "target_scope_open_p1": 6,
+    "target_scope_open_p1": 5,
     "open_p2": 4,
     "out_of_scope_p0": ["independently controlled supplier devices remain prohibited without contractual, location, egress, and attestation controls"]
   },

@@ -44,16 +44,22 @@
         "evidence/external/qualifying-soak-alpha.json"
       ],
       "note": "Alpha exit observed: rollback/forward, restart-storm, and a real 3600s derived soak. The 24-hour Level B/C clause of this same P1 remains open as POST_ALPHA."
-    }
-  ],
-  "open_p1": [
+    },
     {
       "id": "P1-OFFSITE-RESTORE",
       "owner": "operations",
       "classification": "ALPHA_BLOCKER",
-      "blocker": "Isolated Cloudflare R2 rehearsal now uploads ciphertext and restores it (evidence/external/offsite-backup-verification.json, evidence/external/offsite-independent-restore.json). The live droplet volume was not the source; a droplet-sourced backup still needs remote execution onto that host.",
-      "exit_criterion": "Upload only ciphertext, independently download/decrypt in isolation, restore database and objects, and match checksums plus application/ledger invariants."
-    },
+      "status": "SATISFIED",
+      "satisfied_at": "2026-08-17T01:18:42Z",
+      "candidate_commit": "d8d2e65ad336a87407a9446fafd4e94c7a663554",
+      "receipts": [
+        "evidence/external/offsite-backup-verification.json",
+        "evidence/external/offsite-independent-restore.json"
+      ],
+      "note": "Live merc droplet Postgres and MinIO were the source. Ciphertext only left the box via a droplet-direct presigned PUT to Cloudflare R2. Independently downloaded SHA-256 values, isolated decrypt/restore, ledger zero-sum, two live object sentinels, and a corrupt-envelope refusal all passed. Repeatable: make offsite-droplet-restore. mercmerc.net/readyz stayed 200; merc_pgdata and merc_miniodata were not removed."
+    }
+  ],
+  "open_p1": [
     {
       "id": "P1-STRIPE-TEST",
       "owner": "payments",

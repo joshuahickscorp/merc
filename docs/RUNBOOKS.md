@@ -907,20 +907,25 @@ Recovering after real traffic means re-registering every webhook.
 ## Part 4 — off-host backup and a real restore
 
 ```bash
-make offsite-independent-restore-check
-make offsite-independent-restore
+make offsite-droplet-restore-check
+make offsite-droplet-restore
 ```
-*Verifies:* encrypts an isolated source, uploads **only ciphertext** to the
-already-configured Cloudflare R2 prefix, independently re-downloads both
-manifest and ciphertext, compares both SHA-256 values computed on the
-verifying side, decrypts in isolation, restores into a new Postgres/MinIO
-with new credentials, and matches ledger/object/application invariants.
-Does not touch `merc-postgres-1` or `merc_pgdata`.
+*Verifies:* `pg_dump` + MinIO mirror of the **live droplet volumes**,
+age-encrypt on that host, upload **only ciphertext** to the already-configured
+Cloudflare R2 prefix (droplet-direct presigned PUT), independently
+re-download both manifest and ciphertext, compare both SHA-256 values
+computed on the verifying side, decrypt in isolation, restore into a new
+Postgres/MinIO with new credentials, and match ledger/object/application
+invariants. Does not touch `merc_pgdata` or `merc_miniodata`.
+
+Isolated-seed mechanism rehearsal (not a live-volume copy):
+`make offsite-independent-restore`.
 
 **Gate:** `evidence/external/offsite-backup-verification.json` and
 `evidence/external/offsite-independent-restore.json`. The receipts name the
-exact independence boundary (`cloudflare_r2_operator_controlled`) and do
-not claim a third-party-held account or a live-droplet snapshot.
+exact independence boundary (`cloudflare_r2_operator_controlled`) and
+`source_kind: live_droplet_volume`. They do not claim a third-party-held
+account. See `docs/OFFSITE_BACKUP_RESTORE.md`.
 
 The older rollback rehearsal (`scripts/go-closure-rollback-rehearsal.sh`)
 still exists for staging image recovery; it is not this alpha's offsite

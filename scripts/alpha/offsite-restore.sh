@@ -34,6 +34,16 @@ print_runbook() {
 # (MERC_BACKUP_S3_ENDPOINT=https://<account>.r2.cloudflarestorage.com).
 # Age identity stays OFF the droplet (MERC_BACKUP_DECRYPTION_IDENTITY_FILE).
 
+## Preferred — live droplet source (this Mac drives the droplet)
+# Encrypts on 192.241.134.31, uploads only ciphertext (presigned PUT; no
+# long-lived R2 key on the droplet), independently downloads/hashes here,
+# restores into isolated Postgres/MinIO. Does not touch merc_pgdata.
+make offsite-droplet-restore-check
+make offsite-droplet-restore
+# Isolated-seed rehearsal (not a live-volume backup):
+#   make offsite-independent-restore-check
+#   make offsite-independent-restore
+
 ## A. SUPERVISOR — dump + encrypt + upload (on the droplet or via existing backup.sh)
 # From a checkout that can docker exec merc-postgres-1:
 export MERC_COMPOSE_FILE=$ROOT/docker-compose.smallhost.yml
@@ -51,9 +61,6 @@ export MERC_BACKUP_S3_ENDPOINT=\${MERC_BACKUP_S3_ENDPOINT}   # R2
 export MERC_BACKUP_OFFSITE=\${MERC_BACKUP_OFFSITE}           # s3://bucket/prefix
 export MERC_BACKUP_DECRYPTION_IDENTITY_FILE=\${MERC_BACKUP_DECRYPTION_IDENTITY_FILE}
 scripts/alpha/offsite-restore.sh --execute-restore
-# Repeatable isolated rehearsal (preferred; maps .merc-secrets.env R2_*):
-#   make offsite-independent-restore-check
-#   make offsite-independent-restore
 # or the existing isolated drill:
 #   scripts/restore.sh --latest --to merc_alpha_restore_\$\$
 #   scripts/local-independent-restore.sh   # local mechanism proof, not the offsite copy

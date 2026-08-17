@@ -7,7 +7,8 @@ contributes zero points. Live money / public launch must stay NO_GO_PROHIBITED.
 
 Machine-reachable ceiling: with every currently wired local receipt present
 and passing, the derived total is 84/100. The offsite backup/restore pair
-under evidence/external/offsite-*.json is a real provider rehearsal and
+under evidence/external/offsite-*.json is a real provider copy of the live
+droplet volumes (or an isolated rehearsal with the same schema) and
 adds 3 when those content checks pass (87/100). The remaining 13 points
 have receipt rows wired to other evidence/external/ paths; their content
 checks refuse local or paper substitutes.
@@ -751,17 +752,35 @@ def external_offsite_restore_proven(doc: Any) -> bool:
     if not _is_rfc3339_z(doc.get("completed_at")):
         return False
 
+    independence = doc.get("independence") if isinstance(doc.get("independence"), dict) else {}
+    live_source = (
+        str(independence.get("source_kind", "")) == "live_droplet_volume"
+        or independence.get("live_droplet_volume_is_source") is True
+    )
+
     for flag in (
         "independent_download",
         "ciphertext_checksum_verified",
         "decrypt_isolated",
-        "source_environment_destroyed",
         "new_database_credentials",
         "new_object_credentials",
         "new_namespace",
     ):
         if doc.get(flag) is not True:
             return False
+    if live_source:
+        # The live droplet must still be serving. Destroying it would be the
+        # harm this gate exists to survive.
+        if doc.get("source_environment_destroyed") is True:
+            return False
+        if independence.get("live_volumes_untouched") is not True:
+            return False
+        if independence.get("producer_plaintext_destroyed") is not True:
+            return False
+        if independence.get("live_droplet_volume_not_the_source") is True:
+            return False
+    elif doc.get("source_environment_destroyed") is not True:
+        return False
 
     integrity = doc.get("integrity")
     if not isinstance(integrity, dict):

@@ -1,7 +1,11 @@
 # Offsite backup and independent restore
 
-Lane L8 rehearsal. Repeatable command: `make offsite-independent-restore`
-(`scripts/offsite-independent-restore.sh`). Preflight: `make offsite-independent-restore-check`.
+Repeatable live-droplet command: `make offsite-droplet-restore`
+(`scripts/offsite-independent-restore.sh --execute --source droplet`).
+Preflight: `make offsite-droplet-restore-check`.
+
+The isolated-seed rehearsal (`make offsite-independent-restore`) is still the
+mechanism proof. It is not a backup of the live volumes.
 
 ## Boundary used
 
@@ -9,85 +13,83 @@ Lane L8 rehearsal. Repeatable command: `make offsite-independent-restore`
 S3-compatible provider on this machine. Credentials live in the gitignored
 `.merc-secrets.env` (`R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`,
 `R2_BUCKET=merc`, `R2_ENDPOINT=https://<account>.r2.cloudflarestorage.com`).
-No paid resource was created. DigitalOcean Spaces is not configured. The
-stored RunPod key is a compute credential, not an object store.
+No paid resource was created. DigitalOcean Spaces is not configured.
+
+The droplet does not hold a long-lived R2 key. Upload is a short-lived
+presigned PUT generated on the Mac and consumed once by `curl` on the
+droplet (`ciphertext_transit: droplet_direct_presigned_put`). Only the age
+public recipient is sent to the droplet. The age identity stays on the Mac
+at `~/.merc/offsite-age-identity` (mode 600, not in git).
 
 This is operator-controlled R2, not a third-party-held account. It is still
-a real provider/credential/location boundary: the source rehearsal's
-Postgres and MinIO used one credential domain on this Mac; the ciphertext
-landed on Cloudflare's object store under a different key. Local-only
-MinIO-to-MinIO copy was refused.
+a real provider/credential/location boundary: live Postgres and MinIO on
+`192.241.134.31` are one credential domain; the ciphertext lands on
+Cloudflare's object store under a different key.
 
-The live droplet (`mercmerc.net` / `192.241.134.31`) and the local
-`merc-postgres-1` volume `merc_pgdata` (created 2026-08-15) were **not**
-the source and were **not** destroyed.
+## What ran (droplet source, 20260817T011802Z)
 
-## What ran
-
-1. Isolated source Postgres 17 + MinIO, new database and object credentials.
-2. Schema apply + application-shaped seed (buyers/workers/jobs/ledger/webhooks
-   plus two object sentinels).
-3. `pg_dump -Fc` and object tar, hashed, packed, **age-encrypted**.
-4. Upload of ciphertext, sidecar SHA-256, and schema-v2 manifest only to
-   `s3://merc/offsite-alpha/20260816T235445Z`.
-5. Source containers, volumes, plaintext, and producer ciphertext copies
-   destroyed.
-6. Verifying side downloaded manifest and ciphertext in a new directory and
-   computed its own SHA-256 values.
-7. A flipped-byte ciphertext was refused by `age`.
-8. Isolated decrypt + restore into a second Postgres/MinIO with new
-   credentials and a new namespace.
-9. Application check: ledger sums to `0.000000`, job/task/webhook counts
-   match the seed, both object sentinels match.
+1. `https://mercmerc.net/readyz` returned 200. Live containers
+   `merc-postgres-1`, `merc-minio-1`, `merc-control-1`, `merc-caddy-1` were
+   healthy. Volumes `merc_pgdata` and `merc_miniodata` were present.
+2. On the droplet: read-only observation of table counts and object hashes,
+   `pg_dump -Fc` (hot dump; Postgres not stopped), MinIO mirror of `cx-jobs`,
+   pack, hash, **age-encrypt**. Plaintext shredded on the droplet.
+3. Ciphertext, sidecar SHA-256, and schema-v2 manifest uploaded only to
+   `s3://merc/offsite-alpha/20260817T011802Z` by droplet-direct presigned PUT.
+   Producer copies on the droplet were then shredded.
+4. Verifying side (this Mac) downloaded manifest and ciphertext into a new
+   directory and computed its own SHA-256 values. A later independent
+   re-download reproduced the same hashes.
+5. A flipped-byte ciphertext was refused by `age`.
+6. Isolated decrypt + restore into a second Postgres/MinIO with new
+   credentials and a new namespace. Live volumes were not the restore target.
+7. Restored semantics matched the live observations: ledger sums to
+   `0.000000`; buyers=1, suppliers=1, workers=1, jobs=0, tasks=0,
+   ledger_entries=0, webhooks=0; both live object sentinels matched.
+8. `https://mercmerc.net/readyz` returned 200 afterwards. Live volumes still
+   exist.
 
 ## Independently computed checksums
 
 | Item | SHA-256 | Bytes |
 |---|---|---:|
-| Ciphertext `backup.tar.age` (verifying-side download) | `8897ad2eb87521a8733fa021f9234a1a9818761dd926a41a9f0cb3fc1e11d218` | 677224 |
-| Manifest `manifest.json` (verifying-side download) | `90ef7151e05aabc2b82aa1072d080596eeed68f6f31b85b1fcb8399b17726fea` | — |
+| Ciphertext `backup.tar.age` (verifying-side download) | `4512fe5f3e1323ddcf8fecff3601fed9df7bcdf5c8ed7d1e697c65bf7879e08b` | 676200 |
+| Manifest `manifest.json` (verifying-side download) | `bf0a116589f1342e5bcfc7b9244c7c6326e3ee976057944fbda35ebba2a9d425` | — |
 
-A later independent re-download of the same R2 object reproduced
-`8897ad2eb87521a8733fa021f9234a1a9818761dd926a41a9f0cb3fc1e11d218` / 677224
-bytes. The producer did not supply that hash to the verifying side; the
-verifying process hashed the bytes it fetched.
+A later independent re-download of the same R2 objects reproduced both
+values. The producer did not supply those hashes to the verifying side; the
+verifying process hashed the bytes it fetched. The object header is
+`age-encryption.org/v1` (ciphertext, not a plaintext dump).
 
 ## Isolated restore result
 
-- `source_environment_destroyed`: true
+- `source_environment_destroyed`: false (live plane must keep serving)
+- `live_volumes_untouched`: true
+- `producer_plaintext_destroyed`: true
 - `new_database_credentials` / `new_object_credentials` / `new_namespace`: true
 - `decrypt_isolated`: true
 - `corrupt_backup_rejected`: true
-- Restored semantics: buyers=1, workers=2, completed_embed=1,
-  completed_batch=1, cancelled=1, retried=1, held_payout=1, webhooks=1,
-  ledger_sum=`0.000000`
-- Restored objects: 2, both sentinels verified
+- Restored semantics: buyers=1, suppliers=1, workers=1, jobs=0, tasks=0,
+  ledger_entries=0, webhooks=0, ledger_sum=`0.000000`
+- Restored objects: 2, both live sentinels verified
+- `ciphertext_transit`: `droplet_direct_presigned_put`
 
 ## Receipts
 
 - `evidence/external/offsite-backup-verification.json`
 - `evidence/external/offsite-independent-restore.json`
-- `evidence/autonomous/logical-independent-restore.json` now records
+- `evidence/autonomous/logical-independent-restore.json` records
   `external_offsite_restore: PASS` so the restore content check is not
   blocked by the local stand-in marker.
 
 ## What this does not prove
 
-- That the live droplet's days-old Postgres volume has a copy on R2.
-  The source was an isolated rehearsal environment. A droplet-sourced
-  backup still needs remote execution on that host so that **only
-  ciphertext** leaves the box.
 - That a third party controls the R2 account. The same operator holds
   both the Mac and the Cloudflare token.
 - That a control-plane process was booted against the restored data
-  (this rehearsal checks ledger/object/application invariants, not a
+  (this drill checks ledger/object/application invariants, not a
   full image boot).
-- That `make restore-drill` (local RTO ~2.8s) is this proof. That target
+- That `make restore-drill` (local RTO) is this proof. That target
   still only proves the tool.
-
-## Missing input for a stronger claim
-
-To back up the live droplet itself: a remote-execution path onto
-`192.241.134.31` that can run `scripts/backup.sh` with the R2 mapping,
-without transferring plaintext off the box. This environment did not
-use that path.
+- That the isolated-seed rehearsal (`make offsite-independent-restore`)
+  is a copy of the live volumes. Use `--source droplet`.

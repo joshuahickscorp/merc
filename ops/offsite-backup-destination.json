@@ -9,8 +9,9 @@
   "independence_boundary": "cloudflare_r2_operator_controlled",
   "operator_controlled": true,
   "paid_resource_created_this_rehearsal": false,
-  "live_droplet_volume_is_source": false,
+  "live_droplet_volume_is_source": true,
   "secret_values_recorded": false,
-  "repeatable_command": "make offsite-independent-restore",
-  "check_command": "make offsite-independent-restore-check"
+  "repeatable_command": "make offsite-droplet-restore",
+  "check_command": "make offsite-droplet-restore-check",
+  "isolated_rehearsal_command": "make offsite-independent-restore"
 }

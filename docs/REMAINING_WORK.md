@@ -117,9 +117,10 @@ loss recovery, POOL/fabric refusals, exact-HEAD checkpoint.
   legal question.
 
 **[you], infrastructure and people:**
-- External strict-TLS staging (see §3), offsite restore drill, 24h+ mixed soak,
-  **staffed paging with a human acknowledgement**. Bible §19: no LLM may invent
-  external approval.
+- External strict-TLS staging (see §3), 24h+ mixed soak,
+  **staffed paging with a human acknowledgement**. The live-droplet offsite
+  restore drill is recorded at `docs/OFFSITE_BACKUP_RESTORE.md`. Bible §19:
+  no LLM may invent external approval.
 
 **[blocked] permanently local:** real supplier fleet (Level B is NO_GO), so
 anything needing fleet evidence stays a §26 residual.
