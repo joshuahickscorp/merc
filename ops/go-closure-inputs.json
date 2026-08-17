@@ -3,6 +3,7 @@
   "purpose": "Exact operator-supplied inputs required to resume GO closure; this file never contains values.",
   "policy": {
     "stripe_live_mode": "refused",
+    "live_money": "NO_GO_PROHIBITED",
     "paid_resource_creation": "requires_separate_authorization",
     "unrelated_personal_credentials": "refused",
     "secret_output": "forbidden"
@@ -490,5 +491,193 @@
       "verification": "GET /v1/public/config and external HTTP probe",
       "unblocks": ["privacy_surface"]
     }
-  ]
+  ],
+  "live_money_transition": {
+    "decision": "NO_GO_PROHIBITED",
+    "authorization": false,
+    "purpose": "Checklist of operator-supplied inputs the live-money transition requires. This object never contains values and is not an activation, approval, or HMAC.",
+    "schema": "ops/live-payment-activation.schema.json",
+    "checklist": "docs/LIVE_MONEY_TRANSITION.md",
+    "validator": "python3 scripts/validate-live-activation.py",
+    "self_test": "python3 scripts/validate-live-activation.py --self-test",
+    "signer": "scripts/cx release payment-activation-sign — not this lane; do not run it from this checklist",
+    "policy": {
+      "create_activation_record": "forbidden_here",
+      "compute_real_hmac": "forbidden_here",
+      "live_value_movement": false
+    },
+    "inputs": [
+      {
+        "name": "MERC_CANDIDATE_COMMIT",
+        "accepted_form": "full 40-character lowercase source commit embedded in the clean deployed control binary",
+        "minimum_scope": "bind the activation envelope to the running candidate",
+        "secret": false,
+        "used_by": "live payment activation candidate binding",
+        "verification": "python3 scripts/validate-live-activation.py --activation <file> --hmac-key-file <key> --commit $(git rev-parse HEAD)",
+        "unblocks": ["live_money_transition"]
+      },
+      {
+        "name": "MERC_ENV",
+        "accepted_form": "production",
+        "minimum_scope": "LIVE payment mode requires MERC_ENV=production",
+        "secret": false,
+        "used_by": "live payment authority",
+        "verification": "control-plane /readyz and loadPaymentAuthorityAt",
+        "unblocks": ["live_money_transition"]
+      },
+      {
+        "name": "MERC_SETTLEMENT_CURRENCY",
+        "accepted_form": "cad, usd, or jpy; must match the Stripe platform holdable balance and activation.currency",
+        "minimum_scope": "exact currency of every live charge, payout, refund, and reversal",
+        "secret": false,
+        "used_by": "live payment activation currency binding",
+        "verification": "python3 scripts/validate-live-activation.py --settlement-currency <code>",
+        "unblocks": ["live_money_transition"]
+      },
+      {
+        "name": "MERC_PRICE_REFERENCE_TO_SETTLEMENT_RATE",
+        "accepted_form": "finite positive decimal; required when settlement is not usd",
+        "minimum_scope": "operator-reviewed catalogue publication for the live candidate",
+        "secret": false,
+        "used_by": "catalogue publication under non-USD settlement",
+        "verification": "control-plane boot refuses an unpublished non-USD catalogue",
+        "unblocks": ["live_money_transition"]
+      },
+      {
+        "name": "MERC_PRICE_FX_REVISION",
+        "accepted_form": "immutable non-empty identifier; required when settlement is not usd",
+        "minimum_scope": "audit the exact FX authority used by the live candidate catalogue",
+        "secret": false,
+        "used_by": "catalogue publication under non-USD settlement",
+        "verification": "control-plane boot refuses an unpublished non-USD catalogue",
+        "unblocks": ["live_money_transition"]
+      },
+      {
+        "name": "STRIPE_SECRET_KEY_SOURCE",
+        "accepted_form": "absolute 0600 file containing sk_live_* or a sufficiently scoped rk_live_*; never sk_test_* and never inline STRIPE_SECRET_KEY",
+        "minimum_scope": "live PaymentIntent, refund, dispute, balance, and Connect operations",
+        "secret": true,
+        "used_by": "LIVE payment mode",
+        "verification": "file mode 027-clear; loadPaymentAuthorityAt refuses inline STRIPE_SECRET_KEY",
+        "unblocks": ["live_money_transition"]
+      },
+      {
+        "name": "STRIPE_PUBLISHABLE_KEY",
+        "accepted_form": "pk_live_* browser key from the authorized live Stripe account",
+        "minimum_scope": "confirm SetupIntents in the buyer browser without exposing a secret key",
+        "secret": false,
+        "used_by": "buyer live-card setup surface",
+        "verification": "GET /v1/public/config reports the live publishable class without printing the secret",
+        "unblocks": ["live_money_transition"]
+      },
+      {
+        "name": "STRIPE_WEBHOOK_SECRET",
+        "accepted_form": "live whsec_* for the cash-event endpoint; distinct from the Connect secret",
+        "minimum_scope": "verify live billing webhook signatures",
+        "secret": true,
+        "used_by": "LIVE billing webhook verification",
+        "verification": "validatePaymentAuthorityStartup requires distinct billing and Connect whsec_*",
+        "unblocks": ["live_money_transition"]
+      },
+      {
+        "name": "MERC_CONNECT_WEBHOOK_SECRET",
+        "accepted_form": "distinct live whsec_* for the Connect endpoint",
+        "minimum_scope": "verify live Connect webhook signatures",
+        "secret": true,
+        "used_by": "LIVE Connect webhook verification",
+        "verification": "validatePaymentAuthorityStartup requires distinct billing and Connect whsec_*",
+        "unblocks": ["live_money_transition"]
+      },
+      {
+        "name": "MERC_CONNECT_CLIENT_ID",
+        "accepted_form": "ca_* live platform client identifier",
+        "minimum_scope": "live Connect onboarding",
+        "secret": false,
+        "used_by": "live supplier onboarding",
+        "verification": "validatePaymentAuthorityStartup requires MERC_CONNECT_CLIENT_ID=ca_*",
+        "unblocks": ["live_money_transition"]
+      },
+      {
+        "name": "STRIPE_LIVE_BILLING_WEBHOOK_ENDPOINT_ID",
+        "accepted_form": "we_* live billing endpoint with api_version 2025-06-30.basil subscribed to every compiled billing cash event",
+        "minimum_scope": "deliver every handled live cash event",
+        "secret": false,
+        "used_by": "live billing webhook subscription",
+        "verification": "compiled event set in docs/LIVE_MONEY_TRANSITION.md; scripts/validate-stripe-endpoint-subscriptions.py refuses a live key and does not clear this row",
+        "unblocks": ["live_money_transition"]
+      },
+      {
+        "name": "STRIPE_LIVE_CONNECT_WEBHOOK_ENDPOINT_ID",
+        "accepted_form": "we_* live Connect endpoint with connect=true, api_version 2025-06-30.basil, subscribed to every compiled Connect event",
+        "minimum_scope": "deliver every handled live Connect event",
+        "secret": false,
+        "used_by": "live Connect webhook subscription",
+        "verification": "compiled event set in docs/LIVE_MONEY_TRANSITION.md",
+        "unblocks": ["live_money_transition"]
+      },
+      {
+        "name": "MERC_CONNECT_RETURN_URL",
+        "accepted_form": "https://<production-tls-host>/…",
+        "minimum_scope": "Connect return on the live origin",
+        "secret": false,
+        "used_by": "live Connect onboarding",
+        "verification": "scripts/bootstrap-prod.sh requires the SITE_HOST HTTPS origin",
+        "unblocks": ["live_money_transition"]
+      },
+      {
+        "name": "MERC_CONNECT_REFRESH_URL",
+        "accepted_form": "https://<production-tls-host>/…",
+        "minimum_scope": "Connect refresh on the live origin",
+        "secret": false,
+        "used_by": "live Connect onboarding",
+        "verification": "scripts/bootstrap-prod.sh requires the SITE_HOST HTTPS origin",
+        "unblocks": ["live_money_transition"]
+      },
+      {
+        "name": "MERC_LIVE_PAYMENT_ACTIVATION_HMAC_KEY_SOURCE",
+        "accepted_form": "absolute regular file, mode bits 027 clear, 32..4096 bytes; never inline MERC_LIVE_PAYMENT_ACTIVATION_HMAC_KEY",
+        "minimum_scope": "verify the activation HMAC; the example key in scripts/validate-live-activation.py must never be installed",
+        "secret": true,
+        "used_by": "live payment activation HMAC",
+        "verification": "python3 scripts/validate-live-activation.py --activation <file> --hmac-key-file <key>",
+        "unblocks": ["live_money_transition"]
+      },
+      {
+        "name": "MERC_LIVE_PAYMENT_ACTIVATION_SOURCE",
+        "accepted_form": "absolute 0600 JSON file conforming to ops/live-payment-activation.schema.json, bound to the clean candidate, with three named approvals and four positive per-transaction caps",
+        "minimum_scope": "authorize a short live value-movement window; this checklist does not create that file",
+        "secret": false,
+        "used_by": "LIVE payment activation",
+        "verification": "python3 scripts/validate-live-activation.py --activation <file> --hmac-key-file <key> --commit $(git rev-parse HEAD)",
+        "unblocks": ["live_money_transition"]
+      },
+      {
+        "name": "MERC_LIVE_PAYMENT_ACTIVATION_SHA256",
+        "accepted_form": "64 lowercase hex SHA-256 of the activation file bytes",
+        "minimum_scope": "pin the exact reviewed envelope the container may mount",
+        "secret": false,
+        "used_by": "LIVE activation digest pin",
+        "verification": "sha256sum of MERC_LIVE_PAYMENT_ACTIVATION_SOURCE",
+        "unblocks": ["live_money_transition"]
+      },
+      {
+        "name": "MERC_PAYMENT_MODE",
+        "accepted_form": "live — set only after every other live_money_transition input exists; production default is sealed",
+        "minimum_scope": "select LIVE payment authority",
+        "secret": false,
+        "used_by": "LIVE payment mode",
+        "verification": "GET /readyz reports payment_mode=live only after the signed activation is installed",
+        "unblocks": ["live_money_transition"]
+      },
+      {
+        "name": "MERC_PAYMENT_PROVIDER",
+        "accepted_form": "stripe",
+        "minimum_scope": "LIVE cannot use MERC_PAYMENT_PROVIDER=none",
+        "secret": false,
+        "used_by": "LIVE payment provider",
+        "verification": "validatePaymentAuthorityStartup",
+        "unblocks": ["live_money_transition"]
+      }
+    ]
+  }
 }

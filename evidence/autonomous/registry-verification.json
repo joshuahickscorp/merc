@@ -4,6 +4,20 @@
   "label": "CLEAN REGISTRY VERIFICATION",
   "verified_at": "2026-07-20T04:18:24Z",
   "updated_at": "2026-07-20T04:21:25Z",
+  "honesty": {
+    "record_class": "historical_registry_sbom_verification",
+    "event_date": "2026-07-20",
+    "describes_candidate_image": "ghcr.io/joshuahickscorp/computexchange-control@sha256:f848a8048af250f7135f54b15d8bf4455bd24af6d42fd4d380dd99e0c1b91563",
+    "describes_source_commit": "a4d50d93d0d8e44742fabe9d6b06380e3191b2e5",
+    "describes_version": "v0.1.0-rc.1",
+    "does_not_describe_running_plane": true,
+    "later_plane_observations_that_are_not_this_candidate": [
+      "closeout plane: a5bca8c0 @ sha256:2b2f85c9… from the local docker store, not pushed to a remote registry",
+      "2026-08-17 remaining-work probe /version: 19fe0b23940c7e3d4da9b45d9cc5689c2c515d07",
+      "2026-08-17 this-lane public /version: 9e31c65b27860d659d7ce972e2de7052691c0642 (readyz payment_mode=test, live_value_movement=false). None of these are f848a804 / a4d50d93."
+    ],
+    "binding_status_means": "UNBOUND — producer identity was never recovered for this run"
+  },
   "candidate": {
     "image": "ghcr.io/joshuahickscorp/computexchange-control@sha256:f848a8048af250f7135f54b15d8bf4455bd24af6d42fd4d380dd99e0c1b91563",
     "architecture": "amd64",

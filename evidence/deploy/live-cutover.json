@@ -1,6 +1,7 @@
 {
   "schema_version": 1,
   "kind": "droplet_live_cutover",
+  "recorded_at": "2026-07-27T21:35:35-04:00",
   "host": "192.241.134.31",
   "site": "mercmerc.net",
   "commit": "41db85b5",
@@ -15,6 +16,15 @@
     "db_dump": "/root/merc-cutover-backup/pg-202607272327.sql"
   },
   "warning": "Stripe is LIVE. Charges and payouts move real money.",
+  "honesty": {
+    "record_class": "historical_event",
+    "event_date": "2026-07-27",
+    "event": "operator switched the mercmerc.net droplet from the test Stripe key to the live key at commit 41db85b5; receipt written in b4c7e480",
+    "stripe_mode_is": "the Stripe mode recorded at that 2026-07-27 cutover. The field was not restated. It is not the current host mode.",
+    "warning_is": "the contemporaneous operator warning issued at that cutover. It is not a claim that mercmerc.net currently moves real money.",
+    "does_not_describe_current_hostname_state": true,
+    "not_current_live_money_authority": true
+  },
   "binding_status": "UNBOUND",
   "missing_identity_fields": [
     "build_digest",

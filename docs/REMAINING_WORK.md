@@ -1,7 +1,7 @@
 # Everything remaining
 
 State at 2026-08-17. HEAD `9e31c65b`. Re-derived from
-`python3 scripts/validate-readiness.py` and live `https://mercmerc.net`
+`python3 scripts/validate-readiness.py` and public `https://mercmerc.net`
 probes, not from the 2026-08-10 narrative below.
 
 | Axis | Derived | Decision |
@@ -21,12 +21,15 @@ Open P1s: `P1-STRIPE-TEST` (`ALPHA_BLOCKER`, Connect not signed up),
 `ALPHA_CONTROL`, 7 `PUBLIC_LAUNCH`, 2 `POST_ALPHA`). Governance
 documents are unapproved drafts.
 
-Live `https://mercmerc.net` (2026-08-17): public Let's Encrypt TLS;
+Public hostname `https://mercmerc.net` (2026-08-17): Let's Encrypt TLS;
 `GET /readyz` HTTP 200, `payment_mode=test`, `live_value_movement=false`,
 `provider_enabled=true`; `GET /version` HTTP 200, commit
 `19fe0b23940c7e3d4da9b45d9cc5689c2c515d07`, `modified: false`,
 `go_version: go1.26.6` — 20 commits behind this HEAD, not 733, and
-not live money.
+not a live-money plane. A 2026-07-27 cutover of commit `41db85b5` did
+put a live Stripe key on this hostname; that event is the unbound
+historical receipt `evidence/deploy/live-cutover.json`, not the
+2026-08-17 host.
 
 Ordered by consequence. **[auto]** / **[you]** / **[blocked]** as before.
 
@@ -41,12 +44,17 @@ Ordered by consequence. **[auto]** / **[you]** / **[blocked]** as before.
 That is the single open `ALPHA_BLOCKER` P1. Live value movement on the
 public host is `false`.
 
-**G063 — historical (2026-08-10), superseded by the live probe above.**
-At that date `https://mercmerc.net/version` reported commit `41db85b5`,
-`"modified": true`, 733 commits behind then-HEAD, and
-`evidence/deploy/live-cutover.json` (still `UNBOUND`, still a historical
-cutover record) recorded `stripe_mode: "live"`. `/readyz` then returned
-only `{"status":"ready"}`. That is **not** the 2026-08-17 host: `/readyz`
+**G063 — historical (probe 2026-08-10 of a 2026-07-27 cutover), superseded
+by the 2026-08-17 public probe above.** On 2026-08-10
+`https://mercmerc.net/version` still reported commit `41db85b5`,
+`"modified": true`, 733 commits behind then-HEAD.
+`evidence/deploy/live-cutover.json` (still `UNBOUND`) is the historical
+record of the 2026-07-27 live-key cutover of that commit: it still
+records `stripe_mode: "live"` and still carries the contemporaneous
+operator warning *"Stripe is LIVE. Charges and payouts move real
+money."* Those fields describe 2026-07-27. They are not a description
+of the hostname today. `/readyz` on 2026-08-10 returned only
+`{"status":"ready"}`. That is **not** the 2026-08-17 host: `/readyz`
 now carries `payment_mode` / `live_value_movement`, and both say test /
 false.
 

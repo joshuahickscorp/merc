@@ -37,13 +37,13 @@
     }
   },
   "backend_alpha_score": {
-    "earned": 85,
-    "possible": 91,
+    "earned": 87,
+    "possible": 94,
     "open_alpha_blocker_p1": 1,
     "open_alpha_control_p1": 1,
     "ALPHA_ENGINEERING_READY": "NO_GO",
     "EXTERNAL_ALPHA_PROVEN": "NO_GO",
-    "note": "Advisory mirror. validate-readiness.py re-derives earned/possible from ALPHA_BLOCKER and ALPHA_CONTROL receipts; hand-typed values here are checked for drift and are never authority for GO."
+    "note": "Advisory mirror. validate-readiness.py re-derives earned/possible from ALPHA_BLOCKER and ALPHA_CONTROL receipts; hand-typed values here are checked for drift and are never authority for GO. 87/94 after returning the public-TLS attack rehearsal (+1 possible, failed) and the shipped-website validation (+2/+2) to alpha scope."
   },
   "source": {
     "base_commit": "3dc8bb263777c17a3723dbfa835d6a00d9445845",

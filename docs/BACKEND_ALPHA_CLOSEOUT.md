@@ -10,24 +10,44 @@ Where a claim came from driving the live plane rather than from a local test,
 this document says so, because the difference turned out to matter more than
 once.
 
+Numbers in this file were taken at tree HEAD `b6dd531e` against the live plane
+that answers `https://mercmerc.net`. That plane serves commit `9e31c65b`, which
+is an ancestor of HEAD, not HEAD itself. If a later sentence disagrees with the
+validator or with `/version`, the validator and `/version` win.
+
 ## Posture
 
 | | |
 |---|---|
-| **Backend alpha** | ENGINEERING-READY except the money path — conditions 4-7 proven locally, 14 PASS; the one open blocker is Stripe Connect |
-| **Stripe test mode** | proven up to the Connect boundary; the remainder is one dashboard action |
-| **Controlled staging** | READY — public TLS, current candidate, real Postgres and object storage |
-| **Security** | ALPHA SUFFICIENT — 1551 attacks, zero findings |
-| **Recovery** | ALPHA SUFFICIENT — 11/11 failure modes, offsite restore proven |
+| **Backend alpha** | NOT READY — `ALPHA_ENGINEERING_READY: NO_GO`. Conditions 4–6 PASS locally and are unproven on live staging; 7 PARTIAL; 14 FAIL. The open `ALPHA_BLOCKER` P1 is `P1-STRIPE-TEST`. |
+| **Stripe test mode** | proven up to the Connect boundary. The remainder is Connect signup, a Canadian test connected account, a `connect=true` webhook, and a passing matrix — not one dashboard click. |
+| **Controlled staging** | READY — public TLS, live commit `9e31c65b`, `/readyz` 200, `payment_mode=test`, real Postgres and object storage |
+| **Security** | local suite PASS — 1551 executed, 0 findings, `qualification: LOCAL`. The validator still scores security 14/15 (`staging-attack-rehearsal` `CHECK_FAILED`). |
+| **Recovery** | 11/11 failure modes PASS; offsite restore proven |
 | **CLI/TUI** | next product arc, not an alpha prerequisite |
-| **Website** | NOT REQUIRED, classified `PUBLIC_LAUNCH` |
+| **Website** | NOT REQUIRED for this alpha, classified `PUBLIC_LAUNCH` |
 | **Live money** | `NO_GO_PROHIBITED` and unchanged |
 
-Scores: **Level B 87/100** (threshold 95, P1=6, `NO_GO`) ·
-**backend alpha 85/91**, `ALPHA_ENGINEERING_READY: NO_GO`,
-`EXTERNAL_ALPHA_PROVEN: NO_GO`. Open P1s fell from eight to six when
-`P1-STAGING` and `P1-RECOVERY-SOAK` were satisfied by evidence, not by
-reclassification.
+Scores: **Level B 87/100** (threshold 95, P0=0, P1=5, `NO_GO`) ·
+**backend alpha 85/91**, `ALPHA_BLOCKER_P1=1`,
+`ALPHA_ENGINEERING_READY: NO_GO`, `EXTERNAL_ALPHA_PROVEN: NO_GO`.
+
+Open P1s fell from eight to five when `P1-STAGING`, `P1-RECOVERY-SOAK` and
+`P1-OFFSITE-RESTORE` were satisfied by evidence, not by reclassification. The
+five that remain:
+
+| id | classification | role |
+|---|---|---|
+| `P1-STRIPE-TEST` | `ALPHA_BLOCKER` | Connect-complete Stripe test-mode matrix |
+| `P1-CANARY-REHEARSAL` | `ALPHA_CONTROL` | counted buyer/supplier/verification loop |
+| `P1-ALERT-DELIVERY` | `PUBLIC_LAUNCH` | staffed paging receiver |
+| `P1-INDEPENDENT-APPROVAL` | `PUBLIC_LAUNCH` | named non-author reviewer |
+| `P1-GOVERNANCE` | `PUBLIC_LAUNCH` | eight qualified approvals |
+
+An earlier revision of this file said `P1=6` and "fell from eight to six" after
+only two of those three closes. That was an off-by-one. The validator prints
+`P1=5`; `ops/go-no-go.json` `open_p1` has five ids; `ops/readiness.json`
+`target_scope_open_p1` is 5.
 
 ## What the rescoping did and did not do
 
@@ -38,8 +58,8 @@ alpha scope.
 **Nothing was deleted.** Level B still derives against the full 100-point bar,
 `go_threshold` is still 95, and Level C is untouched. A gate rescoped to
 `PUBLIC_LAUNCH` keeps its full requirement at that level. The reclassification
-by itself closed **zero** P1s: all eight were still open afterwards, and the two
-that have since closed did so on evidence.
+by itself closed **zero** P1s: all eight were still open afterwards, and the
+three that have since closed did so on evidence.
 
 Two gates were questioned and deliberately **kept** as alpha blockers, against
 the easier answer: offsite backup/restore ("a restore path unproven at alpha is
@@ -58,7 +78,8 @@ them. Every suite on this machine was green while all three were true.
 `stripeAPIVersion = "2025-06-30.basil"`; the Stripe account delivers
 `2026-06-24.dahlia`; `validateStripeEventContract` refuses any mismatch. The
 endpoints were recreated pinned to the compiled version. Real test-mode events
-now return 200 over the internet.
+now return 200 over the internet. Live `/readyz` still reports
+`stripe_api_version=2025-06-30.basil`.
 
 **Two cash events were never going to arrive.** The billing endpoint's
 subscription omitted `setup_intent.succeeded` and both `charge.dispute.funds_*`
@@ -87,12 +108,13 @@ attempt ran in a sparse worktree, and its failures were artifacts of the
 checkout rather than facts about the product — one lane correctly refused to
 report against such a tree at all. Running it on a full tree found three more.
 
-**Fixtures were lying about currency, and it looked like two defects.** Eleven currency tests and six scheduler tests fail. The job and
-economic-plan fixtures insert rows without a currency column, falling through to
-the schema's `DEFAULT 'usd'`, while the platform settles CAD — the Stripe account
-is CA/CAD. So `job_economic_plans_json_currency_bound` fires correctly, and the
-claim currency filter correctly refuses to let a CAD worker claim a usd-default
-job. The "SLA deferral starvation" is that filter working, not a broken deferral
+**Fixtures were lying about currency, and it looked like two defects.** Eleven
+currency tests and six scheduler tests were failing. The job and economic-plan
+fixtures insert rows without a currency column, falling through to the schema's
+`DEFAULT 'usd'`, while the platform settles CAD — the Stripe account is CA/CAD.
+So `job_economic_plans_json_currency_bound` fires correctly, and the claim
+currency filter correctly refuses to let a CAD worker claim a usd-default job.
+The "SLA deferral starvation" is that filter working, not a broken deferral
 bound. The product is right both times; the fixtures are wrong.
 
 A fix for this was written and **reverted**, because it was a net loss and the
@@ -117,8 +139,17 @@ default revert cannot show its true effect.
 With that correction the change is a clear win: the package default stays `usd`,
 the six claim tests pin CAD and run serially, the three USD-platform Stripe
 preflight tests pin USD, and the fixtures keep writing the settlement currency
-explicitly. The suite goes from 25 failures to 9, and none of the nine is the
-currency defect.
+explicitly. That landing (`86a010cb`) took the suite from 25 failures to 9, and
+none of the nine was the currency defect.
+
+Those nine were later closed at `8142e6e5`, which reported `ok merc/control`, 0
+failures, against the compose Postgres. `git log 8142e6e5..HEAD -- control/` is
+empty, so that is still the last measurement of the package. The same commit
+narrowed the L2 Stripe matrix so missing dashboard secrets install synthetic
+`whsec_` values and the test continues — a smaller claim than "this process
+holds the staging webhook pair", and not a close of `P1-STRIPE-TEST`. That
+commit then marked closeout condition 14 PASS and wrote "zero P1". The suite
+going green does not make `P1=5` into `P1=0`. Condition 14 stays FAIL.
 
 **26 test failures were the wrong database.** The dev Postgres ran with the
 image default `max_locks_per_transaction = 64`, which cannot hold a schema apply
@@ -134,82 +165,102 @@ pointed at the wrong database.
 
 | # | Condition | Status |
 |---|---|---|
-| 1 | Current candidate boots | **PASS** — `a5bca8c0` @ `sha256:2b2f85c9` serves `/readyz` 200; note the tree has since taken the go1.26.6 bump, so a rebuild is due before the deployed image is byte-current |
-| 2 | Deployment reproducible | **PASS** — rollback to `7bf0ab9d` and forward to `2b2f85c9`, both observed with timestamps |
-| 3 | Real Postgres and object storage | **PASS** — both healthy behind the live plane |
-| 4 | Buyer execution | **PASS locally** — `TestL12RoutableInferLoopThroughThePublicAPI` submits, prices and claims through `Routes()`, 104s. NOT yet on live staging: the canary allowlist pins build hash `f4303a751ca2b2af` while the sealed identity is `7cc01c442c7f6dbe` |
-| 5 | Supplier execution | **PASS locally** — worker registers advertising `candle-metal-llama1-infer`, claims and executes; same live-staging caveat |
-| 6 | Verification | **PASS locally** — accept AND reject both proven; a corrupted result is refused |
-| 7 | Money state machine, Stripe test mode | **PARTIAL** — everything not gated on Connect proven with real fixture IDs; refusals all fire |
+| 1 | Current candidate boots | **PASS** — live `GET https://mercmerc.net/version` serves `9e31c65b27860d659d7ce972e2de7052691c0642` (`go1.26.6`, `modified=false`); `GET /readyz` is 200, `status=ready`, `payment_mode=test`, `live_value_movement=false`. Tree HEAD `b6dd531e` is two commits later and is not what the plane serves. The previous closeout pin `a5bca8c0` @ `sha256:2b2f85c9` is a prior candidate, not the live one. The staging-readiness receipt that records this same live commit also records image `sha256:e0b642220dcd195c84290466cdaf90c2083c8740a87e6c3166d5817683f59fd3`. |
+| 2 | Deployment reproducible | **PASS** — this live candidate was rolled back to `19fe0b23` @ `sha256:245dc92a` (`2026-08-17T15:35:05Z`) and forwarded to `9e31c65b` @ `sha256:e0b64222` (`15:35:19Z`); both `/readyz` 200, data-plane markers kept. An earlier rollback/forward of `8283ae58` @ `sha256:7bf0ab9d` → `a5bca8c0` @ `sha256:2b2f85c9` remains on disk as a previous cycle. |
+| 3 | Real Postgres and object storage | **PASS** — both healthy behind the live plane (`/readyz` `status=ready`; markers survived the rollback/forward above) |
+| 4 | Buyer execution | **PASS locally / unproven on live** — `TestL12RoutableInferLoopThroughThePublicAPI` submits, prices and claims through `Routes()`, 104s (`8142e6e5`). Local L12 buyer receipt `status=PASS`. Live staging rehearsal `status=BLOCKED` (observed against then-deployed `19fe0b23`): quote 400 when nothing is advertised. |
+| 5 | Supplier execution | **PASS locally / unproven on live** — worker registers advertising `candle-metal-llama1-infer`, claims and executes. Same live-staging BLOCKED: canary allowlist still pins build hash `f4303a751ca2b2af` while the sealed identity is `7cc01c442c7f6dbe`; the host binary emits `2939a8e26ffe6fd2`. |
+| 6 | Verification | **PASS locally / unproven on live** — accept AND reject both proven locally; a corrupted result is refused. Live rehearsal did not run verification. |
+| 7 | Money state machine, Stripe test mode | **PARTIAL** — `evidence/external/stripe-sandbox-matrix.json` is `status=BLOCKED`, `blocker=connect_platform_not_signed_up`, `provider_mode=test`, `live_mode=PROHIBITED`. Authorization, capture, refunds and the refusal set are proven with real fixture IDs. Transfer, payout hold/release/failure/reversal and `connect=true` delivery are not. |
 | 8 | Identity/device binding | **PASS** — foreign worker UUID 403, revoked credential stops working |
-| 9 | Containment | **PASS** — security suite, containment class |
-| 10 | Authority corruption fails closed | **PASS** — security suite, authority class |
-| 11 | Rollback/recovery | **PASS** — 11/11 modes, offsite restore across a real provider boundary |
-| 12 | Security suite green | **PASS** — 1551 attacks, zero findings |
-| 13 | Evidence binds to current candidate | **PASS** for the suites re-run at this commit |
-| 14 | No known P0/P1 defect | **PASS** — `ok merc/control`, 0 failures, verified independently against the compose Postgres. Zero P0, zero P1; the security P2 closed with go1.26.6 |
-| 15 | Remaining blockers outside alpha scope | **PASS** — `ops/backend-alpha-gates.json`, 44 gates classified with a named reachable harm each |
+| 9 | Containment | **PASS** — local security suite, containment class |
+| 10 | Authority corruption fails closed | **PASS** — local security suite, authority class |
+| 11 | Rollback/recovery | **PASS** — `evidence/recovery/suite.json` 11/11 modes PASS (`go_test_exit_code=0`); offsite restore across a real provider boundary |
+| 12 | Security suite green | **PASS locally** — `evidence/external/staging-attack-rehearsal.json` is `kind=local_alpha_security_rehearsal`, `qualification=LOCAL`, `attacks_executed=1551`, `findings=[]`. It does not touch the droplet (`honesty.staging_droplet_touched=false`). `validate-readiness.py` therefore prints `security: 14/15` and `staging-attack-rehearsal.json: CHECK_FAILED → 0/1`. |
+| 13 | Evidence binds to current candidate | **PASS** of the binding validator — `python3 scripts/validate-evidence-binding.py` exits 0 (BOUND 79 / UNBOUND 131 / SUPERSEDED 6 / WITHDRAWN 8). That is not the same as "every receipt measured the live digest": the 3600s soak is bound to `a5bca8c0`, the local security rehearsal recorded `73bc49da`, the recovery suite completed `2026-08-17T00:44:10Z`. `staging-alpha-readiness.json` is BOUND to live `9e31c65b`. |
+| 14 | No known P0/P1 defect | **FAIL** — `validate-readiness.py` prints `P0=0, P1=5`. The open `ALPHA_BLOCKER` P1 is `P1-STRIPE-TEST`. Four further P1s remain open at other classifications (table above). A green `control` suite, even if still true, does not close those P1s. An earlier sentence in this file that said "zero P1" was false. |
+| 15 | Remaining blockers outside alpha scope | **PASS** — `ops/backend-alpha-gates.json`, 44 gates classified with a named reachable harm each (28 `ALPHA_BLOCKER`, 7 `ALPHA_CONTROL`, 7 `PUBLIC_LAUNCH`, 2 `POST_ALPHA`) |
 
 ## Open — and why each is real
 
 **Stripe Connect is not signed up.** Stripe itself refuses:
 *"You can only create new accounts if you've signed up for Connect."* Reachable
 harm: without Connect there is no supplier payout path at all, so the supplier
-half of the money state machine cannot be exercised. This is one dashboard
-action by the account owner at `https://dashboard.stripe.com/connect` for test
-account `acct_1TxbzMCwPLrR4vaY`. It unblocks seven named scenarios: connected
-account creation, transfers, payout hold, manual release, payout failure,
-Connect restriction/capability events, and `connect=true` webhook delivery. The
-Connect endpoint also needs recreating with `connect=true`, which Stripe
-currently returns as null.
+half of the money state machine cannot be exercised. `P1-STRIPE-TEST` stays
+open until all of this is done on test account `acct_1TxbzMCwPLrR4vaY`:
 
-**The execution loop is not closed.** `POST /v1/quote` and `POST /v1/jobs`
-return 400 because no runtime cell is advertised by a registered worker.
-`candle-metal-llama1-infer` does bind; three sibling candle cells do not, for
-concrete evidence defects (an empty `engine_build_hash`, a `merc_source_commit`
-of `working-tree-before-media-authority`, and a missing `merc_source_commit`).
-Reachable harm: without this, buyer execution, supplier execution, verification
-and settlement are unproven — the four conditions that say the network works.
+1. Sign up for Connect at `https://dashboard.stripe.com/connect`.
+2. Create a Canadian test connected account.
+3. Recreate the Connect webhook with `connect=true` (currently `connect=null`).
+4. Re-run `make stripe-matrix` until `stripe_sandbox_matrix_proven` accepts a
+   PASS with a real `tr_` and payout hold / release / failure / reversal.
 
-The derived soak is **done**: 3600 seconds against the persistent plane on the
-deployed candidate, 2026-08-16T23:58:47Z to 2026-08-17T00:58:47Z, 121 samples at
-30-second intervals, every sample carrying the deployed commit and
-`payment_mode=test`. Wall clock equals requested equals actual, and the receipt
-sets `qualifies_for_24h_gate: false` — it does not pretend to be the 24-hour
-gate, which stays unearned at Level B and C.
+That is the exit criterion in `ops/go-no-go.json`. It is more than one
+dashboard action. It unblocks seven named scenarios: connected account
+creation, transfers, payout hold, manual release, payout failure, Connect
+restriction/capability events, and `connect=true` webhook delivery.
 
-**Nine control-suite tests still fail.** Reachable harm differs per test and none
-is currency: LFS corpus ledger drift (96 pointers / 94 OIDs against a ledger
-recording 95 / 93 — the harm is an evidence corpus whose inventory no longer
-describes it), an execution-envelope spend gate, a fabric certificate 409, two
-citation leftovers, a pricing replay, two runtime-projection tests, and the L2
-Stripe matrix, which wants secrets this process does not hold. These keep
-closeout condition 14 at FAIL. None of them is reachable by an alpha participant
-as a money or authority defect — the security suite covers that surface at 1551
-attacks with zero findings — but "no known P0/P1" is not a claim this repository
-can make while nine tests are red, so it is not made.
+**The execution loop is not closed on the live plane.** The last live rehearsal
+(`evidence/canary/l12-p1-canary-rehearsal-live-staging.json`, `status=BLOCKED`,
+then-deployed `19fe0b23`) did not run buyer, supplier, verification or
+settlement. `POST /v1/quote` and `POST /v1/jobs` 400 when no runtime cell is
+advertised by a registered worker. `candle-metal-llama1-infer` does bind
+locally; three sibling candle cells do not, for concrete evidence defects (an
+empty `engine_build_hash`, a `merc_source_commit` of
+`working-tree-before-media-authority`, and a missing `merc_source_commit`).
+Live also still pins canary hash `f4303a751ca2b2af` against sealed identity
+`7cc01c442c7f6dbe`. Reachable harm: without this, buyer execution, supplier
+execution, verification and settlement are unproven on the plane this closeout
+calls READY — the four conditions that say the network works. Local L12 PASS
+does not flip `P1-CANARY-REHEARSAL` or `EXTERNAL_ALPHA_PROVEN`. This document
+does not claim the later live commit `9e31c65b` closed that loop.
+
+The derived soak is **done on a previous candidate**, not on the live digest:
+3600 seconds against the persistent plane at `a5bca8c0`,
+2026-08-16T23:58:47Z to 2026-08-17T00:58:47Z, 121 samples at 30-second
+intervals, every sample carrying that commit and `payment_mode=test`. Wall
+clock equals requested equals actual, and the receipt sets
+`qualifies_for_24h_gate: false` — it does not pretend to be the 24-hour gate,
+which stays unearned at Level B and C. It has not been re-run against
+`9e31c65b`.
+
+Condition 14 is FAIL because five P1s are open, one of them the money-path
+start-gate. It is not FAIL because nine control tests are red: that remainder
+was the state at `86a010cb`, and `8142e6e5` reported it closed. The older
+sentence that used those nine tests to hold 14 at FAIL, and the later sentence
+that used the green suite to declare 14 PASS with zero P1, cannot both stand.
+The validator is the tie-break: `P1=5`, so 14 is FAIL.
 
 ## Terminal posture
 
 ```
-MERC BACKEND ALPHA        NOT READY — conditions 4-7 and 14 open
+MERC BACKEND ALPHA        NOT READY — ALPHA_ENGINEERING_READY NO_GO
+                          4-6 PASS locally / unproven on live
+                          7 PARTIAL (Connect)
+                          14 FAIL (P0=0, P1=5)
 STRIPE TEST MODE          PROVEN to the Connect boundary
-CONTROLLED STAGING        READY
-SECURITY                  ALPHA SUFFICIENT
-RECOVERY                  ALPHA SUFFICIENT
+CONTROLLED STAGING        READY — 9e31c65b, payment_mode=test
+SECURITY                  LOCAL SUITE PASS (1551 executed, 0 findings)
+                          validator security 14/15; external rehearsal CHECK_FAILED
+RECOVERY                  11/11 modes PASS; offsite restore proven
 CLI/TUI                   NEXT PRODUCT ARC
-WEBSITE                   NOT REQUIRED
+WEBSITE                   NOT REQUIRED FOR ALPHA (PUBLIC_LAUNCH)
 LIVE MONEY                HELD — NO_GO_PROHIBITED, unchanged
 ```
 
-The single remaining **alpha blocker** in the readiness model is
-`P1-STRIPE-TEST`, and it is one dashboard action. The execution loop and the
-nine tests are engineering work with named defects, not gates awaiting a person.
+The single remaining **alpha-blocker P1** in the readiness model is
+`P1-STRIPE-TEST`. That is not the same as "the alpha is ready except for one
+dashboard action." The live execution loop is still BLOCKED (`P1-CANARY-REHEARSAL`,
+`ALPHA_CONTROL`), and condition 14 is FAIL for as long as any of the five P1s
+is open.
 
 ## Live money — the actual remaining inputs
 
 Do not perform any of this without explicit operator authorization. Live money
-is `NO_GO_PROHIBITED` and every check above enforces test mode.
+is `NO_GO_PROHIBITED` and every check above enforces test mode. Live `/readyz`
+is `payment_mode=test`, `live_value_movement=false`. A historical UNBOUND
+cutover receipt in the tree that describes this hostname as Stripe live is not
+the plane that answers today.
 
 The transition is not vague. It is:
 
@@ -235,5 +286,6 @@ documents are drafts marked *DRAFT · INTERNAL · NOT LEGAL ADVICE*; no human ha
 approved anything and no approval receipt was minted. Invitee emails are
 personal information and PIPEDA or GDPR can attach — that is a real obligation,
 not a cleared one. Catalogue models, fonts and visual assets remain
-release-blocking, and `make license-register` still fails on the priced Llama
-row rather than being silenced.
+release-blocking, and `python3 scripts/validate-license-register.py` still
+prints FAIL on the priced Llama row (`llama-3.2-1b-instruct-q4` / register row
+`Llama 3.2 1B Instruct GGUF` is `BLOCKED`) rather than being silenced.

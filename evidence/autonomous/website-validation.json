@@ -3,6 +3,18 @@
   "kind": "website_contract_and_accessibility_validation",
   "status": "PASS_AUTOMATED_BROWSER",
   "completed_at": "2026-07-20T05:41:18Z",
+  "target": {
+    "kind": "loopback_static_server",
+    "url_not_tested": "https://mercmerc.net/buyer"
+  },
+  "honesty": {
+    "record_class": "historical_loopback_run",
+    "event_date": "2026-07-20",
+    "surface_under_test": "loopback static server after `node scripts/site-build.mjs`, driven by Playwright and the installed Google Chrome executable",
+    "public_hostname_touched": false,
+    "does_not_describe": "the public /buyer workspace on mercmerc.net, HEAD, or any later site build",
+    "binding_status_means": "UNBOUND — producer identity was never recovered for this run"
+  },
   "surfaces": {
     "public": "PASS",
     "buyer": "PASS",

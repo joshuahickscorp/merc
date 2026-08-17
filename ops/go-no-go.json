@@ -30,7 +30,7 @@
         "evidence/external/staging-alpha-readiness.json",
         "evidence/external/staging-money-ingress.json"
       ],
-      "note": "Persistent staging is serving HEAD at mercmerc.net over public TLS in Stripe test mode. Level B extras that are not this start-gate remain other P1s."
+      "note": "Persistent staging is serving HEAD at mercmerc.net over public TLS in Stripe test mode. Persistence is this start-gate and is SATISFIED. The advertised public hostname is the attack surface of the security rehearsal receipt, now an ALPHA_BLOCKER of this alpha."
     },
     {
       "id": "P1-RECOVERY-SOAK",

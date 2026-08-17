@@ -138,14 +138,14 @@
       "domain": "security",
       "receipt": "evidence/external/staging-attack-rehearsal.json",
       "points": 1,
-      "classification": "POST_ALPHA",
-      "owned_by_level": "level_b_private_canary",
+      "classification": "ALPHA_BLOCKER",
+      "owned_by_level": "level_backend_alpha",
       "harm": "A hostile internet user finds an authz or cross-tenant hole on an advertised public TLS staging hostname.",
-      "harm_reachable_in_this_alpha": false,
-      "necessary_before_first_controlled_alpha_transaction": false,
-      "smaller_control": "Default-deny authorization matrix plus the local technical security tabletop already scored in technical-exercises.json.",
-      "later_production_or_public_launch_requirement": true,
-      "reachable_harm_statement": "The named-reviewer public-hostname rehearsal assumes an advertised TLS site this alpha does not require; requiring it would force exposing a public website to satisfy a gate whose harm comes from exposing one. The same authz harm is protected by the matrix. Level B private canary owns the public-hostname rehearsal in full."
+      "harm_reachable_in_this_alpha": true,
+      "necessary_before_first_controlled_alpha_transaction": true,
+      "smaller_control": "The default-deny authorization matrix and the local technical tabletop cover in-process authz. They do not exercise a hostile internet user against the advertised public TLS hostname.",
+      "later_production_or_public_launch_requirement": false,
+      "reachable_harm_statement": "https://mercmerc.net serves public TLS on port 443 with HSTS and answers /buyer, /supplier, /admin, and /prices. A hostile internet user can already reach that hostname, so the public-hostname rehearsal is a start-gate of this alpha."
     },
     {
       "id": "receipt:money_and_reconciliation:evidence/autonomous/payment-simulator.json",
@@ -490,9 +490,9 @@
       "harm": "Publishing hashes, weights, or assets to strangers without a named licensing authority, so uncleared work is distributed.",
       "harm_reachable_in_this_alpha": false,
       "necessary_before_first_controlled_alpha_transaction": false,
-      "smaller_control": "In-repo SBOM, digest-pinned images, and the asset-provenance register. Nothing ships publicly at backend alpha.",
+      "smaller_control": "In-repo SBOM, digest-pinned images, and the asset-provenance register. Serving the buyer workspace is not public distribution of hashes, weights, or licensed assets.",
       "later_production_or_public_launch_requirement": true,
-      "reachable_harm_statement": "Nothing is shipped to the public at backend alpha. The harm of public distribution of uncleared artifacts cannot occur. Running privately still needs the signed SBOM, which is a separate alpha blocker."
+      "reachable_harm_statement": "This alpha does not publish hashes, weights, or licensed assets to strangers. A public buyer page is not that distribution, so the named licensing-authority harm cannot occur. Running the control plane still needs the signed SBOM, which is a separate alpha blocker."
     },
     {
       "id": "receipt:abuse_and_trust:evidence/autonomous/technical-exercises.json",
@@ -547,14 +547,14 @@
       "domain": "website_and_buyer_usability",
       "receipt": "evidence/autonomous/website-validation.json",
       "points": 2,
-      "classification": "PUBLIC_LAUNCH",
-      "owned_by_level": "level_c_live_money",
+      "classification": "ALPHA_BLOCKER",
+      "owned_by_level": "level_backend_alpha",
       "harm": "A public buyer cannot complete the website flow, or the site leaks credentials, or it fails accessibility \u2014 against a shipped consumer website.",
-      "harm_reachable_in_this_alpha": false,
-      "necessary_before_first_controlled_alpha_transaction": false,
-      "smaller_control": "Terminal-native / composition surface. No website is required or shipped for this alpha.",
-      "later_production_or_public_launch_requirement": true,
-      "reachable_harm_statement": "The product surface is terminal-native and no website is required. A WCAG/browser gate cannot prevent a harm that only exists if a public site is the buyer surface. The receipt stays on the Level B 100-point bar in full."
+      "harm_reachable_in_this_alpha": true,
+      "necessary_before_first_controlled_alpha_transaction": true,
+      "smaller_control": "None. The buyer workspace is served on public TLS; there is no smaller substitute for validating that page.",
+      "later_production_or_public_launch_requirement": false,
+      "reachable_harm_statement": "https://mercmerc.net/buyer is a public HTML buyer workspace with Stripe.js in the CSP, and /supplier, /admin, and /prices answer too. A broken, leaky, or inaccessible buyer flow is a reachable start-gate harm on the shipped site."
     },
     {
       "id": "soak:alpha-derived",
@@ -607,9 +607,9 @@
       "harm": "Calling the backend ready when no persistent control + data plane exists, so the first transaction runs against a laptop compose or nothing.",
       "harm_reachable_in_this_alpha": true,
       "necessary_before_first_controlled_alpha_transaction": true,
-      "smaller_control": "Public website TLS is not required. A persistent private or allowlisted endpoint plus health/auth/storage/lifecycle probes protects the same harm.",
+      "smaller_control": "Health, auth, storage, and lifecycle probes against the persistent plane. That plane is the advertised public TLS hostname mercmerc.net.",
       "later_production_or_public_launch_requirement": false,
-      "reachable_harm_statement": "This alpha is a deployed backend. Without a persistent plane there is nothing to transact against. The advertised public hostname is a Level B canary concern, not the start-gate."
+      "reachable_harm_statement": "This alpha is a deployed backend. Without a persistent plane there is nothing to transact against. The plane that exists serves public TLS on mercmerc.net and answers buyer routes; persistence remains this P1's start-gate, and the public hostname is the attack surface of the security rehearsal gate."
     },
     {
       "id": "p1:P1-RECOVERY-SOAK",
