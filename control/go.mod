@@ -1,6 +1,6 @@
 module merc/control
 
-go 1.26.5 // patched stdlib (crypto/tls and prior net/http/x509 fixes)  -  see govulncheck
+go 1.26.6 // patched stdlib (net/url, crypto/tls handshake, net/http HTTP/2 + Punycode, encoding/xml, encoding/asn1)  -  see govulncheck
 
 require (
 	github.com/google/uuid v1.6.0

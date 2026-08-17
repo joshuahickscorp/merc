@@ -4781,8 +4781,13 @@
       "authority_domain": "claim_admission",
       "class": "DB",
       "description": "claim erases the buyer data residency restriction",
+      "historical": {
+        "p50_seconds": null,
+        "p90_seconds": null,
+        "samples_seconds": []
+      },
       "id": 125,
-      "last_validated_commit": "",
+      "last_validated_commit": null,
       "required_invariant_contracts": [
         "TestClaimRefusesAWorkerOutsideTheBuyerDeclaredResidency"
       ],

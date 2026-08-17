@@ -1,0 +1,156 @@
+{
+  "anonymous_submit": {
+    "body": {
+      "action": "authenticate",
+      "code": "unauthorized",
+      "error": "missing or malformed Authorization bearer token"
+    },
+    "http": 401
+  },
+  "authenticated_submit": {
+    "quote": {
+      "body": {
+        "action": "fix_request",
+        "code": "invalid_request",
+        "error": "runtime capability is not advertised for job_type=\"embed\" model=\"all-minilm-l6-v2\" (matrix 2026-08-04.1)"
+      },
+      "http": 400
+    },
+    "replay": {
+      "body": {
+        "action": "fix_request",
+        "code": "invalid_request",
+        "error": "runtime capability is not advertised for job_type=\"embed\" model=\"all-minilm-l6-v2\" (matrix 2026-08-04.1)"
+      },
+      "headers": {
+        "content-type": "application/json",
+        "x-request-id": "31e91593-5c6e-42d9-8b1e-5ab27ecacc61"
+      },
+      "http": 400,
+      "idempotent_replayed": null
+    },
+    "submit": {
+      "body": {
+        "action": "fix_request",
+        "code": "invalid_request",
+        "error": "runtime capability is not advertised for job_type=\"embed\" model=\"all-minilm-l6-v2\" (matrix 2026-08-04.1)"
+      },
+      "headers": {
+        "content-type": "application/json",
+        "x-request-id": "739e1b84-0ec4-48d3-84af-f9f026b7ccff"
+      },
+      "http": 400
+    }
+  },
+  "billing": {
+    "body": {
+      "balance_micros": 0,
+      "configured": true,
+      "connected": false,
+      "currency": "usd",
+      "has_card": false,
+      "pending_topup_count": 0,
+      "pending_topup_minor_units": 0
+    },
+    "http": 200
+  },
+  "blocked": {
+    "reason": "live activation advertises no BOUND cell; quote/submit return runtime capability is not advertised. Cells candle-metal-minilm-embed and candle-metal-llama1-infer are ACTIVE in policy but routable=false because cellAuthorityBindable requires binding_status=BOUND. Flipping routable or fabricating a BOUND receipt would lower the bar.",
+    "step": "POST /v1/jobs accepted into a claimable state"
+  },
+  "classification": "ALPHA_CONTROL",
+  "commit_changed_under_lane": true,
+  "controlled_by_operator": true,
+  "deployed_commit": "a5bca8c0abcfda4158f5c681fa67f5ae5ebccb05",
+  "does_not_satisfy": "EXTERNAL_ALPHA_PROVEN",
+  "external_alpha_proven": false,
+  "gate": "P1-CANARY-REHEARSAL",
+  "jobs_after_submit": {
+    "body": {
+      "jobs": []
+    },
+    "http": 200,
+    "ids": []
+  },
+  "kind": "p1_canary_rehearsal_buyer-execution",
+  "local_head": "a5bca8c0abcfda4158f5c681fa67f5ae5ebccb05",
+  "me": {
+    "body": {
+      "buyer_id": "d69e74ff-d49c-4589-89aa-6c47dbc8f051",
+      "email": "joshuahicksboba@gmail.com",
+      "free_credit_remaining_usd": 0,
+      "is_admin": false
+    },
+    "http": 200
+  },
+  "missing_idempotency_key": {
+    "body": {
+      "action": "fix_request",
+      "code": "invalid_request",
+      "error": "Idempotency-Key is required and must be 8-128 characters using letters, digits, '.', '_', ':', or '-'"
+    },
+    "http": 400
+  },
+  "models": {
+    "body": {
+      "data": [],
+      "object": "list"
+    },
+    "http": 200
+  },
+  "observed_at": "2026-08-17T00:04:09Z",
+  "operator_owned": true,
+  "participant": {
+    "buyer_id": "d69e74ff-d49c-4589-89aa-6c47dbc8f051",
+    "email": "joshuahicksboba@gmail.com",
+    "origin": "approved canary email; signed up this rehearsal",
+    "participant_class": "operator_controlled",
+    "role": "buyer"
+  },
+  "participant_class": "operator_controlled",
+  "plane": {
+    "health": {
+      "status": "ok"
+    },
+    "ready": {
+      "live_value_movement": false,
+      "payment_mode": "test",
+      "payment_recovery_active": true,
+      "provider_enabled": true,
+      "status": "ready",
+      "stripe_api_version": "2025-06-30.basil"
+    },
+    "version": {
+      "authority_document_sha256": "a8ce0116c3b71b53870ca514179eee204781773e28ba7b2a798a951e1201f7d7",
+      "build_date": "2026-08-16T23:52:36Z",
+      "capability_matrix_sha256": "0b569a272b2bef7f553cad0efbe7bac9fc42a18944b16ac60b590763f497d60c",
+      "commit": "a5bca8c0abcfda4158f5c681fa67f5ae5ebccb05",
+      "go_version": "go1.26.5",
+      "modified": false,
+      "platform": "linux/amd64",
+      "price_board_sha256": "440909b34593487d8bd5d00c1b65244cc0a971755507b665014334505a34f48c",
+      "price_board_source": "release",
+      "version": "v0.1.0-merc-staging"
+    }
+  },
+  "proven": {
+    "anonymous_submit_refused": true,
+    "approved_buyer_authenticated": true,
+    "idempotency_key_required": true,
+    "idempotent_replay_one_job": false,
+    "job_accepted_priced_claimable": false,
+    "unlisted_email_refused": true
+  },
+  "schema_version": 1,
+  "status": "PARTIAL",
+  "synthetic": true,
+  "unlisted_signup_refused": {
+    "body": {
+      "action": "none",
+      "code": "forbidden",
+      "error": "email is not approved for this private canary"
+    },
+    "http": 403,
+    "refused": true
+  }
+}

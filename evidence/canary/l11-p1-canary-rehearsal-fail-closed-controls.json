@@ -1,0 +1,95 @@
+{
+  "classification": "ALPHA_CONTROL",
+  "controlled_by_operator": true,
+  "deployed_commit": "a5bca8c0abcfda4158f5c681fa67f5ae5ebccb05",
+  "does_not_satisfy": "EXTERNAL_ALPHA_PROVEN",
+  "external_alpha_proven": false,
+  "gate": "P1-CANARY-REHEARSAL",
+  "intake_pause_result_retrieval": {
+    "ran": true,
+    "pause": {
+      "name": "intake",
+      "paused": true,
+      "reason": "l11-rehearsal-intake-pause-results",
+      "version": 4
+    },
+    "during_pause": {
+      "GET /v1/jobs": {"http": 200, "body": {"jobs": []}},
+      "GET /v1/jobs/{unknown}/results": {
+        "http": 404,
+        "body": {"error": "job not found", "code": "not_found"},
+        "note": "retrieval still answers; 404 is a real response, not a hang or 503"
+      }
+    },
+    "resume": {
+      "name": "intake",
+      "paused": false,
+      "reason": "l11-rehearsal-intake-resume-results",
+      "version": 5
+    }
+  },
+  "kill_switch": {
+    "from_operator_mac": {
+      "body": {
+        "action": "none",
+        "code": "forbidden",
+        "error": "admin source address not allowlisted"
+      },
+      "http": 403
+    },
+    "from_control_loopback": {
+      "get_controls_http": 200,
+      "pause_dispatch": {
+        "name": "dispatch",
+        "paused": true,
+        "reason": "l11-rehearsal-kill-switch",
+        "version": 2
+      },
+      "resume_dispatch": {
+        "name": "dispatch",
+        "paused": false,
+        "reason": "l11-rehearsal-kill-switch-resume",
+        "version": 3
+      }
+    },
+    "note": "MERC_ADMIN_CIDRS is 127.0.0.1/32,::1/128. Calls from this Mac are refused (fail-closed). Pause/resume was exercised from the control container netns as 127.0.0.1 with a minted operator admin key that was revoked after the run."
+  },
+  "kind": "p1_canary_rehearsal_fail-closed-controls",
+  "no_payout_export": {
+    "live_value_movement": false,
+    "readyz_payment_mode": "test"
+  },
+  "observed_at": "2026-08-17T00:04:09Z",
+  "operator_owned": true,
+  "participant_class": "operator_controlled",
+  "plane": "https://mercmerc.net",
+  "reconciliation": {
+    "jobs_on_buyer": [],
+    "note": "nothing to reconcile; no settled rehearsal job exists"
+  },
+  "revocation": [
+    {
+      "body": null,
+      "credential_id": "c5e27cd5-fe02-4137-9d32-5a816e8d41b0",
+      "http": 204
+    },
+    {
+      "body": null,
+      "credential_id": "e96e8d47-00e6-4ee7-af68-72359f880196",
+      "http": 204
+    },
+    {
+      "body": null,
+      "credential_id": "1de2093d-f665-4c75-aa17-cd8e2615494c",
+      "http": 204
+    },
+    {
+      "body": null,
+      "credential_id": "de439d06-8649-4127-a79a-0725d4cd5009",
+      "http": 204
+    }
+  ],
+  "schema_version": 1,
+  "status": "PARTIAL",
+  "synthetic": true
+}

@@ -1221,6 +1221,34 @@ def _participant_is_synthetic(participant: Any) -> bool:
     return False
 
 
+CANARY_REHEARSAL_RECEIPT_GLOB = "evidence/canary/l11-p1-canary-rehearsal-*.json"
+
+
+def refuse_canary_rehearsal_as_external() -> None:
+    """L11 rehearsal receipts are operator-controlled. They must not
+    be labelled as EXTERNAL_ALPHA_PROVEN or independent_external."""
+    import glob
+
+    paths = sorted(glob.glob(str(ROOT / CANARY_REHEARSAL_RECEIPT_GLOB)))
+    for path in paths:
+        rel = str(Path(path).relative_to(ROOT))
+        doc = load_json(rel)
+        if not isinstance(doc, dict):
+            fail(f"{rel}: rehearsal receipt is not an object")
+        if str(doc.get("does_not_satisfy", "")) != "EXTERNAL_ALPHA_PROVEN":
+            fail(f"{rel}: must declare does_not_satisfy=EXTERNAL_ALPHA_PROVEN")
+        if doc.get("external_alpha_proven") is not False:
+            fail(f"{rel}: external_alpha_proven must be false")
+        if doc.get("synthetic") is not True:
+            fail(f"{rel}: synthetic must be true")
+        if str(doc.get("participant_class", "")) != "operator_controlled":
+            fail(f"{rel}: participant_class must be operator_controlled")
+        if doc.get("controlled_by_operator") is not True:
+            fail(f"{rel}: controlled_by_operator must be true")
+        if str(doc.get("claim", "")) == "EXTERNAL_ALPHA_PROVEN":
+            fail(f"{rel}: must not carry claim EXTERNAL_ALPHA_PROVEN")
+
+
 def qualifying_alpha_soak_proven(doc: Any) -> bool:
     """Backend-alpha soak: ≥3600 s, derived from pgx MaxConnLifetime.
 
@@ -1920,6 +1948,7 @@ def main() -> None:
     # claim can become GO for that named pair without dissolving the
     # prohibition. Synthetics still cannot pass the checker.
     external_proven = "GO" if external_proven_ok else "NO_GO"
+    refuse_canary_rehearsal_as_external()
 
     # A synthetic-looking receipt that someone marked PASS must not be able
     # to force the claim to GO by editing only go-no-go.json.

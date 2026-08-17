@@ -1,6 +1,6 @@
 DATABASE_URL ?= postgres://cx:cx@localhost:5432/cx?sslmode=disable
 
-.PHONY: credentials credentials-check droplet-deploy private-canary realtime-sdk-conformance up down dev-up dev-down test-unit license-register release-gates alert-delivery-test backup-age-metric-test migrate seed control agent-run agent-bench agent-characterize prove-local metrics build fmt test test-integration ci audit loc docker-build install uninstall backup restore-drill backup-envelope-test local-independent-restore offsite-independent-restore offsite-independent-restore-check local-production-tls local-rollback restart-storm-local technical-exercises recovery-suite alert-check alert-page render-staging validate-staging soak-15m soak-2h soak-24h soak-24h-persistent soak-24h-status release-doctor stripe-simulate stripe-check stripe-matrix secret-audit approvals-check mutation-test mutation-test-parallel mutation-fast mutation-authority mutation-full mutation-deep alpha-security stripe-nonconnect stripe-endpoint-subscriptions
+.PHONY: credentials credentials-check droplet-deploy private-canary realtime-sdk-conformance up down dev-up dev-down test-unit license-register release-gates alert-delivery-test backup-age-metric-test migrate seed control agent-run agent-bench agent-characterize prove-local metrics build fmt test test-integration ci audit loc docker-build install uninstall backup restore-drill backup-envelope-test local-independent-restore offsite-independent-restore offsite-independent-restore-check local-production-tls local-rollback restart-storm-local technical-exercises recovery-suite alert-check alert-page render-staging validate-staging soak-15m soak-2h soak-24h soak-24h-persistent soak-24h-status release-doctor stripe-simulate stripe-check stripe-matrix secret-audit approvals-check mutation-test mutation-test-parallel mutation-fast mutation-authority mutation-full mutation-deep alpha-security stripe-nonconnect stripe-endpoint-subscriptions alpha-e2e-rehearsal
 
 up:
 	docker compose up -d --build
@@ -315,6 +315,13 @@ stripe-nonconnect:
 # the staging droplet.
 alpha-security:
 	python3 scripts/alpha-security-suite.py
+
+# Operator-controlled live rehearsal against https://mercmerc.net.
+# Writes evidence/canary/l11-p1-canary-rehearsal-*.json. Does not,
+# and cannot, flip EXTERNAL_ALPHA_PROVEN. Needs a session in
+# .artifacts/alpha-e2e/session.json or MERC_CANARY_BUYER_API_KEY.
+alpha-e2e-rehearsal:
+	python3 scripts/alpha-e2e-rehearsal.py run
 
 secret-audit:
 	@set -e; tmp="$$(mktemp ops/stripe-secret-exposure.XXXXXX)"; \

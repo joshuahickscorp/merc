@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "kind": "p1_canary_rehearsal_status",
+  "gate": "P1-CANARY-REHEARSAL",
+  "classification": "ALPHA_CONTROL",
+  "does_not_satisfy": "EXTERNAL_ALPHA_PROVEN",
+  "external_alpha_proven": false,
+  "status": "PARTIAL",
+  "plane": "https://mercmerc.net",
+  "deployed_commit": "a5bca8c0abcfda4158f5c681fa67f5ae5ebccb05",
+  "started_against_commit": "8283ae583057d6265947a473023e4f05102704b4",
+  "allowlist": "ops/staging/alpha-participants.json",
+  "allowlist_widened": false,
+  "participants_exercised": {
+    "synthetic_or_operator_buyers": 1,
+    "operator_controlled_workers": 1,
+    "wanted_buyers": 2,
+    "wanted_workers": 2
+  },
+  "receipts": {
+    "4_buyer_execution": "evidence/canary/l11-p1-canary-rehearsal-buyer-execution.json",
+    "5_supplier_execution": "evidence/canary/l11-p1-canary-rehearsal-supplier-execution.json",
+    "6_verification": "evidence/canary/l11-p1-canary-rehearsal-verification.json",
+    "7_settlement_ledger": "evidence/canary/l11-p1-canary-rehearsal-settlement.json",
+    "fail_closed": "evidence/canary/l11-p1-canary-rehearsal-fail-closed-controls.json",
+    "summary": "evidence/canary/l11-p1-canary-rehearsal-summary.json",
+    "report": "docs/ALPHA_CANARY_REHEARSAL_L11.md"
+  },
+  "driver": "scripts/alpha-e2e-rehearsal.py",
+  "make_target": "alpha-e2e-rehearsal"
+}

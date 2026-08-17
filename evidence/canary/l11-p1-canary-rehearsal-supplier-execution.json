@@ -1,0 +1,169 @@
+{
+  "blocked": {
+    "reason": "POST /v1/worker/register is refused: no cell this worker declares is activated for routing or directed use. In-memory activation quarantines ACTIVE cells whose document.Routable is false (benchmark receipts are not BOUND). Device-bound enrollment would mint a new worker UUID and also be refused unless added to the allowlist; the reserved UUID was used instead. Unbound tokens on MERC_ENV=staging are allowed; ordinary claim still requires a directed or advertised cell.",
+    "step": "register, claim, execute, return a result"
+  },
+  "buyers_exercised": 1,
+  "classification": "ALPHA_CONTROL",
+  "controlled_by_operator": true,
+  "credentials_list": {
+    "body": {
+      "credentials": [
+        {
+          "created_at": "2026-08-17T00:04:08.127499Z",
+          "credential_id": "c5e27cd5-fe02-4137-9d32-5a816e8d41b0",
+          "credential_version": 1,
+          "enrollment_device_bound": false,
+          "revoked": false,
+          "worker_id": "7d2bb6c8-c45a-505e-ae39-6b9fc73989f5"
+        },
+        {
+          "created_at": "2026-08-17T00:03:26.466725Z",
+          "credential_id": "e96e8d47-00e6-4ee7-af68-72359f880196",
+          "credential_version": 1,
+          "enrollment_device_bound": false,
+          "revocation_reason": "account_revoked",
+          "revoked": true,
+          "revoked_at": "2026-08-17T00:03:27.902778Z",
+          "worker_id": "7d2bb6c8-c45a-505e-ae39-6b9fc73989f5"
+        },
+        {
+          "created_at": "2026-08-16T23:59:50.238945Z",
+          "credential_id": "1de2093d-f665-4c75-aa17-cd8e2615494c",
+          "credential_version": 1,
+          "enrollment_device_bound": false,
+          "revocation_reason": "account_revoked",
+          "revoked": true,
+          "revoked_at": "2026-08-17T00:03:27.973092Z",
+          "worker_id": "7d2bb6c8-c45a-505e-ae39-6b9fc73989f5"
+        },
+        {
+          "created_at": "2026-08-16T23:57:46.269448Z",
+          "credential_id": "de439d06-8649-4127-a79a-0725d4cd5009",
+          "credential_version": 1,
+          "enrollment_device_bound": false,
+          "revocation_reason": "account_revoked",
+          "revoked": true,
+          "revoked_at": "2026-08-17T00:03:28.026382Z",
+          "worker_id": "7d2bb6c8-c45a-505e-ae39-6b9fc73989f5"
+        }
+      ]
+    },
+    "http": 200
+  },
+  "deployed_commit": "a5bca8c0abcfda4158f5c681fa67f5ae5ebccb05",
+  "does_not_satisfy": "EXTERNAL_ALPHA_PROVEN",
+  "external_alpha_proven": false,
+  "foreign_worker_mint": {
+    "body": {
+      "action": "none",
+      "code": "forbidden",
+      "error": "worker is not approved for this private canary"
+    },
+    "http": 403,
+    "refused": true,
+    "worker_id": "5d95f6cf-686e-4b36-844f-4981df475cdc"
+  },
+  "gate": "P1-CANARY-REHEARSAL",
+  "kind": "p1_canary_rehearsal_supplier-execution",
+  "matrix_wants": {
+    "operator_metal_workers": 2,
+    "synthetic_buyers": 2
+  },
+  "observed_at": "2026-08-17T00:04:09Z",
+  "operator_owned": true,
+  "participant": {
+    "origin": "allowlisted reserved UUID; unbound staging token mint",
+    "participant_class": "operator_controlled",
+    "role": "supplier_worker",
+    "worker_id": "7d2bb6c8-c45a-505e-ae39-6b9fc73989f5"
+  },
+  "participant_class": "operator_controlled",
+  "plane": "https://mercmerc.net",
+  "poll_after_revoke": {
+    "body": {
+      "action": "authenticate",
+      "code": "unauthorized",
+      "error": "invalid worker token"
+    },
+    "http": 401
+  },
+  "poll_before_revoke": {
+    "body": null,
+    "http": 204
+  },
+  "proven": {
+    "foreign_worker_id_refused": true,
+    "identity_binding_enforced_at_canary_gate": true,
+    "offer_claimed_and_executed": false,
+    "reserved_worker_token_minted": true,
+    "revocation_attempted": true,
+    "worker_registered": false
+  },
+  "register": {
+    "agent_session_id": "5288731f-b85e-4a31-aea1-c8a64338dfe9",
+    "body": {
+      "action": "fix_request",
+      "code": "invalid_request",
+      "error": "runtime capability rejected: no cell this worker declares is activated for routing or directed use (engine=\"candle\" hw_class=\"apple_silicon_ultra\" jobs=[embed batch_infer] models=[all-minilm-l6-v2 llama-3.2-1b-instruct-q4])"
+    },
+    "capability": {
+      "agent_session_id": "5288731f-b85e-4a31-aea1-c8a64338dfe9",
+      "agent_version": "0.1.0",
+      "benchmarks": [],
+      "build_hash": "f4303a751ca2b2af",
+      "engine": "candle",
+      "hardware_identity": "Apple M3 Ultra",
+      "hw_class": "apple_silicon_ultra",
+      "memory_bw_gbps": 800,
+      "memory_gb": 96,
+      "min_payout_usd_hr": 0.01,
+      "os_version": "macos",
+      "sandboxed": true,
+      "supported_jobs": [
+        "embed",
+        "batch_infer"
+      ],
+      "supported_models": [
+        "all-minilm-l6-v2",
+        "llama-3.2-1b-instruct-q4"
+      ],
+      "unsandboxed_opt_in": false
+    },
+    "http": 400
+  },
+  "reserved_mint": {
+    "body": {
+      "supplier_id": "1c0df906-2857-48fa-b548-19f1fc563944",
+      "worker_id": "7d2bb6c8-c45a-505e-ae39-6b9fc73989f5",
+      "worker_token": "[REDACTED len=47 sha256=f2f86b04b0229c1c]"
+    },
+    "http": 201
+  },
+  "revocation": [
+    {
+      "body": null,
+      "credential_id": "c5e27cd5-fe02-4137-9d32-5a816e8d41b0",
+      "http": 204
+    },
+    {
+      "body": null,
+      "credential_id": "e96e8d47-00e6-4ee7-af68-72359f880196",
+      "http": 204
+    },
+    {
+      "body": null,
+      "credential_id": "1de2093d-f665-4c75-aa17-cd8e2615494c",
+      "http": 204
+    },
+    {
+      "body": null,
+      "credential_id": "de439d06-8649-4127-a79a-0725d4cd5009",
+      "http": 204
+    }
+  ],
+  "schema_version": 1,
+  "status": "PARTIAL",
+  "synthetic": true,
+  "workers_exercised": 1
+}

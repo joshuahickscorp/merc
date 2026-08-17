@@ -2,8 +2,8 @@
   "schema_version": 1,
   "kind": "merc_generated_license_inventory",
   "status": "GENERATED_DRAFT_NOT_APPROVAL",
-  "generated_at": "2026-08-16T23:00:48Z",
-  "source_commit": "8283ae583057d6265947a473023e4f05102704b4",
+  "generated_at": "2026-08-16T23:54:21Z",
+  "source_commit": "a5bca8c0abcfda4158f5c681fa67f5ae5ebccb05",
   "generator": "scripts/generate-license-inventory.py",
   "honesty": {
     "not_legal_advice": true,
@@ -16,7 +16,7 @@
   },
   "inputs": {
     "control/go.mod": {
-      "sha256": "cd49073ead94fd4986013cbb68fdae531b5fb3820cefef8358c441f84573df65",
+      "sha256": "6641c5a1082f921e394a03fd1e767d0533c0a78eb6241d81bdda654c0207631e",
       "present": true
     },
     "control/go.sum": {

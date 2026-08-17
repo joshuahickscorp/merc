@@ -1,0 +1,32 @@
+{
+  "accept": {
+    "ran": false,
+    "reason": "no job reached commit; verification accept cannot run"
+  },
+  "blocked": {
+    "reason": "Verification is inline on POST /v1/worker/task/{id}/commit. No task was claimed or committed because no job was accepted and no worker could register. A SQL-inserted task would not be the real authenticated path.",
+    "step": "verification accept AND reject on a live result"
+  },
+  "classification": "ALPHA_CONTROL",
+  "controlled_by_operator": true,
+  "deployed_commit": "a5bca8c0abcfda4158f5c681fa67f5ae5ebccb05",
+  "does_not_satisfy": "EXTERNAL_ALPHA_PROVEN",
+  "external_alpha_proven": false,
+  "gate": "P1-CANARY-REHEARSAL",
+  "kind": "p1_canary_rehearsal_verification",
+  "observed_at": "2026-08-17T00:04:09Z",
+  "operator_owned": true,
+  "participant_class": "operator_controlled",
+  "plane": "https://mercmerc.net",
+  "proven": {
+    "corrupted_result_rejected": false,
+    "good_result_accepted": false
+  },
+  "reject": {
+    "ran": false,
+    "reason": "no job reached commit; a corrupted result cannot be submitted"
+  },
+  "schema_version": 1,
+  "status": "BLOCKED",
+  "synthetic": true
+}

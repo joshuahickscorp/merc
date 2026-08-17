@@ -471,7 +471,6 @@ MUTATIONS=(
 "exact_reuse_batch.go|exact reuse omits frozen workload authority|s|workloadJSON, err := json.Marshal(workloadDecision)|workloadJSON, err := json.Marshal(WorkloadDecision{})|"
 "exact_reuse_batch.go|exact reuse hashes request shape but not runtime authority|s|decisionSHA256, err := workloadDecisionDigest(decision)|decisionSHA256, err := workloadBindingDigest(decision.Binding)|"
 "scheduler.go|claim ignores frozen runtime candidates|s|j.workload_decision IS NULL|true|"
-"scheduler.go|claim erases the buyer data residency restriction|s#AND (j.data_residency IS NULL OR me.data_country = ANY(j.data_residency))##"
 "compute_plan.go|bound quote recomputes split from the live planner|s|return bound.ComputePlan.SplitSize, nil|return unbound(), nil|"
 "compute_plan.go|compute plan accepts tampered task totals|s|if plan.TotalInitialTasks != expectedTotal {|if false {|"
 "store_jobs.go|job persistence ignores bound quote compute authority|s#quoteComputeSHA256 == \"\" || quoteComputeSHA256 != computeSHA256#false#"
@@ -578,6 +577,7 @@ MUTATIONS=(
 "evidence_envelope.go|ABSENT or PENDING links may carry a fabricated digest|s#if link.Digest != \"\" {#if false \&\& link.Digest != \"\" {#"
 "claim_narrowing.go|claim narrowing ladder allows surviving counts to increase|s#if i > 0 \&\& stages\[i\].Surviving > stages\[i-1\].Surviving {#if false \&\& i > 0 \&\& stages[i].Surviving > stages[i-1].Surviving {#"
 "batch_policy.go|impossible deadline is accepted against implied TTFT|s#if est := EstimatedTTFT(budget); est > deadline {#if est := EstimatedTTFT(budget); false \&\& est > deadline {#"
+"scheduler.go|claim erases the buyer data residency restriction|s#AND (j.data_residency IS NULL OR me.data_country = ANY(j.data_residency))##"
 )
 
 if [ "$MERC_MUTATION_LIST" = "1" ]; then

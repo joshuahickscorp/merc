@@ -6,15 +6,15 @@
 >
 > **GENERATED** from the real dependency graph by `scripts/generate-license-inventory.py`. Do not hand-edit. Regenerate with that script. This is not a license clearance.
 
-- Generated at: `2026-08-16T23:00:48Z`
-- Source commit: `8283ae583057d6265947a473023e4f05102704b4`
+- Generated at: `2026-08-16T23:54:21Z`
+- Source commit: `a5bca8c0abcfda4158f5c681fa67f5ae5ebccb05`
 - Status: `GENERATED_DRAFT_NOT_APPROVAL`
 
 ## Graph binding
 
 | Manifest | SHA-256 |
 |---|---|
-| `control/go.mod` | `cd49073ead94fd4986013cbb68fdae531b5fb3820cefef8358c441f84573df65` |
+| `control/go.mod` | `6641c5a1082f921e394a03fd1e767d0533c0a78eb6241d81bdda654c0207631e` |
 | `control/go.sum` | `549318fdf613e18bd4f06b7efc145e0fed5513aeb133878dc1f426b504354f84` |
 | `agent/Cargo.lock` | `9fdebba0ef3baf28189837b429a079b2881bec452f24bde3d5d6f4fbb0cd0f7b` |
 | `agent/Cargo.toml` | `66ad8c64ec83d2eeab6732d56c10271e0a7a309dfcc2f6e8646bfb9175ee5df9` |

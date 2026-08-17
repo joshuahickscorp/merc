@@ -1,0 +1,55 @@
+{
+  "billing": {
+    "balance_micros": 0,
+    "configured": true,
+    "connected": false,
+    "currency": "usd",
+    "has_card": false,
+    "pending_topup_count": 0,
+    "pending_topup_minor_units": 0
+  },
+  "blocked": {
+    "reason": "No job entered SubmitJobTx, so FinalizeJobTx / chargeForJob never ran. Ledger proof of single settlement requires an accepted, verified job. Test-mode and no live-value-movement are proven via /readyz.",
+    "step": "ledger settlement of an executed job"
+  },
+  "classification": "ALPHA_CONTROL",
+  "controlled_by_operator": true,
+  "deployed_commit": "a5bca8c0abcfda4158f5c681fa67f5ae5ebccb05",
+  "does_not_satisfy": "EXTERNAL_ALPHA_PROVEN",
+  "external_alpha_proven": false,
+  "gate": "P1-CANARY-REHEARSAL",
+  "jobs_created": [],
+  "kind": "p1_canary_rehearsal_settlement",
+  "ledger_counts_live_postgres": {
+    "jobs": 0,
+    "ledger_entries": 0,
+    "tasks": 0,
+    "note": "queried on merc-postgres-1 as operator; no rehearsal job rows exist"
+  },
+  "live_payouts": false,
+  "observed_at": "2026-08-17T00:04:09Z",
+  "operator_owned": true,
+  "participant_class": "operator_controlled",
+  "payout_export_unset": true,
+  "plane": "https://mercmerc.net",
+  "proven": {
+    "amounts_reconcile": false,
+    "no_double_settlement_under_repeat": false,
+    "settled_exactly_once": false,
+    "test_mode_no_live_value": true
+  },
+  "readyz": {
+    "body": {
+      "live_value_movement": false,
+      "payment_mode": "test",
+      "payment_recovery_active": true,
+      "provider_enabled": true,
+      "status": "ready",
+      "stripe_api_version": "2025-06-30.basil"
+    },
+    "http": 200
+  },
+  "schema_version": 1,
+  "status": "BLOCKED",
+  "synthetic": true
+}

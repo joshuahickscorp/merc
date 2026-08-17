@@ -225,7 +225,10 @@ func TestStripeWebhookRetriesSavedCardDatabaseFailures(t *testing.T) {
 	}{
 		{name: "success", wantStatus: http.StatusOK},
 		{name: "database failure", updateErr: errors.New("database unavailable"), wantStatus: http.StatusInternalServerError},
-		{name: "unknown customer", updateErr: errNotFound, wantStatus: http.StatusInternalServerError},
+		// Same contract as TestUnknownCustomerPaymentMethodEventIsAcknowledgedNotRetried:
+		// a stranger customer on a shared Stripe account can never succeed here,
+		// so 500 only builds a retry queue. Acknowledge. Real DB faults still 500.
+		{name: "unknown customer", updateErr: errNotFound, wantStatus: http.StatusOK},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			calls := 0

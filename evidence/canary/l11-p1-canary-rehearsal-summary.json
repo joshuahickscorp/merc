@@ -1,0 +1,51 @@
+{
+  "classification": "ALPHA_CONTROL",
+  "closeout": {
+    "4_buyer_execution": {
+      "receipt": "evidence/canary/l11-p1-canary-rehearsal-buyer-execution.json",
+      "status": "PARTIAL"
+    },
+    "5_supplier_execution": {
+      "receipt": "evidence/canary/l11-p1-canary-rehearsal-supplier-execution.json",
+      "status": "PARTIAL"
+    },
+    "6_verification": {
+      "receipt": "evidence/canary/l11-p1-canary-rehearsal-verification.json",
+      "status": "BLOCKED"
+    },
+    "7_settlement_ledger": {
+      "receipt": "evidence/canary/l11-p1-canary-rehearsal-settlement.json",
+      "status": "BLOCKED"
+    },
+    "fail_closed_controls": {
+      "receipt": "evidence/canary/l11-p1-canary-rehearsal-fail-closed-controls.json",
+      "status": "PARTIAL"
+    }
+  },
+  "controlled_by_operator": true,
+  "deployed_commit": "a5bca8c0abcfda4158f5c681fa67f5ae5ebccb05",
+  "does_not_satisfy": "EXTERNAL_ALPHA_PROVEN",
+  "external_alpha_proven": false,
+  "gate": "P1-CANARY-REHEARSAL",
+  "kind": "p1_canary_rehearsal_summary",
+  "local_head": "a5bca8c0abcfda4158f5c681fa67f5ae5ebccb05",
+  "matrix": {
+    "allowlist_buyers": [
+      "joshuahicksboba@gmail.com"
+    ],
+    "allowlist_workers": [
+      "7d2bb6c8-c45a-505e-ae39-6b9fc73989f5"
+    ],
+    "exercised_buyers": 1,
+    "exercised_workers": 1,
+    "wanted_operator_metal_workers": 2,
+    "wanted_synthetic_buyers": 2
+  },
+  "observed_at": "2026-08-17T00:04:09Z",
+  "operator_owned": true,
+  "participant_class": "operator_controlled",
+  "plane": "https://mercmerc.net",
+  "schema_version": 1,
+  "status": "PARTIAL",
+  "synthetic": true
+}

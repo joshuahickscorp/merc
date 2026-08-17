@@ -7,8 +7,8 @@
 > **GENERATED** from the real dependency graph. Not a clearance.
 > Not an SPDX SBOM substitute for a release. Not counsel approval.
 
-- Generated at: `2026-08-16T23:00:48Z`
-- Source commit: `8283ae583057d6265947a473023e4f05102704b4`
+- Generated at: `2026-08-16T23:54:21Z`
+- Source commit: `a5bca8c0abcfda4158f5c681fa67f5ae5ebccb05`
 - Machine source: `docs/generated/license-inventory.json`
 - Companion inventory: `docs/LICENSE_INVENTORY.md`
 
