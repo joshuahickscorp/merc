@@ -228,7 +228,7 @@
           "verification": "byte_exact",
           "lifecycle": "ACTIVE",
           "quality_tier": "OUTCOME_EQUIVALENT",
-          "benchmark_authority": "evidence/perf/runtime-benchmarks/candle-metal-llama1-q4-r5.json",
+          "benchmark_authority": "evidence/perf/runtime-benchmarks/candle-metal-llama1-q4-r6.json",
           "max_batch": 128
         },
         {

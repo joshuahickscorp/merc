@@ -90,15 +90,19 @@
         "unit_scope": "single_object_input_byte_quarters",
         "precision": "libx264 threads=1, +bitexact, fixed 320x180/24fps/400kbps output",
         "operating_batch": 1,
-        "units_per_sec_at_operating_batch": 14423.640930216638,
-        "best_observed_units_per_sec": 15284.815254055044,
+        "units_per_sec_at_operating_batch": 4479.1045,
+        "best_observed_units_per_sec": 5663.6135601616925,
         "best_observed_batch": 1,
-        "basis": "430.5 media_work_units divided by the slowest and fastest of 20 real FFmpeg subprocess wall times; the slowest rate is the only admission bound"
+        "basis": "430.5 media_work_units divided by the slowest (0.096112958s) and fastest (0.076011542s) of 20 real FFmpeg subprocess wall times; the slowest rate is the only admission bound"
       }
     },
-    "merc_source_commit": "working-tree-before-media-authority",
+    "merc_source_commit": "926edfe39c12db64eac21d40bbc03631886bbad8",
     "profile_revision": "r9",
-    "harness": "fixed Merc media_transcode contract: ffmpeg + ffprobe, env-clear, protocol_whitelist=file,pipe, libx264 threads=1, bitexact, one 320x180 input"
+    "harness": "merc-agent MediaTranscodeRunner.benchmark (20 real FFmpeg subprocesses)",
+    "binding_status": "BOUND",
+    "engine_build_hash": "0337d75360651401",
+    "engine_build_identity_policy": "merc_external_runner_artifact_config_sha256_v1",
+    "hardware_identity": "apple_silicon_v1|brand=Apple M3 Ultra|model=Mac15,14|memory_bytes=103079215104|cpu_cores=28|gpu_cores=60"
   },
   "evidence/perf/runtime-benchmarks/candle-metal-rendering-r1.json": {
     "runtime_profile_ids": [
@@ -109,7 +113,7 @@
     "model_ids": [
       "svg-scene-render-v1"
     ],
-    "measured_at": "2026-08-02T14:19:00Z",
+    "measured_at": "2026-08-17T00:40:08Z",
     "hw_class": "apple_silicon_ultra",
     "throughput": {
       "candle_metal": {
@@ -117,13 +121,19 @@
         "unit_scope": "declared_output_pixels_per_scene",
         "precision": "builtin deterministic P6 rasterizer",
         "operating_batch": 1,
-        "units_per_sec_at_operating_batch": 148271490,
-        "best_observed_units_per_sec": 148271490,
+        "units_per_sec_at_operating_batch": 578286000,
+        "best_observed_units_per_sec": 578286000,
         "best_observed_batch": 1,
-        "basis": "merc-agent bench on Apple Silicon Ultra; 32 bounded 64x64 renders, admission uses the slowest observed wall time"
+        "basis": "merc-agent MediaRenderingRunner.benchmark; 32 bounded 64x64 renders, admission uses the slowest observed wall time"
       }
     },
-    "profile_revision": "r9"
+    "merc_source_commit": "926edfe39c12db64eac21d40bbc03631886bbad8",
+    "profile_revision": "r9",
+    "harness": "merc-agent MediaRenderingRunner.benchmark (32 bounded 64x64 renders)",
+    "binding_status": "BOUND",
+    "engine_build_hash": "a198e94ef14668b4",
+    "engine_build_identity_policy": "merc_agent_running_executable_sha256_v1",
+    "hardware_identity": "apple_silicon_v1|brand=Apple M3 Ultra|model=Mac15,14|memory_bytes=103079215104|cpu_cores=28|gpu_cores=60"
   },
   "evidence/perf/runtime-benchmarks/llama-cpp-metal-llama1-q4-r1.json": {
     "runtime_profile_ids": [
@@ -347,7 +357,43 @@
     "profile_revision": "r9",
     "harness": "merc-agent bench-batch (candle-metal-llama1-infer r5 settlement-geometry re-measure)",
     "binding_status": "BOUND",
+    "validity": "SUPERSEDED",
     "engine_build_hash": "f4303a751ca2b2af",
+    "engine_build_identity_policy": "merc_agent_running_executable_sha256_v1",
+    "hardware_identity": "apple_silicon_v1|brand=Apple M3 Ultra|model=Mac15,14|memory_bytes=103079215104|cpu_cores=28|gpu_cores=60",
+    "model_artifact_sha256s": [
+      "3f5a22426976ab26cfe84dba63c1d08391717abb1af893e10f1b2968d862dcc1",
+      "6b9e4e7fb171f92fd137b777cc2714bf87d11576700a1dcd7a399e7bbe39537b"
+    ]
+  },
+  "evidence/perf/runtime-benchmarks/candle-metal-llama1-q4-r6.json": {
+    "runtime_profile_ids": [
+      "candle_metal"
+    ],
+    "throughput_measured": true,
+    "byte_deterministic": true,
+    "model_ids": [
+      "llama-3.2-1b-instruct-q4"
+    ],
+    "measured_at": "2026-08-17T00:58:58Z",
+    "hw_class": "apple_silicon_ultra",
+    "throughput": {
+      "candle_metal": {
+        "unit": "tokens",
+        "unit_scope": "token_like_input_plus_max_output_tokens",
+        "precision": "Q4_K_M GGUF",
+        "operating_batch": 1,
+        "units_per_sec_at_operating_batch": 304.2661,
+        "best_observed_units_per_sec": 678.7067,
+        "best_observed_batch": 64,
+        "basis": "settlement geometry token_like_input_plus_max_output_tokens: billable units/request = max(1, prompt_bytes/4)+max_tokens = 62.75 (prompt_bytes=59, max_tokens=48); rate at operating_batch=1 is batch_infer.throughput_units_per_second from merc-agent bench-batch re-expressed under the same wall samples. best_observed is peak at batch 64 (ceiling to refuse, not an offer rate)."
+      }
+    },
+    "merc_source_commit": "926edfe39c12db64eac21d40bbc03631886bbad8",
+    "profile_revision": "r9",
+    "harness": "merc-agent bench-batch (candle-metal-llama1-infer r6 settlement-geometry re-measure)",
+    "binding_status": "BOUND",
+    "engine_build_hash": "7cc01c442c7f6dbe",
     "engine_build_identity_policy": "merc_agent_running_executable_sha256_v1",
     "hardware_identity": "apple_silicon_v1|brand=Apple M3 Ultra|model=Mac15,14|memory_bytes=103079215104|cpu_cores=28|gpu_cores=60",
     "model_artifact_sha256s": [

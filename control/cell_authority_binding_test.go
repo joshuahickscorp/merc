@@ -10,26 +10,30 @@ import (
 	"testing"
 )
 
-// Scoreboard after exact execution identity became mandatory. G070 bound
-// candle-metal-llama1-infer under settlement geometry
-// tokens/token_like_input_plus_max_output_tokens (r5). The prior llama1 r4
-// receipt remains readable history and is SUPERSEDED (incomplete agent content
-// root). Embed stays parked (embeddings/s receipt, not settlement geometry).
-// Media remains unbound. Mechanics tests still install explicit TEST_ONLY
+// Scoreboard after exact execution identity became mandatory. Infer is
+// current-bound under r6 settlement geometry. Media and render were
+// re-measured on this host and now bind, but stay CANARY so they are not
+// advertised. Embed stays parked: the comparison receipt still has no
+// execution build identity. Mechanics tests still install explicit TEST_ONLY
 // authorities without relabeling evidence.
 
 func TestOnlyBindableAuthorityCellsAreRoutable(t *testing.T) {
 	// Reasons the audit named. Each demotion is a predicate result, not a
-	// hand-edited lifecycle field. Media cells still fail pre-BOUND checks;
-	// the one BOUND generation cell is current-routable under r5.
+	// hand-edited lifecycle field. Embed is still parked on an empty
+	// engine_build_hash. Infer is ACTIVE+BOUND. Media/render are CANARY+BOUND
+	// (document-routable, not advertised).
 	wantDemoted := map[string]string{
-		"candle-metal-minilm-embed":     "engine_build_hash",
-		"candle-metal-ffmpeg-transcode": "not a git object",
-		"candle-metal-scene-render":     "merc_source_commit is missing",
+		"candle-metal-minilm-embed": "engine_build_hash",
 	}
-	wantRoutable := map[string]bool{
+	wantDocumentRoutable := map[string]bool{
+		"candle-metal-llama1-infer":     true,
+		"candle-metal-ffmpeg-transcode": true,
+		"candle-metal-scene-render":     true,
+	}
+	wantAdvertised := map[string]bool{
 		"candle-metal-llama1-infer": true,
 	}
+	wantRoutable := wantDocumentRoutable
 
 	var got []string
 	for _, profile := range runtimeAuthority.Runtimes {
@@ -83,12 +87,20 @@ func TestOnlyBindableAuthorityCellsAreRoutable(t *testing.T) {
 			t.Errorf("expected routable cell %s missing from %v", id, got)
 		}
 	}
-	if n := len(advertisedRuntimeCapabilities()); n != len(wantRoutable) {
-		t.Fatalf("advertised projection has %d cells, want %d", n, len(wantRoutable))
+	if n := len(advertisedRuntimeCapabilities()); n != len(wantAdvertised) {
+		t.Fatalf("advertised projection has %d cells, want %d", n, len(wantAdvertised))
 	}
-	for id := range wantRoutable {
+	for id := range wantAdvertised {
 		if !advertisedRuntimeCell(id) {
-			t.Errorf("BOUND cell %s is not advertised", id)
+			t.Errorf("ACTIVE+BOUND cell %s is not advertised", id)
+		}
+	}
+	for id := range wantDocumentRoutable {
+		if wantAdvertised[id] {
+			continue
+		}
+		if advertisedRuntimeCell(id) {
+			t.Errorf("CANARY+BOUND cell %s is advertised; only ACTIVE cells may be", id)
 		}
 	}
 	for id := range wantDemoted {

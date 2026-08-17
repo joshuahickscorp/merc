@@ -456,6 +456,8 @@ def cmd_run(args: argparse.Namespace) -> None:
 
     idem = "l11-rehearsal-" + uuid.uuid4().hex[:24]
     first = try_quote_and_submit(api, key, embed_job_body(), idem)
+    infer_idem = "l11-rehearsal-infer-" + uuid.uuid4().hex[:24]
+    infer_attempt = try_quote_and_submit(api, key, batch_infer_job_body(), infer_idem)
     jobs_code, jobs_body, _ = api.call("GET", "/v1/jobs", bearer=key)
     job_ids: list[str] = []
     if isinstance(jobs_body, dict):
@@ -532,6 +534,7 @@ def cmd_run(args: argparse.Namespace) -> None:
             "body": missing_idem_body,
         },
         "authenticated_submit": first,
+        "authenticated_submit_batch_infer": infer_attempt,
         "jobs_after_submit": {"http": jobs_code, "ids": job_ids, "body": jobs_body},
         "proven": {
             "approved_buyer_authenticated": me_code == 200,
@@ -546,11 +549,18 @@ def cmd_run(args: argparse.Namespace) -> None:
         else {
             "step": "POST /v1/jobs accepted into a claimable state",
             "reason": (
-                "live activation advertises no BOUND cell; quote/submit return "
-                "runtime capability is not advertised. Cells candle-metal-minilm-embed "
-                "and candle-metal-llama1-infer are ACTIVE in policy but routable=false "
-                "because cellAuthorityBindable requires binding_status=BOUND. "
-                "Flipping routable or fabricating a BOUND receipt would lower the bar."
+                "POST /v1/quote refuses in normalizeAndValidateJobSubmit via "
+                "normalizeAdvertisedRuntimeModelRef → validateAdvertisedRuntimeJobModel "
+                "when advertisedRuntimeCapabilities() has no (job, model) pair. "
+                "That set is currentActivation().advertised = ACTIVE lifecycle AND "
+                "cell.Routable = cellAuthorityBindable. Embed is not bindable "
+                "(empty engine_build_hash on the comparison receipt). Infer is "
+                "document-advertised, but the live staging process overlay can "
+                "QUARANTINE an ACTIVE DB row when storedRoutableEntryHasCurrentGlobalAuthority "
+                "fails (GET /v1/models empty). A registered worker is not consulted "
+                "at this 400; EligibleWorkerCount is later and advisory. "
+                "Staging also cannot run this host's agent: canary build-hash "
+                "allowlist is still f4303a751ca2b2af and must not be widened here."
             ),
         },
     }

@@ -2232,6 +2232,13 @@ async fn run_bench_embed(
         }
     }
 
+    // Ordinary routing requires the 16-lowerhex execution identity workers
+    // advertise at claim time. A BOUND comparison receipt without it parks
+    // both embed cells even when the rest of the producer identity is complete.
+    let engine_build_hash = hardware::engine_build_hash("candle", AGENT_VERSION);
+    let engine_build_identity_policy = hardware::ENGINE_BUILD_IDENTITY_POLICY;
+    let hardware_identity = hardware::detected_hardware_identity();
+
     let receipt = serde_json::json!({
         "schema_version": 1,
         "question": "What does the embed cell cost and deliver on each of the two registered \
@@ -2242,12 +2249,16 @@ async fn run_bench_embed(
         "authority_document_sha256": runtime_authority::file_sha256(),
         "merc_source_commit": source_commit,
         "model_id": model,
+        "engine_build_hash": engine_build_hash,
+        "engine_build_identity_policy": engine_build_identity_policy,
+        "hardware_identity": hardware_identity,
         "profiles": runtime_authority::profile_identities(&["candle_metal", "llama_cpp_metal"]),
         "model_artifacts": runtime_authority::model_artifacts(model),
         "hardware": {
             "hw_class": hardware::detected_hw_class_wire(),
             "device": models::device_label(),
             "memory_gb": hardware::read_memory_snapshot().total_gb,
+            "hardware_identity": hardware_identity,
         },
         "engine_configuration": {
             "llama_cpp_metal": engine_props,

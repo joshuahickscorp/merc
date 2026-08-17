@@ -48,7 +48,7 @@ type measuredThroughput struct {
 // G070 (2026-08-14): the only current-bindable production lane is
 // llama-3.2-1b-instruct-q4 / batch_infer on candle-metal-llama1-infer, measured
 // under settlement geometry tokens/token_like_input_plus_max_output_tokens on
-// this host (candle-metal-llama1-q4-r5.json). The embed MiniLM row was moved to
+// this host (candle-metal-llama1-q4-r6.json). The embed MiniLM row was moved to
 // unpricedThroughputUntilBound: its receipts measure embeddings/completed_embedding_records
 // while embed settlement is token_like_input_units/token_like_input_geometry, and
 // no frozen conversion authority exists.
@@ -64,16 +64,16 @@ var repricingBenchmarks = []measuredThroughput{
 		RuntimeProfileID:          "candle_metal",
 		ProfileRevision:           "r9",
 		Engine:                    "candle",
-		EngineBuildHash:           "f4303a751ca2b2af",
+		EngineBuildHash:           "7cc01c442c7f6dbe",
 		EngineBuildIdentityPolicy: "merc_agent_running_executable_sha256_v1",
 		HardwareIdentity:          "apple_silicon_v1|brand=Apple M3 Ultra|model=Mac15,14|memory_bytes=103079215104|cpu_cores=28|gpu_cores=60",
 		Unit:                      "tokens",
 		UnitScope:                 performanceUnitScopeTokenLikeInputPlusOutputTokens,
-		// Conservative bound: equals measured operating-batch rate (288.971).
+		// Conservative bound: equals measured operating-batch rate (301.1341).
 		// Gate requires constant <= measured and not more than 1% below.
-		UnitsPerSec:    288.971,
+		UnitsPerSec:    304.2661,
 		HWClass:        "apple_silicon_ultra",
-		SourceCitation: "evidence/perf/runtime-benchmarks/candle-metal-llama1-q4-r5.json#batch_infer",
+		SourceCitation: "evidence/perf/runtime-benchmarks/candle-metal-llama1-q4-r6.json#batch_infer",
 	},
 }
 

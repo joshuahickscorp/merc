@@ -63,10 +63,17 @@ func agentBinaryPath(t *testing.T) string {
 // ships it inside the .app; a test running from the source tree has to name it.
 func repoSandboxProfilePath(t *testing.T) string {
 	t.Helper()
+	if env := strings.TrimSpace(os.Getenv("MERC_SANDBOX_PROFILE")); env != "" {
+		if _, err := os.Stat(env); err == nil {
+			abs, aerr := filepath.Abs(env)
+			mustf(t, aerr, "sandbox profile: %v")
+			return abs
+		}
+	}
 	path, err := filepath.Abs(filepath.Join("..", "clients", "macapp", "ComputeExchangeAgent", "merc-agent.sb"))
 	must(t, err)
 	if _, err := os.Stat(path); err != nil {
-		t.Fatalf("seatbelt profile missing at %s: %v", path, err)
+		t.Fatalf("seatbelt profile missing at %s (set MERC_SANDBOX_PROFILE): %v", path, err)
 	}
 	return path
 }

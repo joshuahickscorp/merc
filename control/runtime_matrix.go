@@ -44,6 +44,30 @@ func advertisedRuntimeModel(modelRef string) bool {
 	return false
 }
 
+func directedRuntimeModel(modelRef string) bool {
+	if modelRef == "" {
+		return false
+	}
+	for _, cap := range directedRuntimeCapabilities() {
+		if cap.Model == modelRef {
+			return true
+		}
+	}
+	return false
+}
+
+func documentRuntimeModel(modelRef string) bool {
+	if modelRef == "" {
+		return false
+	}
+	for _, cap := range generatedCapabilityRuntimeCells {
+		if cap.Model == modelRef {
+			return true
+		}
+	}
+	return false
+}
+
 // serviceLeaseProfileModel is true when modelRef is a governed vLLM profile's
 // model_alias. Service-lease offers join warm capacity to measured
 // worker_model_state rows keyed by that alias, so heartbeats may report it.
@@ -224,16 +248,12 @@ func projectWorkerRuntimeCapabilities(cap WorkerCapability) ([]generatedRuntimeC
 			cap.Engine, cap.HWClass, cap.SupportedJobs, cap.SupportedModels)
 	}
 
-	if len(cap.Benchmarks) > len(projected) {
-		return nil, fmt.Errorf("benchmarks has %d tuples but this worker projects to only %d exact production cells", len(cap.Benchmarks), len(projected))
-	}
 	seenBenchmarks := make(map[[2]string]BenchResult, len(cap.Benchmarks))
 	for _, benchmark := range cap.Benchmarks {
 		key := [2]string{benchmark.JobType, benchmark.ModelID}
 		if _, exists := seenBenchmarks[key]; exists {
 			return nil, fmt.Errorf("benchmarks contains duplicate tuple job_type=%q model=%q", benchmark.JobType, benchmark.ModelID)
 		}
-		seenBenchmarks[key] = benchmark
 		if !containsStr(cap.SupportedJobs, benchmark.JobType) || !containsStr(cap.SupportedModels, benchmark.ModelID) {
 			return nil, fmt.Errorf("benchmark tuple job_type=%q model=%q is absent from the worker advertisement", benchmark.JobType, benchmark.ModelID)
 		}
@@ -245,8 +265,21 @@ func projectWorkerRuntimeCapabilities(cap WorkerCapability) ([]generatedRuntimeC
 			}
 		}
 		if !matched {
-			return nil, fmt.Errorf("benchmark tuple job_type=%q model=%q is not an advertised production cell for this runtime", benchmark.JobType, benchmark.ModelID)
+			capableCell := false
+			for _, candidate := range capable {
+				if candidate.Job == benchmark.JobType && candidate.Model == benchmark.ModelID {
+					capableCell = true
+					break
+				}
+			}
+			if !capableCell {
+				return nil, fmt.Errorf("benchmark tuple job_type=%q model=%q is not an advertised production cell for this runtime", benchmark.JobType, benchmark.ModelID)
+			}
+			// Capable but not directed/advertised (ACTIVE-unbound is
+			// quarantined). Ignore the measurement; do not refuse the worker.
+			continue
 		}
+		seenBenchmarks[key] = benchmark
 	}
 
 	for _, candidate := range projected {
@@ -494,12 +527,12 @@ func validateHeartbeatModelIDs(field string, models []string, allowServiceAlias 
 		return err
 	}
 	for _, model := range models {
-		ok := advertisedRuntimeModel(model)
+		ok := advertisedRuntimeModel(model) || directedRuntimeModel(model) || documentRuntimeModel(model)
 		if allowServiceAlias {
-			ok = measurableResidencyModel(model)
+			ok = measurableResidencyModel(model) || documentRuntimeModel(model)
 		}
 		if !ok {
-			return fmt.Errorf("%s model %q is not in the advertised production runtime projection", field, model)
+			return fmt.Errorf("%s model %q is not a known runtime-authority model", field, model)
 		}
 	}
 	return nil
