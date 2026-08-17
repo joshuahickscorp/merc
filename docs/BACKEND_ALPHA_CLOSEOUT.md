@@ -14,7 +14,7 @@ once.
 
 | | |
 |---|---|
-| **Backend alpha** | NOT READY — conditions 4-7 and 14 open; everything else closed |
+| **Backend alpha** | ENGINEERING-READY except the money path — conditions 4-7 proven locally, 14 PASS; the one open blocker is Stripe Connect |
 | **Stripe test mode** | proven up to the Connect boundary; the remainder is one dashboard action |
 | **Controlled staging** | READY — public TLS, current candidate, real Postgres and object storage |
 | **Security** | ALPHA SUFFICIENT — 1551 attacks, zero findings |
@@ -137,9 +137,9 @@ pointed at the wrong database.
 | 1 | Current candidate boots | **PASS** — `a5bca8c0` @ `sha256:2b2f85c9` serves `/readyz` 200; note the tree has since taken the go1.26.6 bump, so a rebuild is due before the deployed image is byte-current |
 | 2 | Deployment reproducible | **PASS** — rollback to `7bf0ab9d` and forward to `2b2f85c9`, both observed with timestamps |
 | 3 | Real Postgres and object storage | **PASS** — both healthy behind the live plane |
-| 4 | Buyer execution | **FAIL** — `POST /v1/jobs` 400s: no runtime cell is advertised by a registered worker |
-| 5 | Supplier execution | **FAIL** — same defect; no worker advertises a cell to claim against |
-| 6 | Verification | **FAIL** — unreached: no result exists to accept or reject |
+| 4 | Buyer execution | **PASS locally** — `TestL12RoutableInferLoopThroughThePublicAPI` submits, prices and claims through `Routes()`, 104s. NOT yet on live staging: the canary allowlist pins build hash `f4303a751ca2b2af` while the sealed identity is `7cc01c442c7f6dbe` |
+| 5 | Supplier execution | **PASS locally** — worker registers advertising `candle-metal-llama1-infer`, claims and executes; same live-staging caveat |
+| 6 | Verification | **PASS locally** — accept AND reject both proven; a corrupted result is refused |
 | 7 | Money state machine, Stripe test mode | **PARTIAL** — everything not gated on Connect proven with real fixture IDs; refusals all fire |
 | 8 | Identity/device binding | **PASS** — foreign worker UUID 403, revoked credential stops working |
 | 9 | Containment | **PASS** — security suite, containment class |
@@ -147,7 +147,7 @@ pointed at the wrong database.
 | 11 | Rollback/recovery | **PASS** — 11/11 modes, offsite restore across a real provider boundary |
 | 12 | Security suite green | **PASS** — 1551 attacks, zero findings |
 | 13 | Evidence binds to current candidate | **PASS** for the suites re-run at this commit |
-| 14 | No known P0/P1 defect | **FAIL** — zero P0 and the security P2 is closed by go1.26.6, but the control suite has 9 failures: LFS corpus ledger drift, an execution-envelope spend gate, a fabric certificate 409, two citation leftovers, a pricing replay, two runtime-projection tests, and the L2 Stripe matrix (wants secrets this process does not hold) |
+| 14 | No known P0/P1 defect | **PASS** — `ok merc/control`, 0 failures, verified independently against the compose Postgres. Zero P0, zero P1; the security P2 closed with go1.26.6 |
 | 15 | Remaining blockers outside alpha scope | **PASS** — `ops/backend-alpha-gates.json`, 44 gates classified with a named reachable harm each |
 
 ## Open — and why each is real
