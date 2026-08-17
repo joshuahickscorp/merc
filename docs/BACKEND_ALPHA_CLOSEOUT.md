@@ -172,6 +172,7 @@ pointed at the wrong database.
 | 5 | Supplier execution | **PASS locally / unproven on live** — worker registers advertising `candle-metal-llama1-infer`, claims and executes. Same live-staging BLOCKED: canary allowlist still pins build hash `f4303a751ca2b2af` while the sealed identity is `7cc01c442c7f6dbe`; the host binary emits `2939a8e26ffe6fd2`. |
 | 6 | Verification | **PASS locally / unproven on live** — accept AND reject both proven locally; a corrupted result is refused. Live rehearsal did not run verification. |
 | 7 | Money state machine, Stripe test mode | **PARTIAL** — `evidence/external/stripe-sandbox-matrix.json` is `status=BLOCKED`, `blocker=connect_platform_not_signed_up`, `provider_mode=test`, `live_mode=PROHIBITED`. Authorization, capture, refunds and the refusal set are proven with real fixture IDs. Transfer, payout hold/release/failure/reversal and `connect=true` delivery are not. |
+(unbound receipt, status BLOCKED — a test-mode snapshot cited as subject, not authority)
 | 8 | Identity/device binding | **PASS** — foreign worker UUID 403, revoked credential stops working |
 | 9 | Containment | **PASS** — local security suite, containment class |
 | 10 | Authority corruption fails closed | **PASS** — local security suite, authority class |
@@ -202,6 +203,7 @@ restriction/capability events, and `connect=true` webhook delivery.
 
 **The execution loop is not closed on the live plane.** The last live rehearsal
 (`evidence/canary/l12-p1-canary-rehearsal-live-staging.json`, `status=BLOCKED`,
+(unbound rehearsal record — cited as subject, not authority; it does not prove the loop ran on staging)
 then-deployed `19fe0b23`) did not run buyer, supplier, verification or
 settlement. `POST /v1/quote` and `POST /v1/jobs` 400 when no runtime cell is
 advertised by a registered worker. `candle-metal-llama1-infer` does bind
