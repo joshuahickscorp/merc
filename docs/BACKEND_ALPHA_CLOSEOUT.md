@@ -22,14 +22,14 @@ validator or with `/version`, the validator and `/version` win.
 | **Backend alpha** | NOT READY — `ALPHA_ENGINEERING_READY: NO_GO`. Conditions 4–6 PASS locally and are unproven on live staging; 7 PARTIAL; 14 FAIL. The open `ALPHA_BLOCKER` P1 is `P1-STRIPE-TEST`. |
 | **Stripe test mode** | proven up to the Connect boundary. The remainder is Connect signup, a Canadian test connected account, a `connect=true` webhook, and a passing matrix — not one dashboard click. |
 | **Controlled staging** | READY — public TLS, live commit `9e31c65b`, `/readyz` 200, `payment_mode=test`, real Postgres and object storage |
-| **Security** | local suite PASS — 1551 executed, 0 findings, `qualification: LOCAL`. The validator still scores security 14/15 (`staging-attack-rehearsal` `CHECK_FAILED`). |
+| **Security** | local suite 1551 executed / 0 findings, **plus** 265 executed against the public endpoint `https://mercmerc.net` / 0 findings. The gate still refuses: it wants a named human reviewer, and that field is honestly unmet. |
 | **Recovery** | 11/11 failure modes PASS; offsite restore proven |
 | **CLI/TUI** | next product arc, not an alpha prerequisite |
-| **Website** | NOT REQUIRED for this alpha, classified `PUBLIC_LAUNCH` |
+| **Website** | port 443 is public and serving, so the two gates rescoped on "no public website" came back into alpha scope — the denominator moved 91 → 94 |
 | **Live money** | `NO_GO_PROHIBITED` and unchanged |
 
 Scores: **Level B 87/100** (threshold 95, P0=0, P1=5, `NO_GO`) ·
-**backend alpha 85/91**, `ALPHA_BLOCKER_P1=1`,
+**backend alpha 87/94**, `ALPHA_BLOCKER_P1=1`,
 `ALPHA_ENGINEERING_READY: NO_GO`, `EXTERNAL_ALPHA_PROVEN: NO_GO`.
 
 Open P1s fell from eight to five when `P1-STAGING`, `P1-RECOVERY-SOAK` and
@@ -255,6 +255,29 @@ The single remaining **alpha-blocker P1** in the readiness model is
 dashboard action." The live execution loop is still BLOCKED (`P1-CANARY-REHEARSAL`,
 `ALPHA_CONTROL`), and condition 14 is FAIL for as long as any of the five P1s
 is open.
+
+## What the audit changed
+
+An adversarial lane was pointed at this document's own claims and returned twelve
+findings (`docs/CLOSEOUT_AUDIT.md`). Three mattered enough to move the bar:
+
+**Two gates were rescoped on a premise that stopped being true.** They were moved
+out of alpha because "this alpha has no public website". Then port 443 was opened
+and `mercmerc.net` began serving public TLS on buyer routes. The gates are back;
+backend alpha went 85/91 → 87/94, and `staging-attack-rehearsal` is now a second
+open `ALPHA_BLOCKER` receipt alongside Connect.
+
+**A test was made to pass by removing its requirement.** The L2 Stripe matrix had
+its `t.Fatal("dashboard webhook secrets required")` replaced with synthetic
+secrets, and the same commit moved condition 14 to PASS. The requirement is
+restored, and then actually met: `make test-money-contract` supplies the real
+dashboard pair and a real `sk_test_` key and passes. The plain suite keeps two
+expected failures, because without credentials the production webhook contract
+genuinely is not proven.
+
+**The tree described this hostname as live-money.** `live-cutover.json` recorded
+`stripe_mode: "live"` in the present tense while `/readyz` answers
+`payment_mode=test`. Reframed as historical; the measurement was not altered.
 
 ## Live money — the actual remaining inputs
 
