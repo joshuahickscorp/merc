@@ -153,11 +153,21 @@ func TestStagingParticipantsAllowlistNamesSealedHashNotSupersededR5(t *testing.T
 }
 
 func operatorControlledCanaryForTest() CanaryPolicy {
+	return operatorControlledCanaryWithWorkersForTest(maxOperatorReservedWorkers)
+}
+
+func singleOperatorControlledCanaryForTest() CanaryPolicy {
+	return operatorControlledCanaryWithWorkersForTest(1)
+}
+
+func operatorControlledCanaryWithWorkersForTest(n int) CanaryPolicy {
+	ids := make(map[uuid.UUID]struct{}, n)
+	for i := 1; i <= n; i++ {
+		ids[operatorReservedWorkerID(i)] = struct{}{}
+	}
 	return CanaryPolicy{
-		Enabled: true,
-		ApprovedWorkerIDs: map[uuid.UUID]struct{}{
-			operatorReservedWorkerID(1): {},
-		},
+		Enabled:                true,
+		ApprovedWorkerIDs:      ids,
 		MaxOutputTokens:        32,
 		MaxJobDurationSecs:     defaultMaxJobDurationSecs,
 		MaxShadowValueUSD:      5,
@@ -165,7 +175,7 @@ func operatorControlledCanaryForTest() CanaryPolicy {
 		MaxInputBytes:          33554432,
 		MaxTasksPerJob:         64,
 		MaxActiveBuyers:        2,
-		MaxActiveWorkers:       1,
+		MaxActiveWorkers:       n,
 		MaxQueuedJobs:          20,
 		MaxDailyJobs:           100,
 		MaxHeldShadowPayoutUSD: 10,
@@ -175,6 +185,7 @@ func operatorControlledCanaryForTest() CanaryPolicy {
 func independentSupplierCanaryForTest() CanaryPolicy {
 	p := operatorControlledCanaryForTest()
 	p.ApprovedWorkerIDs = map[uuid.UUID]struct{}{uuid.New(): {}}
+	p.MaxActiveWorkers = 1
 	return p
 }
 
@@ -194,7 +205,19 @@ func TestAdmittedSupplierClassIsReservedOperatorWorkers(t *testing.T) {
 		t.Fatalf("closed reserved allowlist class=%q", got)
 	}
 	if !operatorControlledCanaryForTest().Enabled || operatorControlledCanaryForTest().requiresHeterogeneousHoneypot() {
-		t.Fatal("operator-controlled canary must not require a heterogeneous honeypot")
+		t.Fatal("operator-controlled canary with enough reserved suppliers must not require a heterogeneous honeypot")
+	}
+	single := singleOperatorControlledCanaryForTest()
+	if got := single.admittedSupplierClass(); got != supplierParticipantClassOperatorControlled {
+		t.Fatalf("single reserved allowlist class=%q", got)
+	}
+	if !single.requiresHeterogeneousHoneypot() {
+		t.Fatal("operator-controlled canary with one admissible supplier must still require a honeypot")
+	}
+	capped := operatorControlledCanaryForTest()
+	capped.MaxActiveWorkers = 1
+	if capped.admissibleSupplierCount() != 1 || !capped.requiresHeterogeneousHoneypot() {
+		t.Fatal("two reserved names capped at max_active_workers=1 must still require a honeypot")
 	}
 	independent := independentSupplierCanaryForTest()
 	if got := independent.admittedSupplierClass(); got != supplierParticipantClassIndependent {
@@ -215,7 +238,10 @@ func TestAdmittedSupplierClassIsReservedOperatorWorkers(t *testing.T) {
 // TestPrivateCanaryStillRefusedByUniformTaskEconomics pins the narrower
 // refusal: a canary that can admit a supplier which is not operator-controlled
 // still requires a heterogeneous honeypot, which uniform v1 cannot allocate.
-// Operator-controlled canary is the other class and must pass this gate.
+// Operator-controlled canary may skip that honeypot only when enough
+// reserved suppliers are admissible for redundancy to be independent.
+// One reserved supplier keeps the honeypot requirement and is refused
+// here, at admission, rather than later as NO_INDEPENDENT_SUPPLIER.
 // Lifting the independent-supplier refusal without first removing
 // TaskReceipt.IsHoneypot from the buyer receipt would open a
 // verification-evasion channel (see receipt_test.go).
@@ -237,7 +263,48 @@ func TestPrivateCanaryStillRefusedByUniformTaskEconomics(t *testing.T) {
 		t.Fatalf("non-canary admission was refused: %v", err)
 	}
 	if err := validateCurrentUniformCanaryAuthority(operatorControlledCanaryForTest()); err != nil {
-		t.Fatalf("operator-controlled canary was refused: %v", err)
+		t.Fatalf("operator-controlled canary with enough reserved suppliers was refused: %v", err)
+	}
+	single := validateCurrentUniformCanaryAuthority(singleOperatorControlledCanaryForTest())
+	if single == nil {
+		t.Fatal("one-supplier operator-controlled canary is no longer refused at admission")
+	}
+	if !errors.Is(single, errHeterogeneousTaskEconomicsUnavailable) {
+		t.Fatalf("one-supplier refusal = %v, want heterogeneous task-economics", single)
+	}
+	if !strings.Contains(single.Error(), "insufficient independent suppliers") {
+		t.Fatalf("one-supplier refusal did not name insufficient independent suppliers: %v", single)
+	}
+	if !strings.Contains(single.Error(), "NO_INDEPENDENT_SUPPLIER") {
+		t.Fatalf("one-supplier refusal did not name NO_INDEPENDENT_SUPPLIER: %v", single)
+	}
+}
+
+func TestRedundancyIndependenceFloorIsWhatVerificationEnforces(t *testing.T) {
+	s1, s2 := uuid.New(), uuid.New()
+	match := func(ids ...uuid.UUID) bool {
+		votes := make([]chunkVote, 0, len(ids))
+		for _, id := range ids {
+			votes = append(votes, chunkVote{
+				supplierID: id, taskID: uuid.New(), bytes: []byte("ok"),
+			})
+		}
+		return independentRedundancyMatch(votes)
+	}
+	if !match(s1, s2) {
+		t.Fatal("two distinct suppliers must satisfy independent redundancy")
+	}
+	if match(s1, s1) {
+		t.Fatal("two votes from one supplier must not satisfy independent redundancy")
+	}
+	if independentSupplierCountSatisfiesRedundancy(1) {
+		t.Fatal("one supplier must not satisfy the independence floor")
+	}
+	if !independentSupplierCountSatisfiesRedundancy(minIndependentSuppliersForRedundancy) {
+		t.Fatal("the named floor must satisfy independent redundancy")
+	}
+	if independentSupplierCountSatisfiesRedundancy(minIndependentSuppliersForRedundancy - 1) {
+		t.Fatalf("floor %d is higher than verification requires", minIndependentSuppliersForRedundancy)
 	}
 }
 

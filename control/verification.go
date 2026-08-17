@@ -227,11 +227,23 @@ func (v *Verifier) verifyTaskResult(ctx context.Context, info *CommitTaskInfo, c
 	return OutcomePass, nil
 }
 
+// minIndependentSuppliersForRedundancy is the smallest set of distinct
+// suppliers that independentRedundancyMatch accepts as a real vote.
+// verification.go fails closed with NO_INDEPENDENT_SUPPLIER when
+// len(independentSupplierVotes(all)) is below this: "redundancy votes
+// are not independent". Admission uses the same floor so a one-supplier
+// envelope cannot skip the honeypot and then discover this only after work.
+const minIndependentSuppliersForRedundancy = 2
+
+func independentSupplierCountSatisfiesRedundancy(independentSupplierCount int) bool {
+	return independentSupplierCount >= minIndependentSuppliersForRedundancy
+}
+
 func independentRedundancyMatch(all []chunkVote) bool {
 	if len(all) <= 1 {
 		return true
 	}
-	return len(independentSupplierVotes(all)) > 1
+	return independentSupplierCountSatisfiesRedundancy(len(independentSupplierVotes(all)))
 }
 
 const (

@@ -27,7 +27,13 @@ func (s *Server) normalizeWorkloadRequest(
 		// Operator-controlled canary: redundancy is the verifier. Do not inject
 		// a honeypot that uniform v1 cannot allocate. A honeypot is still
 		// required — and still unallocatable — if this envelope can admit a
-		// supplier that is not operator-controlled.
+		// supplier that is not operator-controlled, OR if it cannot admit
+		// enough independent suppliers for redundancy to actually be
+		// independent. Redundancy fails to collusion, and it fails just as
+		// completely to having nobody to be redundant with: skipping the
+		// honeypot with one admissible supplier would trade a real control for
+		// nothing and only notice at verification, after the work was done.
+		// requiresHeterogeneousHoneypot() carries both conditions.
 		if s.canary.requiresHeterogeneousHoneypot() {
 			// Binary media has no JSONL known-answer corpus. The media runner's
 			// independent byte-exact execution is the canary verifier; injecting a

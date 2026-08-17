@@ -280,13 +280,35 @@ func (p CanaryPolicy) admittedSupplierClass() string {
 	return supplierParticipantClassOperatorControlled
 }
 
+// admissibleSupplierCount is how many suppliers this envelope can actually
+// enroll: the worker allowlist, capped by MaxActiveWorkers. Two reserved
+// names with max_active_workers=1 is one admissible supplier. This is the
+// admission-time count that redundancy independence has to work with;
+// online liveness is a later check and cannot make a one-slot envelope
+// redundant with itself.
+func (p CanaryPolicy) admissibleSupplierCount() int {
+	n := len(p.ApprovedWorkerIDs)
+	if p.MaxActiveWorkers > 0 && p.MaxActiveWorkers < n {
+		return p.MaxActiveWorkers
+	}
+	return n
+}
+
 // requiresHeterogeneousHoneypot is true when canary is on and this envelope
-// can admit a supplier that is not operator-controlled. Redundancy is a
-// sound substitute only for the operator-controlled class: every current
-// alpha supplier is operator-owned, so collusion between suppliers is not a
-// reachable harm. Independent suppliers restore the honeypot requirement.
+// cannot substitute redundancy for the honeypot. That substitution is sound
+// only for the operator-controlled class, and only when enough distinct
+// suppliers are admissible for redundancy to be independent (see
+// independentRedundancyMatch). One operator-reserved worker still requires
+// the honeypot: there is nobody to be redundant with. Independent suppliers
+// restore the requirement regardless of count.
 func (p CanaryPolicy) requiresHeterogeneousHoneypot() bool {
-	return p.Enabled && p.admittedSupplierClass() != supplierParticipantClassOperatorControlled
+	if !p.Enabled {
+		return false
+	}
+	if p.admittedSupplierClass() != supplierParticipantClassOperatorControlled {
+		return true
+	}
+	return !independentSupplierCountSatisfiesRedundancy(p.admissibleSupplierCount())
 }
 
 func (p CanaryPolicy) validateJobShape(sub jobSubmit) error {

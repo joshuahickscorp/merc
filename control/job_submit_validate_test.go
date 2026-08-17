@@ -184,6 +184,26 @@ func TestNormalizeWorkloadRequestOperatorControlledLeavesHoneypotZero(t *testing
 	}
 }
 
+func TestNormalizeWorkloadRequestSingleOperatorSupplierStillFloorsHoneypot(t *testing.T) {
+	server := &Server{canary: singleOperatorControlledCanaryForTest()}
+	in := jobSubmit{
+		JobType:     JobType{Type: "batch_infer", MaxTokens: 16},
+		Constraints: JobConstraints{MaxDurationSecs: 600},
+		MaxUSD:      1,
+		Verification: VerificationPolicy{
+			RedundancyFrac: 1,
+			HoneypotFrac:   0,
+		},
+	}
+	out, herr := server.normalizeWorkloadRequest(in, false)
+	if herr != nil {
+		t.Fatalf("single-supplier operator-controlled shape refused: %s", herr.msg)
+	}
+	if out.Verification.HoneypotFrac != 0.1 {
+		t.Fatalf("honeypot_frac=%v, want the 0.1 floor when redundancy cannot be independent", out.Verification.HoneypotFrac)
+	}
+}
+
 func TestNormalizeWorkloadRequestIndependentCanaryStillFloorsHoneypot(t *testing.T) {
 	server := &Server{canary: independentSupplierCanaryForTest()}
 	in := jobSubmit{

@@ -19,16 +19,24 @@ var errHeterogeneousTaskEconomicsUnavailable = errors.New(
 	"exact heterogeneous per-task economics are unavailable")
 
 // Current private-canary policy injects a known-answer honeypot into every
-// physical job that can admit a supplier which is not operator-controlled.
-// That is deliberately heterogeneous work and cannot borrow the sole primary's
-// money under the bounded v1 posture. Operator-controlled suppliers are a
-// different participant class: redundancy is the verifier, because collusion
-// between operator-owned workers is not a reachable harm in this alpha.
-// Refuse quote and submit at the same pre-side-effect boundary whenever the
-// envelope can still enroll an independent supplier.
+// physical job that cannot substitute redundancy for it. That is deliberately
+// heterogeneous work and cannot borrow the sole primary's money under the
+// bounded v1 posture. Operator-controlled suppliers are a different
+// participant class, but only when enough of them are admissible for
+// redundancy to be independent: collusion between operator-owned workers is
+// not a reachable harm, yet one supplier still has nobody to be redundant
+// with (verification.go: NO_INDEPENDENT_SUPPLIER, "redundancy votes are not
+// independent"). Refuse quote and submit at the same pre-side-effect
+// boundary whenever the envelope still requires a honeypot.
 func validateCurrentUniformCanaryAuthority(policy CanaryPolicy) error {
 	if !policy.requiresHeterogeneousHoneypot() {
 		return nil
+	}
+	if policy.admittedSupplierClass() == supplierParticipantClassOperatorControlled {
+		return fmt.Errorf("%w: private canary requires a heterogeneous honeypot that has no exact per-task allocation when there are insufficient independent suppliers for redundancy to be independent (admissible=%d, need %d; NO_INDEPENDENT_SUPPLIER)",
+			errHeterogeneousTaskEconomicsUnavailable,
+			policy.admissibleSupplierCount(),
+			minIndependentSuppliersForRedundancy)
 	}
 	return fmt.Errorf("%w: private canary requires a heterogeneous honeypot that has no exact per-task allocation when admitted suppliers are not operator-controlled (class %q)",
 		errHeterogeneousTaskEconomicsUnavailable, policy.admittedSupplierClass())

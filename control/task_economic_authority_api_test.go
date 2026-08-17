@@ -223,6 +223,70 @@ func TestCanaryUniformEconomicsRefusesQuoteAndSubmitBeforeWrites(t *testing.T) {
 	}
 }
 
+func TestCanaryOperatorControlledSingleSupplierRefusesQuoteAndSubmitBeforeWrites(t *testing.T) {
+	strangerDeploymentInputs(t)
+	installSettlementCurrencyForTest(t, "usd")
+	installBoundCataloguePublicationAuthorityForTest(t)
+	installTestOnlyCombinedTokenAuthority(t)
+	pinBoardClockForPublication(t)
+	ctx, store, pool := openIsolatedTestStore(t)
+	schedule, err := BuildCataloguePriceSchedule()
+	mustf(t, err, "build single-supplier canary catalogue: %v")
+	_, err = store.ApplyRepricing(ctx, schedule)
+	mustf(t, err, "publish single-supplier canary catalogue: %v")
+	buyerID := uuid.New()
+	_, err = pool.Exec(ctx,
+		`INSERT INTO buyers (id,email,password_hash,free_credit_usd) VALUES ($1,$2,'x',5)`,
+		buyerID, "canary-single-supplier-"+buyerID.String()+"@test")
+	mustf(t, err, "insert single-supplier canary buyer: %v")
+
+	body := testOnlyBatchPublicRequest(
+		"{\"id\":\"0\",\"prompt\":\"one exact primary\"}\n", 1)
+	body["constraints"] = map[string]any{"max_duration_secs": 3600}
+	body["verification"] = map[string]any{"redundancy_frac": 1.0}
+	raw, err := json.Marshal(body)
+	must(t, err)
+
+	server := NewServer(store, nil, nil, nil)
+	// Staging-shaped envelope: operator-reserved, but only one supplier can
+	// be admitted. Redundancy cannot be independent, so the honeypot
+	// requirement stands and quote/submit refuse here — not later as
+	// NO_INDEPENDENT_SUPPLIER after work has run.
+	server.canary = singleOperatorControlledCanaryForTest()
+	for _, endpoint := range []string{"/v1/quote", "/v1/jobs"} {
+		req := httptest.NewRequest(http.MethodPost, endpoint, bytes.NewReader(raw))
+		req.Header.Set("Idempotency-Key", uuid.NewString())
+		req = req.WithContext(context.WithValue(
+			req.Context(), ctxBuyer, &AuthResult{BuyerID: buyerID},
+		))
+		recorder := httptest.NewRecorder()
+		if endpoint == "/v1/quote" {
+			server.handleQuote(recorder, req)
+		} else {
+			server.handleCreateJob(recorder, req)
+		}
+		if recorder.Code != http.StatusServiceUnavailable ||
+			!strings.Contains(recorder.Body.String(), "insufficient independent suppliers") ||
+			!strings.Contains(recorder.Body.String(), "NO_INDEPENDENT_SUPPLIER") {
+			t.Fatalf("%s status=%d body=%s", endpoint, recorder.Code, recorder.Body.String())
+		}
+	}
+
+	for table, query := range map[string]string{
+		"quotes":           `SELECT count(*) FROM quotes`,
+		"jobs":             `SELECT count(*) FROM jobs`,
+		"tasks":            `SELECT count(*) FROM tasks`,
+		"reserves":         `SELECT count(*) FROM job_economic_reserves`,
+		"honeypot aliases": `SELECT count(*) FROM honeypots WHERE input_ref LIKE 'jobs/%'`,
+	} {
+		var rows int
+		must(t, pool.QueryRow(ctx, query).Scan(&rows))
+		if rows != 0 {
+			t.Fatalf("single-supplier canary refusal left %d %s", rows, table)
+		}
+	}
+}
+
 func TestCanaryOperatorControlledAllowsQuoteAndSubmitWithRedundancyOnly(t *testing.T) {
 	strangerDeploymentInputs(t)
 	installSettlementCurrencyForTest(t, "usd")

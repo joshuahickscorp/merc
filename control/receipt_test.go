@@ -125,6 +125,10 @@ func TestHoneypotIdentityExposureStaysUnreachable(t *testing.T) {
 			"is_honeypot on the buyer receipt (control/receipt.go TaskReceipt) before enabling " +
 			"honeypot tasks")
 	}
+	if err := validateCurrentUniformCanaryAuthority(singleOperatorControlledCanaryForTest()); err == nil {
+		t.Fatal("one-supplier operator-controlled canary no longer refuses honeypot admission, so " +
+			"the skip is trading a real control for a redundancy vote that cannot be independent")
+	}
 	if err := validateCurrentUniformTaskCounts(1, 1, 1); err == nil {
 		t.Fatal("honeypot tasks are now admitted, so TaskReceipt.IsHoneypot is now a " +
 			"live verification-evasion channel: stop exposing is_honeypot on the buyer receipt " +
