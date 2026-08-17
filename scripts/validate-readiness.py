@@ -822,11 +822,36 @@ def external_offsite_restore_proven(doc: Any) -> bool:
     return True
 
 
+_DRIVEN_ATTACK_CLASSES = ("identity", "identity_webhook", "authority", "money", "tls", "containment")
+
+
+def named_attack_reviewer_proven(doc: Any) -> bool:
+    """Named human reviewer of the public-hostname rehearsal.
+
+    PUBLIC_LAUNCH only. Empty name/organization is an honest unmet, not a
+    pass. Placeholder and machine-shaped strings are refused. Does not
+    award the alpha security point.
+    """
+    if not external_staging_attack_proven(doc):
+        return False
+    reviewer = doc.get("reviewer")
+    if not isinstance(reviewer, dict):
+        return False
+    if not _nonempty_text(reviewer.get("name"), minimum=5):
+        return False
+    if not _nonempty_text(reviewer.get("organization"), minimum=3):
+        return False
+    return True
+
+
 def external_staging_attack_proven(doc: Any) -> bool:
     """External staging attack rehearsal (1 pt).
 
     Hostile exercise against a real public TLS staging hostname — not the
     local technical security_tabletop already scored in technical-exercises.
+    Awards on executed public-surface evidence only. A named human
+    reviewer is a separate PUBLIC_LAUNCH obligation
+    (named_reviewer:staging-attack-rehearsal).
     """
     if not isinstance(doc, dict):
         return False
@@ -874,18 +899,36 @@ def external_staging_attack_proven(doc: Any) -> bool:
     try:
         request_count = int(observations.get("request_count", 0))
         routes = int(observations.get("distinct_routes_exercised", 0))
+        executed = int(observations.get("attacks_executed", 0))
     except (TypeError, ValueError):
         return False
-    if request_count < 5 or routes < 3:
+    if request_count < 5 or routes < 3 or executed < 5:
         return False
 
-    reviewer = doc.get("reviewer")
-    if not isinstance(reviewer, dict):
+    classes = doc.get("attack_classes")
+    if not isinstance(classes, dict) or not classes:
         return False
-    if not _nonempty_text(reviewer.get("name"), minimum=5):
-        return False
-    if not _nonempty_text(reviewer.get("organization"), minimum=3):
-        return False
+    for row in classes.values():
+        if not isinstance(row, dict):
+            return False
+        try:
+            if int(row.get("finding", -1)) != 0:
+                return False
+        except (TypeError, ValueError):
+            return False
+    for name in _DRIVEN_ATTACK_CLASSES:
+        row = classes.get(name)
+        if not isinstance(row, dict):
+            return False
+        try:
+            attempted = int(row.get("attempted", -1))
+            blocked = int(row.get("blocked", -1))
+            finding = int(row.get("finding", -1))
+            class_executed = int(row.get("executed", -1))
+        except (TypeError, ValueError):
+            return False
+        if attempted < 1 or blocked < 0 or finding != 0 or class_executed < 1:
+            return False
 
     # Local technical tabletop markers must not be accepted as external.
     if str(doc.get("qualification", "")).upper() in {"TECHNICAL", "LOCAL", "SIMULATED"}:
@@ -1185,6 +1228,10 @@ KNOWN_P1_IDS = frozenset(
     }
 )
 P0_INDEPENDENT_SUPPLIER = "P0-INDEPENDENT-SUPPLIER"
+# Rescoped obligations that are not DOMAIN_RECEIPTS / P1 / P0 / soak / claim.
+# A rescope lands here so the requirement is not deleted.
+NAMED_REVIEWER_GATE_ID = "named_reviewer:staging-attack-rehearsal"
+NAMED_REVIEWER_RECEIPT = "evidence/external/staging-attack-rehearsal.json"
 ALPHA_SOAK_RECEIPT = "evidence/external/qualifying-soak-alpha.json"
 ALPHA_SOAK_MINIMUM_SECONDS = 3600
 EXTERNAL_PARTICIPANTS_RECEIPT = "evidence/external/external-alpha-participants.json"
@@ -1522,7 +1569,8 @@ def require_complete_classification(
     spec: dict[str, Any],
 ) -> dict[str, dict[str, Any]]:
     """Every DOMAIN_RECEIPTS row, every known P1, the P0, the derived soak,
-    and the external-proven claim must have a classification record."""
+    the external-proven claim, and every rescoped named obligation must
+    have a classification record."""
     records = [_require_classification_record(g, "backend-alpha-gates") for g in spec["gates"]]
     by_id = {str(g["id"]): g for g in records}
     if len(by_id) != len(records):
@@ -1537,6 +1585,7 @@ def require_complete_classification(
     expected.add(f"p0:{P0_INDEPENDENT_SUPPLIER}")
     expected.add("soak:alpha-derived")
     expected.add("claim:EXTERNAL_ALPHA_PROVEN")
+    expected.add(NAMED_REVIEWER_GATE_ID)
 
     missing = expected - set(by_id)
     extra = set(by_id) - expected
@@ -2064,6 +2113,19 @@ def main() -> None:
         print(
             "  backend_alpha open ALPHA_BLOCKER receipts/soaks: "
             + ", ".join(open_blocker_receipts)
+        )
+    reviewer_record = by_id.get(NAMED_REVIEWER_GATE_ID)
+    if reviewer_record is None:
+        fail(f"{NAMED_REVIEWER_GATE_ID}: missing from backend-alpha-gates.json")
+    if reviewer_record["classification"] != "PUBLIC_LAUNCH":
+        fail(
+            f"{NAMED_REVIEWER_GATE_ID}: classification "
+            f"{reviewer_record['classification']} != PUBLIC_LAUNCH"
+        )
+    if not named_attack_reviewer_proven(load_json(NAMED_REVIEWER_RECEIPT)):
+        print(
+            f"  public_launch open {NAMED_REVIEWER_GATE_ID}: "
+            "reviewer.name/organization unmet (requirement kept; not an alpha point)"
         )
     for line in per_domain:
         print(f"  {line}")

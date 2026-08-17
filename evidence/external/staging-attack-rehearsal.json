@@ -4260,7 +4260,7 @@
     "name": "",
     "organization": "",
     "named_human_reviewer": "unmet",
-    "reason": "No named human reviewer was available this session. This is a machine rehearsal against the public hostname. Inventing a human name would close a field the checker treats as a named reviewer."
+    "reason": "No named human reviewer looked at this rehearsal. name and organization stay empty. Inventing a human name would be a lie. Named review is a PUBLIC_LAUNCH obligation (named_reviewer:staging-attack-rehearsal), not an alpha start-gate."
   },
   "honesty": {
     "staging_droplet_http_client": true,
@@ -4271,7 +4271,7 @@
     "cross_role_tokens": "namespace-shaped stand-ins; public signup is canary-gated so a live buyer credential was not minted",
     "named_human_reviewer": "unmet",
     "readiness_one_point_claimed": false,
-    "reason_readiness_point_not_claimed": "scripts/validate-readiness.py:external_staging_attack_proven requires reviewer.name (≥5) and reviewer.organization (≥3). No named human reviewer was available; this receipt does not invent one."
+    "reason_readiness_point_not_claimed": "This receipt does not claim a named-reviewer pass. reviewer.name and reviewer.organization stay empty. The validator awards the security point on executed public-surface evidence; named review remains PUBLIC_LAUNCH and unmet here."
   },
   "halt": {
     "halted": false,

@@ -109,10 +109,16 @@ canary-gated, so this process did not mint a live buyer or worker credential.
 Wrong-authority webhooks used the live distinct endpoint secrets and were
 rejected as invalid signatures. The matching-authority cash path was not sent.
 
-`scripts/validate-readiness.py:external_staging_attack_proven` still refuses
-this receipt on `reviewer.name` and `reviewer.organization`. No named human
-reviewer was available; the receipt does not invent one. That is why the
-security domain stays 14/15.
+`scripts/validate-readiness.py:external_staging_attack_proven` accepts this
+receipt on the executed public-surface evidence: 265 attacks, per-class
+results, `qualification=EXTERNAL`, hostname `mercmerc.net`. It does not
+require a named human reviewer. `reviewer.name` and `reviewer.organization`
+stay empty because no named human reviewed this run; inventing one would
+be a lie. Named review of the public-surface rehearsal is classified
+`PUBLIC_LAUNCH` (`named_reviewer:staging-attack-rehearsal`). At backend
+alpha the executed count is independently re-runnable and participants
+are operator-controlled. At public launch strangers arrive, and "a script
+said it was fine" is not an answer anyone can be held to.
 
 ## Residual limitations
 

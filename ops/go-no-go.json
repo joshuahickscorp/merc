@@ -8,7 +8,7 @@
     "backend_alpha_external_proven": "NO_GO",
     "live_money_or_public_launch": "NO_GO_PROHIBITED"
   },
-  "readiness_score": 87,
+  "readiness_score": 88,
   "go_threshold": 95,
   "backend_alpha": {
     "contract": "docs/BACKEND_ALPHA_CONTRACT.md",

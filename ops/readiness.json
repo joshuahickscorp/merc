@@ -37,13 +37,13 @@
     }
   },
   "backend_alpha_score": {
-    "earned": 87,
+    "earned": 88,
     "possible": 94,
     "open_alpha_blocker_p1": 1,
     "open_alpha_control_p1": 1,
     "ALPHA_ENGINEERING_READY": "NO_GO",
     "EXTERNAL_ALPHA_PROVEN": "NO_GO",
-    "note": "Advisory mirror. validate-readiness.py re-derives earned/possible from ALPHA_BLOCKER and ALPHA_CONTROL receipts; hand-typed values here are checked for drift and are never authority for GO. 87/94 after returning the public-TLS attack rehearsal (+1 possible, failed) and the shipped-website validation (+2/+2) to alpha scope."
+    "note": "Advisory mirror. validate-readiness.py re-derives earned/possible from ALPHA_BLOCKER and ALPHA_CONTROL receipts; hand-typed values here are checked for drift and are never authority for GO. 88/94 after accepting the public-TLS attack rehearsal on executed machine evidence; named review of that receipt is PUBLIC_LAUNCH and unmet."
   },
   "source": {
     "base_commit": "3dc8bb263777c17a3723dbfa835d6a00d9445845",
@@ -72,13 +72,13 @@
     "out_of_scope_p0": ["independently controlled supplier devices remain prohibited without contractual, location, egress, and attestation controls"]
   },
   "weighted_score": {
-    "earned": 87,
+    "earned": 88,
     "possible": 100,
     "go_threshold": 95,
     "p0_or_p1_override": "any open target-scope P0 or P1 forces NO_GO",
     "domains": [
       {"id": "source_and_ci", "earned": 10, "possible": 10, "reason": "closure exact-head CI passed 5/5; four artifacts verified; clean fresh-clone CI and two-agent proof passed"},
-      {"id": "security", "earned": 14, "possible": 15, "reason": "hostile local review repairs, 110-route matrix, cross-tenant denial tabletop, and audited break-glass replay pass; external staging attack rehearsal/reviewer pending"},
+      {"id": "security", "earned": 15, "possible": 15, "reason": "hostile local review repairs, 126-route matrix, cross-tenant denial tabletop, audited break-glass replay, and executed public-hostname rehearsal (265 attacks, 0 findings) pass; named human review of that rehearsal is PUBLIC_LAUNCH and unmet"},
       {"id": "money_and_reconciliation", "earned": 9, "possible": 15, "reason": "ledger/billing tests and 4,096-sequence deterministic provider simulator pass; Stripe sandbox matrix and provider reconciliation remain unexecuted"},
       {"id": "lifecycle_and_concurrency", "earned": 10, "possible": 10, "reason": "schema, race, attempt fencing, dispute lock, idempotency, and two-agent proof pass"},
       {"id": "artifacts_and_storage", "earned": 8, "possible": 8, "reason": "artifact integrity, encrypted envelope, source destruction and isolated object restore pass; independent Cloudflare R2 offsite copy verified by independently downloaded checksums"},

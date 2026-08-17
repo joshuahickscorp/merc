@@ -143,9 +143,22 @@
       "harm": "A hostile internet user finds an authz or cross-tenant hole on an advertised public TLS staging hostname.",
       "harm_reachable_in_this_alpha": true,
       "necessary_before_first_controlled_alpha_transaction": true,
-      "smaller_control": "The default-deny authorization matrix and the local technical tabletop cover in-process authz. They do not exercise a hostile internet user against the advertised public TLS hostname.",
+      "smaller_control": "The default-deny authorization matrix and the local technical tabletop cover in-process authz. They do not exercise a hostile internet user against the advertised public TLS hostname. A named human reviewer of this receipt is a separate PUBLIC_LAUNCH obligation (named_reviewer:staging-attack-rehearsal).",
       "later_production_or_public_launch_requirement": false,
-      "reachable_harm_statement": "https://mercmerc.net serves public TLS on port 443 with HSTS and answers /buyer, /supplier, /admin, and /prices. A hostile internet user can already reach that hostname, so the public-hostname rehearsal is a start-gate of this alpha."
+      "reachable_harm_statement": "https://mercmerc.net serves public TLS on port 443 with HSTS and answers /buyer, /supplier, /admin, and /prices. A hostile internet user can already reach that hostname, so the executed public-hostname rehearsal is a start-gate of this alpha. The machine checker requires the executed count, per-class results, and public-surface qualification; it does not require a named human."
+    },
+    {
+      "id": "named_reviewer:staging-attack-rehearsal",
+      "kind": "named_reviewer",
+      "receipt": "evidence/external/staging-attack-rehearsal.json",
+      "classification": "PUBLIC_LAUNCH",
+      "owned_by_level": "level_c_live_money",
+      "harm": "A machine rehearsal is accepted as the public-surface security bar because it never drove the hostname it names, and nobody is accountable for having looked.",
+      "harm_reachable_in_this_alpha": false,
+      "necessary_before_first_controlled_alpha_transaction": false,
+      "smaller_control": "The executed public-hostname rehearsal (attacks_executed, per-class results, surface/qualification/hostname) is independently re-runnable and remains the ALPHA_BLOCKER. Participants are operator-controlled, there is no public signup, and no live money moves.",
+      "later_production_or_public_launch_requirement": true,
+      "reachable_harm_statement": "The named reviewer protects against a paper pass that never drove the surface it names, with nobody accountable for having looked. At backend alpha that harm is bounded: the rehearsal's executed count and per-class results are recorded and independently re-runnable, so a receipt that did not drive mercmerc.net is already refused; participants are operator-controlled, there is no public signup, and no live money moves. At public launch the same harm is not bounded: strangers arrive, and 'a script said it was fine' is not an answer anyone can be held to. Named review of the public-surface rehearsal remains the Level C bar in full."
     },
     {
       "id": "receipt:money_and_reconciliation:evidence/autonomous/payment-simulator.json",
