@@ -16,7 +16,7 @@ import (
 // previously asserted by string-matching the generated SQL rather than by
 // running it.
 func TestClaimTasksTxDefersToACheaperAskingWorker(t *testing.T) {
-	t.Parallel()
+	installSettlementCurrencyForTest(t, "cad")
 	// Isolated DB: a shared queue with older jobs lets the dear worker claim
 	// unrelated work and masks the ask-deferral assertion.
 	ctx, store, pool := openIsolatedTestStore(t)
@@ -62,11 +62,15 @@ func TestClaimTasksTxDefersToACheaperAskingWorker(t *testing.T) {
 
 	jobID := uuid.New()
 	taskID := uuid.New()
+	settlement := SettlementCurrencyCode()
+	if settlement == "" {
+		t.Fatal("ask-claim fixture requires a settlement currency")
+	}
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO jobs (id,buyer_id,status,job_type,model_ref,input_ref,task_count,
-		                  offered_rate_usd_hr,min_memory_gb,tier)
-		VALUES ($1,$2,'running','embed','all-minilm-l6-v2','in',1,10.0,0,'batch')`,
-		jobID, buyerID); err != nil {
+		                  offered_rate_usd_hr,min_memory_gb,tier,currency)
+		VALUES ($1,$2,'running','embed','all-minilm-l6-v2','in',1,10.0,0,'batch',$3)`,
+		jobID, buyerID, settlement); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := pool.Exec(ctx, `

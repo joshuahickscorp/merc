@@ -22,6 +22,9 @@ func TestAcceptedJobCurrencyFencesDispatchSettlementAndCollection(t *testing.T) 
 	// payment method is the deferred-collection rail for non-prepaid admits;
 	// without it SubmitJobTx correctly refuses (the former store path skipped
 	// free-credit funding entirely and let CAD jobs enter unfunded).
+	// validJobRowClasses marks non-USD jobs prepaid so money-path tests have a
+	// spendable CAD balance; this test is the payment-method fence, not prepaid.
+	job.PrepaidRequired = false
 	must(t, store.UpsertBillingCustomer(ctx, f.BuyerID, "cus_cad_currency_"+f.BuyerID.String()))
 	must(t, store.SetBillingPMByCustomer(ctx, "cus_cad_currency_"+f.BuyerID.String(), "pm_cad_currency"))
 	mustf(t, store.SubmitJobTx(ctx, job, tasks), "submit CAD job: %v")

@@ -15,6 +15,13 @@ import (
 // TestMain installs a settlement currency for the package so money paths that
 // require MERC_SETTLEMENT_CURRENCY do not fail closed during unrelated unit
 // tests. Individual tests that exercise boot refusal reset and restore it.
+//
+// The empty-env default is USD: that is what the bulk of this suite assumes.
+// Tests that assert CAD behaviour must pin CAD with
+// installSettlementCurrencyForTest. Production alpha settlement is CAD;
+// published cost/FX stay USD and convert through a declared revision rather
+// than being relabelled. Do not flip this default to CAD — that silently
+// re-currencies every test that never asked.
 func TestMain(m *testing.M) {
 	if strings.TrimSpace(os.Getenv(settlementCurrencyEnv)) == "" {
 		_ = os.Setenv(settlementCurrencyEnv, "usd")

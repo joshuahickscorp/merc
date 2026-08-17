@@ -56,14 +56,18 @@ func setupSLADeferFixture(t *testing.T, ctx context.Context, store *Store, pool 
 
 	jobID = uuid.New()
 	taskID = uuid.New()
+	settlement := SettlementCurrencyCode()
+	if settlement == "" {
+		t.Fatal("SLA deferral fixture requires a settlement currency")
+	}
 	// sla_guarantee_secs / eta_secs are the columns under test; pass NULL via Go nils.
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO jobs (id,buyer_id,status,job_type,model_ref,input_ref,task_count,
 		                  offered_rate_usd_hr,min_memory_gb,tier,
-		                  sla_guarantee_secs,eta_secs)
+		                  sla_guarantee_secs,eta_secs,currency)
 		VALUES ($1,$2,'running','embed','all-minilm-l6-v2','in',1,10.0,0,'batch',
-		        $3,$4)`,
-		jobID, buyerID, guaranteeSecs, etaSecs); err != nil {
+		        $3,$4,$5)`,
+		jobID, buyerID, guaranteeSecs, etaSecs, settlement); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := pool.Exec(ctx, `
@@ -97,7 +101,7 @@ func intPtr(v int) *int { return &v }
 // 1. SLA-bound task is not deferred.
 // elapsed(~0) + askDeferralWindow(20) + eta(10) = 30 > guarantee(15) → wait does not fit → claim now.
 func TestClaimTasksTxSLABoundTaskIsNotDeferred(t *testing.T) {
-	t.Parallel()
+	installSettlementCurrencyForTest(t, "cad")
 	ctx, store, pool := openIsolatedTestStore(t)
 	cheap, dear, _, taskID := setupSLADeferFixture(t, ctx, store, pool, intPtr(15), intPtr(10))
 	_ = cheap
@@ -111,7 +115,7 @@ func TestClaimTasksTxSLABoundTaskIsNotDeferred(t *testing.T) {
 // 2. Generous SLA still defers — cost saving is not lost when the wait fits.
 // elapsed(~0) + 20 + eta(10) = 30 <= guarantee(3600) → defer as today.
 func TestClaimTasksTxGenerousSLAStillDefers(t *testing.T) {
-	t.Parallel()
+	installSettlementCurrencyForTest(t, "cad")
 	ctx, store, pool := openIsolatedTestStore(t)
 	cheap, dear, _, taskID := setupSLADeferFixture(t, ctx, store, pool, intPtr(3600), intPtr(10))
 
@@ -129,7 +133,7 @@ func TestClaimTasksTxGenerousSLAStillDefers(t *testing.T) {
 // 3. Unknown prediction does not defer (fail closed).
 // Guarantee set, eta_secs NULL → cannot show the wait fits → do not defer.
 func TestClaimTasksTxUnknownETADoesNotDefer(t *testing.T) {
-	t.Parallel()
+	installSettlementCurrencyForTest(t, "cad")
 	ctx, store, pool := openIsolatedTestStore(t)
 	cheap, dear, _, taskID := setupSLADeferFixture(t, ctx, store, pool, intPtr(3600), nil)
 	_ = cheap
@@ -142,7 +146,7 @@ func TestClaimTasksTxUnknownETADoesNotDefer(t *testing.T) {
 
 // 4. No guarantee behaves exactly as today — expensive worker is held; cheap takes it.
 func TestClaimTasksTxNoSLAGuaranteeDefersAsToday(t *testing.T) {
-	t.Parallel()
+	installSettlementCurrencyForTest(t, "cad")
 	ctx, store, pool := openIsolatedTestStore(t)
 	// Both NULL: no SLA columns set. Also covers sla_guarantee_secs=0.
 	cheap, dear, _, taskID := setupSLADeferFixture(t, ctx, store, pool, nil, nil)
@@ -160,7 +164,7 @@ func TestClaimTasksTxNoSLAGuaranteeDefersAsToday(t *testing.T) {
 
 // 5. The bound still holds: after askDeferralWindow an SLA-less task is claimable by anyone.
 func TestClaimTasksTxAskDeferralBoundStillHoldsWithoutSLA(t *testing.T) {
-	t.Parallel()
+	installSettlementCurrencyForTest(t, "cad")
 	ctx, store, pool := openIsolatedTestStore(t)
 	cheap, dear, _, taskID := setupSLADeferFixture(t, ctx, store, pool, nil, nil)
 

@@ -51,6 +51,7 @@ func (t rewriteHostTransport) RoundTrip(r *http.Request) (*http.Response, error)
 }
 
 func TestSettlementPreflightAcceptsPlatformThatCanHoldUSD(t *testing.T) {
+	installSettlementCurrencyForTest(t, "usd")
 	srv, version := stripeBalanceStub(t, http.StatusOK,
 		`{"available":[{"currency":"usd"},{"currency":"cad"}],"pending":[{"currency":"usd"}]}`)
 	mustf(t, payoutAgainst(t, srv, "sk_test_x").verifySettlementCurrency(context.Background()), "USD bucket present but preflight rejected it: %v")
@@ -63,6 +64,7 @@ func TestSettlementPreflightAcceptsPlatformThatCanHoldUSD(t *testing.T) {
 // bucket, accepts a USD transfer request, and then fails it with
 // balance_insufficient once money is meant to move.
 func TestSettlementPreflightRejectsCADOnlyPlatform(t *testing.T) {
+	installSettlementCurrencyForTest(t, "usd")
 	srv, _ := stripeBalanceStub(t, http.StatusOK, `{"available":[{"currency":"cad"}],"pending":[]}`)
 	err := payoutAgainst(t, srv, "sk_test_x").verifySettlementCurrency(context.Background())
 	if err == nil {
@@ -84,6 +86,7 @@ func TestSettlementPreflightRejectsCADOnlyPlatform(t *testing.T) {
 // enabled settlement currency regardless of amount. Rejecting on amount would
 // refuse to boot a correctly configured platform that simply has not been funded.
 func TestSettlementPreflightAcceptsZeroUSDBalance(t *testing.T) {
+	installSettlementCurrencyForTest(t, "usd")
 	srv, _ := stripeBalanceStub(t, http.StatusOK, `{"available":[{"currency":"usd"}],"pending":[]}`)
 	mustf(t, payoutAgainst(t, srv, "sk_test_x").verifySettlementCurrency(context.Background()), "zero USD balance rejected: %v")
 }
