@@ -2,7 +2,9 @@
 
 Operator-controlled / synthetic rehearsal against the live staging
 plane `https://mercmerc.net`. This is `P1-CANARY-REHEARSAL` work. It
-does **not** satisfy `EXTERNAL_ALPHA_PROVEN`.
+does **not** satisfy `EXTERNAL_ALPHA_PROVEN`. The five closeout
+receipts below are unbound rehearsal records of an attempt: the loop
+did not close, and they are not authority for a completed matrix.
 
 Driver: `python3 scripts/alpha-e2e-rehearsal.py run`  
 Make: `make alpha-e2e-rehearsal`
@@ -34,7 +36,7 @@ No participant here is an independent external buyer or supplier.
 
 ### 4. Buyer execution — PARTIAL
 
-Receipt: `evidence/canary/l11-p1-canary-rehearsal-buyer-execution.json`
+Receipt (unbound rehearsal record of an attempt; the loop did not close; not authority): `evidence/canary/l11-p1-canary-rehearsal-buyer-execution.json`
 
 Proven on the live authenticated route:
 
@@ -67,7 +69,7 @@ Repeating the refused submit with the same key created **zero** jobs
 
 ### 5. Supplier execution — PARTIAL
 
-Receipt: `evidence/canary/l11-p1-canary-rehearsal-supplier-execution.json`
+Receipt (unbound rehearsal record of an attempt; the loop did not close; not authority): `evidence/canary/l11-p1-canary-rehearsal-supplier-execution.json`
 
 Proven:
 
@@ -91,7 +93,7 @@ claim still requires a directed or advertised cell.
 
 ### 6. Verification — BLOCKED
 
-Receipt: `evidence/canary/l11-p1-canary-rehearsal-verification.json`
+Receipt (unbound rehearsal record of an attempt; the loop did not close; not authority): `evidence/canary/l11-p1-canary-rehearsal-verification.json`
 
 Accept and reject both require a committed task on the real
 `POST /v1/worker/task/{id}/commit` path. No job was accepted and no
@@ -100,7 +102,7 @@ and marking it verified would not be the live path.
 
 ### 7. Settlement (ledger) — BLOCKED
 
-Receipt: `evidence/canary/l11-p1-canary-rehearsal-settlement.json`
+Receipt (unbound rehearsal record of an attempt; the loop did not close; not authority): `evidence/canary/l11-p1-canary-rehearsal-settlement.json`
 
 Live Postgres counts after the rehearsal: `jobs=0`, `tasks=0`,
 `ledger_entries=0`. There is no settlement to replay. What is proven:
@@ -109,7 +111,7 @@ is unset; no live money moved.
 
 ## Fail-closed controls (reachable depth)
 
-Receipt: `evidence/canary/l11-p1-canary-rehearsal-fail-closed-controls.json`
+Receipt (unbound rehearsal record of an attempt; the loop did not close; not authority): `evidence/canary/l11-p1-canary-rehearsal-fail-closed-controls.json`
 
 | Control | Result |
 |---|---|

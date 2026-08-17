@@ -166,6 +166,7 @@
   "status": "PARTIAL",
   "synthetic": true,
   "workers_exercised": 1,
+  "citation_role": "unbound rehearsal record of an attempt; the loop did not close; not authority",
   "binding_status": "UNBOUND",
   "missing_identity_fields": [
     "source_commit",

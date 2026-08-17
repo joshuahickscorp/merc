@@ -10,7 +10,8 @@ package main
 
 // Host this table was derived on: Mac Studio M3 Ultra, Blender 4.2.1
 // LTS, Cycles CPU vs Cycles Metal, identical samples/seed/bounces/AgX/
-// adaptive-off/denoise-off. See evidence/perf/cycles-device-placement.json.
+// adaptive-off/denoise-off. Unbound historical snapshot:
+// evidence/perf/cycles-device-placement.json. Not bound authority.
 
 const (
 	devicePlacementDenseTriFloor     = 50_000

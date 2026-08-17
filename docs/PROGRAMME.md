@@ -2662,7 +2662,7 @@ check. The offsite pair is present and passing after
 
 | Domain | Pts | Wired path |
 |---|---:|---|
-| `money_and_reconciliation` | 6 | `evidence/external/stripe-sandbox-matrix.json` (absent/failing until the matrix) |
+| `money_and_reconciliation` | 6 | `evidence/external/stripe-sandbox-matrix.json` (unbound historical snapshot; status BLOCKED on Connect signup; does not prove the 6 points) |
 | `deployment_and_rollback` | 3 | `evidence/external/qualifying-soak-24h.json` (+ raw samples JSONL named in the receipt) |
 | `artifacts_and_storage` | 2 | `evidence/external/offsite-backup-verification.json` (present; R2 rehearsal) |
 | `database_and_recovery` | 1 | `evidence/external/offsite-independent-restore.json` (present; R2 rehearsal) |
@@ -2766,9 +2766,10 @@ Related release gate: `P1-STRIPE-TEST` in `ops/go-no-go.json`.
 
 ### How to verify the facet moved
 
-After real matrix evidence is written to
-`evidence/external/stripe-sandbox-matrix.json` and passes
-`stripe_sandbox_matrix_proven`:
+After a Connect-complete PASS is written (the current
+`evidence/external/stripe-sandbox-matrix.json` is an unbound
+historical snapshot, status BLOCKED, and does not prove the facet)
+and that file then passes `stripe_sandbox_matrix_proven`:
 
 ```bash
 python3 scripts/validate-readiness.py

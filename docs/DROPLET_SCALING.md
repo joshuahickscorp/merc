@@ -23,7 +23,7 @@ saturation point**, never a proven headline.
 ## Measured control-plane device-ceiling (one droplet-class box)
 
 Source: [`evidence/perf/droplet-device-ceiling.json`](../evidence/perf/droplet-device-ceiling.json)
-(schema v3). **PROXY**, and an **UPPER bound**: `docker --cpus=1 --memory=961m postgres:17`
+(unbound historical snapshot, schema v3). **PROXY**, and an **UPPER bound**: `docker --cpus=1 --memory=961m postgres:17`
 with the smallhost knobs, on an Apple **M3 ARM** host — *not* a DigitalOcean x86 vCPU — and
 only Postgres is cgroup-limited; the bench client ran unconstrained. A real 1 vCPU / 961 MB
 droplet also shares that core and RAM with control + caddy + minio, so the true droplet
@@ -64,7 +64,7 @@ number is **proportionally lower**.
 ## The lever that actually reaches 10M: the live-index FLIP (G082)
 
 Source: [`evidence/perf/liveness-index-bench.json`](../evidence/perf/liveness-index-bench.json)
-— the compact in-process authenticated live-device index, **measured** at 100k/1M/10M:
+(unbound historical snapshot) — the compact in-process authenticated live-device index, **measured** at 100k/1M/10M:
 
 - **~12.4 bytes/device** (176× smaller than the 2,185 B SQL footprint) → 10M hot ≈ **124 MB**,
   which *does* fit a small box.

@@ -52,6 +52,7 @@
   "schema_version": 1,
   "status": "BLOCKED",
   "synthetic": true,
+  "citation_role": "unbound rehearsal record of an attempt; the loop did not close; not authority",
   "binding_status": "UNBOUND",
   "missing_identity_fields": [
     "source_commit",
