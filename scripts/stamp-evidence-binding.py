@@ -35,6 +35,7 @@ from lib.evidence_binding import (  # noqa: E402
     classify_existing_artifact,
     default_bound_identity,
     is_job_contract_payload,
+    missing_fields_for_object,
     stamp_binding_fields,
     strip_binding_meta,
     write_bound_evidence,
@@ -43,6 +44,17 @@ from lib.evidence_binding import (  # noqa: E402
 
 EVIDENCE = ROOT / "evidence"
 CENSUS_PATH = EVIDENCE / "state" / "evidence-binding-census.json"
+
+# Keep in lockstep with scripts/validate-evidence-binding.py. These trees are
+# not the binding corpus (policy/census/fixture/narrative).
+EVIDENCE_SCAN_SKIP_PREFIXES = (
+    "evidence/proof/",
+    "evidence/census/",
+    "evidence/artifacts/",
+    "evidence/immutable-fixtures/",
+    "evidence/workload-catalog/",
+)
+EVIDENCE_SCAN_SKIP_SUFFIXES = (".md",)
 
 
 def iter_evidence_files() -> list[Path]:
@@ -54,7 +66,12 @@ def iter_evidence_files() -> list[Path]:
             continue
         if path.resolve() == CENSUS_PATH.resolve():
             continue
+        rel = path.relative_to(ROOT).as_posix()
         if any(part.startswith(".") for part in path.relative_to(ROOT).parts):
+            continue
+        if any(rel.startswith(prefix) for prefix in EVIDENCE_SCAN_SKIP_PREFIXES):
+            continue
+        if path.suffix.lower() in EVIDENCE_SCAN_SKIP_SUFFIXES:
             continue
         out.append(path)
     return out
@@ -69,6 +86,10 @@ def stamp_json_object(path: Path, dry_run: bool) -> tuple[str, list[str]]:
     if is_job_contract_payload(data):
         return stamp_payload_object(path, data, dry_run)
     status, missing = classify_existing_artifact(data, ROOT)
+    if status == BINDING_UNBOUND and not missing:
+        # A hand-written UNBOUND with an empty/omitted list is still UNBOUND;
+        # recover the checklist so the validator does not treat it as malformed.
+        missing = missing_fields_for_object(data, ROOT)
     stamped = stamp_binding_fields(data, status, missing)
     if not dry_run:
         text = json.dumps(stamped, indent=2, ensure_ascii=False) + "\n"

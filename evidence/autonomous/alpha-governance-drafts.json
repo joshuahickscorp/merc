@@ -41,5 +41,15 @@
     "evidence/external/staffed-abuse-route-or-tabletop.json"
   ],
   "reason_receipts_absent": "Drafts are not approval. A named human signature is still required. This file must never be copied to evidence/external/ as a PASS receipt.",
-  "legal_review": "ops/legal-review.json remains NO_GO; every approval row remains PENDING"
+  "legal_review": "ops/legal-review.json remains NO_GO; every approval row remains PENDING",
+  "missing_identity_fields": [
+    "source_commit",
+    "build_digest",
+    "model_artifact_digest",
+    "image_digest",
+    "harness_revision",
+    "corpus_digest",
+    "exact_config",
+    "raw_samples"
+  ]
 }

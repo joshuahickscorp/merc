@@ -1277,6 +1277,7 @@ def build_receipt(
             "stripe_check": "EXTERNAL CREDENTIAL REQUIRED",
             "stripe_matrix": "BLOCKED-ON-CONNECT",
             "nonconnect_driver": "scripts/stripe-sandbox-nonconnect.sh",
+            "connect_remainder_command": "scripts/stripe-sandbox-connect.sh",
             "staging_hostname_valid": True,
             "endpoint_ids_distinct": True,
             "api_key_class": "test",

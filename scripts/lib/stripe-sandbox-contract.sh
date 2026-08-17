@@ -15,6 +15,15 @@ MERC_STRIPE_CANDIDATE_PAYOUT_ROUTING="11000-000"
 MERC_STRIPE_CANDIDATE_PAYOUT_SUCCESS_ACCOUNT="000123456789"
 # shellcheck disable=SC2034 # consumed by scripts that source this authority
 MERC_STRIPE_CANDIDATE_PAYOUT_FAILURE_ACCOUNT="000111111116"
+# Custom CA is the test-matrix path: one command can finish KYC and payouts
+# via the API after Connect signup. Express onboarding is the product path.
+# shellcheck disable=SC2034 # consumed by scripts that source this authority
+MERC_STRIPE_CONNECT_ACCOUNT_TYPE="custom"
+# shellcheck disable=SC2034 # consumed by scripts that source this authority
+MERC_STRIPE_CONNECT_WEBHOOK_EVENTS="account.updated,payout.created,payout.paid,payout.failed"
+# The operator command that drives every Connect-gated scenario after signup.
+# shellcheck disable=SC2034 # consumed by scripts that source this authority
+MERC_STRIPE_CONNECT_REMAINDER_COMMAND="scripts/stripe-sandbox-connect.sh"
 
 merc_stripe_valid_staging_hostname() {
   local hostname="${1:-}" label

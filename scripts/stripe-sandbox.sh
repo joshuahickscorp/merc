@@ -5,7 +5,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 # shellcheck source=scripts/lib/stripe-sandbox-contract.sh
 source "$ROOT/scripts/lib/stripe-sandbox-contract.sh"
 MODE="${1:-}"
-case "$MODE" in check|matrix|nonconnect) ;; *) echo "usage: scripts/stripe-sandbox.sh check|matrix|nonconnect" >&2; exit 2 ;; esac
+case "$MODE" in check|matrix|nonconnect|connect) ;; *) echo "usage: scripts/stripe-sandbox.sh check|matrix|nonconnect|connect" >&2; exit 2 ;; esac
 
 ENV_FILE="${MERC_GO_CLOSURE_ENV_FILE:-$ROOT/.env.go-closure}"
 if [ -f "$ENV_FILE" ]; then
@@ -38,6 +38,13 @@ for name in STRIPE_SECRET_KEY STRIPE_LIVE_SECRET_KEY STRIPE_RESTRICTED_KEY \
     exit 1
   fi
 done
+
+# Connect remainder creates the connected account. Do not require acct_/ca_
+# as inputs; those are what this command produces after Connect signup.
+if [ "$MODE" = connect ]; then
+  shift
+  exec "$ROOT/scripts/stripe-sandbox-connect.sh" "$@"
+fi
 
 secret_class="$(classify "${STRIPE_SECRET_KEY:-}")"
 billing_webhook_class="$(classify "${STRIPE_WEBHOOK_SECRET:-}")"

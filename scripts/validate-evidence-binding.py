@@ -103,6 +103,10 @@ EVIDENCE_SCAN_SKIP_PREFIXES = (
     "evidence/workload-catalog/",
 )
 
+# Narrative companions sitting beside receipts. They are not measurement
+# artifacts and do not carry binding_status; the receipt they describe does.
+EVIDENCE_SCAN_SKIP_SUFFIXES = (".md",)
+
 
 def iter_evidence_files() -> list[Path]:
     if not EVIDENCE.is_dir():
@@ -118,6 +122,8 @@ def iter_evidence_files() -> list[Path]:
         if any(part.startswith(".") for part in path.relative_to(ROOT).parts):
             continue
         if any(rel.startswith(prefix) for prefix in EVIDENCE_SCAN_SKIP_PREFIXES):
+            continue
+        if path.suffix.lower() in EVIDENCE_SCAN_SKIP_SUFFIXES:
             continue
         out.append(path)
     return out

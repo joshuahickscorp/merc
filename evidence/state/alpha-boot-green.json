@@ -16,5 +16,31 @@
     "power_watts": 270,
     "power_note": "Apple Mac Studio 2025 M3 Ultra whole-wall conservative family upper bound (support.apple.com 102027); stored kind=VENDOR_WALL_UPPER_BOUND, never measured_watts; joules stay UNKNOWN (ENERGY_MEASUREMENT unsatisfied)"
   },
-  "note": "Boot green: BuildCataloguePriceSchedule returns a valid schedule on this commit via the ECONOMIC_POWER_ENVELOPE gate. Produced by running the boot probe on a clean tree at this exact commit; fail-closed (no receipt unless the probe passes with VENDOR_WALL_UPPER_BOUND)."
+  "note": "Boot green: BuildCataloguePriceSchedule returns a valid schedule on this commit via the ECONOMIC_POWER_ENVELOPE gate. Produced by running the boot probe on a clean tree at this exact commit; fail-closed (no receipt unless the probe passes with VENDOR_WALL_UPPER_BOUND).",
+  "producer_identity": {
+    "source_commit": {
+      "value": "1dd71979f9ec4a01d0b7c68b5ad3b16d6da997e1"
+    },
+    "build_digest": {
+      "value": "0c335b1070ad2f0196d50fc3dbbb7fdb5e9d8ab9bf0bfd68a198cf21ead7904f"
+    },
+    "model_artifact_digest": {
+      "na": "boot probe does not load model weights"
+    },
+    "image_digest": {
+      "na": "no container image in this measurement"
+    },
+    "harness_revision": {
+      "value": "control/g070_boot_probe_test.go"
+    },
+    "corpus_digest": {
+      "value": "e7887d92a153c2dd2963481a9032ac67bf825200bee4ace3d8eb55a876a8c9b9"
+    },
+    "exact_config": {
+      "value": "TestG070BootProbeBuildCataloguePriceSchedule; ECONOMIC_POWER_ENVELOPE=VENDOR_WALL_UPPER_BOUND watts=270; published_lane=llama-3.2-1b-instruct-q4/batch_infer; price_per_1k=0.000036; cited=evidence/perf/runtime-benchmarks/candle-metal-llama1-q4-r5.json#batch_infer"
+    },
+    "raw_samples": {
+      "value": "embedded probe observations in receipt body"
+    }
+  }
 }
