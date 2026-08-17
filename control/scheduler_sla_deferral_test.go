@@ -56,14 +56,18 @@ func setupSLADeferFixture(t *testing.T, ctx context.Context, store *Store, pool 
 
 	jobID = uuid.New()
 	taskID = uuid.New()
+	settlement := SettlementCurrencyCode()
+	if settlement == "" {
+		t.Fatal("SLA deferral fixture requires a settlement currency")
+	}
 	// sla_guarantee_secs / eta_secs are the columns under test; pass NULL via Go nils.
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO jobs (id,buyer_id,status,job_type,model_ref,input_ref,task_count,
 		                  offered_rate_usd_hr,min_memory_gb,tier,
-		                  sla_guarantee_secs,eta_secs)
+		                  sla_guarantee_secs,eta_secs,currency)
 		VALUES ($1,$2,'running','embed','all-minilm-l6-v2','in',1,10.0,0,'batch',
-		        $3,$4)`,
-		jobID, buyerID, guaranteeSecs, etaSecs); err != nil {
+		        $3,$4,$5)`,
+		jobID, buyerID, guaranteeSecs, etaSecs, settlement); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := pool.Exec(ctx, `

@@ -8,9 +8,13 @@ import (
 )
 
 func testEconomicSchedule() EconomicSchedule {
+	currency := "usd"
+	if code := SettlementCurrencyCode(); code != "" {
+		currency = code
+	}
 	return EconomicSchedule{
 		Version:                "test-stripe-conservative-v1",
-		Currency:               "usd",
+		Currency:               currency,
 		ProcessorPercent:       0.035,
 		ProcessorFixedUSD:      0.35,
 		ControlPlanePerTaskUSD: 0.005,
