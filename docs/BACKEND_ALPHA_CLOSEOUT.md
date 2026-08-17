@@ -178,6 +178,34 @@ deployed candidate, 2026-08-16T23:58:47Z to 2026-08-17T00:58:47Z, 121 samples at
 sets `qualifies_for_24h_gate: false` — it does not pretend to be the 24-hour
 gate, which stays unearned at Level B and C.
 
+**Nine control-suite tests still fail.** Reachable harm differs per test and none
+is currency: LFS corpus ledger drift (96 pointers / 94 OIDs against a ledger
+recording 95 / 93 — the harm is an evidence corpus whose inventory no longer
+describes it), an execution-envelope spend gate, a fabric certificate 409, two
+citation leftovers, a pricing replay, two runtime-projection tests, and the L2
+Stripe matrix, which wants secrets this process does not hold. These keep
+closeout condition 14 at FAIL. None of them is reachable by an alpha participant
+as a money or authority defect — the security suite covers that surface at 1551
+attacks with zero findings — but "no known P0/P1" is not a claim this repository
+can make while nine tests are red, so it is not made.
+
+## Terminal posture
+
+```
+MERC BACKEND ALPHA        NOT READY — conditions 4-7 and 14 open
+STRIPE TEST MODE          PROVEN to the Connect boundary
+CONTROLLED STAGING        READY
+SECURITY                  ALPHA SUFFICIENT
+RECOVERY                  ALPHA SUFFICIENT
+CLI/TUI                   NEXT PRODUCT ARC
+WEBSITE                   NOT REQUIRED
+LIVE MONEY                HELD — NO_GO_PROHIBITED, unchanged
+```
+
+The single remaining **alpha blocker** in the readiness model is
+`P1-STRIPE-TEST`, and it is one dashboard action. The execution loop and the
+nine tests are engineering work with named defects, not gates awaiting a person.
+
 ## Live money — the actual remaining inputs
 
 Do not perform any of this without explicit operator authorization. Live money
