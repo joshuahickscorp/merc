@@ -44,7 +44,7 @@ jobs:
         run: bash scripts/hydrate-release-lfs.sh
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
-          go-version: "1.26.5"
+          go-version: "1.26.6"
           cache-dependency-path: control/go.sum
       - name: Candidate source identity
         run: test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
@@ -170,7 +170,7 @@ jobs:
         run: bash scripts/hydrate-release-lfs.sh
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
-          go-version: "1.26.5"
+          go-version: "1.26.6"
           cache-dependency-path: control/go.sum
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
@@ -245,7 +245,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
-          go-version: "1.26.5"
+          go-version: "1.26.6"
       - name: Candidate source identity
         run: test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
       - name: Build immutable candidate and prior images
@@ -314,7 +314,7 @@ jobs:
           ref: ${{ env.CANDIDATE_SHA }}
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
-          go-version: "1.26.5"
+          go-version: "1.26.6"
           cache-dependency-path: control/go.sum
       - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable 2026-07-19
       - name: Candidate source identity
