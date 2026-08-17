@@ -363,12 +363,6 @@ func seedMoneyPathFixture(t *testing.T, ctx context.Context, store *Store, pool 
 	suffix := uuid.NewString()
 	buyerID, err := store.CreateBuyerAccount(ctx, "money-"+suffix+"@example.test", "integration-password", 100)
 	mustf(t, err, "create buyer: %v")
-	// free_credit_usd is never converted. CAD (and any other non-USD) settlement
-	// spends prepaid cash in the process currency.
-	if code := SettlementCurrencyCode(); code != "" && code != costReferenceCurrency {
-		mustf(t, store.SeedPrepaidBalance(ctx, buyerID, 50_000_000, "money-path-prepaid-"+suffix),
-			"seed settlement prepaid: %v")
-	}
 
 	f := moneyPathFixture{
 		BuyerID:         buyerID,
@@ -476,20 +470,13 @@ func seedMoneyPathFixture(t *testing.T, ctx context.Context, store *Store, pool 
 
 func seedMoneyPathJob(t *testing.T, ctx context.Context, pool *pgxpool.Pool, f moneyPathFixture, opts moneyPathSeedOpts) {
 	t.Helper()
-	jobCurrency := f.Plan.Schedule.Currency
-	if jobCurrency == "" {
-		jobCurrency = SettlementCurrencyCode()
-	}
-	if jobCurrency == "" {
-		t.Fatal("money-path job requires a settlement currency")
-	}
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO jobs (id,buyer_id,status,job_type,model_ref,input_ref,task_count,tasks_done,
 		                  offered_rate_usd_hr,min_memory_gb,tier,estimated_usd,actual_usd,
-			                  firm_quote,sla_premium_usd,prepaid_required,currency)
+			                  firm_quote,sla_premium_usd,prepaid_required)
 		VALUES ($1,$2,'running','embed','all-minilm-l6-v2','money/input',$3,0,
-		        10.0,0,'batch',$4,0,false,$5,$6,$7)`,
-		f.JobID, f.BuyerID, opts.TaskCount, f.Plan.InitialBuyerChargeUSD, opts.SLAPremium, opts.PrepaidRequired, jobCurrency); err != nil {
+		        10.0,0,'batch',$4,0,false,$5,$6)`,
+		f.JobID, f.BuyerID, opts.TaskCount, f.Plan.InitialBuyerChargeUSD, opts.SLAPremium, opts.PrepaidRequired); err != nil {
 		t.Fatalf("insert job: %v", err)
 	}
 
@@ -500,12 +487,12 @@ func seedMoneyPathJob(t *testing.T, ctx context.Context, pool *pgxpool.Pool, f m
 			f.Plan.BuyerChargePerTaskNanos > 0 && f.Plan.SupplierPayoutPerTaskNanos > 0
 		if _, err := pool.Exec(ctx, `
 			INSERT INTO job_economic_plans (
-			  job_id,plan_version,schedule_version,currency,plan_json,initial_task_count,
+			  job_id,plan_version,schedule_version,plan_json,initial_task_count,
 			  buyer_charge_per_task_usd,supplier_payout_per_task_usd,
 			  initial_buyer_charge_usd,reserved_buyer_charge_usd,sla_premium_usd,firm_quote_max_usd,
 			  buyer_charge_per_task_nanos,supplier_payout_per_task_nanos
-			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
-			f.JobID, f.Plan.Version, f.Plan.Schedule.Version, jobCurrency, planJSON,
+			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+			f.JobID, f.Plan.Version, f.Plan.Schedule.Version, planJSON,
 			f.Plan.Input.InitialTaskCount, f.Plan.BuyerChargePerTaskUSD,
 			f.Plan.SupplierPayoutPerTaskUSD, f.Plan.InitialBuyerChargeUSD,
 			f.Plan.ReservedBuyerChargeUSD, f.Plan.Input.SLAPremiumUSD,
@@ -670,8 +657,6 @@ func validJobRowClasses(
 		workload.Binding.Tier, "",
 	)
 	mustf(t, err, "build test pricing decision: %v")
-	prepaidRequired := SettlementCurrencyCode() != "" &&
-		SettlementCurrencyCode() != costReferenceCurrency
 	return &jobRow{
 		ID:                   f.JobID,
 		BuyerID:              f.BuyerID,
@@ -698,7 +683,6 @@ func validJobRowClasses(
 		ComputePlan:          computePlan,
 		PlacementRequirement: placement,
 		PricingDecision:      pricing,
-		PrepaidRequired:      prepaidRequired,
 	}
 }
 

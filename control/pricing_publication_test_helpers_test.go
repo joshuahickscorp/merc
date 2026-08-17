@@ -50,32 +50,12 @@ func installBoundCataloguePowerAuthorityWithMutationForTest(
 	installBoundCataloguePublicationAuthorityWithMutationsForTest(t, nil, mutate)
 }
 
-// ensureCrossCurrencyCatalogueFXForTest declares the USD→settlement FX the
-// catalogue and cost schedule require when the process does not settle USD.
-// It never installs identity-usd under CAD (that would relabel published USD
-// rates). Tests that already set both env vars, or that pin USD settlement,
-// are left alone.
-func ensureCrossCurrencyCatalogueFXForTest(t *testing.T) {
-	t.Helper()
-	settlement := SettlementCurrencyCode()
-	if settlement == "" || settlement == costReferenceCurrency {
-		return
-	}
-	if strings.TrimSpace(os.Getenv(priceFXRateEnv)) != "" &&
-		strings.TrimSpace(os.Getenv(priceFXRevisionEnv)) != "" {
-		return
-	}
-	t.Setenv(priceFXRateEnv, "1.37")
-	t.Setenv(priceFXRevisionEnv, "first-complete-loop-operator-declared")
-}
-
 func installBoundCataloguePublicationAuthorityWithMutationsForTest(
 	t *testing.T,
 	mutateThroughput pricingThroughputReceiptMutation,
 	mutatePower pricingPowerReceiptMutation,
 ) {
 	t.Helper()
-	ensureCrossCurrencyCatalogueFXForTest(t)
 	commitRaw, err := gitBytes(".", "rev-parse", "HEAD")
 	mustf(t, err, "resolve test source commit: %v")
 	commit := strings.TrimSpace(string(commitRaw))

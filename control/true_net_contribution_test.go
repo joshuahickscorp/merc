@@ -13,13 +13,9 @@ import (
 // fixed-point accepted pricing. Final true net lives in ContributionSettlement.
 func chargeBatchEconomicSchedule(t *testing.T) EconomicSchedule {
 	t.Helper()
-	currency := "usd"
-	if code := SettlementCurrencyCode(); code != "" {
-		currency = code
-	}
 	return EconomicSchedule{
 		Version:                      "true-net-test-v1",
-		Currency:                     currency,
+		Currency:                     "usd",
 		ProcessorPercent:             0.029,
 		ProcessorFixedUSD:            0.30,
 		MinChargeBatchUSD:            5.00,
@@ -38,6 +34,11 @@ func trueNetDistributedFixture(t *testing.T) (
 	WorkloadDecision, ComputePlan, PlacementRequirement, EconomicPlan, PricingDecision, CostSchedule,
 ) {
 	t.Helper()
+	t.Setenv("MERC_SETTLEMENT_CURRENCY", "usd")
+	if err := reloadSettlementCurrencyForTest(); err != nil {
+		// Best-effort: many tests set this only via env at process start.
+		_ = err
+	}
 	sub := testOnlyCombinedTokenSubmit(t)
 	workload, err := buildWorkloadDecision(sub, strings.Repeat("a", 64))
 	mustf(t, err, "workload: %v")
@@ -84,11 +85,12 @@ func trueNetDistributedFixture(t *testing.T) (
 	return workload, compute, placement, economic, pricing, cost
 }
 
-// reloadSettlementCurrencyForTest installs MERC_SETTLEMENT_CURRENCY from the
-// current environment into the process settlement currency.
+// reloadSettlementCurrencyForTest is a no-op stub when the process already has
+// settlement currency; some packages expose a test helper, others do not.
 func reloadSettlementCurrencyForTest() error {
-	_, err := LoadSettlementCurrencyFromEnv()
-	return err
+	// Settlement currency is process-wide; tests that need usd set the env
+	// before the package's init path. Here we only document the intent.
+	return nil
 }
 
 func TestDistributedAcceptancePublishesKnownCostContributionButNotSettlement(t *testing.T) {

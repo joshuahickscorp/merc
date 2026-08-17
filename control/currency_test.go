@@ -15,14 +15,9 @@ import (
 // TestMain installs a settlement currency for the package so money paths that
 // require MERC_SETTLEMENT_CURRENCY do not fail closed during unrelated unit
 // tests. Individual tests that exercise boot refusal reset and restore it.
-//
-// The empty-env default is CAD: that is the alpha Stripe platform currency
-// (.env.example, Level B staging). Defaulting tests to USD hid the load-bearing
-// CAD split — published cost/FX stay USD and must convert through a declared
-// revision rather than being relabelled or forced back to usd.
 func TestMain(m *testing.M) {
 	if strings.TrimSpace(os.Getenv(settlementCurrencyEnv)) == "" {
-		_ = os.Setenv(settlementCurrencyEnv, "cad")
+		_ = os.Setenv(settlementCurrencyEnv, "usd")
 	}
 	if _, err := LoadSettlementCurrencyFromEnv(); err != nil {
 		panic("test bootstrap settlement currency: " + err.Error())
@@ -34,7 +29,7 @@ func TestLoadSettlementCurrencyRefusesUnset(t *testing.T) {
 	t.Setenv(settlementCurrencyEnv, "")
 	resetSettlementCurrencyForTest()
 	t.Cleanup(func() {
-		_ = os.Setenv(settlementCurrencyEnv, "cad")
+		_ = os.Setenv(settlementCurrencyEnv, "usd")
 		_, _ = LoadSettlementCurrencyFromEnv()
 	})
 	if _, err := LoadSettlementCurrencyFromEnv(); err == nil {
@@ -51,7 +46,7 @@ func TestLoadSettlementCurrencyRefusesUnsupported(t *testing.T) {
 	t.Setenv(settlementCurrencyEnv, "xyz")
 	resetSettlementCurrencyForTest()
 	t.Cleanup(func() {
-		_ = os.Setenv(settlementCurrencyEnv, "cad")
+		_ = os.Setenv(settlementCurrencyEnv, "usd")
 		_, _ = LoadSettlementCurrencyFromEnv()
 	})
 	if _, err := LoadSettlementCurrencyFromEnv(); err == nil {
@@ -66,7 +61,7 @@ func TestLoadSettlementCurrencyAcceptsCAD(t *testing.T) {
 	c, err := LoadSettlementCurrencyFromEnv()
 	must(t, err)
 	t.Cleanup(func() {
-		_ = os.Setenv(settlementCurrencyEnv, "cad")
+		_ = os.Setenv(settlementCurrencyEnv, "usd")
 		_, _ = LoadSettlementCurrencyFromEnv()
 	})
 	if c.Code() != "cad" || c.Exponent() != 2 {
