@@ -33,7 +33,6 @@ func TestOnlyBindableAuthorityCellsAreRoutable(t *testing.T) {
 	wantAdvertised := map[string]bool{
 		"candle-metal-llama1-infer": true,
 	}
-	wantRoutable := wantDocumentRoutable
 
 	var got []string
 	for _, profile := range runtimeAuthority.Runtimes {
@@ -47,8 +46,8 @@ func TestOnlyBindableAuthorityCellsAreRoutable(t *testing.T) {
 				if !ok {
 					t.Errorf("%s is Routable but bindable says no: %s", cell.ID, reason)
 				}
-				if !wantRoutable[cell.ID] {
-					t.Errorf("unexpected routable cell %s", cell.ID)
+				if !wantDocumentRoutable[cell.ID] {
+					t.Errorf("unexpected document-routable cell %s", cell.ID)
 				}
 				continue
 			}
@@ -59,11 +58,6 @@ func TestOnlyBindableAuthorityCellsAreRoutable(t *testing.T) {
 					t.Errorf("%s should not bind; got ok with reason %q", cell.ID, reason)
 				}
 				if !strings.Contains(reason, substr) {
-					if cell.ID == "candle-metal-scene-render" &&
-						(strings.Contains(reason, "merc_source_commit") ||
-							strings.Contains(reason, "harness")) {
-						continue
-					}
 					t.Errorf("%s demoted for %q, want reason containing %q",
 						cell.ID, reason, substr)
 				}
@@ -72,10 +66,10 @@ func TestOnlyBindableAuthorityCellsAreRoutable(t *testing.T) {
 			t.Errorf("unexpected demotion of lifecycle-routable cell %s: %s", cell.ID, reason)
 		}
 	}
-	if len(got) != len(wantRoutable) {
-		t.Fatalf("routable cells = %v, want exactly the BOUND set %v", got, wantRoutable)
+	if len(got) != len(wantDocumentRoutable) {
+		t.Fatalf("document-routable cells = %v, want exactly the BOUND set %v", got, wantDocumentRoutable)
 	}
-	for id := range wantRoutable {
+	for id := range wantDocumentRoutable {
 		found := false
 		for _, g := range got {
 			if g == id {
@@ -84,14 +78,19 @@ func TestOnlyBindableAuthorityCellsAreRoutable(t *testing.T) {
 			}
 		}
 		if !found {
-			t.Errorf("expected routable cell %s missing from %v", id, got)
+			t.Errorf("expected document-routable cell %s missing from %v", id, got)
 		}
 	}
-	if n := len(advertisedRuntimeCapabilities()); n != len(wantAdvertised) {
+	advertised := documentAdvertisedCells()
+	if n := len(advertised); n != len(wantAdvertised) {
 		t.Fatalf("advertised projection has %d cells, want %d", n, len(wantAdvertised))
 	}
+	advertisedIDs := map[string]bool{}
+	for _, cap := range advertised {
+		advertisedIDs[cap.ID] = true
+	}
 	for id := range wantAdvertised {
-		if !advertisedRuntimeCell(id) {
+		if !advertisedIDs[id] {
 			t.Errorf("ACTIVE+BOUND cell %s is not advertised", id)
 		}
 	}
@@ -99,22 +98,22 @@ func TestOnlyBindableAuthorityCellsAreRoutable(t *testing.T) {
 		if wantAdvertised[id] {
 			continue
 		}
-		if advertisedRuntimeCell(id) {
+		if advertisedIDs[id] {
 			t.Errorf("CANARY+BOUND cell %s is advertised; only ACTIVE cells may be", id)
 		}
 	}
 	for id := range wantDemoted {
-		if advertisedRuntimeCell(id) {
+		if advertisedIDs[id] {
 			t.Errorf("demoted cell %s is still advertised", id)
 		}
 	}
 }
 
 func TestSupersededIncompleteAgentContentRootCannotAuthorizeCurrentAdmission(t *testing.T) {
-	// G070: the cell is current-bound under r5. The incomplete-content-root
+	// G070: the cell is current-bound under r6. The incomplete-content-root
 	// guard still holds: the superseded r4 credential (97acc / SUPERSEDED)
 	// cannot authorize current admission if a cell is temporarily repointed at
-	// it. The live cell remains advertised only via its current r5 authority.
+	// it. The live cell remains advertised only via its current r6 authority.
 	const cellID = "candle-metal-llama1-infer"
 	const supersededPath = "evidence/perf/runtime-benchmarks/candle-metal-llama1-q4-r4.json"
 
@@ -130,17 +129,24 @@ func TestSupersededIncompleteAgentContentRootCannotAuthorizeCurrentAdmission(t *
 			r4.EngineBuildHash)
 	}
 
-	// Live cell must resolve under r5 and stay buyer-advertised.
+	// Live cell must resolve under r6 and stay buyer-advertised.
 	_, _, current, err := currentRuntimeCellBenchmarkIdentity(cellID)
 	if err != nil {
-		t.Fatalf("current r5-bound cell must authorize: %v", err)
+		t.Fatalf("current r6-bound cell must authorize: %v", err)
 	}
 	if current.EngineBuildHash == "97acc6fe17daca56" ||
 		strings.Contains(strings.ToLower(current.Harness), "r4") {
 		t.Fatalf("current identity still carries the superseded r4 credential: %+v", current)
 	}
-	if !advertisedRuntimeCell(cellID) {
-		t.Fatalf("BOUND cell %s is not advertised under its current r5 authority", cellID)
+	if current.EngineBuildHash == "f4303a751ca2b2af" ||
+		strings.Contains(strings.ToLower(current.Harness), "r5") {
+		t.Fatalf("current identity still carries the superseded r5 credential: %+v", current)
+	}
+	if !strings.Contains(strings.ToLower(current.Harness), "r6") {
+		t.Fatalf("current identity is not the r6 authority: %+v", current)
+	}
+	if !documentAdvertisedCell(cellID) {
+		t.Fatalf("BOUND cell %s is not advertised under its current r6 authority", cellID)
 	}
 
 	// Incomplete-content-root credential cannot authorize: repoint only this
@@ -220,9 +226,9 @@ func TestNonGitMercSourceCommitIsRejected(t *testing.T) {
 // Automatic demotion: invalidate an authority and the dependent cell leaves the
 // routable set without any lifecycle field being edited.
 func TestInvalidatingAuthorityDemotesDependentCell(t *testing.T) {
-	// G070: the live cell cites r5. Invalidate that authority path so demotion
-	// targets the credential currently authorizing the cell, not historical r4.
-	const path = "evidence/perf/runtime-benchmarks/candle-metal-llama1-q4-r5.json"
+	// G070: the live cell cites r6. Invalidate that authority path so demotion
+	// targets the credential currently authorizing the cell, not historical r4/r5.
+	const path = "evidence/perf/runtime-benchmarks/candle-metal-llama1-q4-r6.json"
 	const cellID = "candle-metal-llama1-infer"
 
 	profile, ok := runtimeProfileByID("candle_metal")
@@ -464,13 +470,14 @@ func TestBenchmarkManifestExactExecutionIdentityCannotDivergeFromReceipt(t *test
 }
 
 func TestAdvertisedSurfaceIsTheBindableSet(t *testing.T) {
-	// G070: exactly candle-metal-llama1-infer is current-bindable under r5
-	// settlement geometry. Prior r4 remains SUPERSEDED history; embed/media
-	// stay unadvertised. Reject any extra cell.
+	// G070: exactly candle-metal-llama1-infer is ACTIVE+BOUND under r6
+	// settlement geometry, so it is the advertised surface. Prior r4/r5
+	// remain SUPERSEDED history. Embed stays parked. Media/render are
+	// CANARY+BOUND (document-routable, not advertised). Reject any extra cell.
 	want := map[string]string{
 		"candle-metal-llama1-infer": "batch_infer",
 	}
-	caps := advertisedRuntimeCapabilities()
+	caps := documentAdvertisedCells()
 	if len(caps) != len(want) {
 		ids := make([]string, 0, len(caps))
 		for _, cap := range caps {
@@ -489,10 +496,19 @@ func TestAdvertisedSurfaceIsTheBindableSet(t *testing.T) {
 		}
 	}
 	for id := range want {
-		if !advertisedRuntimeCell(id) {
+		if !documentAdvertisedCell(id) {
 			t.Errorf("BOUND cell %s missing from advertised surface", id)
 		}
 	}
+}
+
+func documentAdvertisedCell(cellID string) bool {
+	for _, candidate := range documentAdvertisedCells() {
+		if candidate.ID == cellID {
+			return true
+		}
+	}
+	return false
 }
 
 // BOUND alone is not current authority: an older receipt without build/device

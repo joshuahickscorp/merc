@@ -686,7 +686,7 @@ func TestNoAdmissibleRateReachesTheBestObservation(t *testing.T) {
 func TestViabilityReportNamesTheReasonForIneligibility(t *testing.T) {
 	// Parked embed needs a TEST_ONLY exact identity to reach the viability
 	// surface at all; its refusal is then catalogue authority, not a missing
-	// build hash. Production llama is already routable under r5.
+	// build hash. Production llama is already routable under r6.
 	installTestOnlyExactIdentityForLegacyBenchmark(t, candleEmbedCell)
 	authority := boardCatalogueAuthority(t)
 

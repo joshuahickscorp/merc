@@ -116,18 +116,18 @@ func TestDirectedRoutingCannotReachARejectedCell(t *testing.T) {
 // widen what a buyer can be sold.
 func TestDirectedSetIsASupersetThatDoesNotWidenTheCatalogue(t *testing.T) {
 	directed := map[string]bool{}
-	for _, capability := range directedRuntimeCapabilities() {
+	for _, capability := range documentDirectedCells() {
 		directed[capability.ID] = true
 	}
-	for _, capability := range advertisedRuntimeCapabilities() {
+	advertised := documentAdvertisedCells()
+	for _, capability := range advertised {
 		if !directed[capability.ID] {
 			t.Errorf("advertised cell %q is not reachable by directed routing", capability.ID)
 		}
 	}
-	// G070: candle-metal-llama1-infer is the one current-bindable production
-	// cell under settlement geometry. Other cells stay directed-only or
-	// unadvertised until their receipts bind.
-	advertised := advertisedRuntimeCapabilities()
+	// G070: candle-metal-llama1-infer is the one ACTIVE+BOUND production cell
+	// under r6 settlement geometry. Media/render are CANARY+BOUND
+	// (document-routable, directed, not advertised). Embed stays parked.
 	if len(advertised) != 1 || advertised[0].ID != "candle-metal-llama1-infer" {
 		ids := make([]string, 0, len(advertised))
 		for _, c := range advertised {
@@ -141,7 +141,7 @@ func TestDirectedSetIsASupersetThatDoesNotWidenTheCatalogue(t *testing.T) {
 		t.Fatal("the llama.cpp embed cell is not reachable by directed routing, " +
 			"so it can never be driven through the chain that would prove it")
 	}
-	for _, capability := range advertisedRuntimeCapabilities() {
+	for _, capability := range advertised {
 		if capability.ID == llamaEmbedCell {
 			t.Fatal("the llama.cpp embed cell reached the advertised catalogue " +
 				"before its chain proof")

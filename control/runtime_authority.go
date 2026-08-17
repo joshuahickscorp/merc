@@ -791,10 +791,15 @@ func runtimeCapabilityMatrixDigest() string {
 	return digest
 }
 
-// documentRoutableCells and documentDirectedCells project straight from the
-// document, ignoring stored policy. They are what the process runs under before
-// any policy is loaded and what the document-level tests assert against; live
-// serving reads the activation snapshot instead.
+// documentRoutableCells, documentAdvertisedCells and documentDirectedCells
+// project straight from the document, ignoring stored policy. They are what
+// the process runs under before any policy is loaded and what the
+// document-level tests assert against; live serving reads the activation
+// snapshot instead.
+//
+// Routable is CANARY or ACTIVE plus bindable authority (may appear in
+// documents). Advertised is the ACTIVE subset (offered to buyers). Directed
+// is the operator/test nameable set and is a superset of both.
 func documentDirectedCells() []generatedRuntimeCapability {
 	return projectCells(runtimeAuthority, func(p authorityRuntimeProfile, c authorityCell) bool {
 		return c.ReachableByDirectedRouting(p)
@@ -804,6 +809,12 @@ func documentDirectedCells() []generatedRuntimeCapability {
 func documentRoutableCells() []generatedRuntimeCapability {
 	return projectCells(runtimeAuthority, func(p authorityRuntimeProfile, c authorityCell) bool {
 		return c.Routable(p)
+	})
+}
+
+func documentAdvertisedCells() []generatedRuntimeCapability {
+	return projectCells(runtimeAuthority, func(p authorityRuntimeProfile, c authorityCell) bool {
+		return c.EffectiveLifecycle(p) == runtimeLifecycleActive && c.Routable(p)
 	})
 }
 

@@ -6,7 +6,7 @@
 # bench-batch) and writes the authority through scripts/write-bound-evidence.py.
 #
 # Opt-in only:
-#   MERC_LLAMA1_CELL_PERF=1 ./scripts/seal-llama1-cell-receipt-r5.sh
+#   MERC_LLAMA1_CELL_PERF=1 ./scripts/seal-llama1-cell-receipt-r6.sh
 #
 # Prerequisites:
 #   - agent/target/release/merc-agent (or AGENT_BIN) built with metal

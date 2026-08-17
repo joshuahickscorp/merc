@@ -105,80 +105,86 @@ test-unit:
 # that had just passed. Same 45m budget as `test` above, same reason.
 CI_TEST_JSON = $(CURDIR)/.ci-test.json
 
+# Every step still fails the target when it is red. Failures are collected so
+# `make ci` reaches the last gate instead of stopping at the first one. The
+# fail list is kept in the shell (not a worktree file) so an untracked receipt
+# cannot trip test-release-image-boots.sh.
 ci:
-	# The public API integration tests launch the release agent as a real
-	# subprocess. Build it from this tree before those tests so a stale binary
-	# cannot enroll against one capability digest and dispatch another.
-	cd agent && cargo build --release
-	cd control && test -z "$$(gofmt -l .)" && go vet ./...
-	$(CI_TEST_ENV) bash "$(CURDIR)/scripts/run-ci-control-tests.sh" "$(CI_TEST_JSON)"; \
-	  status=$$?; python3 "$(CURDIR)/scripts/summarize-go-test-json.py" "$(CI_TEST_JSON)"; \
-	  exit $$status
-	@bash scripts/assert-no-test-skips.sh "$(CI_TEST_JSON)"
-	@bash scripts/test-release-image-boots.sh
-	@bash scripts/test-release-image-contents.sh
-	cd agent && cargo fmt --all -- --check && cargo clippy --all-targets -- -D warnings && cargo test
-	python3 -m json.tool clients/proto/manifest.schema.json >/dev/null
-	python3 -m json.tool ops/governance-approval-bundle.schema.json >/dev/null
-	python3 -m json.tool ops/live-payment-activation.schema.json >/dev/null
-	python3 scripts/runpod-spend-guard.py --self-test
-	python3 scripts/test-runpod-orphan-reconcile.py
-	python3 scripts/runpod-spend-guard.py revalidate
-	python3 scripts/validate-authorization-matrix.py
-	python3 scripts/validate-sdk-routes.py
-	python3 scripts/validate-independent-reviews.py
-	python3 scripts/validate-governance.py
-	python3 scripts/validate-readiness.py
-	python3 scripts/assert-soak-claims.py
-	python3 scripts/validate-claim-surfaces.py
-	python3 scripts/rename-residue-audit.py
-	bash scripts/test-agent-install-signature.sh
-	bash scripts/test-agent-uninstall-legacy.sh
-	bash scripts/test-agent-cross-platform-installers.sh
-	python3 scripts/validate-repo-boundary.py
-	python3 scripts/test-bench-accounting.py
-	python3 scripts/test-gateway-parity-receipt.py
-	python3 scripts/validate-evidence-binding.py
-	python3 scripts/test-evidence-binding-dependencies.py
-	python3 scripts/test-evidence-binding-withdrawn.py
-	python3 scripts/verify-lfs-corpus.py
-	python3 scripts/test-evidence-writer-bypass.py
-	bash scripts/test-mutation-test-parallel.sh
-	bash scripts/test-mutation-load-preflight.sh
-	python3 scripts/test-mutation-test-contracts.py
-	python3 scripts/test-mutation-contract-observer.py
-	python3 scripts/test-mutation-suite-observer.py
-	python3 scripts/test-mutation-preflight-cache.py
-	python3 scripts/test-mutation-manifest.py
-	bash scripts/test-with-isolated-test-db.sh
-	MERC_TEST_DATABASE_URL="$(MERC_TEST_DATABASE_URL)" bash scripts/test-schema-template.sh
-	bash scripts/test-mutation-gate.sh
-	bash scripts/test-mutation-oracle-strategy.sh
-	bash scripts/test-readiness-gaming.sh
-	bash scripts/test-agent-review-gaming.sh
-	bash scripts/test-technical-exercises-fail-closed.sh
-	bash scripts/test-canary-gaming.sh
-	bash scripts/test-canary-scenario-receipt.sh
-	MERC_TEST_DATABASE_URL="$(MERC_TEST_DATABASE_URL)" bash scripts/test-canary-database-corroboration.sh
-	MERC_TEST_DATABASE_URL="$(MERC_TEST_DATABASE_URL)" bash scripts/test-agent-restart-authority.sh
-	bash scripts/test-go-closure-soak-authority.sh
-	python3 scripts/test-go-closure-evidence-chain.py
-	bash scripts/test-backup-verification-authority.sh
-	bash scripts/test-governance-approval-authority.sh
-	MERC_STRIPE_WEBHOOK_VERSION_SELF_TEST=1 bash scripts/stripe-webhooks.sh
-	bash scripts/test-stripe-sandbox-contract.sh
-	# Placement readiness is allowed to print NOT_READY (exit 1) when preconditions
-	# are honestly unsatisfied. The pin test asserts the gate refuses correctly and
-	# cannot be env-bypassed; it does not require the programme to be READY.
-	python3 scripts/validate-placement-readiness.py; \
-	  pr_status=$$?; \
-	  if [ $$pr_status -ne 0 ] && [ $$pr_status -ne 1 ]; then exit $$pr_status; fi
-	python3 scripts/test-placement-readiness.py
-	node scripts/site-build.mjs
-	node scripts/test-supplier-console.mjs
-	bash -n scripts/*.sh
-	bash scripts/test-backup-schedule.sh
-	bash scripts/verify-python-sdk-package.sh
+	@fails=""; \
+	run() { \
+	  name="$$1"; shift; \
+	  echo "==== CI $$name ===="; \
+	  if sh -c "$$1"; then echo "==== CI PASS $$name ===="; \
+	  else echo "==== CI FAIL $$name ===="; fails="$$fails $$name"; fi; \
+	}; \
+	run cargo-build 'cd agent && cargo build --release'; \
+	run gofmt-vet 'cd control && test -z "$$(gofmt -l .)" && go vet ./...'; \
+	run hydrate-lfs 'bash scripts/hydrate-release-lfs.sh'; \
+	run go-tests '$(CI_TEST_ENV) bash "$(CURDIR)/scripts/run-ci-control-tests.sh" "$(CI_TEST_JSON)"; go_rc=$$?; python3 "$(CURDIR)/scripts/summarize-go-test-json.py" "$(CI_TEST_JSON)"; exit $$go_rc'; \
+	run assert-no-test-skips 'bash scripts/assert-no-test-skips.sh "$(CI_TEST_JSON)"'; \
+	run image-boots 'rm -f "$(CI_TEST_JSON).fast" "$(CI_TEST_JSON).fast.err" "$(CI_TEST_JSON).integration" "$(CI_TEST_JSON).integration.err"; bash scripts/test-release-image-boots.sh'; \
+	run image-contents 'bash scripts/test-release-image-contents.sh'; \
+	run cargo-fmt 'cd agent && cargo fmt --all -- --check'; \
+	run cargo-clippy 'cd agent && cargo clippy --all-targets -- -D warnings'; \
+	run cargo-test 'cd agent && cargo test'; \
+	run json-manifest 'python3 -m json.tool clients/proto/manifest.schema.json >/dev/null'; \
+	run json-governance-schema 'python3 -m json.tool ops/governance-approval-bundle.schema.json >/dev/null'; \
+	run json-payment-schema 'python3 -m json.tool ops/live-payment-activation.schema.json >/dev/null'; \
+	run runpod-spend-self 'python3 scripts/runpod-spend-guard.py --self-test'; \
+	run runpod-orphan 'python3 scripts/test-runpod-orphan-reconcile.py'; \
+	run runpod-revalidate 'python3 scripts/runpod-spend-guard.py revalidate'; \
+	run authorization-matrix 'python3 scripts/validate-authorization-matrix.py'; \
+	run sdk-routes 'python3 scripts/validate-sdk-routes.py'; \
+	run independent-reviews 'python3 scripts/validate-independent-reviews.py'; \
+	run governance 'python3 scripts/validate-governance.py'; \
+	run readiness 'python3 scripts/validate-readiness.py'; \
+	run soak-claims 'python3 scripts/assert-soak-claims.py'; \
+	run claim-surfaces 'python3 scripts/validate-claim-surfaces.py'; \
+	run rename-residue 'python3 scripts/rename-residue-audit.py'; \
+	run agent-install-sig 'bash scripts/test-agent-install-signature.sh'; \
+	run agent-uninstall 'bash scripts/test-agent-uninstall-legacy.sh'; \
+	run agent-cross-platform 'bash scripts/test-agent-cross-platform-installers.sh'; \
+	run repo-boundary 'python3 scripts/validate-repo-boundary.py'; \
+	run bench-accounting 'python3 scripts/test-bench-accounting.py'; \
+	run gateway-parity 'python3 scripts/test-gateway-parity-receipt.py'; \
+	run evidence-binding 'python3 scripts/validate-evidence-binding.py'; \
+	run evidence-deps 'python3 scripts/test-evidence-binding-dependencies.py'; \
+	run evidence-withdrawn 'python3 scripts/test-evidence-binding-withdrawn.py'; \
+	run lfs-corpus 'python3 scripts/verify-lfs-corpus.py'; \
+	run evidence-writer 'python3 scripts/test-evidence-writer-bypass.py'; \
+	run mutation-parallel 'bash scripts/test-mutation-test-parallel.sh'; \
+	run mutation-preflight 'bash scripts/test-mutation-load-preflight.sh'; \
+	run mutation-contracts 'python3 scripts/test-mutation-test-contracts.py'; \
+	run mutation-observer 'python3 scripts/test-mutation-contract-observer.py'; \
+	run mutation-suite-obs 'python3 scripts/test-mutation-suite-observer.py'; \
+	run mutation-preflight-cache 'python3 scripts/test-mutation-preflight-cache.py'; \
+	run mutation-manifest 'python3 scripts/test-mutation-manifest.py'; \
+	run isolated-db 'bash scripts/test-with-isolated-test-db.sh'; \
+	run schema-template 'MERC_TEST_DATABASE_URL="$(MERC_TEST_DATABASE_URL)" bash scripts/test-schema-template.sh'; \
+	run mutation-gate 'bash scripts/test-mutation-gate.sh'; \
+	run mutation-oracle 'bash scripts/test-mutation-oracle-strategy.sh'; \
+	run readiness-gaming 'bash scripts/test-readiness-gaming.sh'; \
+	run agent-review-gaming 'bash scripts/test-agent-review-gaming.sh'; \
+	run technical-exercises-fc 'bash scripts/test-technical-exercises-fail-closed.sh'; \
+	run canary-gaming 'bash scripts/test-canary-gaming.sh'; \
+	run canary-receipt 'bash scripts/test-canary-scenario-receipt.sh'; \
+	run canary-db 'MERC_TEST_DATABASE_URL="$(MERC_TEST_DATABASE_URL)" bash scripts/test-canary-database-corroboration.sh'; \
+	run agent-restart 'MERC_TEST_DATABASE_URL="$(MERC_TEST_DATABASE_URL)" bash scripts/test-agent-restart-authority.sh'; \
+	run go-closure-soak 'bash scripts/test-go-closure-soak-authority.sh'; \
+	run go-closure-chain 'python3 scripts/test-go-closure-evidence-chain.py'; \
+	run backup-verify-auth 'bash scripts/test-backup-verification-authority.sh'; \
+	run gov-approval-auth 'bash scripts/test-governance-approval-authority.sh'; \
+	run stripe-webhooks 'MERC_STRIPE_WEBHOOK_VERSION_SELF_TEST=1 bash scripts/stripe-webhooks.sh'; \
+	run stripe-sandbox-contract 'bash scripts/test-stripe-sandbox-contract.sh'; \
+	run placement-readiness 'python3 scripts/validate-placement-readiness.py; pr=$$?; if [ $$pr -ne 0 ] && [ $$pr -ne 1 ]; then exit $$pr; fi'; \
+	run placement-test 'python3 scripts/test-placement-readiness.py'; \
+	run site-build 'node scripts/site-build.mjs'; \
+	run supplier-console 'node scripts/test-supplier-console.mjs'; \
+	run bash-n 'bash -n scripts/*.sh'; \
+	run backup-schedule 'bash scripts/test-backup-schedule.sh'; \
+	run python-sdk 'bash scripts/verify-python-sdk-package.sh'; \
+	if [ -n "$$fails" ]; then echo "CI remaining failures:$$fails"; exit 1; fi; \
+	echo "CI PASS"
 
 # Release gates that are SUPPOSED to fail right now.  They mark work that is not
 # engineering -- a human has to supply a value -- so they run as their own target

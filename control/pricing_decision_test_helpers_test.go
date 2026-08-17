@@ -24,7 +24,7 @@ var testOnlyCombinedTokenAuthorityPath = "TEST_ONLY/uninstalled/combined-token-t
 
 // installTestOnlyDecodeOutputTokenAuthority installs an ephemeral exact-build
 // authority for candle-metal-llama1-infer whose measured unit_scope is forced
-// to decode_output_tokens. Production r5 is settlement-compatible; this
+// to decode_output_tokens. Production r6 is settlement-compatible; this
 // fixture preserves the decode-only vs combined-token mismatch guard without
 // relabeling checked-in evidence.
 func installTestOnlyDecodeOutputTokenAuthority(t *testing.T) {

@@ -485,6 +485,7 @@ var declaredMoneyAuthority = []string{
 	"debitPrepaidForServiceLeaseTx",                       // store_prepaid.go
 	"debitPrepaidForTaskTx",                               // store_prepaid.go
 	"directedRuntimeCapabilities",                         // activation_policy.go
+	"directedRuntimeModel",                                // runtime_matrix.go
 	"dispatchBuyer",                                       // buyer.go
 	"dispatchDev",                                         // dev_checkpoint.go
 	"dispatchLaunchRelease",                               // release_launch.go
@@ -493,6 +494,7 @@ var declaredMoneyAuthority = []string{
 	"distributedPricingDecisionAtRate",                    // pricing_decision.go
 	"documentActivation",                                  // activation_policy.go
 	"documentActivationEntries",                           // activation_policy.go
+	"documentAdvertisedCells",                             // runtime_authority.go
 	"documentRoutableCells",                               // runtime_authority.go
 	"economicPlanDigest",                                  // pricing_decision.go
 	"enrollableProfileForEngine",                          // runtime_profile_admission.go

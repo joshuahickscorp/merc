@@ -759,30 +759,50 @@ func TestRegistryAndDocumentAgreeOnEveryRoutableCell(t *testing.T) {
 		mustf(t, rows.Scan(&profileID, &cellID), "scan: %v")
 		inDB[fmt.Sprintf("%s/%s", profileID, cellID)] = true
 	}
-	// Document side uses the same Routable predicate the registry writes
-	// (lifecycle AND bindable authority), not every cell under a routable profile.
-	inDoc := map[string]bool{}
+	// Registry routable is the advertised set: ACTIVE plus bindable authority.
+	// cell.Routable() is the wider document-routable set (CANARY or ACTIVE plus
+	// bindable). CANARY+BOUND cells may appear in documents but must not be
+	// flagged routable in the registry or offered to buyers.
+	inAdvertised := map[string]bool{}
+	for _, cap := range documentAdvertisedCells() {
+		inAdvertised[fmt.Sprintf("%s/%s", cap.Runtime, cap.ID)] = true
+	}
+	inDocRoutable := map[string]bool{}
 	for _, profile := range runtimeAuthority.Runtimes {
 		for _, cell := range profile.Cells {
 			if !cell.Routable(profile) {
 				continue
 			}
-			inDoc[fmt.Sprintf("%s/%s", profile.RuntimeID, cell.ID)] = true
+			inDocRoutable[fmt.Sprintf("%s/%s", profile.RuntimeID, cell.ID)] = true
 		}
 	}
-	for key := range inDoc {
+	for key := range inAdvertised {
 		if !inDB[key] {
-			t.Errorf("routable cell %s is in the document but not the database", key)
+			t.Errorf("advertised cell %s is not registry-routable", key)
+		}
+		if !inDocRoutable[key] {
+			t.Errorf("advertised cell %s is not document-routable", key)
 		}
 	}
 	for key := range inDB {
-		if !inDoc[key] {
-			t.Errorf("routable cell %s is in the database but not the document", key)
+		if !inAdvertised[key] {
+			t.Errorf("registry-routable cell %s is not in the advertised projection", key)
 		}
 	}
-	if len(inDoc) != len(advertisedRuntimeCapabilities()) {
-		t.Errorf("%d routable cells in the document, %d in the advertised projection",
-			len(inDoc), len(advertisedRuntimeCapabilities()))
+	for key := range inDocRoutable {
+		if inAdvertised[key] {
+			continue
+		}
+		if inDB[key] {
+			t.Errorf("CANARY+BOUND cell %s is registry-routable; only ACTIVE cells may be", key)
+		}
+	}
+	if len(inAdvertised) != 1 || !inAdvertised["candle_metal/candle-metal-llama1-infer"] {
+		t.Errorf("advertised registry set = %v, want exactly candle_metal/candle-metal-llama1-infer", inAdvertised)
+	}
+	if !inDocRoutable["candle_metal/candle-metal-ffmpeg-transcode"] ||
+		!inDocRoutable["candle_metal/candle-metal-scene-render"] {
+		t.Errorf("document-routable set = %v, want CANARY+BOUND media and render", inDocRoutable)
 	}
 }
 

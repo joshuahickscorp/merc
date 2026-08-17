@@ -53,15 +53,15 @@ func TestNonRoutableProfilesDoNotWidenTheSellableSurface(t *testing.T) {
 		}
 	}
 
-	for _, cap := range advertisedRuntimeCapabilities() {
+	for _, cap := range documentAdvertisedCells() {
 		if cap.Runtime != "candle_metal" {
 			t.Errorf("non-routable runtime %q reached the advertised projection: %+v",
 				cap.Runtime, cap)
 		}
 	}
 	// G070: exactly one sellable cell (llama batch_infer). Non-routable
-	// profiles and non-bindable candle cells must not widen this surface.
-	advertised := advertisedRuntimeCapabilities()
+	// profiles and CANARY/non-bindable candle cells must not widen this surface.
+	advertised := documentAdvertisedCells()
 	if len(advertised) != 1 || advertised[0].ID != "candle-metal-llama1-infer" ||
 		advertised[0].Job != "batch_infer" {
 		t.Fatalf("advertised projection = %+v, want exactly candle-metal-llama1-infer/batch_infer",
@@ -828,7 +828,7 @@ func TestWireKindBelongsToTheRuntimeModelPair(t *testing.T) {
 // advertised projection. G070 sells exactly candle-metal-llama1-infer; the
 // Candle MiniLM embed row remains parked (embeddings/s, not settlement geometry).
 func TestTheNewEmbedCellIsNotYetSellable(t *testing.T) {
-	advertised := advertisedRuntimeCapabilities()
+	advertised := documentAdvertisedCells()
 	for _, cap := range advertised {
 		if cap.ID == "llama-cpp-metal-minilm-embed" || cap.ID == "candle-metal-minilm-embed" {
 			t.Fatalf("embed cell %s reached the advertised projection", cap.ID)

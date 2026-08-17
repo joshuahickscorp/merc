@@ -35,6 +35,15 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
+# .lfsconfig fetchexclude skips evidence/perf/**. Dockerfile.control copies
+# those receipts into the image; a pointer file crash-loops the control plane
+# with "cited receipt is not JSON". Hydrate before the build so the check
+# inspects real payloads, then still fail if any copied receipt is a pointer.
+if ! bash scripts/hydrate-release-lfs.sh; then
+  echo "release image contents: FAIL -- could not hydrate evidence/perf LFS payloads" >&2
+  exit 1
+fi
+
 echo "release image contents: building $TAG"
 # Prefer BuildKit; fall back to classic builder when buildx activity files are
 # unwritable (common under sandboxed CI agents / restricted Docker contexts).
