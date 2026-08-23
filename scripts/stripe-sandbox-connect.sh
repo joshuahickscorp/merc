@@ -81,17 +81,47 @@ classify() {
   esac
 }
 
-for name in STRIPE_SECRET_KEY STRIPE_LIVE_SECRET_KEY STRIPE_RESTRICTED_KEY \
+# Live credentials may sit BESIDE the test ones. They may never be the operative
+# key here.
+#
+# The operative slot is STRIPE_SECRET_KEY: it is what every request in this
+# matrix authenticates with, so a live value there would create real connected
+# accounts, real transfers and real payouts. That stays a hard refusal and it is
+# not configurable.
+#
+# The parking slots below are a different thing. They exist so an operator can
+# keep test and live credentials in one environment without this script becoming
+# unrunnable — which is what happened before: any live value in any of these
+# names exited 1 even though the script never read them, so adding live keys
+# "in tandem" silently disabled the test matrix. They are recorded and then
+# unset before any network call, so a later line cannot pick one up by accident.
+#
+# Live money remains NO_GO_PROHIBITED. Enabling it is not a matter of putting a
+# key here: it needs the signed activation in ops/live-payment-activation.schema.json
+# — HMAC, candidate commit, per-transaction caps, expiry, and three named
+# approvals. See docs/LIVE_MONEY_TRANSITION.md.
+if [ "$(classify "${STRIPE_SECRET_KEY:-}")" = live ]; then
+  jq -nc --arg variable STRIPE_SECRET_KEY \
+    '{schema_version:1,kind:"stripe_connect_remainder",status:"LIVE CREDENTIAL REFUSED",
+      provider_mode:"refused",network_accessed:false,secret_values_printed:false,
+      live_mode:"PROHIBITED",refused_variable:$variable,
+      reason:"the operative key must be test-class; a live key here would move real money"}'
+  exit 1
+fi
+
+parked_live=()
+for name in STRIPE_LIVE_SECRET_KEY STRIPE_RESTRICTED_KEY \
   STRIPE_PUBLISHABLE_KEY NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY; do
-  value="${!name:-}"
-  if [ "$(classify "$value")" = live ]; then
-    jq -nc --arg variable "$name" \
-      '{schema_version:1,kind:"stripe_connect_remainder",status:"LIVE CREDENTIAL REFUSED",
-        provider_mode:"refused",network_accessed:false,secret_values_printed:false,
-        live_mode:"PROHIBITED",refused_variable:$variable}'
-    exit 1
+  if [ "$(classify "${!name:-}")" = live ]; then
+    parked_live+=("$name")
+    unset "$name"
   fi
 done
+if [ "${#parked_live[@]}" -gt 0 ]; then
+  printf 'stripe-sandbox-connect: live credential present and NOT used (scrubbed): %s\n' \
+    "${parked_live[*]}" >&2
+fi
+export MERC_STRIPE_PARKED_LIVE_VARIABLES="${parked_live[*]:-}"
 
 if [ "${1:-}" = "--self-test" ]; then
   python3 "$ROOT/scripts/lib/stripe-sandbox-connect.py" --self-test
