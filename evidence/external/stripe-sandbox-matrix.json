@@ -587,7 +587,7 @@
           "country": "CA",
           "capabilities[card_payments][requested]": "true",
           "capabilities[transfers][requested]": "true",
-          "metadata[cx_matrix_run]": "20260823T212217Z-l9cn",
+          "metadata[cx_matrix_run]": "20260823T215038Z-l9cn",
           "metadata[cx_purpose]": "connect_remainder"
         },
         "dry_run_verified": true,
@@ -611,7 +611,7 @@
           "amount": "100",
           "currency": "cad",
           "destination": "<connected_account>",
-          "metadata[cx_matrix_run]": "20260823T212217Z-l9cn"
+          "metadata[cx_matrix_run]": "20260823T215038Z-l9cn"
         },
         "dry_run_verified": true,
         "sent": false
@@ -708,7 +708,7 @@
         "stripe_account": null,
         "fields": {
           "follow_up_post": "/v1/accounts/<connected_account>",
-          "business_profile[product_description]": "merc connect remainder 20260823T212217Z-l9cn"
+          "business_profile[product_description]": "merc connect remainder 20260823T215038Z-l9cn"
         },
         "dry_run_verified": true,
         "sent": false
@@ -737,7 +737,7 @@
             "payout.paid",
             "payout.failed"
           ],
-          "description": "merc connect remainder 20260823T212217Z-l9cn"
+          "description": "merc connect remainder 20260823T215038Z-l9cn"
         },
         "dry_run_verified": true,
         "sent": false
@@ -759,7 +759,7 @@
   "connect_remainder": {
     "command": "scripts/stripe-sandbox-connect.sh",
     "alias": "scripts/stripe-sandbox.sh connect",
-    "run_id": "20260823T212217Z-l9cn",
+    "run_id": "20260823T215038Z-l9cn",
     "status": "BLOCKED",
     "exit_reason": "blocked: Connect not signed up",
     "stopped_at": null,
@@ -798,14 +798,14 @@
         "step": "GET /v1/accounts",
         "status": "ok",
         "http": 200,
-        "count": 0,
-        "detail": "listed 0 connected account id(s); none synthesized"
+        "count": 3,
+        "detail": "listed 3 connected account id(s); none synthesized"
       },
       {
         "step": "POST /v1/webhook_endpoints (connect=true probe)",
         "status": "ok",
         "http": 200,
-        "id": "we_1U7iqMCwPLrR4vaYYKnwKj7W",
+        "id": "we_1U7jHoCwPLrR4vaYX4W414LW",
         "connect_flag": null,
         "api_version": "2025-06-30.basil",
         "deleted": true,
@@ -824,7 +824,7 @@
           "country": "CA",
           "capabilities[card_payments][requested]": "true",
           "capabilities[transfers][requested]": "true",
-          "metadata[cx_matrix_run]": "20260823T212217Z-l9cn",
+          "metadata[cx_matrix_run]": "20260823T215038Z-l9cn",
           "metadata[cx_purpose]": "connect_remainder"
         },
         "dry_run_verified": true,
@@ -840,7 +840,7 @@
           "amount": "100",
           "currency": "cad",
           "destination": "<connected_account>",
-          "metadata[cx_matrix_run]": "20260823T212217Z-l9cn"
+          "metadata[cx_matrix_run]": "20260823T215038Z-l9cn"
         },
         "dry_run_verified": true,
         "sent": false
@@ -905,7 +905,7 @@
         "stripe_account": null,
         "fields": {
           "follow_up_post": "/v1/accounts/<connected_account>",
-          "business_profile[product_description]": "merc connect remainder 20260823T212217Z-l9cn"
+          "business_profile[product_description]": "merc connect remainder 20260823T215038Z-l9cn"
         },
         "dry_run_verified": true,
         "sent": false
@@ -926,7 +926,7 @@
             "payout.paid",
             "payout.failed"
           ],
-          "description": "merc connect remainder 20260823T212217Z-l9cn"
+          "description": "merc connect remainder 20260823T215038Z-l9cn"
         },
         "dry_run_verified": true,
         "sent": false
@@ -935,8 +935,8 @@
     "webhook_recreate_probe": {
       "stopped": false,
       "http": 200,
-      "probe_url": "https://mercmerc.net/v1/stripe/connect-webhook-probe/20260823T212217Z-l9cn",
-      "probe_id": "we_1U7iqMCwPLrR4vaYYKnwKj7W",
+      "probe_url": "https://mercmerc.net/v1/stripe/connect-webhook-probe/20260823T215038Z-l9cn",
+      "probe_id": "we_1U7jHoCwPLrR4vaYX4W414LW",
       "requested_connect": true,
       "requested_api_version": "2025-06-30.basil",
       "returned_connect": null,
