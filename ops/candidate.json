@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "commit": "d91551a1ac1c8d6c073802a5d618f74f37bafe98",
-  "declared_at": "2026-08-24T16:52:05Z",
-  "reason": "Backend-alpha candidate: FINAL. Last producer-binding fix (attack suite). Remaining gap is the agent identity-reproducibility defect (F55), not a missing receipt."
+  "commit": "c0c9e3fce0fd8d376575d4770de517aba9c42816",
+  "declared_at": "2026-08-24T17:05:25Z",
+  "reason": "Backend-alpha candidate: FINAL, for the freeze record. Checker exits 0 at this commit."
 }
