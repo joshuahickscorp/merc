@@ -19,20 +19,20 @@
     "image_contains_candidate_code": true
   },
   "candidate": {
-    "image": "ghcr.io/joshuahickscorp/computexchange-control@sha256:3029aabc06043273c40ebe5dd66f01bf6cad9c9a85c54ad4b22aa8d013d18bdb",
-    "built_from_commit": "5470cd75d0eee2d27395704022e559910cca4ca1",
-    "declared_candidate": "703edfccf0c46fe94cb2026242367e14353d4303",
+    "image": "ghcr.io/joshuahickscorp/computexchange-control@sha256:358621edc3582f2869eee4dc5d586a20ef528e8396ef8617a2556633729c9bef",
+    "built_from_commit": "b7336ffa5a4b28d2c27fc4c3d8a057d3c04a8dd3",
+    "declared_candidate": "974f176675e08cb144afa92aff71baca221f5a52",
     "delta_to_candidate": [
       "ops/candidate.json"
     ],
     "delta_is_ops_only": true
   },
   "prior": {
-    "image": "ghcr.io/joshuahickscorp/computexchange-control@sha256:99db4d481d7516f337be70afecc1f759570bf5848cf6bb7f46dd232466e3e64b"
+    "image": "ghcr.io/joshuahickscorp/computexchange-control@sha256:9f1f9882efd979fcfcc122589c64c7589a68aefc1dc69f2a999679f133ede088"
   },
-  "workflow_run": "https://github.com/joshuahickscorp/merc/actions/runs/32692980821",
+  "workflow_run": "https://github.com/joshuahickscorp/merc/actions/runs/32694453372",
   "secret_values_recorded": false,
-  "source_commit": "703edfccf0c46fe94cb2026242367e14353d4303",
+  "source_commit": "974f176675e08cb144afa92aff71baca221f5a52",
   "produced_by": "scripts/produce-registry-receipts.py",
   "binding_status": "BOUND"
 }
