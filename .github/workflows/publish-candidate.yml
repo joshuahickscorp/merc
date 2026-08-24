@@ -29,6 +29,14 @@ jobs:
           fetch-depth: 0
       - name: Verify source identity
         run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Hydrate evidence/perf LFS bodies
+        # actions/checkout lfs:true runs a plain `git lfs pull`, which honours
+        # .lfsconfig fetchexclude = evidence/perf/**. The Dockerfile COPYs those
+        # receipts into the image and control fails closed at boot on a pointer
+        # (a cited pricing receipt cannot be a pointer). Without this step the
+        # image ships pointers and crash-loops. The script clears the exclude,
+        # pulls evidence/perf/**, and fails closed on any unresolved pointer.
+        run: bash scripts/hydrate-release-lfs.sh
       - name: Authenticate to GHCR
         run: printf '%s' "$GITHUB_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
         env:
