@@ -22,6 +22,7 @@ unset STRIPE_SECRET_KEY STRIPE_LIVE_SECRET_KEY STRIPE_RESTRICTED_KEY \
 
 command -v docker >/dev/null 2>&1 || { echo 'release-staging: docker is required' >&2; exit 1; }
 command -v jq >/dev/null 2>&1 || { echo 'release-staging: jq is required' >&2; exit 1; }
+command -v python3 >/dev/null 2>&1 || { echo 'release-staging: python3 is required' >&2; exit 1; }
 docker compose -f "$COMPOSE" config --no-interpolate --format json > "$TEMP/rendered.json"
 
 case "$MODE" in
@@ -63,6 +64,7 @@ case "$MODE" in
     for required in scripts/backup.sh scripts/go-closure-rollback-rehearsal.sh ops/monitoring/alertmanager.yml; do
       [ -f "$ROOT/$required" ] || { echo "release-staging: missing $required" >&2; exit 1; }
     done
+    payload="$TEMP/staging-validation.json"
     jq -n '{schema_version:1,status:"PASS",supported_deployment_system:"Docker Compose v2",
       checks:{immutable_image_contract:true,no_latest:true,secret_references:true,
         non_root_control:true,dropped_capabilities:true,read_only_control:true,
@@ -70,7 +72,23 @@ case "$MODE" in
         tls_only_staging_mode:true,backup_schedule:true,alert_routes:true,
         rollback_digest_contract:true,source_identity_contract:true,
         payment_authority_contract:{mode:"test",provider:"stripe",currency:"cad"}},
-      deployment_evidence:"NOT EXECUTED"}'
+      deployment_evidence:"NOT EXECUTED"}' > "$payload"
+    python3 - "$ROOT" "$payload" "scripts/release-staging.sh" <<'PY'
+import json, sys
+from pathlib import Path
+
+root, path, producer = sys.argv[1], sys.argv[2], sys.argv[3]
+sys.path.insert(0, str(Path(root) / "scripts"))
+from lib.receipt_binding import head_commit, stamp
+
+p = Path(path)
+doc = json.loads(p.read_text(encoding="utf-8"))
+stamp(doc, head_commit(root), producer)
+p.write_text(json.dumps(doc, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+PY
+    mkdir -p "$ROOT/evidence/autonomous"
+    cp "$payload" "$ROOT/evidence/autonomous/staging-validation.json"
+    cat "$ROOT/evidence/autonomous/staging-validation.json"
     ;;
   *) echo 'usage: scripts/release-staging.sh render|validate' >&2; exit 2 ;;
 esac

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-for command_name in docker age age-keygen jq shasum; do
+for command_name in docker age age-keygen jq shasum python3; do
   command -v "$command_name" >/dev/null 2>&1 || { echo "local-independent-restore: $command_name is required" >&2; exit 1; }
 done
 
@@ -187,6 +187,19 @@ merc_emit_bound_json "$receipt" "scripts/local-independent-restore.sh" "$payload
   --model-na "restore drill does not load model weights" \
   --image-na "drill uses ephemeral docker images; not programme image digests" \
   --corpus-na "no external corpus; synthetic seed only"
+python3 - "$ROOT" "$receipt" "scripts/local-independent-restore.sh" <<'PY'
+import json, sys
+from pathlib import Path
+
+root, path, producer = sys.argv[1], sys.argv[2], sys.argv[3]
+sys.path.insert(0, str(Path(root) / "scripts"))
+from lib.receipt_binding import head_commit, stamp
+
+p = Path(path)
+doc = json.loads(p.read_text(encoding="utf-8"))
+stamp(doc, head_commit(root), producer)
+p.write_text(json.dumps(doc, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+PY
 rm -f "$payload"
 echo "PASS logical independent restore; external offsite restore $offsite_marker"
 echo "$receipt"

@@ -24,15 +24,7 @@
     }
   },
   "deployment_evidence": "NOT EXECUTED",
-  "binding_status": "UNBOUND",
-  "missing_identity_fields": [
-    "source_commit",
-    "build_digest",
-    "model_artifact_digest",
-    "image_digest",
-    "harness_revision",
-    "corpus_digest",
-    "exact_config",
-    "raw_samples"
-  ]
+  "source_commit": "fa47cafe39570db1ba1d0551d6d664780264e826",
+  "produced_by": "scripts/release-staging.sh",
+  "binding_status": "BOUND"
 }
