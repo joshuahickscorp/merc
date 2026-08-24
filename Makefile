@@ -298,20 +298,7 @@ release-doctor:
 	bash scripts/release-doctor.sh $(if $(CHECK),--check $(CHECK),)
 
 stripe-simulate:
-	mkdir -p evidence/autonomous
-	@tmp="$$(mktemp $${TMPDIR:-/tmp}/merc-payment-sim.XXXXXX.json)"; \
-	  (cd control && go run . release stripe-simulate --sequences 4096) > "$$tmp"; \
-	  python3 scripts/write-bound-evidence.py \
-	    --out evidence/autonomous/payment-simulator.json \
-	    --harness 'control/stripe_simulator.go (release stripe-simulate)' \
-	    --payload-file "$$tmp" \
-	    --build-binary control/stripe_simulator.go \
-	    --exact-config 'deterministic stripe simulator; sequences=4096' \
-	    --raw-samples 'embedded generated_sequences and scenario outcomes' \
-	    --model-na 'payment simulator does not load model weights' \
-	    --image-na 'no container image in this measurement' \
-	    --corpus-na 'no external corpus'; \
-	  rm -f "$$tmp"
+	python3 scripts/produce-payment-simulator.py
 	jq -e '.status == "SIMULATED PASS" and .evidence_label == "SIMULATED" and .generated_sequences.count == 4096 and .binding_status == "BOUND"' evidence/autonomous/payment-simulator.json >/dev/null
 
 test-money-contract:

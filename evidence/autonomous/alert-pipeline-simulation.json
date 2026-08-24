@@ -28,15 +28,33 @@
     "receiver_value_recorded": false,
     "attempts": {}
   },
-  "binding_status": "UNBOUND",
-  "missing_identity_fields": [
-    "source_commit",
-    "build_digest",
-    "model_artifact_digest",
-    "image_digest",
-    "harness_revision",
-    "corpus_digest",
-    "exact_config",
-    "raw_samples"
-  ]
+  "source_commit": "fa47cafe39570db1ba1d0551d6d664780264e826",
+  "produced_by": "scripts/alert-pipeline-simulation.py",
+  "binding_status": "BOUND",
+  "producer_identity": {
+    "source_commit": {
+      "value": "fa47cafe39570db1ba1d0551d6d664780264e826"
+    },
+    "build_digest": {
+      "value": "e357e5ca0f18ac21a911e80907574c31052b81310490bab3cc4824adf6e19493"
+    },
+    "model_artifact_digest": {
+      "na": "alert pipeline simulation does not load model weights"
+    },
+    "image_digest": {
+      "na": "no container image in this measurement"
+    },
+    "harness_revision": {
+      "value": "scripts/alert-pipeline-simulation.py"
+    },
+    "corpus_digest": {
+      "na": "no external corpus"
+    },
+    "exact_config": {
+      "value": "profile=check"
+    },
+    "raw_samples": {
+      "value": "embedded checks and attempt_counts"
+    }
+  }
 }

@@ -21,6 +21,7 @@ from urllib.parse import urlparse
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 from lib.evidence_binding import EvidenceBindingError, emit_bound_json  # noqa: E402
+from lib.receipt_binding import head_commit, stamp  # noqa: E402
 
 
 class Receiver(BaseHTTPRequestHandler):
@@ -193,6 +194,7 @@ def main() -> int:
         }
         destination = Path(args.out)
         destination.parent.mkdir(parents=True, exist_ok=True)
+        stamp(receipt, head_commit(str(ROOT)), "scripts/alert-pipeline-simulation.py")
         try:
             emit_bound_json(
                 destination,
