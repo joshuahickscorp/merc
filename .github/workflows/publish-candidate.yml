@@ -110,7 +110,7 @@ jobs:
             attest --yes --type spdxjson \
             --predicate candidate-sbom.spdx.json "$IMAGE_REF"
           go run github.com/sigstore/cosign/v2/cmd/cosign@v2.6.1 \
-            attest --yes --type slsaprovenance \
+            attest --yes --type slsaprovenance1 \
             --predicate candidate-provenance.json "$IMAGE_REF"
           go run github.com/sigstore/cosign/v2/cmd/cosign@v2.6.1 \
             sign --yes "$PRIOR_IMAGE_REF"
@@ -118,7 +118,7 @@ jobs:
             attest --yes --type spdxjson \
             --predicate prior-sbom.spdx.json "$PRIOR_IMAGE_REF"
           go run github.com/sigstore/cosign/v2/cmd/cosign@v2.6.1 \
-            attest --yes --type slsaprovenance \
+            attest --yes --type slsaprovenance1 \
             --predicate prior-provenance.json "$PRIOR_IMAGE_REF"
       - name: Pull and verify digest and signatures
         run: |
@@ -141,7 +141,7 @@ jobs:
             --certificate-oidc-issuer "$ISSUER" "$IMAGE_REF" \
             > candidate-attestation-verification.json
           go run github.com/sigstore/cosign/v2/cmd/cosign@v2.6.1 \
-            verify-attestation --type slsaprovenance \
+            verify-attestation --type slsaprovenance1 \
             --certificate-identity "$IDENTITY" \
             --certificate-oidc-issuer "$ISSUER" "$IMAGE_REF" \
             > candidate-provenance-verification.json
@@ -155,7 +155,7 @@ jobs:
             --certificate-oidc-issuer "$ISSUER" "$PRIOR_IMAGE_REF" \
             > prior-attestation-verification.json
           go run github.com/sigstore/cosign/v2/cmd/cosign@v2.6.1 \
-            verify-attestation --type slsaprovenance \
+            verify-attestation --type slsaprovenance1 \
             --certificate-identity "$IDENTITY" \
             --certificate-oidc-issuer "$ISSUER" "$PRIOR_IMAGE_REF" \
             > prior-provenance-verification.json

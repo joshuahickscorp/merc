@@ -760,12 +760,37 @@ def _soak24_samples_corroborate(
 def qualifying_24h_soak_proven(doc: Any) -> bool:
     """Qualifying ≥24 h soak on persistent staging (3 pts).
 
-    The wired path evidence/external/qualifying-soak-24h.json is written by
-    scripts/soak/soak24.py as qualifying_24h_https_observer v1 (the
-    go_closure_soak producer writes under evidence/go-closure/ and is not
-    this row). Demand that observer shape. Do not award on an in-progress
-    window, a redeploy, a payment-envelope break, or a receipt that does
-    not independently re-derive ≥86400 s from the JSONL sample stream.
+    KNOWN DEFECT, RECORDED RATHER THAN RUSHED. This row is currently
+    UNEARNABLE BY CONSTRUCTION and scores 0/3 for everyone.
+
+    The shape demanded below is qualifying_24h_https_observer v1, written by
+    scripts/soak/soak24.py — but that harness contains an explicit self-guard
+    (soak24.py write_receipt) that die()s rather than write status=PASS or
+    qualification.qualifies_for_24h_gate=true. So nothing can ever satisfy
+    these checks.
+
+    That guard is correct, and the earlier diagnosis of this function as a
+    "stale checker" was wrong. soak24.py is a deliberately weaker HTTPS
+    observer that polls /version and /readyz; the gate was written for
+    scripts/go-closure-soak.sh, which runs a real load soak and does set
+    qualifies_for_24h_gate=true at qualification=qualifying with a >=86400 s
+    window. The observer refusing to claim a gate meant for the load soak is
+    the harness being honest, not the checker being out of date. The mistake
+    was re-pointing the SHAPE at the observer instead of re-pointing the PATH
+    at the producer that can earn it.
+
+    Not repaired here on purpose. The gate is classified POST_ALPHA in
+    ops/backend-alpha-gates.json, so it costs three points on the hundred-point
+    Level B bar and NOTHING on backend alpha. Rewriting a release gate to
+    accept a different receipt schema, in a hurry, is how a bar gets quietly
+    lowered. Refusing and printing the reason misleads nobody; the repair
+    belongs to the next candidate line, where go-closure-soak.sh output is
+    wired to this path and the field checks below are rewritten against the
+    schema-v2 go_closure_soak document.
+
+    Everything below still describes the observer: do not award on an
+    in-progress window, a redeploy, a payment-envelope break, or a receipt
+    that does not independently re-derive >=86400 s from the JSONL stream.
     Local 60 s / 300 s soaks and iteration mode cannot pass.
     """
     if not isinstance(doc, dict):
