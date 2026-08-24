@@ -243,6 +243,12 @@ var declaredMoneyAuthoritySinks = []string{
 // This is the machine-checked half of View 1; the sink catalogue above is
 // the human-readable core. Edit deliberately when observation changes.
 var declaredMoneyAuthority = []string{
+	// Spot quoting is money authority: PriceSpotQuotePlan sets the MAXIMUM
+	// AUTHORIZED CHARGE a buyer accepts, and ProduceSpotQuote is its entry
+	// point. Declared deliberately rather than allowlisted away — a producer
+	// that decides the ceiling belongs in this census by definition.
+	"PriceSpotQuotePlan",
+	"ProduceSpotQuote",
 	"AccrueRiskReserveAtSettlementTx",                     // risk_reserve_ledger.go
 	"BuildCataloguePriceSchedule",                         // pricing.go
 	"BuildEconomicPlan",                                   // economic_plan.go
