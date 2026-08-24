@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "commit": "703edfccf0c46fe94cb2026242367e14353d4303",
-  "declared_at": "2026-08-24T05:17:08Z",
-  "reason": "Backend-alpha candidate: FINAL. Includes the r7 cell re-seal (live agent enrols) and the 2.2x pricing correction. No code lands after this."
+  "commit": "974f176675e08cb144afa92aff71baca221f5a52",
+  "declared_at": "2026-08-24T05:41:47Z",
+  "reason": "Backend-alpha candidate: FINAL v2. r7 re-seal + pricing correction + the three r7-consequence test fixes. Full make test green (modulo env-gated webhook secrets). No code after this."
 }
