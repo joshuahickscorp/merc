@@ -151,14 +151,14 @@
       "id": "named_reviewer:staging-attack-rehearsal",
       "kind": "named_reviewer",
       "receipt": "evidence/external/staging-attack-rehearsal.json",
-      "classification": "PUBLIC_LAUNCH",
-      "owned_by_level": "level_c_live_money",
-      "harm": "A machine rehearsal is accepted as the public-surface security bar because it never drove the hostname it names, and nobody is accountable for having looked.",
+      "classification": "POST_ALPHA",
+      "owned_by_level": "level_b_private_canary",
+      "harm": "A private-canary participant, or an adversary who can reach the advertised TLS hostname, is exposed because a machine rehearsal is accepted as the security bar and nobody named is accountable for having looked. That harm first becomes reachable at POST_ALPHA, when the Level B private canary advertises a real attack surface.",
       "harm_reachable_in_this_alpha": false,
       "necessary_before_first_controlled_alpha_transaction": false,
-      "smaller_control": "The executed public-hostname rehearsal (attacks_executed, per-class results, surface/qualification/hostname) is independently re-runnable and remains the ALPHA_BLOCKER. Participants are operator-controlled, there is no public signup, and no live money moves.",
+      "smaller_control": "The executed public-hostname rehearsal (attacks_executed, per-class results, surface/qualification/hostname) is independently re-runnable and remains the ALPHA_BLOCKER. The default-deny authorization matrix and the local technical tabletop cover in-process authz for this alpha's operator-controlled participants.",
       "later_production_or_public_launch_requirement": true,
-      "reachable_harm_statement": "The named reviewer protects against a paper pass that never drove the surface it names, with nobody accountable for having looked. At backend alpha that harm is bounded: the rehearsal's executed count and per-class results are recorded and independently re-runnable, so a receipt that did not drive mercmerc.net is already refused; participants are operator-controlled, there is no public signup, and no live money moves. At public launch the same harm is not bounded: strangers arrive, and 'a script said it was fine' is not an answer anyone can be held to. Named review of the public-surface rehearsal remains the Level C bar in full."
+      "reachable_harm_statement": "At backend alpha the named-reviewer harm is not reachable: participants are operator-controlled, there is no public signup, and the executed rehearsal's count and per-class results are independently re-runnable, so a receipt that did not drive the hostname is already refused. The default-deny matrix and the local security tabletop cover in-process authz. That harm first becomes reachable at POST_ALPHA, when the Level B private canary advertises a persistent TLS hostname that an adversary can attack. Named human review of the public-hostname rehearsal is the Level B bar in full; it is not delayed until PUBLIC_LAUNCH."
     },
     {
       "id": "receipt:money_and_reconciliation:evidence/autonomous/payment-simulator.json",
@@ -560,14 +560,14 @@
       "domain": "website_and_buyer_usability",
       "receipt": "evidence/autonomous/website-validation.json",
       "points": 2,
-      "classification": "ALPHA_BLOCKER",
-      "owned_by_level": "level_backend_alpha",
-      "harm": "A public buyer cannot complete the website flow, or the site leaks credentials, or it fails accessibility \u2014 against a shipped consumer website.",
-      "harm_reachable_in_this_alpha": true,
-      "necessary_before_first_controlled_alpha_transaction": true,
-      "smaller_control": "None. The buyer workspace is served on public TLS; there is no smaller substitute for validating that page.",
-      "later_production_or_public_launch_requirement": false,
-      "reachable_harm_statement": "https://mercmerc.net/buyer is a public HTML buyer workspace with Stripe.js in the CSP, and /supplier, /admin, and /prices answer too. A broken, leaky, or inaccessible buyer flow is a reachable start-gate harm on the shipped site."
+      "classification": "PUBLIC_LAUNCH",
+      "owned_by_level": "level_c_live_money",
+      "harm": "A stranger arriving at an unmaintained public website cannot complete the buyer flow, or the site leaks credentials, or it fails accessibility. That harm first becomes reachable at PUBLIC_LAUNCH, not during a two-party backend alpha.",
+      "harm_reachable_in_this_alpha": false,
+      "necessary_before_first_controlled_alpha_transaction": false,
+      "smaller_control": "The known buyer and known supplier complete the controlled alpha transaction on the terminal-native backend API. Default-deny authorization, the local security tabletop, and operator allowlisting bound that surface. No website is required.",
+      "later_production_or_public_launch_requirement": true,
+      "reachable_harm_statement": "The backend-alpha contract is a single controlled transaction between one known buyer and one known supplier on a terminal-native backend; no website is shipped or required for that transaction to be safe. A stranger arriving at an unmaintained public /buyer, /supplier, /admin, or /prices surface first becomes reachable at PUBLIC_LAUNCH. Level B may still score this receipt on the full 100-point bar; it is not an ALPHA_BLOCKER of the thing being shipped."
     },
     {
       "id": "soak:alpha-derived",
