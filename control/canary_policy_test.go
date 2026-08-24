@@ -190,13 +190,96 @@ func independentSupplierCanaryForTest() CanaryPolicy {
 }
 
 func TestOperatorReservedWorkerIDMatchesStagingAllowlistIdentity(t *testing.T) {
-	got := operatorReservedWorkerID(1)
-	want := uuid.MustParse("7d2bb6c8-c45a-505e-ae39-6b9fc73989f5")
-	if got != want {
-		t.Fatalf("operator-reserved worker 1 = %s, want the alpha-participants identity %s", got, want)
+	// Published identities, in N order. Derivation, this list, and the
+	// staging allowlist must agree; a one-sided pin lets the constant and
+	// the file drift apart.
+	published := []uuid.UUID{
+		uuid.MustParse("7d2bb6c8-c45a-505e-ae39-6b9fc73989f5"),
+		uuid.MustParse("c0ac9f01-7f05-5b49-8e1f-74af794e33fe"),
 	}
-	if !isOperatorReservedWorkerID(got) || isOperatorReservedWorkerID(uuid.New()) {
-		t.Fatal("operator-reserved classification does not match the reserved namespace")
+	if len(published) != maxOperatorReservedWorkers {
+		t.Fatalf("published reserved identities = %d, want maxOperatorReservedWorkers=%d",
+			len(published), maxOperatorReservedWorkers)
+	}
+
+	want := make(map[uuid.UUID]struct{}, maxOperatorReservedWorkers)
+	for n, id := range published {
+		got := operatorReservedWorkerID(n + 1)
+		if got != id {
+			t.Fatalf("operator-reserved worker %d = %s, want the published identity %s", n+1, got, id)
+		}
+		if !isOperatorReservedWorkerID(got) {
+			t.Fatalf("operator-reserved worker %d = %s is not classified as reserved", n+1, got)
+		}
+		want[id] = struct{}{}
+	}
+	if isOperatorReservedWorkerID(uuid.New()) {
+		t.Fatal("a random UUID was classified as operator-reserved")
+	}
+
+	raw, err := os.ReadFile("../ops/staging/alpha-participants.json")
+	if err != nil {
+		t.Fatalf("read staging allowlist: %v", err)
+	}
+	var doc struct {
+		Workers []struct {
+			ID   string `json:"id"`
+			Role string `json:"role"`
+		} `json:"workers"`
+		Ceilings struct {
+			MaxActiveWorkers int `json:"max_active_workers"`
+		} `json:"ceilings"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("parse staging allowlist: %v", err)
+	}
+
+	got := make(map[uuid.UUID]struct{}, len(doc.Workers))
+	for _, worker := range doc.Workers {
+		id, parseErr := uuid.Parse(worker.ID)
+		if parseErr != nil {
+			t.Fatalf("allowlist worker id %q: %v", worker.ID, parseErr)
+		}
+		if worker.Role != "operator_reserved_worker" {
+			t.Fatalf("allowlist worker %s has role %q, want operator_reserved_worker", id, worker.Role)
+		}
+		if _, dup := got[id]; dup {
+			t.Fatalf("allowlist names %s twice", id)
+		}
+		got[id] = struct{}{}
+	}
+	for id := range want {
+		if _, ok := got[id]; !ok {
+			t.Fatalf("ops/staging/alpha-participants.json is missing operator-reserved worker %s", id)
+		}
+	}
+	for id := range got {
+		if _, ok := want[id]; !ok {
+			t.Fatalf("ops/staging/alpha-participants.json names %s, which is not an operator-reserved identity", id)
+		}
+	}
+	if doc.Ceilings.MaxActiveWorkers != maxOperatorReservedWorkers {
+		t.Fatalf("max_active_workers=%d, want %d so every reserved identity is admissible",
+			doc.Ceilings.MaxActiveWorkers, maxOperatorReservedWorkers)
+	}
+
+	filePolicy := CanaryPolicy{
+		Enabled:           true,
+		ApprovedWorkerIDs: got,
+		MaxActiveWorkers:  doc.Ceilings.MaxActiveWorkers,
+	}
+	if filePolicy.admittedSupplierClass() != supplierParticipantClassOperatorControlled {
+		t.Fatalf("staging allowlist class=%q, want operator_controlled", filePolicy.admittedSupplierClass())
+	}
+	if filePolicy.admissibleSupplierCount() != maxOperatorReservedWorkers {
+		t.Fatalf("staging admissible suppliers=%d, want %d",
+			filePolicy.admissibleSupplierCount(), maxOperatorReservedWorkers)
+	}
+	if filePolicy.requiresHeterogeneousHoneypot() {
+		t.Fatal("two admissible operator-reserved suppliers must not require a heterogeneous honeypot")
+	}
+	if err := validateCurrentUniformCanaryAuthority(filePolicy); err != nil {
+		t.Fatalf("staging two-supplier envelope was refused: %v", err)
 	}
 }
 

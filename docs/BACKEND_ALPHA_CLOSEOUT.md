@@ -10,27 +10,31 @@ Where a claim came from driving the live plane rather than from a local test,
 this document says so, because the difference turned out to matter more than
 once.
 
-Numbers in this file were taken at tree HEAD `b6dd531e` against the live plane
-that answers `https://mercmerc.net`. That plane serves commit `9e31c65b`, which
-is an ancestor of HEAD, not HEAD itself. If a later sentence disagrees with the
-validator or with `/version`, the validator and `/version` win.
+Numbers in this file were taken at tree HEAD `ca6a6d3a` against the live plane
+that answers `https://mercmerc.net`. That plane serves commit `0ffbd52d`, which
+is an ancestor of HEAD, not HEAD itself (seven commits behind). If a later
+sentence disagrees with the validator or with `/version`, the validator and
+`/version` win.
 
 ## Posture
 
 | | |
 |---|---|
 | **Backend alpha** | NOT READY — `ALPHA_ENGINEERING_READY: NO_GO`. Conditions 4–6 PASS locally and are unproven on live staging; 7 PARTIAL; 14 FAIL. The open `ALPHA_BLOCKER` P1 is `P1-STRIPE-TEST`. |
-| **Stripe test mode** | proven up to the Connect boundary. The remainder is Connect signup, a Canadian test connected account, a `connect=true` webhook, and a passing matrix — not one dashboard click. |
-| **Controlled staging** | READY — public TLS, live commit `9e31c65b`, `/readyz` 200, `payment_mode=test`, real Postgres and object storage |
-| **Security** | local suite 1551 executed / 0 findings, **plus** 265 executed against the public endpoint `https://mercmerc.net` / 0 findings. The gate still refuses: it wants a named human reviewer, and that field is honestly unmet. |
+| **Stripe test mode** | proven up to the Connect platform-profile wall. Connect is signed up; the remainder is the Connect platform profile, a Canadian test connected account, a `connect=true` webhook, and a passing matrix — not one dashboard click. |
+| **Controlled staging** | READY — public TLS, live commit `0ffbd52d`, `/readyz` 200, `payment_mode=test`, real Postgres and object storage |
+| **Security** | public-hostname rehearsal 265 executed against `https://mercmerc.net` / 0 findings, `kind=external_staging_attack_rehearsal`, `qualification=EXTERNAL`, `status=PASS`. Validator `security: 15/15`. Named human reviewer is honestly unmet and is a `PUBLIC_LAUNCH` obligation, not an alpha point. |
 | **Recovery** | 11/11 failure modes PASS; offsite restore proven |
 | **CLI/TUI** | next product arc, not an alpha prerequisite |
-| **Website** | port 443 is public and serving, so the two gates rescoped on "no public website" came back into alpha scope — the denominator moved 91 → 94 |
+| **Website** | port 443 is public and serving, so the two gates rescoped on "no public website" came back into alpha scope — the denominator moved 91 → 94; `website_and_buyer_usability` is 2/2 |
 | **Live money** | `NO_GO_PROHIBITED` and unchanged |
 
-Scores: **Level B 87/100** (threshold 95, P0=0, P1=5, `NO_GO`) ·
-**backend alpha 87/94**, `ALPHA_BLOCKER_P1=1`,
+Scores: **Level B 88/100** (threshold 95, P0=0, P1=5, `NO_GO`) ·
+**backend alpha 88/94**, `ALPHA_BLOCKER_P1=1`,
 `ALPHA_ENGINEERING_READY: NO_GO`, `EXTERNAL_ALPHA_PROVEN: NO_GO`.
+The 87 → 88 step is the named-reviewer requirement moving to `PUBLIC_LAUNCH`
+while the executed public rehearsal stayed the alpha security point. P1 count
+did not change.
 
 Open P1s fell from eight to five when `P1-STAGING`, `P1-RECOVERY-SOAK` and
 `P1-OFFSITE-RESTORE` were satisfied by evidence, not by reclassification. The
@@ -51,9 +55,11 @@ only two of those three closes. That was an off-by-one. The validator prints
 
 ## What the rescoping did and did not do
 
-44 gates were classified, each with a named reachable harm: 28 `ALPHA_BLOCKER`,
-7 `ALPHA_CONTROL`, 7 `PUBLIC_LAUNCH`, 2 `POST_ALPHA`. Only 9 of 44 moved out of
-alpha scope.
+45 gates are classified, each with a named reachable harm: 30 `ALPHA_BLOCKER`,
+7 `ALPHA_CONTROL`, 7 `PUBLIC_LAUNCH`, 1 `POST_ALPHA`. 8 of 45 sit outside alpha
+scope. The 45th gate is `named_reviewer:staging-attack-rehearsal`, added as
+`PUBLIC_LAUNCH` rather than as a deletion of the reviewer requirement. The
+24-hour soak remains the one `POST_ALPHA` duration bar.
 
 **Nothing was deleted.** Level B still derives against the full 100-point bar,
 `go_threshold` is still 95, and Level C is untouched. A gate rescoped to
@@ -144,7 +150,9 @@ none of the nine was the currency defect.
 
 Those nine were later closed at `8142e6e5`, which reported `ok merc/control`, 0
 failures, against the compose Postgres. `git log 8142e6e5..HEAD -- control/` is
-empty, so that is still the last measurement of the package. The same commit
+no longer empty — four later commits touched `control/` (`9ba9884e`,
+`e37a25c1`, `0ffbd52d`, `77b36ea9`) — so that landing is not the last
+measurement of the package. The same commit
 narrowed the L2 Stripe matrix so missing dashboard secrets install synthetic
 `whsec_` values and the test continues — a smaller claim than "this process
 holds the staging webhook pair", and not a close of `P1-STRIPE-TEST`. That
@@ -165,57 +173,72 @@ pointed at the wrong database.
 
 | # | Condition | Status |
 |---|---|---|
-| 1 | Current candidate boots | **PASS** — live `GET https://mercmerc.net/version` serves `9e31c65b27860d659d7ce972e2de7052691c0642` (`go1.26.6`, `modified=false`); `GET /readyz` is 200, `status=ready`, `payment_mode=test`, `live_value_movement=false`. Tree HEAD `b6dd531e` is two commits later and is not what the plane serves. The previous closeout pin `a5bca8c0` @ `sha256:2b2f85c9` is a prior candidate, not the live one. The staging-readiness receipt that records this same live commit also records image `sha256:e0b642220dcd195c84290466cdaf90c2083c8740a87e6c3166d5817683f59fd3`. |
-| 2 | Deployment reproducible | **PASS** — this live candidate was rolled back to `19fe0b23` @ `sha256:245dc92a` (`2026-08-17T15:35:05Z`) and forwarded to `9e31c65b` @ `sha256:e0b64222` (`15:35:19Z`); both `/readyz` 200, data-plane markers kept. An earlier rollback/forward of `8283ae58` @ `sha256:7bf0ab9d` → `a5bca8c0` @ `sha256:2b2f85c9` remains on disk as a previous cycle. |
+| 1 | Current candidate boots | **PASS** — live `GET https://mercmerc.net/version` serves `0ffbd52dd7ace54e5ac620c38d724af4fb2e7c10` (`go1.26.6`, `modified=false`, `build_date=2026-08-17T20:24:26Z`); `GET /readyz` is 200, `status=ready`, `payment_mode=test`, `live_value_movement=false`. Tree HEAD `ca6a6d3aa13d05e429c66c271645e9ee11ea95d7` is seven commits later and is not what the plane serves. The previous closeout pin `9e31c65b` @ `sha256:e0b64222` is a prior candidate, not the live one. `evidence/external/head-rebuild-redeploy.json` records this live commit with image `sha256:5c33d078c71a8e42a9a2c2cbaa5bf4722195423c65a1f13647684f8e9fa50253`. `evidence/external/staging-alpha-readiness.json` still records `9e31c65b` and is not a measurement of the digest that answers today. |
+| 2 | Deployment reproducible | **PASS** — this live candidate was rolled back to `aa1f189e` @ `sha256:b6563659` (`2026-08-17T20:27:45Z`) and forwarded to `0ffbd52d` @ `sha256:5c33d078` (`20:27:56Z`); both `/readyz` 200, data-plane markers kept (`evidence/external/head-rebuild-redeploy.json`). An earlier rollback/forward of `19fe0b23` @ `sha256:245dc92a` → `9e31c65b` @ `sha256:e0b64222` remains on disk as a previous cycle. |
 | 3 | Real Postgres and object storage | **PASS** — both healthy behind the live plane (`/readyz` `status=ready`; markers survived the rollback/forward above) |
 | 4 | Buyer execution | **PASS locally / unproven on live** — `TestL12RoutableInferLoopThroughThePublicAPI` submits, prices and claims through `Routes()`, 104s (`8142e6e5`). Local L12 buyer receipt `status=PASS`. Live staging rehearsal `status=BLOCKED` (observed against then-deployed `19fe0b23`): quote 400 when nothing is advertised. |
 | 5 | Supplier execution | **PASS locally / unproven on live** — worker registers advertising `candle-metal-llama1-infer`, claims and executes. Same live-staging BLOCKED: canary allowlist still pins build hash `f4303a751ca2b2af` while the sealed identity is `7cc01c442c7f6dbe`; the host binary emits `2939a8e26ffe6fd2`. |
 | 6 | Verification | **PASS locally / unproven on live** — accept AND reject both proven locally; a corrupted result is refused. Live rehearsal did not run verification. |
-| 7 | Money state machine, Stripe test mode | **PARTIAL** — `evidence/external/stripe-sandbox-matrix.json` is `status=BLOCKED`, `blocker=connect_platform_not_signed_up`, `provider_mode=test`, `live_mode=PROHIBITED`. Authorization, capture, refunds and the refusal set are proven with real fixture IDs. Transfer, payout hold/release/failure/reversal and `connect=true` delivery are not. |
+| 7 | Money state machine, Stripe test mode | **PARTIAL** — `evidence/external/stripe-sandbox-matrix.json` is `status=BLOCKED`, `provider_mode=test`, `live_mode=PROHIBITED`. The validator still prints `blocker=connect_platform_not_signed_up` because the Connect writer hardcodes that id. The live Stripe error on `POST /v1/accounts` is no longer signup: `connected_account_creation` is `http=400 Please review the responsibilities of collecting requirements for connected accounts at https://dashboard.stripe.com/settings/connect/platform-profile.` Authorization, capture, refunds and the refusal set are proven with real fixture IDs. Transfer, payout hold/release/failure/reversal and `connect=true` delivery are not. |
 (unbound receipt, status BLOCKED — a test-mode snapshot cited as subject, not authority)
 | 8 | Identity/device binding | **PASS** — foreign worker UUID 403, revoked credential stops working |
 | 9 | Containment | **PASS** — local security suite, containment class |
 | 10 | Authority corruption fails closed | **PASS** — local security suite, authority class |
 | 11 | Rollback/recovery | **PASS** — `evidence/recovery/suite.json` 11/11 modes PASS (`go_test_exit_code=0`); offsite restore across a real provider boundary |
-| 12 | Security suite green | **PASS locally** — `evidence/external/staging-attack-rehearsal.json` is `kind=local_alpha_security_rehearsal`, `qualification=LOCAL`, `attacks_executed=1551`, `findings=[]`. It does not touch the droplet (`honesty.staging_droplet_touched=false`). `validate-readiness.py` therefore prints `security: 14/15` and `staging-attack-rehearsal.json: CHECK_FAILED → 0/1`. |
-| 13 | Evidence binds to current candidate | **PASS** of the binding validator — `python3 scripts/validate-evidence-binding.py` exits 0 (BOUND 79 / UNBOUND 131 / SUPERSEDED 6 / WITHDRAWN 8). That is not the same as "every receipt measured the live digest": the 3600s soak is bound to `a5bca8c0`, the local security rehearsal recorded `73bc49da`, the recovery suite completed `2026-08-17T00:44:10Z`. `staging-alpha-readiness.json` is BOUND to live `9e31c65b`. |
+| 12 | Security suite green | **PASS** — `evidence/external/staging-attack-rehearsal.json` is `kind=external_staging_attack_rehearsal`, `qualification=EXTERNAL`, `status=PASS`, `surface=persistent_staging_tls`, `observations.attacks_executed=265`, `finding_rows=[]`. `honesty.staging_droplet_http_client=true`. `validate-readiness.py` prints `security: 15/15`. Named review stays unmet (`reviewer.name` and `reviewer.organization` empty) and is printed as `public_launch open named_reviewer:staging-attack-rehearsal` — "requirement kept; not an alpha point". An earlier revision of this file described that same path as `kind=local_alpha_security_rehearsal` / 1551 executed / `CHECK_FAILED → 0/1`. That was the previous contents of the file, not the current one. The 1551 local Routes() count is not what scores the external point. |
+| 13 | Evidence binds to current candidate | **PASS** of the binding validator — `python3 scripts/validate-evidence-binding.py` exits 0 (BOUND 88 / UNBOUND 132 / SUPERSEDED 6 / WITHDRAWN 8). That is not the same as "every receipt measured the live digest": the 3600s soak is bound to `a5bca8c0`, the public rehearsal recorded `7fe48960`, the recovery suite completed `2026-08-17T00:44:10Z`. `staging-alpha-readiness.json` is BOUND to `9e31c65b`, not to live `0ffbd52d`. `head-rebuild-redeploy.json` is BOUND to live `0ffbd52d`. |
 | 14 | No known P0/P1 defect | **FAIL** — `validate-readiness.py` prints `P0=0, P1=5`. The open `ALPHA_BLOCKER` P1 is `P1-STRIPE-TEST`. Four further P1s remain open at other classifications (table above). A green `control` suite, even if still true, does not close those P1s. An earlier sentence in this file that said "zero P1" was false. |
-| 15 | Remaining blockers outside alpha scope | **PASS** — `ops/backend-alpha-gates.json`, 44 gates classified with a named reachable harm each (28 `ALPHA_BLOCKER`, 7 `ALPHA_CONTROL`, 7 `PUBLIC_LAUNCH`, 2 `POST_ALPHA`) |
+| 15 | Remaining blockers outside alpha scope | **PASS** — `ops/backend-alpha-gates.json`, 45 gates classified with a named reachable harm each (30 `ALPHA_BLOCKER`, 7 `ALPHA_CONTROL`, 7 `PUBLIC_LAUNCH`, 1 `POST_ALPHA`) |
 
 ## Open — and why each is real
 
-**Stripe Connect is not signed up.** Stripe itself refuses:
-*"You can only create new accounts if you've signed up for Connect."* Reachable
-harm: without Connect there is no supplier payout path at all, so the supplier
-half of the money state machine cannot be exercised. `P1-STRIPE-TEST` stays
-open until all of this is done on test account `acct_1TxbzMCwPLrR4vaY`:
+**Stripe Connect is signed up; the wall is the Connect platform profile.**
+`POST /v1/accounts` on test account `acct_1TxbzMCwPLrR4vaY` no longer returns
+the signup refusal. It returns: *"Please review the responsibilities of
+collecting requirements for connected accounts at
+https://dashboard.stripe.com/settings/connect/platform-profile."* The
+Connect writer still stamps `blocker.id=connect_platform_not_signed_up`, and
+the validator still prints that string; the scenario detail is the live error.
+`GET /v1/accounts` is 200 with zero connected accounts (none synthesized).
+Platform `payouts_enabled` is true. The Connect webhook still has
+`connect=null`; a `connect=true` recreate probe still comes back
+`connect=None`. Reachable harm: without a connected account there is no
+supplier payout path at all, so the supplier half of the money state machine
+cannot be exercised. `P1-STRIPE-TEST` stays open until all of this is done:
 
-1. Sign up for Connect at `https://dashboard.stripe.com/connect`.
+1. Complete the Connect platform profile at
+   `https://dashboard.stripe.com/settings/connect/platform-profile`.
 2. Create a Canadian test connected account.
 3. Recreate the Connect webhook with `connect=true` (currently `connect=null`).
 4. Re-run `make stripe-matrix` until `stripe_sandbox_matrix_proven` accepts a
    PASS with a real `tr_` and payout hold / release / failure / reversal.
 
-That is the exit criterion in `ops/go-no-go.json`. It is more than one
+`ops/go-no-go.json` still describes the remainder as Connect signup. That
+exit_criterion text is stale against the receipt; the validator is the
+tie-break and still awards 0/6 until the matrix is PASS. It is more than one
 dashboard action. It unblocks seven named scenarios: connected account
 creation, transfers, payout hold, manual release, payout failure, Connect
 restriction/capability events, and `connect=true` webhook delivery.
 
-**The execution loop is not closed on the live plane.** The last live rehearsal
+**The execution loop is not closed on the live plane.** The L12 live rehearsal
 (`evidence/canary/l12-p1-canary-rehearsal-live-staging.json`, `status=BLOCKED`,
 (unbound rehearsal record — cited as subject, not authority; it does not prove the loop ran on staging)
 then-deployed `19fe0b23`) did not run buyer, supplier, verification or
-settlement. `POST /v1/quote` and `POST /v1/jobs` 400 when no runtime cell is
-advertised by a registered worker. `candle-metal-llama1-infer` does bind
-locally; three sibling candle cells do not, for concrete evidence defects (an
-empty `engine_build_hash`, a `merc_source_commit` of
-`working-tree-before-media-authority`, and a missing `merc_source_commit`).
-Live also still pins canary hash `f4303a751ca2b2af` against sealed identity
-`7cc01c442c7f6dbe`. Reachable harm: without this, buyer execution, supplier
-execution, verification and settlement are unproven on the plane this closeout
-calls READY — the four conditions that say the network works. Local L12 PASS
-does not flip `P1-CANARY-REHEARSAL` or `EXTERNAL_ALPHA_PROVEN`. This document
-does not claim the later live commit `9e31c65b` closed that loop.
+settlement. A later close-loop drive against live `0ffbd52d`
+(`evidence/canary/s4-staging-close-loop-summary.json`, `status=PARTIAL`,
+`external_alpha_proven=false`, operator-controlled) still refused every
+stage; quote stopped at HTTP 401 `missing or malformed Authorization bearer
+token`. `candle-metal-llama1-infer` does bind locally; three sibling candle
+cells do not, for concrete evidence defects (an empty `engine_build_hash`, a
+`merc_source_commit` of `working-tree-before-media-authority`, and a missing
+`merc_source_commit`). Live still pins canary hash `f4303a751ca2b2af` against
+sealed identity `7cc01c442c7f6dbe` (`head-rebuild-redeploy.json`
+`host_env_build_hash` vs compose overlay). Reachable harm: without this,
+buyer execution, supplier execution, verification and settlement are unproven
+on the plane this closeout calls READY — the four conditions that say the
+network works. Local L12 PASS does not flip `P1-CANARY-REHEARSAL` or
+`EXTERNAL_ALPHA_PROVEN`. This document does not claim live `0ffbd52d` closed
+that loop.
 
 The derived soak is **done on a previous candidate**, not on the live digest:
 3600 seconds against the persistent plane at `a5bca8c0`,
@@ -224,7 +247,7 @@ intervals, every sample carrying that commit and `payment_mode=test`. Wall
 clock equals requested equals actual, and the receipt sets
 `qualifies_for_24h_gate: false` — it does not pretend to be the 24-hour gate,
 which stays unearned at Level B and C. It has not been re-run against
-`9e31c65b`.
+`0ffbd52d`.
 
 Condition 14 is FAIL because five P1s are open, one of them the money-path
 start-gate. It is not FAIL because nine control tests are red: that remainder
@@ -238,15 +261,16 @@ The validator is the tie-break: `P1=5`, so 14 is FAIL.
 ```
 MERC BACKEND ALPHA        NOT READY — ALPHA_ENGINEERING_READY NO_GO
                           4-6 PASS locally / unproven on live
-                          7 PARTIAL (Connect)
+                          7 PARTIAL (Connect platform profile)
                           14 FAIL (P0=0, P1=5)
-STRIPE TEST MODE          PROVEN to the Connect boundary
-CONTROLLED STAGING        READY — 9e31c65b, payment_mode=test
-SECURITY                  LOCAL SUITE PASS (1551 executed, 0 findings)
-                          validator security 14/15; external rehearsal CHECK_FAILED
+STRIPE TEST MODE          PROVEN to the Connect platform-profile wall
+CONTROLLED STAGING        READY — 0ffbd52d, payment_mode=test
+SECURITY                  EXTERNAL REHEARSAL PASS (265 executed, 0 findings)
+                          validator security 15/15
+                          named reviewer PUBLIC_LAUNCH unmet
 RECOVERY                  11/11 modes PASS; offsite restore proven
 CLI/TUI                   NEXT PRODUCT ARC
-WEBSITE                   NOT REQUIRED FOR ALPHA (PUBLIC_LAUNCH)
+WEBSITE                   IN ALPHA (2/2; public TLS brought the gates back)
 LIVE MONEY                HELD — NO_GO_PROHIBITED, unchanged
 ```
 
@@ -264,8 +288,13 @@ findings (`docs/CLOSEOUT_AUDIT.md`). Three mattered enough to move the bar:
 **Two gates were rescoped on a premise that stopped being true.** They were moved
 out of alpha because "this alpha has no public website". Then port 443 was opened
 and `mercmerc.net` began serving public TLS on buyer routes. The gates are back;
-backend alpha went 85/91 → 87/94, and `staging-attack-rehearsal` is now a second
-open `ALPHA_BLOCKER` receipt alongside Connect.
+backend alpha went 85/91 → 87/94. The named-reviewer requirement then moved to
+`PUBLIC_LAUNCH` and the executed public rehearsal scored, so 87/94 → 88/94 and
+`security: 15/15`. `staging-attack-rehearsal` is no longer an open
+`ALPHA_BLOCKER` receipt. The only open alpha-blocker receipt is Connect
+(`stripe-sandbox-matrix.json`). An earlier revision of this file that called
+the rehearsal a second open `ALPHA_BLOCKER` alongside Connect was describing
+`security: 14/15`, not the current validator print.
 
 **A test was made to pass by removing its requirement.** The L2 Stripe matrix had
 its `t.Fatal("dashboard webhook secrets required")` replaced with synthetic
@@ -282,10 +311,12 @@ genuinely is not proven.
 ## Why the loop still does not run on staging
 
 Both refusals that stood between local success and staging success are fixed and
-deployed. `https://mercmerc.net` serves current HEAD, `/readyz` is 200,
-`/pricing/board.json` is 200 (it was 503 — the pricing document seed named the
-superseded r4 promotion receipt while the cell is resealed to r6), and real
-Stripe test-mode events return 200 with zero 500s.
+deployed. `https://mercmerc.net` serves `0ffbd52d` (an ancestor of tree HEAD
+`ca6a6d3a`, not HEAD itself), `/readyz` is 200, `/pricing/board.json` is 200
+(it was 503 — the pricing document seed named the superseded r4 promotion
+receipt while the cell is resealed to r6), and real Stripe test-mode events
+return 200 with zero 500s. An earlier sentence in this file that said the
+hostname "serves current HEAD" was true only while HEAD was `0ffbd52d`.
 
 What remains is not those fixes:
 
@@ -315,16 +346,22 @@ rather than something to fix by editing the allowlist.
 
 ## Control suite
 
-Exactly two expected failures: `TestL2StripeWebhookMatrixRequiresDashboardSecrets`
-and `TestL2StripeWebhookMatrixAgainstRealHandlers`. Both exist because an audit
+Exactly two expected money-contract failures:
+`TestL2StripeWebhookMatrixRequiresDashboardSecrets` and
+`TestL2StripeWebhookMatrixAgainstRealHandlers`. Both exist because an audit
 found the production webhook contract had been made to pass with synthetic
 secrets, and the requirement was restored. They pass under
 `make test-money-contract`, which supplies the real dashboard pair and a real
-`sk_test_` key and refuses a non-test key or identical secrets. Everything else
-passes. Supplying those credentials suite-wide is wrong and the suite proves it:
-one test carries its own configured credential and rejects a different one, and a
-guard panics rather than run unhardened verification sampling with money rails
-present.
+`sk_test_` key and refuses a non-test key or identical secrets. Supplying those
+credentials suite-wide is wrong and the suite proves it: one test carries its
+own configured credential and rejects a different one, and a guard panics
+rather than run unhardened verification sampling with money rails present.
+
+`make ci` also runs `TestFirstCompleteLoopThroughThePublicAPI` once
+`cargo build --release` has produced `merc-agent`. On this host that test
+failed enrolment: the agent is a real M3 Ultra and the advertised cell is the
+TEST fixture (`apple_silicon_pro` / `feedfacefeedface`). That is not a close
+of conditions 4–6, and it is not a reason to delete the test.
 
 ## Live money — the actual remaining inputs
 

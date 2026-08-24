@@ -12,24 +12,31 @@
   "platform_default_currency": "cad",
   "disposable_customer_cleanup": "attempted",
   "blocker": {
-    "id": "connect_platform_not_signed_up",
-    "detail": "POST /v1/accounts on acct_1TxbzMCwPLrR4vaY returns: You can only create new accounts if you've signed up for Connect, which you can do at https://dashboard.stripe.com/connect.. After dashboard signup, scripts/stripe-sandbox-connect.sh is the one command that finishes the Connect remainder.",
+    "id": "connect_platform_profile_incomplete",
+    "detail": "POST /v1/accounts on acct_1TxbzMCwPLrR4vaY returns: Please review the responsibilities of collecting requirements for connected accounts at https://dashboard.stripe.com/settings/connect/platform-profile. Dashboard action: Complete the Connect platform profile (requirement-collection responsibilities) https://dashboard.stripe.com/settings/connect/platform-profile. After that action, scripts/stripe-sandbox-connect.sh is the one command that finishes the Connect remainder.",
     "unreachable_in_test_mode_api": true,
+    "classification": "external_gate",
+    "dashboard_url": "https://dashboard.stripe.com/settings/connect/platform-profile",
+    "dashboard_action": "Complete the Connect platform profile (requirement-collection responsibilities)",
     "stopped_at": {
       "method": "POST",
       "path": "/v1/accounts",
       "http": 400,
       "error_type": "invalid_request_error",
       "error_code": null,
-      "error_message": "You can only create new accounts if you've signed up for Connect, which you can do at https://dashboard.stripe.com/connect.",
+      "error_message": "Please review the responsibilities of collecting requirements for connected accounts at https://dashboard.stripe.com/settings/connect/platform-profile.",
       "request_fields": {
         "type": "custom",
         "country": "CA",
         "capabilities[card_payments][requested]": "true",
         "capabilities[transfers][requested]": "true",
-        "metadata[cx_matrix_run]": "20260817T212603Z-l9cn",
+        "metadata[cx_matrix_run]": "20260824T022754Z-l9cn",
         "metadata[cx_purpose]": "connect_remainder"
-      }
+      },
+      "classification": "external_gate",
+      "blocker_id": "connect_platform_profile_incomplete",
+      "dashboard_url": "https://dashboard.stripe.com/settings/connect/platform-profile",
+      "dashboard_action": "Complete the Connect platform profile (requirement-collection responsibilities)"
     },
     "exit_reason": "blocked: Connect not signed up"
   },
@@ -295,71 +302,71 @@
     },
     {
       "id": "connected_account_creation",
-      "status": "FAILED",
+      "status": "BLOCKED-ON-CONNECT",
       "provider_mode": "test",
       "live_mode": "PROHIBITED",
       "fixture_id": null,
-      "detail": "http=400 Please review the responsibilities of collecting requirements for connected accounts at https://dashboard.stripe.com/settings/connect/platform-profile.",
+      "detail": "Please review the responsibilities of collecting requirements for connected accounts at https://dashboard.stripe.com/settings/connect/platform-profile.",
       "would_prove": "A project-controlled Canadian test connected account exists and is distinct from the platform.",
       "dry_run_verified": true
     },
     {
       "id": "transfer_to_connected_account",
-      "status": "FAILED",
+      "status": "BLOCKED-ON-CONNECT",
       "provider_mode": "test",
       "live_mode": "PROHIBITED",
       "fixture_id": null,
-      "detail": "connected account was not created",
+      "detail": "requires connect_platform_profile_incomplete on acct_1TxbzMCwPLrR4vaY",
       "would_prove": "A CAD tr_ from the platform to a connected account appears in the provider log and Merc ledger.",
       "dry_run_verified": true
     },
     {
       "id": "payout_hold",
-      "status": "FAILED",
+      "status": "BLOCKED-ON-CONNECT",
       "provider_mode": "test",
       "live_mode": "PROHIBITED",
       "fixture_id": null,
-      "detail": "connected account was not created",
+      "detail": "requires connect_platform_profile_incomplete on acct_1TxbzMCwPLrR4vaY",
       "would_prove": "Manual payout schedule plus payout.created on the connected account holds supplier cash.",
       "dry_run_verified": true
     },
     {
       "id": "payout_manual_release",
-      "status": "FAILED",
+      "status": "BLOCKED-ON-CONNECT",
       "provider_mode": "test",
       "live_mode": "PROHIBITED",
       "fixture_id": null,
-      "detail": "connected account was not created",
+      "detail": "requires connect_platform_profile_incomplete on acct_1TxbzMCwPLrR4vaY",
       "would_prove": "A po_ to the documented Canadian success bank reaches paid.",
       "dry_run_verified": true
     },
     {
       "id": "payout_failure",
-      "status": "FAILED",
+      "status": "BLOCKED-ON-CONNECT",
       "provider_mode": "test",
       "live_mode": "PROHIBITED",
       "fixture_id": null,
-      "detail": "connected account was not created",
+      "detail": "requires connect_platform_profile_incomplete on acct_1TxbzMCwPLrR4vaY",
       "would_prove": "A po_ to the documented Canadian failure bank reaches failed.",
       "dry_run_verified": true
     },
     {
       "id": "connect_restriction_capability_events",
-      "status": "FAILED",
+      "status": "BLOCKED-ON-CONNECT",
       "provider_mode": "test",
       "live_mode": "PROHIBITED",
       "fixture_id": null,
-      "detail": "connected account was not created",
+      "detail": "requires connect_platform_profile_incomplete on acct_1TxbzMCwPLrR4vaY",
       "would_prove": "account.updated / capability restriction events on a connected account update supplier payout readiness.",
       "dry_run_verified": true
     },
     {
       "id": "connect_true_webhook_delivery",
-      "status": "FAILED",
+      "status": "BLOCKED-ON-CONNECT",
       "provider_mode": "test",
       "live_mode": "PROHIBITED",
       "fixture_id": null,
-      "detail": "connected account was not created",
+      "detail": "requires connect_platform_profile_incomplete on acct_1TxbzMCwPLrR4vaY",
       "would_prove": "Connected-account events are delivered to the Connect endpoint with connect=true and the Connect signing secret.",
       "dry_run_verified": true
     },
@@ -571,9 +578,9 @@
   "connect_gated_remainder": [
     {
       "id": "connected_account_creation",
-      "status": "FAILED",
+      "status": "BLOCKED-ON-CONNECT",
       "would_prove": "A project-controlled Canadian test connected account exists and is distinct from the platform.",
-      "detail": "http=400 Please review the responsibilities of collecting requirements for connected accounts at https://dashboard.stripe.com/settings/connect/platform-profile.",
+      "detail": "Please review the responsibilities of collecting requirements for connected accounts at https://dashboard.stripe.com/settings/connect/platform-profile.",
       "fixture_id": null,
       "dry_run_verified": true,
       "request": {
@@ -587,18 +594,18 @@
           "country": "CA",
           "capabilities[card_payments][requested]": "true",
           "capabilities[transfers][requested]": "true",
-          "metadata[cx_matrix_run]": "20260823T215038Z-l9cn",
+          "metadata[cx_matrix_run]": "20260824T022754Z-l9cn",
           "metadata[cx_purpose]": "connect_remainder"
         },
         "dry_run_verified": true,
-        "sent": false
+        "sent": true
       }
     },
     {
       "id": "transfer_to_connected_account",
-      "status": "FAILED",
+      "status": "BLOCKED-ON-CONNECT",
       "would_prove": "A CAD tr_ from the platform to a connected account appears in the provider log and Merc ledger.",
-      "detail": "connected account was not created",
+      "detail": "requires connect_platform_profile_incomplete on acct_1TxbzMCwPLrR4vaY",
       "fixture_id": null,
       "dry_run_verified": true,
       "request": {
@@ -611,7 +618,7 @@
           "amount": "100",
           "currency": "cad",
           "destination": "<connected_account>",
-          "metadata[cx_matrix_run]": "20260823T215038Z-l9cn"
+          "metadata[cx_matrix_run]": "20260824T022754Z-l9cn"
         },
         "dry_run_verified": true,
         "sent": false
@@ -619,9 +626,9 @@
     },
     {
       "id": "payout_hold",
-      "status": "FAILED",
+      "status": "BLOCKED-ON-CONNECT",
       "would_prove": "Manual payout schedule plus payout.created on the connected account holds supplier cash.",
-      "detail": "connected account was not created",
+      "detail": "requires connect_platform_profile_incomplete on acct_1TxbzMCwPLrR4vaY",
       "fixture_id": null,
       "dry_run_verified": true,
       "request": {
@@ -639,9 +646,9 @@
     },
     {
       "id": "payout_manual_release",
-      "status": "FAILED",
+      "status": "BLOCKED-ON-CONNECT",
       "would_prove": "A po_ to the documented Canadian success bank reaches paid.",
-      "detail": "connected account was not created",
+      "detail": "requires connect_platform_profile_incomplete on acct_1TxbzMCwPLrR4vaY",
       "fixture_id": null,
       "dry_run_verified": true,
       "request": {
@@ -667,9 +674,9 @@
     },
     {
       "id": "payout_failure",
-      "status": "FAILED",
+      "status": "BLOCKED-ON-CONNECT",
       "would_prove": "A po_ to the documented Canadian failure bank reaches failed.",
-      "detail": "connected account was not created",
+      "detail": "requires connect_platform_profile_incomplete on acct_1TxbzMCwPLrR4vaY",
       "fixture_id": null,
       "dry_run_verified": true,
       "request": {
@@ -695,9 +702,9 @@
     },
     {
       "id": "connect_restriction_capability_events",
-      "status": "FAILED",
+      "status": "BLOCKED-ON-CONNECT",
       "would_prove": "account.updated / capability restriction events on a connected account update supplier payout readiness.",
-      "detail": "connected account was not created",
+      "detail": "requires connect_platform_profile_incomplete on acct_1TxbzMCwPLrR4vaY",
       "fixture_id": null,
       "dry_run_verified": true,
       "request": {
@@ -708,7 +715,7 @@
         "stripe_account": null,
         "fields": {
           "follow_up_post": "/v1/accounts/<connected_account>",
-          "business_profile[product_description]": "merc connect remainder 20260823T215038Z-l9cn"
+          "business_profile[product_description]": "merc connect remainder 20260824T022754Z-l9cn"
         },
         "dry_run_verified": true,
         "sent": false
@@ -716,9 +723,9 @@
     },
     {
       "id": "connect_true_webhook_delivery",
-      "status": "FAILED",
+      "status": "BLOCKED-ON-CONNECT",
       "would_prove": "Connected-account events are delivered to the Connect endpoint with connect=true and the Connect signing secret.",
-      "detail": "connected account was not created",
+      "detail": "requires connect_platform_profile_incomplete on acct_1TxbzMCwPLrR4vaY",
       "fixture_id": null,
       "dry_run_verified": true,
       "request": {
@@ -737,7 +744,7 @@
             "payout.paid",
             "payout.failed"
           ],
-          "description": "merc connect remainder 20260823T215038Z-l9cn"
+          "description": "merc connect remainder 20260824T022754Z-l9cn"
         },
         "dry_run_verified": true,
         "sent": false
@@ -749,20 +756,40 @@
     "readyz 200 on mercmerc.net",
     "event_retry http=[200, 200] event=evt_3U5Dy4CwPLrR4vaY1pNBXqlz",
     "Existing Connect endpoint still has connect!=true; scripts/stripe-sandbox-connect.sh will recreate it with connect=true after signup.",
-    "Connect remainder command: scripts/stripe-sandbox-connect.sh (alias: scripts/stripe-sandbox.sh connect)"
+    "Connect remainder command: scripts/stripe-sandbox-connect.sh (alias: scripts/stripe-sandbox.sh connect)",
+    "Existing Connect endpoint still has connect!=true; scripts/stripe-sandbox-connect.sh will recreate it with connect=true after the current Connect dashboard action."
   ],
   "validator": {
     "path": "scripts/validate-readiness.py:stripe_sandbox_matrix_proven",
     "accepts_only": "status=PASS plus transfer tr_ and payout hold/release/failure/reversal",
-    "this_receipt": "honest BLOCKED; expected CHECK_FAILED until Connect signup"
+    "this_receipt": "honest BLOCKED; expected CHECK_FAILED until connect_platform_profile_incomplete"
   },
   "connect_remainder": {
     "command": "scripts/stripe-sandbox-connect.sh",
     "alias": "scripts/stripe-sandbox.sh connect",
-    "run_id": "20260823T215038Z-l9cn",
+    "run_id": "20260824T022754Z-l9cn",
     "status": "BLOCKED",
     "exit_reason": "blocked: Connect not signed up",
-    "stopped_at": null,
+    "stopped_at": {
+      "method": "POST",
+      "path": "/v1/accounts",
+      "http": 400,
+      "error_type": "invalid_request_error",
+      "error_code": null,
+      "error_message": "Please review the responsibilities of collecting requirements for connected accounts at https://dashboard.stripe.com/settings/connect/platform-profile.",
+      "request_fields": {
+        "type": "custom",
+        "country": "CA",
+        "capabilities[card_payments][requested]": "true",
+        "capabilities[transfers][requested]": "true",
+        "metadata[cx_matrix_run]": "20260824T022754Z-l9cn",
+        "metadata[cx_purpose]": "connect_remainder"
+      },
+      "classification": "external_gate",
+      "blocker_id": "connect_platform_profile_incomplete",
+      "dashboard_url": "https://dashboard.stripe.com/settings/connect/platform-profile",
+      "dashboard_action": "Complete the Connect platform profile (requirement-collection responsibilities)"
+    },
     "pre_connect": [
       {
         "step": "GET /v1/account",
@@ -805,7 +832,7 @@
         "step": "POST /v1/webhook_endpoints (connect=true probe)",
         "status": "ok",
         "http": 200,
-        "id": "we_1U7jHoCwPLrR4vaYX4W414LW",
+        "id": "we_1U7nc8CwPLrR4vaYjXWWJb4a",
         "connect_flag": null,
         "api_version": "2025-06-30.basil",
         "deleted": true,
@@ -824,11 +851,11 @@
           "country": "CA",
           "capabilities[card_payments][requested]": "true",
           "capabilities[transfers][requested]": "true",
-          "metadata[cx_matrix_run]": "20260823T215038Z-l9cn",
+          "metadata[cx_matrix_run]": "20260824T022754Z-l9cn",
           "metadata[cx_purpose]": "connect_remainder"
         },
         "dry_run_verified": true,
-        "sent": false
+        "sent": true
       },
       {
         "id": "transfer_to_connected_account",
@@ -840,7 +867,7 @@
           "amount": "100",
           "currency": "cad",
           "destination": "<connected_account>",
-          "metadata[cx_matrix_run]": "20260823T215038Z-l9cn"
+          "metadata[cx_matrix_run]": "20260824T022754Z-l9cn"
         },
         "dry_run_verified": true,
         "sent": false
@@ -905,7 +932,7 @@
         "stripe_account": null,
         "fields": {
           "follow_up_post": "/v1/accounts/<connected_account>",
-          "business_profile[product_description]": "merc connect remainder 20260823T215038Z-l9cn"
+          "business_profile[product_description]": "merc connect remainder 20260824T022754Z-l9cn"
         },
         "dry_run_verified": true,
         "sent": false
@@ -926,7 +953,7 @@
             "payout.paid",
             "payout.failed"
           ],
-          "description": "merc connect remainder 20260823T215038Z-l9cn"
+          "description": "merc connect remainder 20260824T022754Z-l9cn"
         },
         "dry_run_verified": true,
         "sent": false
@@ -935,8 +962,8 @@
     "webhook_recreate_probe": {
       "stopped": false,
       "http": 200,
-      "probe_url": "https://mercmerc.net/v1/stripe/connect-webhook-probe/20260823T215038Z-l9cn",
-      "probe_id": "we_1U7jHoCwPLrR4vaYX4W414LW",
+      "probe_url": "https://mercmerc.net/v1/stripe/connect-webhook-probe/20260824T022754Z-l9cn",
+      "probe_id": "we_1U7nc8CwPLrR4vaYjXWWJb4a",
       "requested_connect": true,
       "requested_api_version": "2025-06-30.basil",
       "returned_connect": null,
@@ -948,72 +975,86 @@
     "scenarios": [
       {
         "id": "connected_account_creation",
-        "status": "FAILED",
+        "status": "BLOCKED-ON-CONNECT",
         "provider_mode": "test",
         "live_mode": "PROHIBITED",
         "fixture_id": null,
-        "detail": "http=400 Please review the responsibilities of collecting requirements for connected accounts at https://dashboard.stripe.com/settings/connect/platform-profile.",
-        "would_prove": "A project-controlled Canadian test connected account exists and is distinct from the platform."
+        "detail": "Please review the responsibilities of collecting requirements for connected accounts at https://dashboard.stripe.com/settings/connect/platform-profile.",
+        "would_prove": "A project-controlled Canadian test connected account exists and is distinct from the platform.",
+        "attempted": true,
+        "http": 400,
+        "path": "/v1/accounts",
+        "method": "POST",
+        "dry_run_verified": true,
+        "classification": "external_gate",
+        "blocker_id": "connect_platform_profile_incomplete",
+        "dashboard_url": "https://dashboard.stripe.com/settings/connect/platform-profile"
       },
       {
         "id": "transfer_to_connected_account",
-        "status": "FAILED",
+        "status": "BLOCKED-ON-CONNECT",
         "provider_mode": "test",
         "live_mode": "PROHIBITED",
         "fixture_id": null,
-        "detail": "connected account was not created",
+        "detail": "requires connect_platform_profile_incomplete on acct_1TxbzMCwPLrR4vaY",
         "would_prove": "A CAD tr_ from the platform to a connected account appears in the provider log and Merc ledger.",
-        "dry_run_verified": true
+        "dry_run_verified": true,
+        "not_sent": true
       },
       {
         "id": "payout_hold",
-        "status": "FAILED",
+        "status": "BLOCKED-ON-CONNECT",
         "provider_mode": "test",
         "live_mode": "PROHIBITED",
         "fixture_id": null,
-        "detail": "connected account was not created",
+        "detail": "requires connect_platform_profile_incomplete on acct_1TxbzMCwPLrR4vaY",
         "would_prove": "Manual payout schedule plus payout.created on the connected account holds supplier cash.",
-        "dry_run_verified": true
+        "dry_run_verified": true,
+        "not_sent": true
       },
       {
         "id": "payout_manual_release",
-        "status": "FAILED",
+        "status": "BLOCKED-ON-CONNECT",
         "provider_mode": "test",
         "live_mode": "PROHIBITED",
         "fixture_id": null,
-        "detail": "connected account was not created",
+        "detail": "requires connect_platform_profile_incomplete on acct_1TxbzMCwPLrR4vaY",
         "would_prove": "A po_ to the documented Canadian success bank reaches paid.",
-        "dry_run_verified": true
+        "dry_run_verified": true,
+        "not_sent": true
       },
       {
         "id": "payout_failure",
-        "status": "FAILED",
+        "status": "BLOCKED-ON-CONNECT",
         "provider_mode": "test",
         "live_mode": "PROHIBITED",
         "fixture_id": null,
-        "detail": "connected account was not created",
+        "detail": "requires connect_platform_profile_incomplete on acct_1TxbzMCwPLrR4vaY",
         "would_prove": "A po_ to the documented Canadian failure bank reaches failed.",
-        "dry_run_verified": true
+        "dry_run_verified": true,
+        "not_sent": true
       },
       {
         "id": "connect_restriction_capability_events",
-        "status": "FAILED",
+        "status": "BLOCKED-ON-CONNECT",
         "provider_mode": "test",
         "live_mode": "PROHIBITED",
         "fixture_id": null,
-        "detail": "connected account was not created",
+        "detail": "requires connect_platform_profile_incomplete on acct_1TxbzMCwPLrR4vaY",
         "would_prove": "account.updated / capability restriction events on a connected account update supplier payout readiness.",
-        "dry_run_verified": true
+        "dry_run_verified": true,
+        "not_sent": true
       },
       {
         "id": "connect_true_webhook_delivery",
-        "status": "FAILED",
+        "status": "BLOCKED-ON-CONNECT",
         "provider_mode": "test",
         "live_mode": "PROHIBITED",
         "fixture_id": null,
-        "detail": "connected account was not created",
+        "detail": "requires connect_platform_profile_incomplete on acct_1TxbzMCwPLrR4vaY",
         "would_prove": "Connected-account events are delivered to the Connect endpoint with connect=true and the Connect signing secret.",
-        "dry_run_verified": true
+        "dry_run_verified": true,
+        "not_sent": true
       }
     ],
     "secret_values_printed": false,

@@ -4,13 +4,16 @@
 Test-mode only. Never prints secret values. Never reads .merc-secrets.env.
 Writes evidence/external/stripe-sandbox-matrix.json as an honest partial
 receipt: PASS / REFUSED-AS-EXPECTED / BLOCKED-ON-CONNECT per scenario.
-status remains BLOCKED until Connect signup unblocks tr_/acct_/payouts.
+status remains BLOCKED until the current Connect dashboard action unblocks
+tr_/acct_/payouts. The blocker is derived from the refusal observed at run
+time by the same classifier the Connect remainder uses.
 """
 from __future__ import annotations
 
 import base64
 import hashlib
 import hmac
+import importlib.util
 import json
 import os
 import ssl
@@ -35,6 +38,20 @@ PASS = "PASS"
 REFUSED = "REFUSED-AS-EXPECTED"
 BLOCKED = "BLOCKED-ON-CONNECT"
 FAILED = "FAILED"
+
+
+def _load_connect_classifier():
+    """Reuse the Connect remainder's gate classifier. Do not fork it."""
+    path = Path(__file__).resolve().with_name("stripe-sandbox-connect.py")
+    spec = importlib.util.spec_from_file_location("stripe_sandbox_connect", path)
+    if spec is None or spec.loader is None:
+        raise SystemExit("stripe-sandbox-nonconnect: cannot load stripe-sandbox-connect.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod.classify_external_gate, mod.receipt_blocker, mod.stopped_at_record
+
+
+classify_external_gate, receipt_blocker, stopped_at_record = _load_connect_classifier()
 
 
 def log(msg: str) -> None:
@@ -175,6 +192,7 @@ class Matrix:
             "payout_reversal": None,
         }
         self.notes: list[str] = []
+        self.connect_stopped_at: dict[str, Any] | None = None
 
     def add(
         self,
@@ -364,27 +382,43 @@ def _drive(
     else:
         matrix.add("webhook_endpoints_registered", FAILED, detail=f"http={status} missing exact staging URLs")
 
-    # Connect signup wall — must stay BLOCKED, never synthesized.
-    status, created = api.call(
-        "POST",
-        "accounts",
-        {
-            "type": "custom",
-            "country": "CA",
-            "capabilities[card_payments][requested]": "true",
-            "capabilities[transfers][requested]": "true",
-        },
-    )
+    # Connect dashboard wall — classify with the same function the remainder
+    # uses. Never synthesize an acct_. Never hardcode which wall this is.
+    create_fields = {
+        "type": "custom",
+        "country": "CA",
+        "capabilities[card_payments][requested]": "true",
+        "capabilities[transfers][requested]": "true",
+    }
+    status, created = api.call("POST", "accounts", create_fields)
+    gate = classify_external_gate(status, created)
     connect_msg = str(err_of(created).get("message") or "")
-    if status == 400 and "signed up for Connect" in connect_msg:
+    remaining_status = BLOCKED
+    remaining_detail = f"requires Connect remainder on {PLATFORM_ACCOUNT}"
+    if gate:
+        matrix.connect_stopped_at = stopped_at_record(
+            "POST", "/v1/accounts", status, created, create_fields
+        )
+        remaining_detail = f"requires {gate['id']} on {PLATFORM_ACCOUNT}"
         matrix.add(
             "connected_account_creation",
             BLOCKED,
-            detail=connect_msg,
-            extra={"would_prove": "A project-controlled Canadian test connected account exists and is distinct from the platform."},
+            detail=gate["message"],
+            extra={
+                "would_prove": "A project-controlled Canadian test connected account exists and is distinct from the platform.",
+                "classification": "external_gate",
+                "blocker_id": gate["id"],
+                "dashboard_url": gate["dashboard_url"],
+            },
         )
     else:
-        matrix.add("connected_account_creation", FAILED, detail=f"http={status} {connect_msg or created.get('id')}")
+        remaining_status = FAILED
+        remaining_detail = "connected account was not created"
+        matrix.add(
+            "connected_account_creation",
+            FAILED,
+            detail=f"http={status} {connect_msg or created.get('id')}",
+        )
 
     for sid, would in (
         (
@@ -412,7 +446,7 @@ def _drive(
             "Connected-account events are delivered to the Connect endpoint with connect=true and the Connect signing secret.",
         ),
     ):
-        matrix.add(sid, BLOCKED, detail="requires Connect signup on acct_1TxbzMCwPLrR4vaY", extra={"would_prove": would})
+        matrix.add(sid, remaining_status, detail=remaining_detail, extra={"would_prove": would})
 
     # Self-transfer and bogus destination refuse at the platform API without Connect.
     status, self_xfer = api.call(
@@ -1240,13 +1274,16 @@ def build_receipt(
     connect_remainder = [
         {
             "id": row["id"],
-            "status": BLOCKED,
+            "status": row["status"],
             "would_prove": row.get("would_prove"),
             "detail": row.get("detail"),
         }
         for row in matrix.scenarios
-        if row["status"] == BLOCKED
+        if row["status"] in {BLOCKED, FAILED} and row.get("would_prove")
     ]
+
+    blocker = receipt_blocker(matrix.connect_stopped_at)
+    wall = (blocker or {}).get("id") if isinstance(blocker, dict) else None
 
     return {
         "schema_version": 1,
@@ -1261,18 +1298,7 @@ def build_receipt(
         "platform_country": matrix.fixtures.get("platform_country") or "CA",
         "platform_default_currency": matrix.fixtures.get("platform_default_currency") or matrix.currency,
         "disposable_customer_cleanup": matrix.fixtures.get("disposable_customer_cleanup") or "attempted",
-        "blocker": {
-            "id": "connect_platform_not_signed_up",
-            "detail": (
-                "POST /v1/accounts on acct_1TxbzMCwPLrR4vaY returns: You can only create new accounts "
-                "if you've signed up for Connect (dashboard.stripe.com/connect). That dashboard action "
-                "is not reachable from this lane without signing in. Non-Connect scenarios were driven "
-                "to completion against test-mode Stripe and recorded below. "
-                "The Connect webhook we_1U5Cz3CwPLrR4vaYVjElBvu8 has connect=null and must be recreated "
-                "with connect=true after signup."
-            ),
-            "unreachable_in_test_mode_api": True,
-        },
+        "blocker": blocker,
         "harness": {
             "stripe_check": "EXTERNAL CREDENTIAL REQUIRED",
             "stripe_matrix": "BLOCKED-ON-CONNECT",
@@ -1311,7 +1337,11 @@ def build_receipt(
         "validator": {
             "path": "scripts/validate-readiness.py:stripe_sandbox_matrix_proven",
             "accepts_only": "status=PASS plus transfer tr_ and payout hold/release/failure/reversal",
-            "this_receipt": "honest BLOCKED; expected CHECK_FAILED until Connect signup",
+            "this_receipt": (
+                f"honest BLOCKED; expected CHECK_FAILED until {wall}"
+                if wall
+                else "honest BLOCKED; expected CHECK_FAILED until Connect remainder completes"
+            ),
         },
     }
 

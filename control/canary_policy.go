@@ -239,8 +239,9 @@ const (
 )
 
 // maxOperatorReservedWorkers is this alpha's operator-controlled Metal bound.
-// Identities are uuid5(NAMESPACE_DNS, "mercmerc.net:alpha-worker-N") as named
-// in ops/staging/alpha-participants.json. This is classification, not an
+// Identities are uuid5(NAMESPACE_DNS, "mercmerc.net:alpha-worker-N") for
+// N in 1..maxOperatorReservedWorkers, as named in
+// ops/staging/alpha-participants.json. This is classification, not an
 // allowlist expansion: allowsWorker still decides who may enroll.
 const maxOperatorReservedWorkers = 2
 

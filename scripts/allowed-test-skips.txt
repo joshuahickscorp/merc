@@ -193,3 +193,46 @@ TestRenderDevicePlacementBench
 # times five statement variants (precount, full claim, no-book, top-N pick,
 # eligibility floor) under ROLLBACK to name the linear term. Minutes of wall
 # clock; never part of make test / make ci. Set MERC_REALTIME_DECOMP=1.
+TestRealtimeSelectionCostDecomposition
+#
+# Opt-in L2 hold server. Listens until killed; setting MERC_L2_HOLD in CI
+# hangs the suite. The production webhook contract is TestL2StripeWebhookMatrix*
+# under make test-money-contract, which does run.
+TestL2HoldWebhookServer
+#
+# Env-gated writer for the economic selector proof receipt. Ranking honesty
+# runs unconditionally; this test only emits a tracked evidence file when asked.
+# Named harm if forced on: it rewrites a tracked receipt in a verification run.
+TestWriteEconomicSelectorProofReceipt
+#
+# Opt-in 100k-offer realtime candidate projection A/B. Minutes of wall clock
+# and a live PostgreSQL; never part of make ci. Set MERC_REALTIME_CANDIDATE_AB=1.
+TestRealtimeCandidateProjectionABOnOneDatabase
+#
+# Per-offer-grain sibling-rescue is a multi-profile property. Today one
+# runtime profile is advertised (1:1), so the skip is the product being
+# honest rather than a missing assertion. The single-profile shadow path
+# still runs. Named harm if deleted: CI goes red on a correct skip.
+TestShadowIndexPerOfferGrainNoSiblingRescue
+#
+# Peer-container restart/partition recovery lanes. They run from
+# scripts/recovery-suite.sh with MERC_RECOVERY_SUITE=1 and named containers.
+# make ci has no peer containers to kill; in-process recovery lanes still run.
+# Named harm if forced on: docker kill of a live postgres/minio from the fast
+# suite. Named harm if the skip is unnamed: make ci stays red on a correct skip.
+TestRecoveryLanePostgresRestart
+TestRecoveryLaneObjectStoreRestart
+TestRecoveryLaneNetworkInterruption
+#
+# Observes a live backup status file. Skips when MERC_BACKUP_STATUS_FILE is
+# unset. The reader is asserted by TestReadBackupSignal (always runs) and
+# scripts/test-backup-age-metric.sh (separate target that writes evidence).
+# Named harm if forced on: CI depends on a host path that is not the suite.
+TestBackupAgeMetricObservation
+#
+# Supervisor-only mutation database template stamp. Skips unless
+# MERC_MUTATION_TEMPLATE_DB=1. make ci already runs scripts/test-schema-template.sh
+# and scripts/test-with-isolated-test-db.sh for the template path. Named harm if
+# forced on: a verification run migrates a shared template database.
+TestMutationTemplateSchema
+

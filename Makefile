@@ -180,6 +180,10 @@ ci:
 	run placement-test 'python3 scripts/test-placement-readiness.py'; \
 	run site-build 'node scripts/site-build.mjs'; \
 	run supplier-console 'node scripts/test-supplier-console.mjs'; \
+	run agent-seatbelt 'bash scripts/test-agent-package-contains-seatbelt.sh'; \
+	run recovery-receipts-fc 'bash scripts/test-recovery-receipts-fail-closed.sh'; \
+	run private-canary-integrity 'bash scripts/test-private-canary-integrity.sh'; \
+	run backup-envelope 'bash scripts/test-backup-envelope.sh'; \
 	run bash-n 'bash -n scripts/*.sh'; \
 	run backup-schedule 'bash scripts/test-backup-schedule.sh'; \
 	run python-sdk 'bash scripts/verify-python-sdk-package.sh'; \

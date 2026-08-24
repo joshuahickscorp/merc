@@ -16,6 +16,11 @@
       "id": "7d2bb6c8-c45a-505e-ae39-6b9fc73989f5",
       "role": "operator_reserved_worker",
       "origin": "uuid5(NAMESPACE_DNS, mercmerc.net:alpha-worker-1); reserved for the operator agent, not an enrolled device"
+    },
+    {
+      "id": "c0ac9f01-7f05-5b49-8e1f-74af794e33fe",
+      "role": "operator_reserved_worker",
+      "origin": "uuid5(NAMESPACE_DNS, mercmerc.net:alpha-worker-2); reserved for the operator agent, not an enrolled device"
     }
   ],
   "agent_versions": ["0.1.0"],
@@ -27,7 +32,7 @@
   ],
   "ceilings": {
     "max_active_buyers": 1,
-    "max_active_workers": 1,
+    "max_active_workers": 2,
     "max_queued_jobs": 20,
     "max_tasks_per_job": 64,
     "max_artifact_bytes": 33554432,

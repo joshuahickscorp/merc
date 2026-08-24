@@ -5,8 +5,12 @@ Test-mode only. Never prints secret values. Never reads .merc-secrets.env.
 Never synthesizes a tr_, acct_, po_, or we_. Does not write PASS for a
 scenario that did not run.
 
-Today POST /v1/accounts is the first call that requires Connect signup.
-Every earlier step still runs. The receipt stays BLOCKED until Connect is real.
+Today POST /v1/accounts is the first call that can refuse connected-account
+creation. Every earlier step still runs. A Stripe 400 whose message names a
+dashboard action is an external gate, not a product defect; the receipt
+blocker is derived from that refusal. When nothing refuses, there is no
+blocker. The receipt stays BLOCKED until the current dashboard action is
+real and the remainder produces a tr_ plus payout hold/release/failure/reversal.
 """
 from __future__ import annotations
 
@@ -50,6 +54,35 @@ BLOCKED_MESSAGE = "blocked: Connect not signed up"
 PASS = "PASS"
 BLOCKED = "BLOCKED-ON-CONNECT"
 FAILED = "FAILED"
+CONNECT_SIGNUP_URL = "https://dashboard.stripe.com/connect"
+PLATFORM_PROFILE_URL = "https://dashboard.stripe.com/settings/connect/platform-profile"
+V1_SUPPORT_URL = "https://dashboard.stripe.com/settings/features/feat_accounts_v1_support"
+DASHBOARD_ACTION_URL_RE = re.compile(r"https://dashboard\.stripe\.com/[^\s\"'<>]+")
+
+# Observed against acct_1TxbzMCwPLrR4vaY (test mode). Quoted verbatim so
+# classification cannot silently drift off the walls that actually happened.
+REFUSAL_CONNECT_SIGNUP = (
+    "You can only create new accounts if you've signed up for Connect, "
+    "which you can do at https://dashboard.stripe.com/connect."
+)
+REFUSAL_PLATFORM_PROFILE = (
+    "Please review the responsibilities of collecting requirements for "
+    "connected accounts at https://dashboard.stripe.com/settings/connect/platform-profile."
+)
+REFUSAL_ACCOUNTS_V1 = (
+    "Stripe no longer recommends Accounts v1 for new Connect integrations. "
+    "Create connected accounts with POST /v2/core/accounts instead: "
+    "https://docs.stripe.com/api/v2/core/accounts. Read more about Accounts v2: "
+    "https://docs.stripe.com/connect/accounts-v2/account-creation. If your "
+    "integration requires v1 account creation for a supported compatibility "
+    "scenario, enable Accounts v1 support in the Dashboard: "
+    "https://dashboard.stripe.com/settings/features/feat_accounts_v1_support. "
+    "For agent-based integrations, use Stripe's current best-practices skill: "
+    "npx skills add stripe/ai."
+)
+REFUSAL_DEFECT_NO_DASHBOARD = (
+    "No such destination: 'acct_NOTAREALACCOUNT99'"
+)
 
 CONNECT_SCENARIOS: tuple[tuple[str, str], ...] = (
     (
@@ -130,13 +163,139 @@ def err_of(doc: dict[str, Any]) -> dict[str, Any]:
     return err if isinstance(err, dict) else {}
 
 
-def connect_signup_error(status: int, doc: dict[str, Any]) -> str | None:
+def error_message(doc: dict[str, Any]) -> str:
+    err = err_of(doc)
+    return str(err.get("message") or err.get("user_message") or "")
+
+
+def dashboard_action_urls(message: str) -> list[str]:
+    """Dashboard *action* URLs named in a Stripe error message.
+
+    Every Stripe error also carries request_log_url pointing at the
+    Dashboard workbench. That is a log, not an operator action, and it
+    is not consulted here.
+    """
+    found: list[str] = []
+    for match in DASHBOARD_ACTION_URL_RE.findall(message or ""):
+        url = match.rstrip(".,;:)")
+        if "/logs" in url or "/workbench/" in url:
+            continue
+        if url not in found:
+            found.append(url)
+    return found
+
+
+def classify_external_gate(status: int, doc: dict[str, Any]) -> dict[str, Any] | None:
+    """Classify a Stripe refusal as an external dashboard gate, or None.
+
+    A 400 whose message names a dashboard action is blocked-on-external.
+    A 400 that names no dashboard action is a defect (FAILED). Other
+    HTTP statuses are never this gate.
+    """
     if status != 400:
         return None
-    message = str(err_of(doc).get("message") or "")
-    if "signed up for Connect" in message:
-        return message
-    return None
+    message = error_message(doc)
+    urls = dashboard_action_urls(message)
+    if not urls:
+        return None
+    url = urls[0]
+    lower = message.lower()
+    joined = " ".join(urls).lower()
+    if "signed up for connect" in lower:
+        blocker_id = "connect_platform_not_signed_up"
+        action = "Sign up for Connect"
+        url = next((item for item in urls if item.rstrip("/").endswith("/connect")), url)
+    elif "platform-profile" in joined or "collecting requirements" in lower:
+        blocker_id = "connect_platform_profile_incomplete"
+        action = "Complete the Connect platform profile (requirement-collection responsibilities)"
+        url = next((item for item in urls if "platform-profile" in item), url)
+    elif (
+        "accounts v1" in lower
+        or "feat_accounts_v1" in joined
+        or "/v2/core/accounts" in lower
+    ):
+        blocker_id = "connect_accounts_v1_not_enabled"
+        action = (
+            "Create connected accounts with POST /v2/core/accounts, "
+            "or enable Accounts v1 support"
+        )
+        url = next((item for item in urls if "feat_accounts_v1" in item), url)
+    else:
+        blocker_id = "connect_dashboard_action_required"
+        action = "Complete the dashboard action named in the Stripe refusal"
+    return {
+        "kind": "external_gate",
+        "id": blocker_id,
+        "message": message,
+        "dashboard_url": url,
+        "dashboard_urls": urls,
+        "dashboard_action": action,
+    }
+
+
+def stopped_at_record(
+    method: str,
+    path: str,
+    status: int,
+    doc: dict[str, Any],
+    sent: dict[str, Any],
+) -> dict[str, Any]:
+    gate = classify_external_gate(status, doc)
+    message = gate["message"] if gate else error_message(doc)
+    return {
+        "method": method,
+        "path": path,
+        "http": status,
+        "error_type": err_of(doc).get("type"),
+        "error_code": err_of(doc).get("code"),
+        "error_message": message,
+        "request_fields": sent,
+        "classification": "external_gate" if gate else "defect",
+        "blocker_id": gate["id"] if gate else None,
+        "dashboard_url": gate["dashboard_url"] if gate else None,
+        "dashboard_action": gate["dashboard_action"] if gate else None,
+    }
+
+
+def receipt_blocker(
+    stopped_at: dict[str, Any] | None,
+    *,
+    platform_account: str = PLATFORM_ACCOUNT,
+    command: str = COMMAND,
+) -> dict[str, Any] | None:
+    """Derive the matrix blocker from the refusal observed at run time.
+
+    No refusal, or a 400 that names no dashboard action, means no blocker.
+    The id is taken from classify_external_gate, never a constant.
+    """
+    if not isinstance(stopped_at, dict):
+        return None
+    if stopped_at.get("classification") != "external_gate":
+        return None
+    blocker_id = stopped_at.get("blocker_id")
+    if not isinstance(blocker_id, str) or not blocker_id:
+        return None
+    dashboard_url = str(stopped_at.get("dashboard_url") or "")
+    dashboard_action = str(stopped_at.get("dashboard_action") or "")
+    refusal = str(stopped_at.get("error_message") or "").rstrip(".")
+    method = stopped_at.get("method") or "POST"
+    path = stopped_at.get("path") or "/v1/accounts"
+    return {
+        "id": blocker_id,
+        "detail": (
+            f"{method} {path} on {platform_account} "
+            f"returns: {refusal}. "
+            f"Dashboard action: {dashboard_action} {dashboard_url}. "
+            f"After that action, {command} is the one command that finishes "
+            "the Connect remainder."
+        ),
+        "unreachable_in_test_mode_api": True,
+        "classification": "external_gate",
+        "dashboard_url": dashboard_url or None,
+        "dashboard_action": dashboard_action or None,
+        "stopped_at": stopped_at,
+        "exit_reason": BLOCKED_MESSAGE,
+    }
 
 
 def contains_secret(value: Any) -> str | None:
@@ -441,18 +600,90 @@ class ConnectRun:
         log(f"pre {step}: {fields.get('detail') or fields.get('status') or 'ok'}")
 
     def stop_connect(self, method: str, path: str, status: int, doc: dict[str, Any], sent: dict[str, Any]) -> None:
-        message = connect_signup_error(status, doc) or str(err_of(doc).get("message") or "")
-        self.stopped_at = {
-            "method": method,
-            "path": path,
-            "http": status,
-            "error_type": err_of(doc).get("type"),
-            "error_code": err_of(doc).get("code"),
-            "error_message": message,
-            "request_fields": sent,
-        }
+        self.stopped_at = stopped_at_record(method, path, status, doc, sent)
+        message = str(self.stopped_at.get("error_message") or "")
         print(BLOCKED_MESSAGE, file=sys.stderr)
+        gate_id = self.stopped_at.get("blocker_id")
+        dashboard_url = self.stopped_at.get("dashboard_url")
+        if gate_id:
+            print(f"blocked: {gate_id} {dashboard_url}", file=sys.stderr)
         log(f"{BLOCKED_MESSAGE} at {method} {path} http={status} {message}")
+
+
+def _self_test_gate_vs_defect() -> str | None:
+    """Prove the blocker id is derived from the refusal, not a constant.
+
+    The three known dashboard walls must produce three distinct ids. A 400
+    that names no dashboard action must stay a defect (no blocker).
+    """
+    signup = classify_external_gate(400, {"error": {"message": REFUSAL_CONNECT_SIGNUP}})
+    profile = classify_external_gate(400, {"error": {"message": REFUSAL_PLATFORM_PROFILE}})
+    accounts_v1 = classify_external_gate(400, {"error": {"message": REFUSAL_ACCOUNTS_V1}})
+    defect = classify_external_gate(
+        400,
+        {
+            "error": {
+                "message": REFUSAL_DEFECT_NO_DASHBOARD,
+                "code": "resource_missing",
+                "type": "invalid_request_error",
+                "request_log_url": (
+                    "https://dashboard.stripe.com/acct_1TxbzMCwPLrR4vaY/"
+                    "test/workbench/logs?object=req_NOT_A_GATE"
+                ),
+            }
+        },
+    )
+    if not signup or signup["id"] != "connect_platform_not_signed_up":
+        return "signup refusal not classified as connect_platform_not_signed_up"
+    if signup["dashboard_url"] != CONNECT_SIGNUP_URL:
+        return "signup refusal lost the dashboard URL"
+    if not profile or profile["id"] != "connect_platform_profile_incomplete":
+        return "platform-profile refusal not classified as connect_platform_profile_incomplete"
+    if profile["dashboard_url"] != PLATFORM_PROFILE_URL:
+        return "platform-profile refusal lost the dashboard URL"
+    if not accounts_v1 or accounts_v1["id"] != "connect_accounts_v1_not_enabled":
+        return "Accounts v1 refusal not classified as connect_accounts_v1_not_enabled"
+    if accounts_v1["dashboard_url"] != V1_SUPPORT_URL:
+        return "Accounts v1 refusal lost the dashboard URL"
+    ids = {signup["id"], profile["id"], accounts_v1["id"]}
+    if len(ids) != 3:
+        return "classifier produced a constant id across known refusals"
+    if defect is not None:
+        return "400 without a dashboard action was classified as a gate (must stay FAILED)"
+    if classify_external_gate(200, {"id": "acct_x"}):
+        return "HTTP 200 classified as a Connect wall"
+    if classify_external_gate(404, {"error": {"message": REFUSAL_PLATFORM_PROFILE}}):
+        return "non-400 classified as a Connect wall"
+
+    signup_stop = stopped_at_record(
+        "POST", "/v1/accounts", 400, {"error": {"message": REFUSAL_CONNECT_SIGNUP}}, {}
+    )
+    profile_stop = stopped_at_record(
+        "POST", "/v1/accounts", 400, {"error": {"message": REFUSAL_PLATFORM_PROFILE}}, {}
+    )
+    v1_stop = stopped_at_record(
+        "POST", "/v1/accounts", 400, {"error": {"message": REFUSAL_ACCOUNTS_V1}}, {}
+    )
+    defect_stop = stopped_at_record(
+        "POST", "/v1/accounts", 400, {"error": {"message": REFUSAL_DEFECT_NO_DASHBOARD}}, {}
+    )
+    b_signup = receipt_blocker(signup_stop)
+    b_profile = receipt_blocker(profile_stop)
+    b_v1 = receipt_blocker(v1_stop)
+    if not b_signup or not b_profile or not b_v1:
+        return "gate refusal produced no receipt blocker"
+    blocker_ids = {b_signup["id"], b_profile["id"], b_v1["id"]}
+    if len(blocker_ids) != 3:
+        return "receipt blocker.id is constant across known refusals"
+    if PLATFORM_PROFILE_URL not in (b_profile.get("detail") or ""):
+        return "platform-profile blocker detail lost the dashboard URL"
+    if PLATFORM_PROFILE_URL not in (b_profile.get("dashboard_url") or ""):
+        return "platform-profile blocker lost dashboard_url"
+    if receipt_blocker(defect_stop) is not None:
+        return "defect 400 produced a receipt blocker"
+    if receipt_blocker(None) is not None:
+        return "no refusal produced a receipt blocker"
+    return None
 
 
 def self_test() -> int:
@@ -474,12 +705,9 @@ def self_test() -> int:
     if PLACEHOLDER_ACCOUNT.startswith("acct_"):
         log("self-test: placeholder looks like an acct_")
         return 1
-    fake = {"error": {"message": "You can only create new accounts if you've signed up for Connect, which you can do at https://dashboard.stripe.com/connect."}}
-    if not connect_signup_error(400, fake):
-        log("self-test: Connect signup error not recognized")
-        return 1
-    if connect_signup_error(200, {"id": "acct_x"}):
-        log("self-test: false Connect wall")
+    class_error = _self_test_gate_vs_defect()
+    if class_error:
+        log(f"self-test: {class_error}")
         return 1
     if BLOCKED_MESSAGE != "blocked: Connect not signed up":
         log("self-test: blocked message drifted")
@@ -498,6 +726,41 @@ def self_test() -> int:
         return 1
     if "check|matrix|nonconnect|connect" not in parent:
         log("self-test: stripe-sandbox.sh does not accept connect")
+        return 1
+    import importlib.util
+
+    nc_spec = importlib.util.spec_from_file_location(
+        "stripe_sandbox_nonconnect_self_test",
+        root / "scripts/lib/stripe-sandbox-nonconnect.py",
+    )
+    if nc_spec is None or nc_spec.loader is None:
+        log("self-test: cannot load stripe-sandbox-nonconnect.py")
+        return 1
+    nc = importlib.util.module_from_spec(nc_spec)
+    nc_spec.loader.exec_module(nc)
+    for message, expected in (
+        (REFUSAL_CONNECT_SIGNUP, "connect_platform_not_signed_up"),
+        (REFUSAL_PLATFORM_PROFILE, "connect_platform_profile_incomplete"),
+        (REFUSAL_ACCOUNTS_V1, "connect_accounts_v1_not_enabled"),
+    ):
+        doc = {"error": {"message": message}}
+        here = classify_external_gate(400, doc)
+        there = nc.classify_external_gate(400, doc)
+        if (
+            not here
+            or not there
+            or here["id"] != expected
+            or there["id"] != expected
+            or here["id"] != there["id"]
+            or here.get("dashboard_url") != there.get("dashboard_url")
+        ):
+            log("self-test: nonconnect classifier disagrees with connect remainder")
+            return 1
+    if nc.classify_external_gate(400, {"error": {"message": REFUSAL_DEFECT_NO_DASHBOARD}}) is not None:
+        log("self-test: nonconnect classified a defect 400 as a gate")
+        return 1
+    if nc.receipt_blocker(None) is not None:
+        log("self-test: nonconnect receipt_blocker invented a wall")
         return 1
     print("stripe-sandbox-connect: self-test PASS", file=sys.stderr)
     return 0
@@ -623,20 +886,12 @@ def merge_matrix(existing: dict[str, Any], run: ConnectRun) -> dict[str, Any]:
     harness["connect_remainder_status"] = top_status if connect_pass else BLOCKED
     harness["live_mode"] = "PROHIBITED"
 
-    blocker = existing.get("blocker") if isinstance(existing.get("blocker"), dict) else {}
-    if run.stopped_at:
-        blocker = {
-            "id": "connect_platform_not_signed_up",
-            "detail": (
-                f"{run.stopped_at['method']} {run.stopped_at['path']} on {PLATFORM_ACCOUNT} "
-                f"returns: {run.stopped_at.get('error_message')}. "
-                f"After dashboard signup, {COMMAND} is the one command that finishes "
-                "the Connect remainder."
-            ),
-            "unreachable_in_test_mode_api": True,
-            "stopped_at": run.stopped_at,
-            "exit_reason": BLOCKED_MESSAGE,
-        }
+    # Derive from this run. Do not keep a previously observed wall: that is
+    # how a cleared Connect-signup blocker outlived the refusal that replaced it.
+    if top_status == "PASS":
+        blocker = None
+    else:
+        blocker = receipt_blocker(run.stopped_at)
 
     notes = list(existing.get("notes") or [])
     for note in run.notes:
@@ -652,10 +907,15 @@ def merge_matrix(existing: dict[str, Any], run: ConnectRun) -> dict[str, Any]:
         "accepts_only",
         "status=PASS plus transfer tr_ and payout hold/release/failure/reversal",
     )
+    wall = (blocker or {}).get("id") if isinstance(blocker, dict) else None
     validator["this_receipt"] = (
         "honest PASS; Connect remainder completed"
         if top_status == "PASS"
-        else "honest BLOCKED; expected CHECK_FAILED until Connect signup"
+        else (
+            f"honest BLOCKED; expected CHECK_FAILED until {wall}"
+            if wall
+            else "honest BLOCKED; expected CHECK_FAILED until Connect remainder completes"
+        )
     )
 
     merged = dict(existing)
@@ -780,15 +1040,16 @@ def drive(api: StripeClient, run: ConnectRun) -> str:
     if isinstance(connect_ep, dict) and connect_ep.get("connect") is not True:
         run.notes.append(
             "Existing Connect endpoint still has connect!=true; "
-            f"{COMMAND} will recreate it with connect=true after signup."
+            f"{COMMAND} will recreate it with connect=true after the current "
+            "Connect dashboard action."
         )
 
     status, listed = api.call("GET", "accounts?limit=10")
-    signup = connect_signup_error(status, listed)
-    if signup:
-        run.record_pre("GET /v1/accounts", status="blocked", http=status, detail=signup)
+    gate = classify_external_gate(status, listed)
+    if gate:
+        run.record_pre("GET /v1/accounts", status="blocked", http=status, detail=gate["message"])
         run.stop_connect("GET", "/v1/accounts", status, listed, {"limit": "10"})
-        _block_remaining(run, signup)
+        _block_remaining(run, f"requires {gate['id']} on {PLATFORM_ACCOUNT}")
         return BLOCKED
     listed_ids = [
         str(item.get("id"))
@@ -810,22 +1071,25 @@ def drive(api: StripeClient, run: ConnectRun) -> str:
 
     create_fields = account_create_fields(run.run_id)
     status, created = api.call("POST", "accounts", create_fields)
-    signup = connect_signup_error(status, created)
-    if signup:
+    gate = classify_external_gate(status, created)
+    if gate:
         run.stop_connect("POST", "/v1/accounts", status, created, create_fields)
         run.add(
             "connected_account_creation",
             BLOCKED,
-            detail=signup,
+            detail=gate["message"],
             extra={
                 "attempted": True,
                 "http": status,
                 "path": "/v1/accounts",
                 "method": "POST",
                 "dry_run_verified": True,
+                "classification": "external_gate",
+                "blocker_id": gate["id"],
+                "dashboard_url": gate["dashboard_url"],
             },
         )
-        _block_remaining(run, f"requires Connect signup on {PLATFORM_ACCOUNT}")
+        _block_remaining(run, f"requires {gate['id']} on {PLATFORM_ACCOUNT}")
         return BLOCKED
 
     created_id = str(created.get("id") or "")
@@ -833,7 +1097,8 @@ def drive(api: StripeClient, run: ConnectRun) -> str:
         run.add(
             "connected_account_creation",
             FAILED,
-            detail=f"http={status} {err_of(created).get('message') or created_id}",
+            detail=f"http={status} {error_message(created) or created_id}",
+            extra={"attempted": True, "http": status, "path": "/v1/accounts", "method": "POST"},
         )
         _fail_remaining(run, "connected account was not created")
         return FAILED
@@ -883,11 +1148,11 @@ def _probe_connect_webhook(api: StripeClient, run: ConnectRun) -> dict[str, Any]
         "enabled_events[]": list(CONNECT_EVENTS),
     }
     status, created = api.call("POST", "webhook_endpoints", fields)
-    signup = connect_signup_error(status, created)
-    if signup:
+    gate = classify_external_gate(status, created)
+    if gate:
         run.stop_connect("POST", "/v1/webhook_endpoints", status, created, {"connect": "true", "api_version": API_VERSION})
-        _block_remaining(run, signup)
-        return {"stopped": True, "http": status, "error": signup}
+        _block_remaining(run, f"requires {gate['id']} on {PLATFORM_ACCOUNT}")
+        return {"stopped": True, "http": status, "error": gate["message"]}
 
     probe_id = str(created.get("id") or "")
     secret_present = bool(created.get("secret"))
