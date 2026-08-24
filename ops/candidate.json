@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "commit": "974f176675e08cb144afa92aff71baca221f5a52",
-  "declared_at": "2026-08-24T05:41:47Z",
-  "reason": "Backend-alpha candidate: FINAL v2. r7 re-seal + pricing correction + the three r7-consequence test fixes. Full make test green (modulo env-gated webhook secrets). No code after this."
+  "commit": "cf78b8b4c4663c2ebd4fde34535d98d5a2b0eca4",
+  "declared_at": "2026-08-24T05:57:13Z",
+  "reason": "Backend-alpha candidate: FINAL v3. Adds the CI LFS-hydrate step so the published image materializes evidence/perf receipts and control boots. No code after this."
 }
