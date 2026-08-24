@@ -326,24 +326,7 @@ func tiebreakPeerClaimEligibleTx(ctx context.Context, tx pgx.Tx, taskID, jobID, 
 		    AND NOT EXISTS (
 		      SELECT 1
 		        FROM (
-		          SELECT prior.execution_worker_id AS worker_id,
-		                 prior.execution_supplier_id AS supplier_id
-		            FROM tasks prior
-		           WHERE prior.job_id=t.job_id
-		             AND COALESCE(prior.chunk_index,0)=COALESCE(t.chunk_index,0)
-		             AND prior.id<>t.id AND prior.execution_worker_id IS NOT NULL
-		          UNION ALL
-		          SELECT work.worker_id,work.supplier_id
-		            FROM verification_work work
-		            JOIN tasks committed ON committed.id=work.task_id
-		           WHERE committed.job_id=t.job_id
-		             AND COALESCE(committed.chunk_index,0)=COALESCE(t.chunk_index,0)
-		          UNION ALL
-		          SELECT history.worker_id,history.supplier_id
-		            FROM task_execution_history history
-		            JOIN tasks attempted ON attempted.id=history.task_id
-		           WHERE attempted.job_id=t.job_id
-		             AND COALESCE(attempted.chunk_index,0)=COALESCE(t.chunk_index,0)
+` + chunkIndependencePriorsSQL("t.job_id", "t.chunk_index", "t.id") + `
 		        ) executed
 		       WHERE executed.worker_id=nw.id OR executed.supplier_id=nw.supplier_id
 		    )

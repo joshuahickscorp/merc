@@ -724,8 +724,13 @@ func dynamicPeerClaimEligibleTx(
 		    AND COALESCE(j.min_reputation,0)<=ns.reputation
 		    AND (j.tier<>'trusted' OR (ns.reputation>=0.80 AND ns.completed_tasks>=500))
 		    AND COALESCE(j.offered_rate_usd_hr,1e9)>=COALESCE(nw.min_payout_usd_hr,0)
-		    AND nw.id IS DISTINCT FROM anchor.execution_worker_id
-		    AND nw.supplier_id IS DISTINCT FROM anchor.execution_supplier_id
+		    AND NOT EXISTS (
+		      SELECT 1
+		        FROM (
+` + chunkIndependencePriorsSQL("j.id", "anchor.chunk_index", chunkIndependenceUnbornTaskID) + `
+		        ) executed
+		       WHERE executed.worker_id=nw.id OR executed.supplier_id=nw.supplier_id
+		    )
 		    AND (
 		      COALESCE(NULLIF(j.placement_requirement->>'version','')::int,1)<3
 		      OR (

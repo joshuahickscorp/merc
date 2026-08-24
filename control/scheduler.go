@@ -484,6 +484,60 @@ type ClaimedTask struct {
 	Narrowing *ClaimNarrowingTrace
 }
 
+// chunkIndependencePriorsSQL is the single prior-executor / current-holder
+// set for independent verification. A worker or supplier in this set already
+// executed, or currently holds, another task for the same
+// (job_id, COALESCE(chunk_index,0)). Claimed-but-not-yet-executed siblings
+// count: identity lives on claimed_by until execution_worker_id is written.
+//
+// jobID, chunkIndex, and excludeTaskID are SQL expressions. excludeTaskID is
+// the row being claimed or started so it does not exclude itself via
+// claimed_by. For a task that does not exist yet (push pin), pass
+// chunkIndependenceUnbornTaskID so every existing holder of the chunk is in
+// the set.
+func chunkIndependencePriorsSQL(jobID, chunkIndex, excludeTaskID string) string {
+	return `
+	               -- Current durable task projections cover pre-history rows and
+	               -- completed disputants whose worker_id remains attached.
+	               SELECT prior.execution_worker_id AS worker_id,
+	                      prior.execution_supplier_id AS supplier_id
+	                 FROM tasks prior
+	                WHERE prior.job_id=` + jobID + `
+	                  AND COALESCE(prior.chunk_index,0)=COALESCE(` + chunkIndex + `,0)
+	                  AND prior.id<>` + excludeTaskID + ` AND prior.execution_worker_id IS NOT NULL
+	               UNION ALL
+	               -- Claimed-but-not-yet-executed siblings. Claim identity lives
+	               -- on claimed_by before execution_worker_id is written.
+	               SELECT prior.claimed_by AS worker_id,
+	                      holders.supplier_id AS supplier_id
+	                 FROM tasks prior
+	                 JOIN workers holders ON holders.id=prior.claimed_by
+	                WHERE prior.job_id=` + jobID + `
+	                  AND COALESCE(prior.chunk_index,0)=COALESCE(` + chunkIndex + `,0)
+	                  AND prior.id<>` + excludeTaskID + ` AND prior.claimed_by IS NOT NULL
+	               UNION ALL
+	               -- Durable commit snapshots freeze worker AND supplier identity;
+	               -- unlike a mutable worker profile, this survives retries and
+	               -- any later administrative supplier reassignment.
+	               SELECT work.worker_id,work.supplier_id
+	                 FROM verification_work work
+	                 JOIN tasks committed ON committed.id=work.task_id
+	                WHERE committed.job_id=` + jobID + `
+	                  AND COALESCE(committed.chunk_index,0)=COALESCE(` + chunkIndex + `,0)
+	               UNION ALL
+	               -- Claim history survives every retry path that clears worker_id.
+	               SELECT history.worker_id,history.supplier_id
+	                 FROM task_execution_history history
+	                 JOIN tasks attempted ON attempted.id=history.task_id
+	                WHERE attempted.job_id=` + jobID + `
+	                  AND COALESCE(attempted.chunk_index,0)=COALESCE(` + chunkIndex + `,0)`
+}
+
+// chunkIndependenceUnbornTaskID is the self-exclusion expression for a task
+// that will be inserted after the eligibility check. No existing row has this
+// id, so every prior executor and current holder of the chunk is in the set.
+const chunkIndependenceUnbornTaskID = `'00000000-0000-0000-0000-000000000000'::uuid`
+
 // ClaimTaskSQL builds the production claim query. Shape preference is derived
 // per job tier through preferenceForTier when MERC_SHAPE_AWARE_ROUTING is on;
 // with the flag off the shape term is a no-op constant and ordering matches the
@@ -1070,40 +1124,7 @@ func claimTaskSQL(claimedByPredicate, shapeOrderExpr string) string {
 	         NOT EXISTS (
 	           SELECT 1
 	             FROM (
-	               -- Current durable task projections cover pre-history rows and
-	               -- completed disputants whose worker_id remains attached.
-	               SELECT prior.execution_worker_id AS worker_id,
-	                      prior.execution_supplier_id AS supplier_id
-	                 FROM tasks prior
-	                WHERE prior.job_id=t.job_id
-	                  AND COALESCE(prior.chunk_index,0)=COALESCE(t.chunk_index,0)
-	                  AND prior.id<>t.id AND prior.execution_worker_id IS NOT NULL
-	               UNION ALL
-	               -- Claimed-but-not-yet-executed siblings. Claim identity lives
-	               -- on claimed_by before execution_worker_id is written.
-	               SELECT prior.claimed_by AS worker_id,
-	                      holders.supplier_id AS supplier_id
-	                 FROM tasks prior
-	                 JOIN workers holders ON holders.id=prior.claimed_by
-	                WHERE prior.job_id=t.job_id
-	                  AND COALESCE(prior.chunk_index,0)=COALESCE(t.chunk_index,0)
-	                  AND prior.id<>t.id AND prior.claimed_by IS NOT NULL
-	               UNION ALL
-	               -- Durable commit snapshots freeze worker AND supplier identity;
-	               -- unlike a mutable worker profile, this survives retries and
-	               -- any later administrative supplier reassignment.
-	               SELECT work.worker_id,work.supplier_id
-	                 FROM verification_work work
-	                 JOIN tasks committed ON committed.id=work.task_id
-	                WHERE committed.job_id=t.job_id
-	                  AND COALESCE(committed.chunk_index,0)=COALESCE(t.chunk_index,0)
-	               UNION ALL
-	               -- Claim history survives every retry path that clears worker_id.
-	               SELECT history.worker_id,history.supplier_id
-	                 FROM task_execution_history history
-	                 JOIN tasks attempted ON attempted.id=history.task_id
-	                WHERE attempted.job_id=t.job_id
-	                  AND COALESCE(attempted.chunk_index,0)=COALESCE(t.chunk_index,0)
+` + chunkIndependencePriorsSQL("t.job_id", "t.chunk_index", "t.id") + `
 	             ) executed
 	            WHERE executed.worker_id=ej.claim_worker_id
 	               OR executed.supplier_id=ej.claim_supplier_id

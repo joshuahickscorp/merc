@@ -240,9 +240,6 @@ func independentSupplierCountSatisfiesRedundancy(independentSupplierCount int) b
 }
 
 func independentRedundancyMatch(all []chunkVote) bool {
-	if len(all) <= 1 {
-		return true
-	}
 	return independentSupplierCountSatisfiesRedundancy(len(independentSupplierVotes(all)))
 }
 
