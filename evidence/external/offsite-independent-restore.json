@@ -2,10 +2,10 @@
   "schema_version": 1,
   "kind": "external_offsite_restore",
   "status": "PASS",
-  "backup_id": "20260824T163944Z",
-  "offsite_uri": "s3://merc/offsite-alpha/20260824T163944Z",
-  "ciphertext_sha256": "a7e10d832c18c8591fe65cfc47d674b4ac411e1ee80cd1eec4b8e4023a17209d",
-  "completed_at": "2026-08-24T16:39:55Z",
+  "backup_id": "20260824T165315Z",
+  "offsite_uri": "s3://merc/offsite-alpha/20260824T165315Z",
+  "ciphertext_sha256": "5661c4297f91093d600df8851d543971c8ac86d5eda956cd325f4164f2a85427",
+  "completed_at": "2026-08-24T16:53:29Z",
   "secret_values_recorded": false,
   "independent_download": true,
   "ciphertext_checksum_verified": true,
@@ -53,7 +53,7 @@
   },
   "producer_identity": {
     "source_commit": {
-      "value": "87b0ea63be7ccf49bd4f517c26df4dcdfe5af686"
+      "value": "d91551a1ac1c8d6c073802a5d618f74f37bafe98"
     },
     "build_digest": {
       "value": "93bb875336f12a7d2819bf1adf3b80b7953ed91fd16979f5bde8b0b92103fa60"
@@ -71,7 +71,7 @@
       "na": "no external corpus; isolated seed only"
     },
     "exact_config": {
-      "value": "offsite independent restore backup_id=20260824T163944Z offsite=s3://merc/offsite-alpha/20260824T163944Z boundary=cloudflare_r2_operator_controlled source=isolated_rehearsal_environment transit=direct_from_isolated_source"
+      "value": "offsite independent restore backup_id=20260824T165315Z offsite=s3://merc/offsite-alpha/20260824T165315Z boundary=cloudflare_r2_operator_controlled source=isolated_rehearsal_environment transit=direct_from_isolated_source"
     },
     "raw_samples": {
       "value": "embedded database_semantics and object_count"

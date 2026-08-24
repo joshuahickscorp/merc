@@ -249,7 +249,7 @@
       ]
     }
   ],
-  "source_commit": "87b0ea63be7ccf49bd4f517c26df4dcdfe5af686",
+  "source_commit": "d91551a1ac1c8d6c073802a5d618f74f37bafe98",
   "produced_by": "scripts/produce-authorization-matrix-binding.py",
   "binding_status": "BOUND",
   "validated_by": "scripts/validate-authorization-matrix.py",
