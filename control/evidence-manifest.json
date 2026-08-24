@@ -468,7 +468,7 @@
         "precision": "Q4_K_M GGUF",
         "operating_batch": 1,
         "units_per_sec_at_operating_batch": 302.3194,
-        "best_observed_units_per_sec": 323.5676,
+        "best_observed_units_per_sec": 668.5316,
         "best_observed_batch": 64,
         "basis": "settlement geometry token_like_input_plus_max_output_tokens: billable units/request = max(1, prompt_bytes/4)+max_tokens = 62.75 (prompt_bytes=59, max_tokens=48); rate at operating_batch=1 is batch_infer.throughput_units_per_second from merc-agent bench-batch re-expressed under the same wall samples. best_observed is peak at batch 64 (ceiling to refuse, not an offer rate)."
       }

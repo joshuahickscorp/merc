@@ -1046,25 +1046,28 @@ func claimTaskSQL(claimedByPredicate, shapeOrderExpr string) string {
 	          OR t.excluded_worker <> $1
 	          OR t.excluded_until IS NULL
 	          OR t.excluded_until <= now())
-	     -- A redundancy row carrying hedged_from is a third-opinion task. Its
-	     -- verification class was frozen when the disagreement was planned, and
-	     -- every worker/supplier that has already executed this chunk is permanently
-	     -- ineligible. This predicate applies to BOTH the pinned and general claim
-	     -- branches: a profile/capability change cannot let an unsafe pin start, and
-	     -- FailTaskTx/the stale reaper may clear the pin without handing a disputant
-	     -- (or another machine owned by that supplier) the third vote.
+	     -- Redundancy independence. TWO rules, kept separate:
+	     --
+	     -- 1. Prior-executor / current-holder exclusion applies to EVERY
+	     --    redundancy row (ordinary copies and hedged third-opinion). A
+	     --    worker, or any other machine owned by the same supplier, that
+	     --    already executed or is currently holding another task for this
+	     --    (job_id, COALESCE(chunk_index,0)) cannot take the check copy.
+	     --    claimed_by is part of the prior set: execution_worker_id is
+	     --    written only once the task has executed, and an agent with
+	     --    concurrent permits can hold both copies before either finishes.
+	     -- 2. Frozen verification-class pinning belongs to hedged
+	     --    third-opinion rows only. Ordinary redundancy has no frozen
+	     --    class; requiring one would make those rows unclaimable.
+	     --
+	     -- Applies to BOTH the pinned and general claim branches: a
+	     -- profile/capability change cannot let an unsafe pin start, and
+	     -- FailTaskTx/the stale reaper may clear the pin without handing a
+	     -- disputant (or another machine owned by that supplier) the check.
 	     AND (
-	       NOT (COALESCE(t.is_redundancy,false) AND t.hedged_from IS NOT NULL)
+	       NOT COALESCE(t.is_redundancy,false)
 	       OR (
-	         NULLIF(COALESCE(t.verification_hw_class,''),'') IS NOT NULL
-	         AND ej.claim_hw_class=t.verification_hw_class
-	         AND (COALESCE(t.verification_engine,'')=''
-	              OR ej.claim_engine=t.verification_engine)
-	         AND (COALESCE(t.verification_build_hash,'')=''
-	              OR ej.claim_build_hash=t.verification_build_hash)
-	         AND (COALESCE(t.verification_build_identity_policy,'')=''
-	              OR ej.claim_build_identity_policy=t.verification_build_identity_policy)
-	         AND NOT EXISTS (
+	         NOT EXISTS (
 	           SELECT 1
 	             FROM (
 	               -- Current durable task projections cover pre-history rows and
@@ -1075,6 +1078,16 @@ func claimTaskSQL(claimedByPredicate, shapeOrderExpr string) string {
 	                WHERE prior.job_id=t.job_id
 	                  AND COALESCE(prior.chunk_index,0)=COALESCE(t.chunk_index,0)
 	                  AND prior.id<>t.id AND prior.execution_worker_id IS NOT NULL
+	               UNION ALL
+	               -- Claimed-but-not-yet-executed siblings. Claim identity lives
+	               -- on claimed_by before execution_worker_id is written.
+	               SELECT prior.claimed_by AS worker_id,
+	                      holders.supplier_id AS supplier_id
+	                 FROM tasks prior
+	                 JOIN workers holders ON holders.id=prior.claimed_by
+	                WHERE prior.job_id=t.job_id
+	                  AND COALESCE(prior.chunk_index,0)=COALESCE(t.chunk_index,0)
+	                  AND prior.id<>t.id AND prior.claimed_by IS NOT NULL
 	               UNION ALL
 	               -- Durable commit snapshots freeze worker AND supplier identity;
 	               -- unlike a mutable worker profile, this survives retries and
@@ -1094,6 +1107,19 @@ func claimTaskSQL(claimedByPredicate, shapeOrderExpr string) string {
 	             ) executed
 	            WHERE executed.worker_id=ej.claim_worker_id
 	               OR executed.supplier_id=ej.claim_supplier_id
+	         )
+	         AND (
+	           t.hedged_from IS NULL
+	           OR (
+	             NULLIF(COALESCE(t.verification_hw_class,''),'') IS NOT NULL
+	             AND ej.claim_hw_class=t.verification_hw_class
+	             AND (COALESCE(t.verification_engine,'')=''
+	                  OR ej.claim_engine=t.verification_engine)
+	             AND (COALESCE(t.verification_build_hash,'')=''
+	                  OR ej.claim_build_hash=t.verification_build_hash)
+	             AND (COALESCE(t.verification_build_identity_policy,'')=''
+	                  OR ej.claim_build_identity_policy=t.verification_build_identity_policy)
+	           )
 	         )
 	       )
 	     )
