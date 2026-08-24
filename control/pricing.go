@@ -1827,9 +1827,14 @@ func CompareCostFloorToMarketBoard(supplierShare float64) []CostFloorVsMarket {
 //
 // Moving from cost-plus to a market board fixed a price that was ~460x above the
 // market and, in the same stroke, cut supplier gross by the same factor. On the
-// hardware the control plane currently admits (Apple Silicon, 138.7 tok/s
-// measured) the two numbers land within a rounding error of each other: about
-// $0.00436/hr of gross against $0.0045/hr of electricity. A marketplace whose
+// hardware the control plane currently admits (Apple Silicon) gross and
+// electricity land within a rounding error of each other. The worked figures
+// that used to sit here — 138.7 tok/s, $0.00436/hr against $0.0045/hr — came
+// from evidence/benchmarks/2026-07-01-m3-pro.json and are no longer what the
+// catalogue prices: the bound throughput is now 304.2661 tok/s from the candle
+// r6 receipt. The illustration is left unnumbered rather than restated, because
+// a hardcoded number in a comment beside live pricing code is exactly the thing
+// that goes stale without anyone noticing. A marketplace whose
 // suppliers pay to participate has no supply side, and that fact must be visible
 // in an operator report rather than discovered by a supplier reading their
 // electricity bill.
