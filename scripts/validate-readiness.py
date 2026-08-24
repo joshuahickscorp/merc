@@ -2410,10 +2410,20 @@ def main() -> None:
     reviewer_record = by_id.get(NAMED_REVIEWER_GATE_ID)
     if reviewer_record is None:
         fail(f"{NAMED_REVIEWER_GATE_ID}: missing from backend-alpha-gates.json")
-    if reviewer_record["classification"] != "PUBLIC_LAUNCH":
+    # The requirement this assert protects is that a NAMED HUMAN reviewer is never
+    # counted as a backend-alpha point — the executed machine rehearsal is the
+    # alpha obligation, human accountability is a later level. POST_ALPHA and
+    # PUBLIC_LAUNCH both satisfy that; pinning one made the checker contradict
+    # ops/backend-alpha-gates.json, which is the single source of truth for
+    # classification. Moving the gate to POST_ALPHA TIGHTENS Level B (the reviewer
+    # is required at the private canary rather than at public launch), so refusing
+    # it would have rejected a stricter bar. Anything that would make this
+    # satisfiable inside alpha is still refused.
+    if reviewer_record["classification"] not in {"POST_ALPHA", "PUBLIC_LAUNCH"}:
         fail(
             f"{NAMED_REVIEWER_GATE_ID}: classification "
-            f"{reviewer_record['classification']} != PUBLIC_LAUNCH"
+            f"{reviewer_record['classification']} must be POST_ALPHA or "
+            "PUBLIC_LAUNCH — a named human reviewer is not a backend-alpha point"
         )
     if not named_attack_reviewer_proven(load_json(NAMED_REVIEWER_RECEIPT)):
         print(

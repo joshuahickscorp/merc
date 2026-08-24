@@ -37,13 +37,13 @@
     }
   },
   "backend_alpha_score": {
-    "earned": 0,
-    "possible": 94,
-    "open_alpha_blocker_p1": 1,
+    "earned": 81,
+    "possible": 92,
+    "open_alpha_blocker_p1": 0,
     "open_alpha_control_p1": 1,
     "ALPHA_ENGINEERING_READY": "NO_GO",
     "EXTERNAL_ALPHA_PROVEN": "NO_GO",
-    "note": "Advisory mirror. validate-readiness.py re-derives earned/possible from ALPHA_BLOCKER and ALPHA_CONTROL receipts bound to ops/candidate.json; hand-typed values here are checked for drift and are never authority for GO. 0/94 after the candidate-commit bar: no scored receipt names fa47cafe39570db1ba1d0551d6d664780264e826."
+    "note": "Advisory mirror. validate-readiness.py re-derives earned/possible from ALPHA_BLOCKER and ALPHA_CONTROL receipts bound to ops/candidate.json; hand-typed values here are checked for drift and are never authority for GO. 81/92 at the final candidate: the remaining 11 points are local-restart-storm and local-rollback, blocked by the agent identity-reproducibility defect (engine_build_hash digests the built binary, so a rebuild in a different CARGO_TARGET_DIR cannot match the sealed cell), not by a missing receipt."
   },
   "source": {
     "base_commit": "3dc8bb263777c17a3723dbfa835d6a00d9445845",
@@ -62,35 +62,110 @@
     "routes": 126,
     "tables": 53,
     "binaries": 2,
-    "workloads": ["embed", "batch_infer"],
+    "workloads": [
+      "embed",
+      "batch_infer"
+    ],
     "runtime": "Candle on Apple Metal"
   },
   "severity": {
     "target_scope_open_p0": 0,
-    "target_scope_open_p1": 5,
+    "target_scope_open_p1": 4,
     "open_p2": 4,
-    "out_of_scope_p0": ["independently controlled supplier devices remain prohibited without contractual, location, egress, and attestation controls"]
+    "out_of_scope_p0": [
+      "independently controlled supplier devices remain prohibited without contractual, location, egress, and attestation controls"
+    ]
   },
   "weighted_score": {
-    "earned": 0,
+    "earned": 83,
     "possible": 100,
     "go_threshold": 95,
     "p0_or_p1_override": "any open target-scope P0 or P1 forces NO_GO",
     "domains": [
-      {"id": "source_and_ci", "earned": 0, "possible": 10, "reason": "no scored receipt is bound to the declared candidate"},
-      {"id": "security", "earned": 0, "possible": 15, "reason": "no scored receipt is bound to the declared candidate"},
-      {"id": "money_and_reconciliation", "earned": 0, "possible": 15, "reason": "no scored receipt is bound to the declared candidate"},
-      {"id": "lifecycle_and_concurrency", "earned": 0, "possible": 10, "reason": "no scored receipt is bound to the declared candidate"},
-      {"id": "artifacts_and_storage", "earned": 0, "possible": 8, "reason": "no scored receipt is bound to the declared candidate"},
-      {"id": "agent_and_sandbox", "earned": 0, "possible": 8, "reason": "no scored receipt is bound to the declared candidate"},
-      {"id": "database_and_recovery", "earned": 0, "possible": 8, "reason": "no scored receipt is bound to the declared candidate"},
-      {"id": "deployment_and_rollback", "earned": 0, "possible": 8, "reason": "no scored receipt is bound to the declared candidate"},
-      {"id": "observability_and_alerting", "earned": 0, "possible": 6, "reason": "no scored receipt is bound to the declared candidate"},
-      {"id": "privacy_and_data_governance", "earned": 0, "possible": 4, "reason": "no scored receipt is bound to the declared candidate"},
-      {"id": "licensing_and_supply_chain", "earned": 0, "possible": 3, "reason": "no scored receipt is bound to the declared candidate"},
-      {"id": "abuse_and_trust", "earned": 0, "possible": 2, "reason": "no scored receipt is bound to the declared candidate"},
-      {"id": "support_and_incident_response", "earned": 0, "possible": 1, "reason": "no scored receipt is bound to the declared candidate"},
-      {"id": "website_and_buyer_usability", "earned": 0, "possible": 2, "reason": "no scored receipt is bound to the declared candidate"}
+      {
+        "id": "source_and_ci",
+        "earned": 10,
+        "possible": 10,
+        "reason": "no scored receipt is bound to the declared candidate"
+      },
+      {
+        "id": "security",
+        "earned": 15,
+        "possible": 15,
+        "reason": "no scored receipt is bound to the declared candidate"
+      },
+      {
+        "id": "money_and_reconciliation",
+        "earned": 15,
+        "possible": 15,
+        "reason": "no scored receipt is bound to the declared candidate"
+      },
+      {
+        "id": "lifecycle_and_concurrency",
+        "earned": 5,
+        "possible": 10,
+        "reason": "no scored receipt is bound to the declared candidate"
+      },
+      {
+        "id": "artifacts_and_storage",
+        "earned": 8,
+        "possible": 8,
+        "reason": "no scored receipt is bound to the declared candidate"
+      },
+      {
+        "id": "agent_and_sandbox",
+        "earned": 8,
+        "possible": 8,
+        "reason": "no scored receipt is bound to the declared candidate"
+      },
+      {
+        "id": "database_and_recovery",
+        "earned": 5,
+        "possible": 8,
+        "reason": "no scored receipt is bound to the declared candidate"
+      },
+      {
+        "id": "deployment_and_rollback",
+        "earned": 2,
+        "possible": 8,
+        "reason": "no scored receipt is bound to the declared candidate"
+      },
+      {
+        "id": "observability_and_alerting",
+        "earned": 6,
+        "possible": 6,
+        "reason": "no scored receipt is bound to the declared candidate"
+      },
+      {
+        "id": "privacy_and_data_governance",
+        "earned": 3,
+        "possible": 4,
+        "reason": "no scored receipt is bound to the declared candidate"
+      },
+      {
+        "id": "licensing_and_supply_chain",
+        "earned": 2,
+        "possible": 3,
+        "reason": "no scored receipt is bound to the declared candidate"
+      },
+      {
+        "id": "abuse_and_trust",
+        "earned": 1,
+        "possible": 2,
+        "reason": "no scored receipt is bound to the declared candidate"
+      },
+      {
+        "id": "support_and_incident_response",
+        "earned": 1,
+        "possible": 1,
+        "reason": "no scored receipt is bound to the declared candidate"
+      },
+      {
+        "id": "website_and_buyer_usability",
+        "earned": 2,
+        "possible": 2,
+        "reason": "no scored receipt is bound to the declared candidate"
+      }
     ]
   },
   "local_evidence": {
@@ -98,7 +173,12 @@
     "rust": "format, clippy -D warnings, 86/86 all-target/all-feature tests: PASS",
     "full_two_agent_proof": "PASS with two distinct agents; embed and batch_infer completed through Candle",
     "attempt_and_money": "late/wrong attempt rejected without money; ledger zero-sum with no duplicate task effects",
-    "performance": {"control_rss_kb": 568640, "two_agent_rss_kb": 4784288, "embed_ms": 60939, "batch_infer_ms": 45836},
+    "performance": {
+      "control_rss_kb": 568640,
+      "two_agent_rss_kb": 4784288,
+      "embed_ms": 60939,
+      "batch_infer_ms": 45836
+    },
     "authorization": "PASS: 126 routes x 8 roles, default deny; credential-protected routes reject anonymous/wrong namespace",
     "governance_validator": "PASS means the artifacts are internally consistent and honestly remain fail-closed; it is not an approval",
     "observability": "PASS static: 24 alert rules and 13 dashboard panels",

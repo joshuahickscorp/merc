@@ -8,7 +8,7 @@
     "backend_alpha_external_proven": "NO_GO",
     "live_money_or_public_launch": "NO_GO_PROHIBITED"
   },
-  "readiness_score": 88,
+  "readiness_score": 83,
   "go_threshold": 95,
   "backend_alpha": {
     "contract": "docs/BACKEND_ALPHA_CONTRACT.md",
@@ -57,21 +57,25 @@
         "evidence/external/offsite-independent-restore.json"
       ],
       "note": "Live merc droplet Postgres and MinIO were the source. Ciphertext only left the box via a droplet-direct presigned PUT to Cloudflare R2. Independently downloaded SHA-256 values, isolated decrypt/restore, ledger zero-sum, two live object sentinels, and a corrupt-envelope refusal all passed. Repeatable: make offsite-droplet-restore. mercmerc.net/readyz stayed 200; merc_pgdata and merc_miniodata were not removed."
+    },
+    {
+      "id": "P1-STRIPE-TEST",
+      "classification": "ALPHA_BLOCKER",
+      "status": "SATISFIED",
+      "satisfied_at": "2026-08-24T17:04:40Z",
+      "candidate_commit": "d91551a1ac1c8d6c073802a5d618f74f37bafe98",
+      "receipts": [
+        "evidence/external/stripe-sandbox-matrix.json"
+      ],
+      "note": "Exit criterion met in full: Connect signed up on the test platform, a Canadian test connected account created, and the matrix re-run to PASS with a real transfer (tr_1U8190CwPLrR4vaYgZFc3OWa) and payout hold/release/failure/reversal, all under one fresh run_id (20260824T165402Z-full) bound to the candidate. stripe_sandbox_matrix_proven accepts it and money_and_reconciliation scores 15/15. live_mode stays PROHIBITED; no identifier was synthesized."
     }
   ],
   "open_p1": [
     {
-      "id": "P1-STRIPE-TEST",
-      "owner": "payments",
-      "classification": "ALPHA_BLOCKER",
-      "blocker": "Non-Connect Stripe test-mode scenarios are driven by scripts/stripe-sandbox-nonconnect.sh against acct_1TxbzMCwPLrR4vaY. The remaining wall is Connect signup: no connected account, no tr_/payout objects, and we_1U5Cz3CwPLrR4vaYVjElBvu8 has connect=null. Dashboard: https://dashboard.stripe.com/connect, then recreate the Connect endpoint with connect=true.",
-      "exit_criterion": "Sign up for Connect on acct_1TxbzMCwPLrR4vaY, create a Canadian test connected account, recreate the Connect webhook with connect=true, and re-run make stripe-matrix until stripe_sandbox_matrix_proven accepts a PASS with a real tr_ and payout hold/release/failure/reversal."
-    },
-    {
       "id": "P1-ALERT-DELIVERY",
       "owner": "operations_on_call",
       "classification": "PUBLIC_LAUNCH",
-      "blocker": "A private Alertmanager→HTTP sink fire/resolve receipt now passes, but no external staffed paging receiver and acknowledgement route has been exercised.",
+      "blocker": "A private Alertmanager\u2192HTTP sink fire/resolve receipt now passes, but no external staffed paging receiver and acknowledgement route has been exercised.",
       "exit_criterion": "Preserve redacted external receiver delivery IDs and firing, acknowledgement, deduplication, and resolution timestamps."
     },
     {
