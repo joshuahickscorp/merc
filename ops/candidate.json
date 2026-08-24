@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "commit": "98e3b01852a038c814377ed530efb6d928642d34",
-  "declared_at": "2026-08-24T04:08:20Z",
-  "reason": "Backend-alpha candidate after the SSH-key history purge; every scored receipt is regenerated against this commit and no code lands after it."
+  "commit": "7987135786d523ffa7eb5fe364aee0e2d8cf6cfe",
+  "declared_at": "2026-08-24T04:16:14Z",
+  "reason": "Backend-alpha candidate, re-declared after the drift check caught a producer script added past the first declaration."
 }
