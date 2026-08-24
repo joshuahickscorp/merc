@@ -28,15 +28,15 @@
     "receiver_value_recorded": false,
     "attempts": {}
   },
-  "source_commit": "fa47cafe39570db1ba1d0551d6d664780264e826",
+  "source_commit": "98e3b01852a038c814377ed530efb6d928642d34",
   "produced_by": "scripts/alert-pipeline-simulation.py",
   "binding_status": "BOUND",
   "producer_identity": {
     "source_commit": {
-      "value": "fa47cafe39570db1ba1d0551d6d664780264e826"
+      "value": "44ba8ca76037e90da2028e8da6cbe921fed6c337"
     },
     "build_digest": {
-      "value": "e357e5ca0f18ac21a911e80907574c31052b81310490bab3cc4824adf6e19493"
+      "value": "1a308726bbcb2b57e6f27a93af25f654e984345227e90dfbcd94cb9c1e693e16"
     },
     "model_artifact_digest": {
       "na": "alert pipeline simulation does not load model weights"

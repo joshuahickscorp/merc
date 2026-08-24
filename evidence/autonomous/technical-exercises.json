@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "status": "PASS",
-  "completed_at": "2026-08-24T03:30:12Z",
+  "completed_at": "2026-08-24T04:12:09Z",
   "go_test_exit_code": 0,
-  "go_test_jsonl": "/Users/scammermike/.claude-grok/worktrees/F-stamp-batch1-20260823-231618/.artifacts/technical-exercises-go-test.jsonl",
+  "go_test_jsonl": "/Users/scammermike/Downloads/merc/.artifacts/technical-exercises-go-test.jsonl",
   "test_results": {
     "TestBuyerObjectDeletionQueueAndSweep": "pass",
     "TestDSARDeletionTombstoneAndRestoreReplay": "pass",
@@ -92,15 +92,15 @@
     "qualified_human_tabletop": "NOT EXECUTED",
     "external_subprocessor_deletion": "NOT EXECUTED"
   },
-  "source_commit": "fa47cafe39570db1ba1d0551d6d664780264e826",
+  "source_commit": "98e3b01852a038c814377ed530efb6d928642d34",
   "produced_by": "scripts/derive-technical-exercises-receipt.py",
   "binding_status": "BOUND",
   "producer_identity": {
     "source_commit": {
-      "value": "fa47cafe39570db1ba1d0551d6d664780264e826"
+      "value": "44ba8ca76037e90da2028e8da6cbe921fed6c337"
     },
     "build_digest": {
-      "value": "bea57e921124d56a407bfc8293e95e6e8b2f0f9e202aec0a77df73148c6c680c"
+      "value": "81916a1946d7699ce6e4e0e82536178a579aba18172fdeb67cd7d495e52a7082"
     },
     "model_artifact_digest": {
       "na": "technical exercises do not load model weights"

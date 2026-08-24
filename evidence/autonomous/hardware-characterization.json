@@ -10,7 +10,7 @@
   "memory_gb": 103.079216,
   "operating_system": "macOS 27.0 (26A5416b)",
   "metal_available": true,
-  "source_identity": "6c54533ff8f4a766",
+  "source_identity": "fda3c285fdaba1d1",
   "build_identity_policy": "merc_agent_running_executable_sha256_v1",
   "runtime_authority_sha256": "0b569a272b2bef7f553cad0efbe7bac9fc42a18944b16ac60b590763f497d60c",
   "model_revisions": [
@@ -28,52 +28,52 @@
       "model_id": "all-minilm-l6-v2",
       "job_type": "embed",
       "tps": 0.0,
-      "eps": 1634.4673,
-      "p99_ms": 7,
+      "eps": 811.31934,
+      "p99_ms": 13,
       "thermal_ok": true,
-      "load_ms": 4544,
+      "load_ms": 226,
       "unit": "embeddings",
       "unit_scope": "completed_embedding_records",
-      "measured_unix": 1787542184
+      "measured_unix": 1787544699
     },
     {
       "model_id": "llama-3.2-1b-instruct-q4",
       "job_type": "batch_infer",
-      "tps": 262.42694,
+      "tps": 143.18898,
       "eps": 0.0,
-      "p99_ms": 5,
+      "p99_ms": 9,
       "thermal_ok": true,
-      "load_ms": 38606,
+      "load_ms": 2919,
       "unit": "tokens",
       "unit_scope": "token_like_input_plus_max_output_tokens",
-      "measured_unix": 1787542184
+      "measured_unix": 1787544699
     },
     {
       "model_id": "ffmpeg-transcode-v1",
       "job_type": "media_transcode",
-      "tps": 4277.5845,
+      "tps": 3893.2983,
       "eps": 0.0,
-      "p99_ms": 101,
+      "p99_ms": 111,
       "thermal_ok": true,
       "load_ms": 0,
       "unit": "media_work_units",
       "unit_scope": "single_object_input_byte_quarters",
-      "measured_unix": 1787542184
+      "measured_unix": 1787544699
     },
     {
       "model_id": "svg-scene-render-v1",
       "job_type": "media_rendering",
-      "tps": 358794700.0,
+      "tps": 479513000.0,
       "eps": 0.0,
       "p99_ms": 1,
       "thermal_ok": true,
       "load_ms": 0,
       "unit": "pixels",
       "unit_scope": "declared_output_pixels_per_scene",
-      "measured_unix": 1787542184
+      "measured_unix": 1787544699
     }
   ],
-  "peak_rss_bytes": 3720986624,
+  "peak_rss_bytes": 3698278400,
   "thermal_state": "nominal",
   "throttling": false,
   "cache_behavior": "warm benchmark cache reused after build/hardware identity validation",
@@ -81,15 +81,15 @@
     "single physical Mac only",
     "additional authorized devices require separate receipts"
   ],
-  "source_commit": "fa47cafe39570db1ba1d0551d6d664780264e826",
+  "source_commit": "98e3b01852a038c814377ed530efb6d928642d34",
   "produced_by": "scripts/produce-hardware-characterization.py",
   "binding_status": "BOUND",
   "producer_identity": {
     "source_commit": {
-      "value": "fa47cafe39570db1ba1d0551d6d664780264e826"
+      "value": "44ba8ca76037e90da2028e8da6cbe921fed6c337"
     },
     "build_digest": {
-      "value": "4dc659cfac68a17a4f1c7bb49b95af6081e471355687b1c36c7cd850bbe6d10e"
+      "value": "5489f7d27043dd5f93242a4ab359c043876efe493cde9d37bab3476f62340647"
     },
     "model_artifact_digest": {
       "na": "model revisions recorded in receipt body; weights not inlined"

@@ -248,5 +248,10 @@
         "POST /admin/workers/{id}/suspend"
       ]
     }
-  ]
+  ],
+  "source_commit": "98e3b01852a038c814377ed530efb6d928642d34",
+  "produced_by": "scripts/produce-authorization-matrix-binding.py",
+  "binding_status": "BOUND",
+  "validated_by": "scripts/validate-authorization-matrix.py",
+  "validator_output": "authorization matrix: PASS (126 routes, 8 roles, default deny)"
 }

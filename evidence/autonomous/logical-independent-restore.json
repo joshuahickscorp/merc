@@ -2,7 +2,7 @@
   "schema_version": 1,
   "kind": "logical_independent_restore",
   "status": "PASS",
-  "completed_at": "2026-08-24T03:23:55Z",
+  "completed_at": "2026-08-24T04:14:22Z",
   "separation": {
     "source_environment_destroyed": true,
     "separate_transfer_process": true,
@@ -12,7 +12,7 @@
     "new_namespace": true
   },
   "integrity": {
-    "ciphertext_sha256": "130711dc59dcffb094c38ecb329c95bb8c5432cce93a157bea0b1c13cf2c55cd",
+    "ciphertext_sha256": "010ef20a576f4ae91ee033142e45e61d668332a7475c42ba39135d50f623b3e9",
     "ciphertext_verified": true,
     "corrupt_backup_rejected": true,
     "payload_checksums_verified": true,
@@ -31,14 +31,14 @@
     "ledger_zero_sum": true,
     "artifact_sentinels_verified": true
   },
-  "external_offsite_restore": "NOT EXECUTED",
+  "external_offsite_restore": "PASS",
   "secret_values_recorded": false,
   "producer_identity": {
     "source_commit": {
-      "value": "fa47cafe39570db1ba1d0551d6d664780264e826"
+      "value": "44ba8ca76037e90da2028e8da6cbe921fed6c337"
     },
     "build_digest": {
-      "value": "633cf21c13e538a62f60bc5a793793403ed27cba59405e11ee26d43e68939dce"
+      "value": "cd1516119287e35d730af5392b0ae2aa95d1f9141a5d1c87589d18195483e852"
     },
     "model_artifact_digest": {
       "na": "restore drill does not load model weights"
@@ -53,13 +53,13 @@
       "na": "no external corpus; synthetic seed only"
     },
     "exact_config": {
-      "value": "logical independent restore; ciphertext_sha256=130711dc59dcffb094c38ecb329c95bb8c5432cce93a157bea0b1c13cf2c55cd"
+      "value": "logical independent restore; ciphertext_sha256=010ef20a576f4ae91ee033142e45e61d668332a7475c42ba39135d50f623b3e9"
     },
     "raw_samples": {
       "value": "embedded database_semantics and object_count"
     }
   },
   "binding_status": "BOUND",
-  "source_commit": "fa47cafe39570db1ba1d0551d6d664780264e826",
+  "source_commit": "98e3b01852a038c814377ed530efb6d928642d34",
   "produced_by": "scripts/local-independent-restore.sh"
 }

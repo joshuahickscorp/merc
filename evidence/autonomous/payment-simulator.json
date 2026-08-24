@@ -61,7 +61,7 @@
   },
   "producer_identity": {
     "source_commit": {
-      "value": "fa47cafe39570db1ba1d0551d6d664780264e826"
+      "value": "44ba8ca76037e90da2028e8da6cbe921fed6c337"
     },
     "build_digest": {
       "value": "1d796cb01790bc8dad74763e20967faae96113343741f8f59c0e30dd2d9d3b17"
@@ -86,6 +86,6 @@
     }
   },
   "binding_status": "BOUND",
-  "source_commit": "fa47cafe39570db1ba1d0551d6d664780264e826",
+  "source_commit": "98e3b01852a038c814377ed530efb6d928642d34",
   "produced_by": "scripts/produce-payment-simulator.py"
 }
