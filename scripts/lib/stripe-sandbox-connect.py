@@ -50,7 +50,13 @@ CONNECT_PATH = "/v1/stripe/connect-webhook"
 API_ROOT = "https://api.stripe.com/v1"
 CTX = ssl.create_default_context()
 PLACEHOLDER_ACCOUNT = "<connected_account>"
-BLOCKED_MESSAGE = "blocked: Connect not signed up"
+BLOCKED_PREFIX = "blocked"
+# The message must name the gate that actually refused. It used to be the
+# constant "blocked: Connect not signed up", which kept asserting a wall the
+# operator had already cleared and contradicted the blocker_id printed beside
+# it on the same run.
+def blocked_message(blocker_id: str = "") -> str:
+    return f"{BLOCKED_PREFIX}: {blocker_id}" if blocker_id else f"{BLOCKED_PREFIX}: external gate"
 PASS = "PASS"
 BLOCKED = "BLOCKED-ON-CONNECT"
 FAILED = "FAILED"
@@ -294,7 +300,7 @@ def receipt_blocker(
         "dashboard_url": dashboard_url or None,
         "dashboard_action": dashboard_action or None,
         "stopped_at": stopped_at,
-        "exit_reason": BLOCKED_MESSAGE,
+        "exit_reason": blocked_message(blocker_id),
     }
 
 
@@ -602,12 +608,12 @@ class ConnectRun:
     def stop_connect(self, method: str, path: str, status: int, doc: dict[str, Any], sent: dict[str, Any]) -> None:
         self.stopped_at = stopped_at_record(method, path, status, doc, sent)
         message = str(self.stopped_at.get("error_message") or "")
-        print(BLOCKED_MESSAGE, file=sys.stderr)
+        print(blocked_message(blocker_id), file=sys.stderr)
         gate_id = self.stopped_at.get("blocker_id")
         dashboard_url = self.stopped_at.get("dashboard_url")
         if gate_id:
             print(f"blocked: {gate_id} {dashboard_url}", file=sys.stderr)
-        log(f"{BLOCKED_MESSAGE} at {method} {path} http={status} {message}")
+        log(f"{blocked_message(blocker_id)} at {method} {path} http={status} {message}")
 
 
 def _self_test_gate_vs_defect() -> str | None:
@@ -709,7 +715,7 @@ def self_test() -> int:
     if class_error:
         log(f"self-test: {class_error}")
         return 1
-    if BLOCKED_MESSAGE != "blocked: Connect not signed up":
+    if blocked_message("connect_platform_profile_incomplete") != "blocked: connect_platform_profile_incomplete":
         log("self-test: blocked message drifted")
         return 1
     root = Path(__file__).resolve().parents[2]
@@ -721,7 +727,7 @@ def self_test() -> int:
     if "refusing to read .merc-secrets.env" not in wrapper:
         log("self-test: wrapper does not refuse .merc-secrets.env")
         return 1
-    if BLOCKED_MESSAGE not in wrapper:
+    if BLOCKED_PREFIX not in wrapper:
         log("self-test: wrapper does not document the blocked exit")
         return 1
     if "check|matrix|nonconnect|connect" not in parent:
@@ -941,7 +947,9 @@ def merge_matrix(existing: dict[str, Any], run: ConnectRun) -> dict[str, Any]:
                 "alias": "scripts/stripe-sandbox.sh connect",
                 "run_id": run.run_id,
                 "status": "PASS" if connect_pass else "BLOCKED",
-                "exit_reason": None if connect_pass else BLOCKED_MESSAGE,
+                "exit_reason": None if connect_pass else blocked_message(
+                    str((run.stopped_at or {}).get("blocker_id") or "")
+                ),
                 "stopped_at": run.stopped_at,
                 "pre_connect": run.pre_connect,
                 "dry_runs": [public_plan(plan, sent=plan["id"] in attempted) for plan in run.plans],
@@ -1487,7 +1495,11 @@ def main() -> int:
         "kind": "stripe_connect_remainder",
         "command": COMMAND,
         "status": "BLOCKED" if outcome == BLOCKED else ("PASS" if outcome == PASS else "FAILED"),
-        "blocked": BLOCKED_MESSAGE if outcome == BLOCKED else None,
+        "blocked": (
+            blocked_message(str((run.stopped_at or {}).get("blocker_id") or ""))
+            if outcome == BLOCKED
+            else None
+        ),
         "stopped_at": run.stopped_at,
         "path": str(out_path),
         "secret_values_printed": False,
