@@ -46,6 +46,38 @@ if [ "$MODE" = connect ]; then
   exec "$ROOT/scripts/stripe-sandbox-connect.sh" "$@"
 fi
 
+if [ "$MODE" = nonconnect ]; then
+  exec "$ROOT/scripts/stripe-sandbox-nonconnect.sh"
+fi
+
+if [ "$MODE" = matrix ]; then
+  # One freshly generated run_id covers every row — non-Connect and Connect.
+  # The Python drivers write evidence/external/stripe-sandbox-matrix.json
+  # and stamp it with scripts/lib/receipt_binding.py. The older bash body
+  # below is the `check` path plus a retained endpoint-contract authority;
+  # it is not the matrix producer.
+  unset STRIPE_LIVE_SECRET_KEY
+  if [[ "${STRIPE_RESTRICTED_KEY:-}" == rk_live_* ]]; then unset STRIPE_RESTRICTED_KEY; fi
+  if [[ "${STRIPE_PUBLISHABLE_KEY:-}" == pk_live_* ]]; then unset STRIPE_PUBLISHABLE_KEY; fi
+  if [[ "${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY:-}" == pk_live_* ]]; then unset NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY; fi
+  export STAGING_TLS_HOSTNAME="${STAGING_TLS_HOSTNAME:-mercmerc.net}"
+  export MERC_SETTLEMENT_CURRENCY="${MERC_SETTLEMENT_CURRENCY:-$MERC_STRIPE_CANDIDATE_CURRENCY}"
+  export MERC_STRIPE_RUN_ID="${MERC_STRIPE_RUN_ID:-$(date -u +%Y%m%dT%H%M%SZ)-full}"
+  export MERC_STRIPE_MATRIX_OUT="${MERC_STRIPE_MATRIX_OUT:-$ROOT/evidence/external/stripe-sandbox-matrix.json}"
+  export MERC_STRIPE_FULL_MATRIX=1
+  export MERC_STRIPE_API_VERSION
+  export MERC_STRIPE_CANDIDATE_CURRENCY
+  export MERC_STRIPE_CANDIDATE_CONNECTED_COUNTRY
+  export MERC_STRIPE_CANDIDATE_PAYOUT_ROUTING
+  export MERC_STRIPE_CANDIDATE_PAYOUT_SUCCESS_ACCOUNT
+  export MERC_STRIPE_CANDIDATE_PAYOUT_FAILURE_ACCOUNT
+  export MERC_STRIPE_CONNECT_ACCOUNT_TYPE
+  export MERC_STRIPE_CONNECT_WEBHOOK_EVENTS
+  export MERC_STRIPE_CONNECT_REMAINDER_COMMAND
+  "$ROOT/scripts/stripe-sandbox-nonconnect.sh"
+  exec "$ROOT/scripts/stripe-sandbox-connect.sh"
+fi
+
 secret_class="$(classify "${STRIPE_SECRET_KEY:-}")"
 billing_webhook_class="$(classify "${STRIPE_WEBHOOK_SECRET:-}")"
 connect_webhook_class="$(classify "${MERC_CONNECT_WEBHOOK_SECRET:-}")"

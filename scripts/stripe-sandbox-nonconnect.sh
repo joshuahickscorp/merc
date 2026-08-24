@@ -95,7 +95,8 @@ fi
 if command -v go >/dev/null 2>&1; then
   (
     cd "$ROOT/control"
-    go test -count=1 -timeout 180s -run TestNonconnectWebhookRefusals
+    # control/go.mod pins a newer toolchain than the host default.
+    GOTOOLCHAIN=auto go test -count=1 -timeout 180s -run TestNonconnectWebhookRefusals
   ) || {
     echo "stripe-sandbox-nonconnect: local real-handler refusal test failed" >&2
     exit 1

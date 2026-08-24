@@ -19,6 +19,7 @@ remainder produces a tr_ plus payout hold/release/failure/reversal.
 from __future__ import annotations
 
 import base64
+import importlib.util
 import json
 import os
 import re
@@ -169,6 +170,45 @@ def is_connect_scoped(endpoint: dict[str, Any] | None) -> bool:
         return True
     application = endpoint.get("application")
     return isinstance(application, str) and application.startswith("ca_")
+
+
+def pick_endpoint(
+    listed: dict[str, Any] | None,
+    url: str,
+    *,
+    connect_scoped: bool,
+) -> dict[str, Any] | None:
+    """Enabled endpoint at url, preferring the requested Connect scope.
+
+    Listing by URL alone is how an older account-scoped we_ at the same
+    Connect path outranked the Connect-scoped we_ that the remainder
+    actually exercised.
+    """
+    matches: list[dict[str, Any]] = []
+    for ep in (listed or {}).get("data") or []:
+        if not isinstance(ep, dict):
+            continue
+        if ep.get("url") != url or ep.get("status") != "enabled":
+            continue
+        if ep.get("livemode") is True:
+            continue
+        matches.append(ep)
+    if not matches:
+        return None
+    preferred = [ep for ep in matches if is_connect_scoped(ep) is connect_scoped]
+    return (preferred or matches)[0]
+
+
+def stamp_matrix(doc: dict[str, Any]) -> dict[str, Any]:
+    """Last step before writing. Uses the committed primitive; refuses a non-sha."""
+    path = Path(__file__).resolve().with_name("receipt_binding.py")
+    spec = importlib.util.spec_from_file_location("receipt_binding", path)
+    if spec is None or spec.loader is None:
+        raise SystemExit("stripe-sandbox-connect: cannot load receipt_binding.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    root = str(Path(__file__).resolve().parents[2])
+    return mod.stamp(doc, mod.head_commit(root), "scripts/stripe-sandbox.sh")
 
 
 def die_live(variable: str) -> None:
@@ -682,6 +722,9 @@ class ConnectRun:
             "payout_failure": None,
             "payout_reversal": None,
             "connected_account": None,
+            "connect_webhook_endpoint": None,
+            "connect_endpoint_connect_flag": None,
+            "connect_endpoint_application": None,
         }
         self.stopped_at: dict[str, Any] | None = None
         self.webhook_probe: dict[str, Any] | None = None
@@ -844,6 +887,34 @@ def self_test() -> int:
         return 1
     if is_connect_scoped({"connect": None, "application": None}):
         log("self-test: account-scoped endpoint treated as Connect-scoped")
+        return 1
+    listed = {
+        "data": [
+            {
+                "id": "we_old",
+                "url": "https://canary.example.invalid/v1/stripe/connect-webhook",
+                "status": "enabled",
+                "livemode": False,
+                "connect": None,
+                "application": None,
+            },
+            {
+                "id": "we_new",
+                "url": "https://canary.example.invalid/v1/stripe/connect-webhook",
+                "status": "enabled",
+                "livemode": False,
+                "connect": None,
+                "application": "ca_TESTAPP",
+            },
+        ]
+    }
+    picked = pick_endpoint(
+        listed,
+        "https://canary.example.invalid/v1/stripe/connect-webhook",
+        connect_scoped=True,
+    )
+    if not picked or picked.get("id") != "we_new":
+        log("self-test: pick_endpoint did not prefer Connect-scoped we_")
         return 1
     kyc = account_kyc_fields("canary.example.invalid", "self-test")
     if kyc.get("individual[phone]") != PHONE_TOKEN or kyc.get("individual[relationship][title]") != RELATIONSHIP_TITLE:
@@ -1071,12 +1142,26 @@ def merge_matrix(existing: dict[str, Any], run: ConnectRun) -> dict[str, Any]:
         )
     )
 
+    merged_run_id = existing.get("run_id") or run.run_id
+    if os.environ.get("MERC_STRIPE_FULL_MATRIX") == "1":
+        merged_run_id = run.run_id
+    elif existing.get("run_id") and existing.get("run_id") != run.run_id:
+        mismatch = (
+            f"Connect remainder run_id {run.run_id} was merged into matrix "
+            f"run_id {existing.get('run_id')}. Re-run scripts/stripe-sandbox.sh "
+            "matrix so one run_id covers every row."
+        )
+        if mismatch not in notes:
+            notes.append(mismatch)
+    external["run_id"] = merged_run_id
+
     merged = dict(existing)
     merged.update(
         {
             "schema_version": 1,
             "kind": "stripe_sandbox_matrix",
             "status": top_status,
+            "run_id": merged_run_id,
             "provider_mode": "test",
             "live_mode": "PROHIBITED",
             "secret_values_printed": False,
@@ -1166,18 +1251,12 @@ def drive(api: StripeClient, run: ConnectRun) -> str:
 
     status, endpoints = api.call("GET", "webhook_endpoints?limit=100")
     connect_url = f"https://{run.hostname}{CONNECT_PATH}"
-    connect_ep = None
-    billing_ep = None
-    for ep in endpoints.get("data") or []:
-        if not isinstance(ep, dict):
-            continue
-        if ep.get("url") == connect_url:
-            connect_ep = ep
-        elif str(ep.get("url") or "").endswith("/v1/stripe/webhook"):
-            billing_ep = ep
+    billing_url = f"https://{run.hostname}/v1/stripe/webhook"
     if status != 200:
         run.record_pre("GET /v1/webhook_endpoints", status="FAILED", http=status)
         return FAILED
+    connect_ep = pick_endpoint(endpoints, connect_url, connect_scoped=True)
+    billing_ep = pick_endpoint(endpoints, billing_url, connect_scoped=False)
     run.record_pre(
         "GET /v1/webhook_endpoints",
         status="ok",
@@ -1185,18 +1264,20 @@ def drive(api: StripeClient, run: ConnectRun) -> str:
         billing_id=billing_ep.get("id") if isinstance(billing_ep, dict) else None,
         connect_id=connect_ep.get("id") if isinstance(connect_ep, dict) else None,
         connect_flag=connect_ep.get("connect") if isinstance(connect_ep, dict) else None,
+        connect_application=connect_ep.get("application") if isinstance(connect_ep, dict) else None,
+        connect_scoped=is_connect_scoped(connect_ep) if isinstance(connect_ep, dict) else False,
         connect_api_version=connect_ep.get("api_version") if isinstance(connect_ep, dict) else None,
         detail=(
             f"connect={connect_ep.get('id') if connect_ep else None} "
             f"flag={connect_ep.get('connect') if connect_ep else None} "
+            f"application={connect_ep.get('application') if connect_ep else None} "
             f"api_version={connect_ep.get('api_version') if connect_ep else None}"
         ),
     )
-    if isinstance(connect_ep, dict) and connect_ep.get("connect") is not True:
+    if isinstance(connect_ep, dict) and not is_connect_scoped(connect_ep):
         run.notes.append(
-            "Existing Connect endpoint still has connect!=true; "
-            f"{COMMAND} will recreate it with connect=true after the current "
-            "Connect dashboard action."
+            "Existing Connect URL endpoint is not Connect-scoped (no application=ca_*); "
+            f"{COMMAND} will recreate it with connect=true."
         )
 
     status, listed = api.call("GET", "accounts?limit=10")
@@ -1826,6 +1907,9 @@ def _recreate_connect_webhook(api: StripeClient, run: ConnectRun, existing: dict
             )
             if upd_status == 200 and isinstance(updated, dict):
                 reusable = updated
+        run.fixtures["connect_webhook_endpoint"] = rid
+        run.fixtures["connect_endpoint_connect_flag"] = reusable.get("connect")
+        run.fixtures["connect_endpoint_application"] = reusable.get("application")
         run.add(
             "connect_true_webhook_delivery",
             PASS,
@@ -1863,6 +1947,9 @@ def _recreate_connect_webhook(api: StripeClient, run: ConnectRun, existing: dict
         and created.get("url") == connect_url
         and created.get("livemode") is False
     ):
+        run.fixtures["connect_webhook_endpoint"] = created_id
+        run.fixtures["connect_endpoint_connect_flag"] = created.get("connect")
+        run.fixtures["connect_endpoint_application"] = created.get("application")
         run.add(
             "connect_true_webhook_delivery",
             PASS,
@@ -1905,7 +1992,7 @@ def _recreate_connect_webhook(api: StripeClient, run: ConnectRun, existing: dict
 
 def write_receipt(path: Path, run: ConnectRun, outcome: str) -> dict[str, Any]:
     existing = load_matrix(path)
-    receipt = merge_matrix(existing, run)
+    receipt = stamp_matrix(merge_matrix(existing, run))
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(receipt, indent=2) + "\n")
     log(f"wrote {path} status={receipt['status']} connect={outcome}")

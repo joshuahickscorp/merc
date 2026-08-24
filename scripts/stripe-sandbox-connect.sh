@@ -149,6 +149,9 @@ export MERC_STRIPE_CANDIDATE_PAYOUT_FAILURE_ACCOUNT
 export MERC_STRIPE_CONNECT_ACCOUNT_TYPE
 export MERC_STRIPE_CONNECT_WEBHOOK_EVENTS
 export MERC_STRIPE_CONNECT_REMAINDER_COMMAND
+# Full-matrix orchestration (scripts/stripe-sandbox.sh matrix) sets
+# MERC_STRIPE_RUN_ID and MERC_STRIPE_FULL_MATRIX so this remainder shares
+# the non-Connect run_id instead of minting a second identity.
 export MERC_STRIPE_RUN_ID="${MERC_STRIPE_RUN_ID:-$(date -u +%Y%m%dT%H%M%SZ)-l9cn}"
 export MERC_STRIPE_MATRIX_OUT="${MERC_STRIPE_MATRIX_OUT:-$ROOT/evidence/external/stripe-sandbox-matrix.json}"
 

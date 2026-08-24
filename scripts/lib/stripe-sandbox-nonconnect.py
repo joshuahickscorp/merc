@@ -17,6 +17,7 @@ import importlib.util
 import json
 import os
 import ssl
+import subprocess
 import sys
 import time
 import urllib.error
@@ -48,10 +49,24 @@ def _load_connect_classifier():
         raise SystemExit("stripe-sandbox-nonconnect: cannot load stripe-sandbox-connect.py")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
-    return mod.classify_external_gate, mod.receipt_blocker, mod.stopped_at_record
+    return (
+        mod.classify_external_gate,
+        mod.receipt_blocker,
+        mod.stopped_at_record,
+        mod.is_connect_scoped,
+        mod.pick_endpoint,
+        mod.stamp_matrix,
+    )
 
 
-classify_external_gate, receipt_blocker, stopped_at_record = _load_connect_classifier()
+(
+    classify_external_gate,
+    receipt_blocker,
+    stopped_at_record,
+    is_connect_scoped,
+    pick_endpoint,
+    stamp_matrix,
+) = _load_connect_classifier()
 
 
 def log(msg: str) -> None:
@@ -291,7 +306,7 @@ def main() -> int:
             api.call("DELETE", f"customers/{customer}")
             matrix.fixtures["disposable_customer_cleanup"] = "attempted"
 
-    receipt = build_receipt(matrix, hostname, billing_url, connect_url, handler_receipt)
+    receipt = stamp_matrix(build_receipt(matrix, hostname, billing_url, connect_url, handler_receipt))
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(receipt, indent=2) + "\n")
     log(f"wrote {out_path} status={receipt['status']}")
@@ -342,19 +357,13 @@ def _drive(
         matrix.add("settlement_currency", PASS, detail=f"enabled={currencies}")
 
     status, endpoints = api.call("GET", "webhook_endpoints?limit=100")
-    billing_ep = None
-    connect_ep = None
-    for ep in endpoints.get("data") or []:
-        if not isinstance(ep, dict):
-            continue
-        if ep.get("url") == billing_url:
-            billing_ep = ep
-        elif ep.get("url") == connect_url:
-            connect_ep = ep
+    billing_ep = pick_endpoint(endpoints, billing_url, connect_scoped=False)
+    connect_ep = pick_endpoint(endpoints, connect_url, connect_scoped=True)
     if billing_ep and connect_ep and billing_ep.get("id") != connect_ep.get("id"):
         matrix.fixtures["billing_webhook_endpoint"] = billing_ep.get("id")
         matrix.fixtures["connect_webhook_endpoint"] = connect_ep.get("id")
         matrix.fixtures["connect_endpoint_connect_flag"] = connect_ep.get("connect")
+        matrix.fixtures["connect_endpoint_application"] = connect_ep.get("application")
         matrix.add(
             "webhook_endpoints_registered",
             PASS,
@@ -364,6 +373,8 @@ def _drive(
                 f"billing_api_version={billing_ep.get('api_version')} "
                 f"connect_api_version={connect_ep.get('api_version')} "
                 f"connect_flag={connect_ep.get('connect')!r} "
+                f"application={connect_ep.get('application')!r} "
+                f"connect_scoped={is_connect_scoped(connect_ep)} "
                 f"billing_events={billing_ep.get('enabled_events')} "
                 f"connect_events={connect_ep.get('enabled_events')}"
             ),
@@ -371,54 +382,85 @@ def _drive(
                 "billing_url": billing_ep.get("url"),
                 "connect_url": connect_ep.get("url"),
                 "connect_flag": connect_ep.get("connect"),
-                "needs_recreate_with_connect_true": connect_ep.get("connect") is not True,
+                "connect_scoped": is_connect_scoped(connect_ep),
+                "needs_recreate_with_connect_true": not is_connect_scoped(connect_ep),
             },
         )
-        if connect_ep.get("connect") is not True:
+        if not is_connect_scoped(connect_ep):
             matrix.notes.append(
-                "Connect endpoint was created with connect=true requested but Stripe returned connect=null "
-                "because Connect is not enabled. Recreate we_ with connect=true after Connect signup."
+                "Connect URL endpoint is not Connect-scoped (Basil omits connect; "
+                "scope is application=ca_*). Recreate we_ with connect=true."
             )
     else:
         matrix.add("webhook_endpoints_registered", FAILED, detail=f"http={status} missing exact staging URLs")
 
     # Connect dashboard wall — classify with the same function the remainder
     # uses. Never synthesize an acct_. Never hardcode which wall this is.
-    create_fields = {
-        "type": "custom",
-        "country": "CA",
-        "capabilities[card_payments][requested]": "true",
-        "capabilities[transfers][requested]": "true",
-    }
-    status, created = api.call("POST", "accounts", create_fields)
-    gate = classify_external_gate(status, created)
-    connect_msg = str(err_of(created).get("message") or "")
+    # A full-matrix run defers POST /v1/accounts to the Connect remainder so
+    # one run_id owns the durable connected account instead of this probe
+    # creating one and the remainder creating another.
     remaining_status = BLOCKED
     remaining_detail = f"requires Connect remainder on {PLATFORM_ACCOUNT}"
-    if gate:
-        matrix.connect_stopped_at = stopped_at_record(
-            "POST", "/v1/accounts", status, created, create_fields
-        )
-        remaining_detail = f"requires {gate['id']} on {PLATFORM_ACCOUNT}"
+    if os.environ.get("MERC_STRIPE_FULL_MATRIX") == "1":
+        remaining_detail = f"deferred to Connect remainder of run {matrix.run_id}"
         matrix.add(
             "connected_account_creation",
             BLOCKED,
-            detail=gate["message"],
+            detail=remaining_detail,
             extra={
                 "would_prove": "A project-controlled Canadian test connected account exists and is distinct from the platform.",
-                "classification": "external_gate",
-                "blocker_id": gate["id"],
-                "dashboard_url": gate["dashboard_url"],
             },
         )
     else:
-        remaining_status = FAILED
-        remaining_detail = "connected account was not created"
-        matrix.add(
-            "connected_account_creation",
-            FAILED,
-            detail=f"http={status} {connect_msg or created.get('id')}",
-        )
+        create_fields = {
+            "type": "custom",
+            "country": "CA",
+            "capabilities[card_payments][requested]": "true",
+            "capabilities[transfers][requested]": "true",
+        }
+        status, created = api.call("POST", "accounts", create_fields)
+        gate = classify_external_gate(status, created)
+        connect_msg = str(err_of(created).get("message") or "")
+        created_id = str(created.get("id") or "")
+        if gate:
+            matrix.connect_stopped_at = stopped_at_record(
+                "POST", "/v1/accounts", status, created, create_fields
+            )
+            remaining_detail = f"requires {gate['id']} on {PLATFORM_ACCOUNT}"
+            matrix.add(
+                "connected_account_creation",
+                BLOCKED,
+                detail=gate["message"],
+                extra={
+                    "would_prove": "A project-controlled Canadian test connected account exists and is distinct from the platform.",
+                    "classification": "external_gate",
+                    "blocker_id": gate["id"],
+                    "dashboard_url": gate["dashboard_url"],
+                },
+            )
+        elif status == 200 and created_id.startswith("acct_") and created_id != PLATFORM_ACCOUNT:
+            api.call("DELETE", f"accounts/{created_id}")
+            remaining_detail = (
+                "Connect API accepted POST /v1/accounts; probe deleted; "
+                "run scripts/stripe-sandbox.sh matrix to finish transfer/payouts"
+            )
+            matrix.add(
+                "connected_account_creation",
+                BLOCKED,
+                detail=remaining_detail,
+                extra={
+                    "would_prove": "A project-controlled Canadian test connected account exists and is distinct from the platform.",
+                    "probe_deleted": True,
+                },
+            )
+        else:
+            remaining_status = FAILED
+            remaining_detail = "connected account was not created"
+            matrix.add(
+                "connected_account_creation",
+                FAILED,
+                detail=f"http={status} {connect_msg or created_id}",
+            )
 
     for sid, would in (
         (
@@ -881,12 +923,51 @@ def _drive_live_and_refusals(
     code, ready_body = http_get(f"https://{hostname}/readyz")
     matrix.fixtures["staging_readyz_http"] = code
     matrix.fixtures["staging_readyz_body"] = ready_body.decode("utf-8", "replace")[:240]
+    ver_code, ver_raw = http_get(f"https://{hostname}/version")
+    staging_commit = None
+    try:
+        ver_doc = json.loads(ver_raw.decode() or "{}")
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        ver_doc = {}
+    if isinstance(ver_doc, dict):
+        cand = str(ver_doc.get("commit") or "").strip().lower()
+        if len(cand) == 40 and set(cand) <= set("0123456789abcdef"):
+            staging_commit = cand
+    matrix.fixtures["staging_version_http"] = ver_code
+    matrix.fixtures["staging_observed_commit"] = staging_commit
+    try:
+        bind_path = Path(__file__).resolve().with_name("receipt_binding.py")
+        bind_spec = importlib.util.spec_from_file_location("receipt_binding_obs", bind_path)
+        if bind_spec is not None and bind_spec.loader is not None:
+            bind_mod = importlib.util.module_from_spec(bind_spec)
+            bind_spec.loader.exec_module(bind_mod)
+            matrix.fixtures["candidate_commit"] = bind_mod.head_commit(
+                str(Path(__file__).resolve().parents[2])
+            )
+        else:
+            matrix.fixtures["candidate_commit"] = None
+    except (OSError, ValueError, subprocess.SubprocessError):
+        matrix.fixtures["candidate_commit"] = None
+    candidate_commit = matrix.fixtures.get("candidate_commit")
     if ready:
         matrix.notes.append(f"readyz 200 on {hostname}")
     else:
         matrix.notes.append(
             f"readyz http={code} on {hostname} during this run; live posts retried. "
             "Parallel deploy lane owns the droplet."
+        )
+    if staging_commit and candidate_commit and staging_commit != candidate_commit:
+        matrix.notes.append(
+            f"staging /version commit={staging_commit} is not this worktree "
+            f"HEAD={candidate_commit}; live webhook HTTP rows were measured "
+            "against the deployed handler, not the candidate."
+        )
+    elif staging_commit:
+        matrix.notes.append(f"staging /version commit={staging_commit}")
+    else:
+        matrix.notes.append(
+            f"staging /version http={ver_code} advertised no 40-hex commit; "
+            "live webhook HTTP rows cannot be bound to the candidate."
         )
 
     ts = int(time.time())
@@ -1324,7 +1405,18 @@ def build_receipt(
                 "billing_url": billing_url,
                 "connect_url": connect_url,
                 "readyz_http": matrix.fixtures.get("staging_readyz_http"),
-                "note": "Parallel deploy lane owns the droplet; this run does not rebuild or redeploy it.",
+                "observed_commit": matrix.fixtures.get("staging_observed_commit"),
+                "candidate_commit": matrix.fixtures.get("candidate_commit"),
+                "handler_attests_candidate": (
+                    bool(matrix.fixtures.get("staging_observed_commit"))
+                    and matrix.fixtures.get("staging_observed_commit")
+                    == matrix.fixtures.get("candidate_commit")
+                ),
+                "note": (
+                    "Parallel deploy lane owns the droplet; this run does not rebuild or redeploy it. "
+                    "Live webhook HTTP rows attest the deployed handler, not the candidate, when "
+                    "observed_commit != candidate_commit."
+                ),
             },
             "local_real_handler": handler_receipt or None,
         },
