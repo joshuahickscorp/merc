@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -18,6 +19,48 @@ const (
 	testOnlyPublicationBuildHash     = "feedfacefeedface"
 	testOnlyPublicationHardware      = "apple_silicon_v1|brand=TEST ONLY Apple M3 Pro|model=Test2,1|memory_bytes=38654705664|cpu_cores=12|gpu_cores=18"
 )
+
+// The synthetic publication describes a TEST ONLY machine by default. A test
+// that runs a live `merc-agent run` must instead describe the machine the agent
+// is really on: control requires worker identity to equal the advertised cell's
+// benchmark identity exactly, so a fabricated M3 Pro cell can never be enrolled
+// by a real M3 Ultra worker.
+var (
+	publicationIdentityBuildHash = testOnlyPublicationBuildHash
+	publicationIdentityHardware  = testOnlyPublicationHardware
+	publicationIdentityHWClass   = "apple_silicon_pro"
+)
+
+// useLiveAgentPublicationIdentityForTest points the synthetic publication at the
+// identity this machine's agent actually presents at register time. It asks the
+// agent binary rather than hardcoding, so the fixture cannot drift from the
+// worker: same source, same answer.
+func useLiveAgentPublicationIdentityForTest(t *testing.T) {
+	t.Helper()
+	out, err := exec.Command(agentBinaryPath(t), "characterize").Output()
+	mustf(t, err, "characterize live agent identity: %v")
+	var characterization struct {
+		HardwareClass    string `json:"hardware_class"`
+		HardwareIdentity string `json:"hardware_identity"`
+		SourceIdentity   string `json:"source_identity"`
+	}
+	mustf(t, json.Unmarshal(out, &characterization), "decode agent characterization: %v")
+	if characterization.HardwareClass == "" || characterization.HardwareIdentity == "" ||
+		characterization.SourceIdentity == "" {
+		t.Fatalf("agent characterization is missing identity: %+v", characterization)
+	}
+	previousHash := publicationIdentityBuildHash
+	previousHardware := publicationIdentityHardware
+	previousClass := publicationIdentityHWClass
+	t.Cleanup(func() {
+		publicationIdentityBuildHash = previousHash
+		publicationIdentityHardware = previousHardware
+		publicationIdentityHWClass = previousClass
+	})
+	publicationIdentityBuildHash = characterization.SourceIdentity
+	publicationIdentityHardware = characterization.HardwareIdentity
+	publicationIdentityHWClass = characterization.HardwareClass
+}
 
 type pricingThroughputReceiptMutation func(jobType string, receipt map[string]any)
 type pricingPowerReceiptMutation func(receipt map[string]any)
@@ -82,7 +125,7 @@ func installBoundCataloguePublicationAuthorityWithMutationsForTest(
 
 	previousBenchmarks := append([]measuredThroughput(nil), repricingBenchmarks...)
 	previousUnpriced := append([]measuredThroughput(nil), unpricedThroughputUntilBound...)
-	previousWatts, hadPreviousWatts := sustainedWattsByHWClass["apple_silicon_pro"]
+	previousWatts, hadPreviousWatts := sustainedWattsByHWClass[publicationIdentityHWClass]
 	previousRuntimeAuthority := runtimeAuthority
 	previousActivation := activeRuntimeActivation.Load()
 	editedRuntimeAuthority := runtimeAuthority
@@ -101,9 +144,9 @@ func installBoundCataloguePublicationAuthorityWithMutationsForTest(
 			delete(benchmarkAuthorityManifest, path)
 		}
 		if hadPreviousWatts {
-			sustainedWattsByHWClass["apple_silicon_pro"] = previousWatts
+			sustainedWattsByHWClass[publicationIdentityHWClass] = previousWatts
 		} else {
-			delete(sustainedWattsByHWClass, "apple_silicon_pro")
+			delete(sustainedWattsByHWClass, publicationIdentityHWClass)
 		}
 		activeRuntimeActivation.Store(previousActivation)
 	})
@@ -176,10 +219,10 @@ func installBoundCataloguePublicationAuthorityWithMutationsForTest(
 		receipt := map[string]any{
 			"schema_version": 1,
 			"kind":           "synthetic_catalogue_publication_throughput_authority_test_fixture",
-			"hardware_class": "apple_silicon_pro",
-			"hardware":       map[string]any{"gpu": testOnlyPublicationHardware},
+			"hardware_class": publicationIdentityHWClass,
+			"hardware":       map[string]any{"gpu": publicationIdentityHardware},
 			"raw_measurement": map[string]any{
-				"build_hash":            testOnlyPublicationBuildHash,
+				"build_hash":            publicationIdentityBuildHash,
 				"build_identity_policy": currentEngineBuildIdentityPolicy,
 			},
 			"measured_at":        measuredAt,
@@ -194,9 +237,9 @@ func installBoundCataloguePublicationAuthorityWithMutationsForTest(
 				"profile_revision":             "r9",
 				"engine":                       "candle",
 				"engine_revision":              "",
-				"engine_build_hash":            testOnlyPublicationBuildHash,
+				"engine_build_hash":            publicationIdentityBuildHash,
 				"engine_build_identity_policy": currentEngineBuildIdentityPolicy,
-				"hardware_identity":            testOnlyPublicationHardware,
+				"hardware_identity":            publicationIdentityHardware,
 				"model_artifact_digest":        fixture.modelDigest,
 				"unit":                         fixture.unit,
 				"unit_scope":                   fixture.unitScope,
@@ -216,7 +259,7 @@ func installBoundCataloguePublicationAuthorityWithMutationsForTest(
 			RuntimeProfileIDs: []string{"candle_metal"},
 			ModelIDs:          []string{fixture.modelID}, ThroughputMeasured: true,
 			ByteDeterministic: true, MeasuredAt: measuredAt,
-			HWClass: "apple_silicon_pro",
+			HWClass: publicationIdentityHWClass,
 			Throughput: map[string]benchmarkThroughput{"candle_metal": {
 				Unit: fixture.unit, UnitScope: fixture.unitScope,
 				Precision: "TEST_ONLY exact publication mechanics", OperatingBatch: 1,
@@ -228,9 +271,9 @@ func installBoundCataloguePublicationAuthorityWithMutationsForTest(
 			MercSourceCommit: commit, ProfileRevision: "r9",
 			Harness:                   "pricing_publication_test_helpers_test.go/v3 TEST_ONLY",
 			ModelArtifactSHA256s:      []string{fixture.modelDigest},
-			EngineBuildHash:           testOnlyPublicationBuildHash,
+			EngineBuildHash:           publicationIdentityBuildHash,
 			EngineBuildIdentityPolicy: currentEngineBuildIdentityPolicy,
-			HardwareIdentity:          testOnlyPublicationHardware,
+			HardwareIdentity:          publicationIdentityHardware,
 		}
 		benchmarkAuthorityManifest[path] = syntheticSummary
 		installedBenchmarkAuthorities = append(installedBenchmarkAuthorities, path)
@@ -247,13 +290,13 @@ func installBoundCataloguePublicationAuthorityWithMutationsForTest(
 			RuntimeProfileID:          "candle_metal",
 			ProfileRevision:           "r9",
 			Engine:                    "candle",
-			EngineBuildHash:           testOnlyPublicationBuildHash,
+			EngineBuildHash:           publicationIdentityBuildHash,
 			EngineBuildIdentityPolicy: currentEngineBuildIdentityPolicy,
-			HardwareIdentity:          testOnlyPublicationHardware,
+			HardwareIdentity:          publicationIdentityHardware,
 			Unit:                      fixture.unit,
 			UnitScope:                 fixture.unitScope,
 			UnitsPerSec:               fixture.unitsPerSec,
-			HWClass:                   "apple_silicon_pro",
+			HWClass:                   publicationIdentityHWClass,
 			SourceCitation:            path + "#" + fixture.jobType,
 		})
 	}
@@ -272,20 +315,20 @@ func installBoundCataloguePublicationAuthorityWithMutationsForTest(
 	powerReceipt := map[string]any{
 		"schema_version": 1,
 		"kind":           "synthetic_catalogue_publication_power_authority_test_fixture",
-		"hardware_class": "apple_silicon_pro",
-		"hardware":       map[string]any{"gpu": testOnlyPublicationHardware},
+		"hardware_class": publicationIdentityHWClass,
+		"hardware":       map[string]any{"gpu": publicationIdentityHardware},
 		"raw_measurement": map[string]any{
-			"build_hash":            testOnlyPublicationBuildHash,
+			"build_hash":            publicationIdentityBuildHash,
 			"build_identity_policy": currentEngineBuildIdentityPolicy,
 		},
 		"merc_source_commit": commit,
 		"binding_status":     BindingBound,
 		"producer_identity":  powerIdentity,
 		testOnlyPowerReceiptFragment: map[string]any{
-			"hardware_class":               "apple_silicon_pro",
-			"engine_build_hash":            testOnlyPublicationBuildHash,
+			"hardware_class":               publicationIdentityHWClass,
+			"engine_build_hash":            publicationIdentityBuildHash,
 			"engine_build_identity_policy": currentEngineBuildIdentityPolicy,
-			"hardware_identity":            testOnlyPublicationHardware,
+			"hardware_identity":            publicationIdentityHardware,
 			"measurement_status":           string(wattKindMeasured),
 			"measurement_boundary":         "whole_package",
 			"workload_class":               "inference_shaped",
@@ -298,17 +341,17 @@ func installBoundCataloguePublicationAuthorityWithMutationsForTest(
 					"model_id": "all-minilm-l6-v2", "job_type": "embed",
 					"model_artifact_digest": testOnlyEmbedModelArtifactDigest,
 					"runtime_cell_id":       "candle-metal-minilm-embed", "runtime_profile_id": "candle_metal",
-					"engine": "candle", "engine_build_hash": testOnlyPublicationBuildHash,
+					"engine": "candle", "engine_build_hash": publicationIdentityBuildHash,
 					"engine_build_identity_policy": currentEngineBuildIdentityPolicy,
-					"hardware_identity":            testOnlyPublicationHardware,
+					"hardware_identity":            publicationIdentityHardware,
 				},
 				map[string]any{
 					"model_id": "llama-3.2-1b-instruct-q4", "job_type": "batch_infer",
 					"model_artifact_digest": testOnlyBatchModelArtifactDigest,
 					"runtime_cell_id":       "candle-metal-llama1-infer", "runtime_profile_id": "candle_metal",
-					"engine": "candle", "engine_build_hash": testOnlyPublicationBuildHash,
+					"engine": "candle", "engine_build_hash": publicationIdentityBuildHash,
 					"engine_build_identity_policy": currentEngineBuildIdentityPolicy,
-					"hardware_identity":            testOnlyPublicationHardware,
+					"hardware_identity":            publicationIdentityHardware,
 				},
 			},
 			"sustained_watts":  30.0,
@@ -325,7 +368,7 @@ func installBoundCataloguePublicationAuthorityWithMutationsForTest(
 	powerPath := filepath.Join(t.TempDir(), "bound-catalogue-power.json")
 	mustf(t, os.WriteFile(powerPath, powerBytes, 0o600), "write synthetic power authority: %v")
 	powerDigest := sha256.Sum256(powerBytes)
-	sustainedWattsByHWClass["apple_silicon_pro"] = wattsMeasured(
+	sustainedWattsByHWClass[publicationIdentityHWClass] = wattsMeasured(
 		30,
 		powerPath+"#"+testOnlyPowerReceiptFragment,
 		fmt.Sprintf("%x", powerDigest),

@@ -48,10 +48,13 @@ type measuredThroughput struct {
 // G070 (2026-08-14): the only current-bindable production lane is
 // llama-3.2-1b-instruct-q4 / batch_infer on candle-metal-llama1-infer, measured
 // under settlement geometry tokens/token_like_input_plus_max_output_tokens on
-// this host (candle-metal-llama1-q4-r6.json). The embed MiniLM row was moved to
-// unpricedThroughputUntilBound: its receipts measure embeddings/completed_embedding_records
-// while embed settlement is token_like_input_units/token_like_input_geometry, and
-// no frozen conversion authority exists.
+// this host (candle-metal-llama1-q4-r6.json). The embed MiniLM row stays in
+// unpricedThroughputUntilBound: the cited receipt still measures
+// embeddings/completed_embedding_records, while embed settlement is
+// token_like_input_units/token_like_input_geometry. The live agent now
+// measures that settlement geometry on characterize/startup, but un-parking
+// still needs a sealed receipt in the new geometry; no conversion from the
+// historical embeddings/s number is allowed.
 //
 // Media rows remain unpriced (ffmpeg names a non-git merc_source_commit;
 // rendering has no source commit). See unpricedThroughputUntilBound.
@@ -61,7 +64,7 @@ type measuredThroughput struct {
 // allowlist must name this hash. The superseded r5 measurement hash
 // f4303a751ca2b2af is not it, and neither is a later host binary that no
 // longer matches the sealed receipt.
-const sealedCandleMetalLlama1InferBuildHash = "f4210c0ef62e4490"
+const sealedCandleMetalLlama1InferBuildHash = "0b6a7a9cd7578343"
 
 var repricingBenchmarks = []measuredThroughput{
 	{
@@ -77,17 +80,20 @@ var repricingBenchmarks = []measuredThroughput{
 		HardwareIdentity:          "apple_silicon_v1|brand=Apple M3 Ultra|model=Mac15,14|memory_bytes=103079215104|cpu_cores=28|gpu_cores=60",
 		Unit:                      "tokens",
 		UnitScope:                 performanceUnitScopeTokenLikeInputPlusOutputTokens,
-		// Conservative bound: equals measured operating-batch rate (141.1353).
+		// Conservative bound: equals measured operating-batch rate (302.3194).
 		// Gate requires constant <= measured and not more than 1% below.
 		//
-		// This replaced r6's 304.2661. r6 was a 2.2x outlier: eight-plus
-		// independent Apple Silicon measurements in-tree cluster at 137-143 tok/s
-		// (138.7 alone appears eight times), and r7's own batch_32 rate is
-		// 314.5469 — so r6 almost certainly measured a larger batch and recorded
-		// it as the operating-batch rate. r6 therefore underpriced this cell by
-		// ~2.2x. r7 (141.1353, operating batch 1, thermal_ok) is the honest rate
-		// and its engine_build_hash is the one a live agent actually presents.
-		UnitsPerSec:    141.1353,
+		// CORRECTION. This briefly read 141.1353, on the theory that r6's
+		// 304.2661 was a 2.2x outlier. That was wrong, and the reasoning was
+		// backwards: the 141 measurement was taken while other lanes were
+		// loading this machine, and a re-measure on a quiet host with
+		// thermal_ok=true gives ~304-306 at operating batch 1 (serial
+		// 302.5053, batch 8 584.0911, batch 32 667.0278, batch 64 675.6095,
+		// byte determinism IDENTICAL). r6 was right all along; the outlier
+		// was the contended reading. Under-reporting throughput OVERprices
+		// the buyer per unit of real compute, so the wrong number was not the
+		// safe direction either.
+		UnitsPerSec:    302.3194,
 		HWClass:        "apple_silicon_ultra",
 		SourceCitation: "evidence/perf/runtime-benchmarks/candle-metal-llama1-q4-r7.json#batch_infer",
 	},
@@ -100,9 +106,11 @@ var repricingBenchmarks = []measuredThroughput{
 // publish them. A pair may appear in exactly one of the two lists.
 //
 // Media citations remain unbound/unbindable. The MiniLM embed row is parked
-// because no receipt measures token_like_input_units/token_like_input_geometry
-// for that cell yet (embeddings/s cannot price that unit without a fabricated
-// conversion).
+// because the cited receipt still measures embeddings/completed_embedding_records.
+// The agent now measures token_like_input_units/token_like_input_geometry on
+// the live characterize path; production pricing stays parked until a sealed
+// receipt in that geometry exists. embeddings/s cannot price that unit without
+// a fabricated conversion.
 var unpricedThroughputUntilBound = []measuredThroughput{
 	{
 		ModelID:             "all-minilm-l6-v2",
@@ -118,9 +126,11 @@ var unpricedThroughputUntilBound = []measuredThroughput{
 		UnitScope:           performanceUnitScopeCompletedEmbeddingRecords,
 		UnitsPerSec:         1967.3141,
 		HWClass:             "apple_silicon_pro",
-		// Parked: measured embeddings/completed_embedding_records; embed settlement
-		// is token_like_input_units/token_like_input_geometry. No token-geometry
-		// embed receipt exists yet; no frozen conversion may invent one.
+		// Parked: this citation is the historical embeddings/completed_embedding_records
+		// receipt. The agent now measures token_like_input_units/token_like_input_geometry
+		// at characterize/startup, matching embed settlement. That live measurement is
+		// not this citation and is not catalogue price authority until a sealed receipt
+		// in the new geometry exists; no frozen conversion may invent one.
 		// unbound historical diagnostic; not catalogue price authority
 		SourceCitation: "evidence/benchmarks/2026-07-01-m3-pro.json#embed",
 	},

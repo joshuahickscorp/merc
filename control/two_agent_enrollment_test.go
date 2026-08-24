@@ -969,6 +969,237 @@ func TestBothAgentsProduceVerifiableReceipts(t *testing.T) {
 // when the JOB finalises, on the sweep. Reading the invoice in between sees a
 // supplier credit with no buyer charge beside it and reports a negative Merc
 // contribution — which is not a money defect, it is a read taken one step early.
+// explainUnsettledJob prints why a job is still sitting there. A settle timeout
+// that only says "did not settle" costs a full re-run to learn anything, and the
+// three questions are always the same: were tasks ever created, is anything
+// holding them back (visible_at, an exclusion, an existing claim), and is any
+// worker actually authorized for this job's job_type/model_ref pair. Claiming
+// matches on worker_authorized_capabilities, so a worker that enrolled but
+// advertised nothing for this pair polls forever and control stays silent.
+func explainUnsettledJob(t *testing.T, ctx context.Context, pool *pgxpool.Pool, jobID uuid.UUID) {
+	t.Helper()
+	var jobType, modelRef string
+	var taskCount, tasksDone int
+	var frozenCandidates string
+	if err := pool.QueryRow(ctx, `
+		SELECT job_type, COALESCE(model_ref,''), COALESCE(task_count,0), COALESCE(tasks_done,0),
+		       COALESCE(workload_decision->'runtime_candidates','[]'::jsonb)::text
+		  FROM jobs WHERE id=$1`, jobID).
+		Scan(&jobType, &modelRef, &taskCount, &tasksDone, &frozenCandidates); err != nil {
+		t.Logf("diagnosis: cannot read job %s: %v", jobID, err)
+		return
+	}
+	t.Logf("diagnosis: job job_type=%q model_ref=%q task_count=%d tasks_done=%d",
+		jobType, modelRef, taskCount, tasksDone)
+	// A modern job claims only on the cells frozen at admission. If this list is
+	// empty the job falls back to wac.routable; if it is non-empty every one of
+	// cell_id, runtime_id, engine and model_kind must match a capability row.
+	t.Logf("diagnosis: job frozen runtime_candidates=%s", frozenCandidates)
+
+	rows, err := pool.Query(ctx, `
+		SELECT status, COALESCE(claimed_by::text,'-'), visible_at <= now(),
+		       is_honeypot, is_redundancy, retry_count
+		  FROM tasks WHERE job_id=$1 ORDER BY created_at`, jobID)
+	if err != nil {
+		t.Logf("diagnosis: cannot read tasks: %v", err)
+	} else {
+		defer rows.Close()
+		any := false
+		for rows.Next() {
+			var status, claimedBy string
+			var visible, honeypot, redundancy bool
+			var retries int
+			if err := rows.Scan(&status, &claimedBy, &visible, &honeypot, &redundancy, &retries); err != nil {
+				t.Logf("diagnosis: scan task: %v", err)
+				break
+			}
+			any = true
+			t.Logf("diagnosis: task status=%s claimed_by=%s visible_now=%t honeypot=%t redundancy=%t retries=%d",
+				status, claimedBy, visible, honeypot, redundancy, retries)
+		}
+		if !any {
+			t.Logf("diagnosis: the job produced NO task rows, so no worker could have claimed it")
+		}
+	}
+
+	capRows, err := pool.Query(ctx, `
+		SELECT wac.worker_id::text, wac.cell_id, wac.job_type, wac.model_ref,
+		       wac.runtime_id, COALESCE(wac.model_kind,''), wac.routable,
+		       COALESCE(w.engine,''), wac.authorized_at >= now() - interval '7 days'
+		  FROM worker_authorized_capabilities wac
+		  LEFT JOIN workers w ON w.id = wac.worker_id
+		 ORDER BY wac.worker_id, wac.job_type`)
+	if err != nil {
+		t.Logf("diagnosis: cannot read worker_authorized_capabilities: %v", err)
+		return
+	}
+	defer capRows.Close()
+	authorized := 0
+	matching := 0
+	for capRows.Next() {
+		var workerID, cellID, capJobType, capModelRef, runtimeID, modelKind, engine string
+		var routable, fresh bool
+		if err := capRows.Scan(&workerID, &cellID, &capJobType, &capModelRef,
+			&runtimeID, &modelKind, &routable, &engine, &fresh); err != nil {
+			t.Logf("diagnosis: scan capability: %v", err)
+			break
+		}
+		authorized++
+		match := capJobType == jobType && capModelRef == modelRef
+		if match {
+			matching++
+		}
+		t.Logf("diagnosis: authorized worker=%s cell=%s runtime=%s engine=%s model_kind=%s "+
+			"job_type=%s model_ref=%s routable=%t fresh=%t matches_job=%t",
+			workerID, cellID, runtimeID, engine, modelKind, capJobType, capModelRef,
+			routable, fresh, match)
+	}
+	if authorized == 0 {
+		t.Logf("diagnosis: NO worker is authorized for anything, so claiming cannot match")
+	} else if matching == 0 {
+		t.Logf("diagnosis: %d authorized capability rows exist but NONE match job_type=%q model_ref=%q",
+			authorized, jobType, modelRef)
+	}
+	explainClaimNarrowing(t, ctx, pool)
+	explainTrustSandboxPrivacy(t, ctx, pool, jobID)
+}
+
+// explainTrustSandboxPrivacy evaluates, fact by fact, the stage the narrowing
+// trace reports as trust_sandbox_privacy. Every term here is a hard filter, so
+// a single false among them is the whole reason a task is never handed out.
+func explainTrustSandboxPrivacy(t *testing.T, ctx context.Context, pool *pgxpool.Pool, jobID uuid.UUID) {
+	t.Helper()
+	rows, err := pool.Query(ctx, `
+		SELECT w.id::text,
+		       s.status,
+		       COALESCE(s.reputation,0),
+		       COALESCE(j.min_reputation,0),
+		       j.tier,
+		       COALESCE(w.sandboxed,false),
+		       COALESCE(w.unsandboxed_opt_in,false),
+		       COALESCE(w.throttled,false),
+		       EXISTS (
+		         SELECT 1 FROM worker_tokens wt
+		          WHERE wt.worker_id = w.id AND wt.revoked = false
+		            AND wt.device_fingerprint IS NOT NULL
+		            AND btrim(wt.device_fingerprint) <> ''
+		            AND (wt.expires_at IS NULL OR wt.expires_at > now())
+		       ) AS device_bound,
+		       COALESCE(j.workload_decision->>'directed_cell_id','') <> '' AS directed,
+		       s.owner_buyer_id IS NOT DISTINCT FROM j.buyer_id AS owner_linked,
+		       lower(split_part(COALESCE(s.email,''),'@',2)) AS supplier_domain,
+		       lower(split_part(COALESCE(b.email,''),'@',2)) AS buyer_domain,
+		       EXISTS (
+		         SELECT 1 FROM worker_enrollment_codes wec
+		          WHERE wec.buyer_id = j.buyer_id AND wec.supplier_id = s.id
+		            AND wec.consumed_at IS NOT NULL
+		       ) AS enrolled_by_buyer
+		  FROM workers w
+		  JOIN suppliers s ON s.id = w.supplier_id
+		  CROSS JOIN jobs j
+		  LEFT JOIN buyers b ON b.id = j.buyer_id
+		 WHERE j.id = $1`, jobID)
+	if err != nil {
+		t.Logf("diagnosis: cannot evaluate trust/sandbox/privacy: %v", err)
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var workerID, supplierStatus, tier, supplierDomain, buyerDomain string
+		var reputation, minReputation float64
+		var sandboxed, unsandboxedOptIn, throttled, deviceBound, directed bool
+		var ownerLinked, enrolledByBuyer bool
+		if err := rows.Scan(&workerID, &supplierStatus, &reputation, &minReputation, &tier,
+			&sandboxed, &unsandboxedOptIn, &throttled, &deviceBound, &directed,
+			&ownerLinked, &supplierDomain, &buyerDomain, &enrolledByBuyer); err != nil {
+			t.Logf("diagnosis: scan trust row: %v", err)
+			return
+		}
+		containment := (sandboxed && deviceBound) || directed
+		t.Logf("diagnosis: trust worker=%s supplier_status=%s reputation=%.2f "+
+			"min_reputation=%.2f tier=%s sandboxed=%t device_bound=%t directed=%t "+
+			"unsandboxed_opt_in=%t throttled=%t containment_ok=%t",
+			workerID, supplierStatus, reputation, minReputation, tier,
+			sandboxed, deviceBound, directed, unsandboxedOptIn, throttled, containment)
+		t.Logf("diagnosis: independence worker=%s owner_linked=%t supplier_domain=%q "+
+			"buyer_domain=%q enrolled_by_buyer=%t",
+			workerID, ownerLinked, supplierDomain, buyerDomain, enrolledByBuyer)
+		switch {
+		case supplierStatus != "active":
+			t.Logf("diagnosis: VERDICT supplier is %q, not active", supplierStatus)
+		case !containment:
+			t.Logf("diagnosis: VERDICT containment failed: sandboxed=%t device_bound=%t directed=%t",
+				sandboxed, deviceBound, directed)
+		case unsandboxedOptIn:
+			t.Logf("diagnosis: VERDICT unsandboxed_opt_in is an absolute exclusion")
+		case throttled:
+			t.Logf("diagnosis: VERDICT worker is throttled")
+		case reputation < minReputation:
+			t.Logf("diagnosis: VERDICT reputation %.2f is below the job floor %.2f",
+				reputation, minReputation)
+		case ownerLinked || enrolledByBuyer:
+			t.Logf("diagnosis: VERDICT buyer-supplier independence excludes this supplier")
+		default:
+			t.Logf("diagnosis: VERDICT every trust/sandbox/privacy term passes for this worker")
+		}
+	}
+}
+
+// explainClaimNarrowing replays the claim's own stage-by-stage narrowing for
+// every worker, so an unclaimed task names the filter that removed it instead of
+// leaving a silent poll. This is the measurement ClaimTasksTx already takes when
+// claimNarrowingMeasureOnHotPath is set; it is reproduced here because a claim
+// that returns nothing returns no trace with it.
+func explainClaimNarrowing(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+	t.Helper()
+	currency := SettlementCurrencyCode()
+	if currency == "" {
+		t.Logf("diagnosis: no settlement currency configured, so claiming refuses before narrowing")
+		return
+	}
+	rows, err := pool.Query(ctx, `
+		SELECT id, supplier_id, COALESCE(hw_class,''), COALESCE(min_payout_usd_hr,0)
+		  FROM workers ORDER BY created_at DESC`)
+	if err != nil {
+		t.Logf("diagnosis: cannot list workers for narrowing: %v", err)
+		return
+	}
+	type workerRow struct {
+		auth      WorkerAuth
+		costRank  int
+		minPayout float64
+	}
+	var workers []workerRow
+	for rows.Next() {
+		var id, supplierID uuid.UUID
+		var hwClass string
+		var minPayout float64
+		if err := rows.Scan(&id, &supplierID, &hwClass, &minPayout); err != nil {
+			t.Logf("diagnosis: scan worker: %v", err)
+			break
+		}
+		workers = append(workers, workerRow{
+			auth:      WorkerAuth{WorkerID: id, SupplierID: supplierID},
+			costRank:  hwClassCostRank(hwClass),
+			minPayout: minPayout,
+		})
+	}
+	rows.Close()
+
+	store := &Store{pool: pool}
+	for _, wr := range workers {
+		trace, err := store.MeasureClaimNarrowing(ctx, wr.auth, wr.costRank, wr.minPayout, currency)
+		if err != nil {
+			t.Logf("diagnosis: narrowing for worker %s failed: %v", wr.auth.WorkerID, err)
+			continue
+		}
+		for _, stage := range trace.Stages {
+			t.Logf("diagnosis: narrowing worker=%s stage=%s kind=%s surviving=%d %s",
+				wr.auth.WorkerID, stage.Stage, stage.Kind, stage.Surviving, stage.Note)
+		}
+	}
+}
+
 func waitForJobSettled(
 	t *testing.T, ctx context.Context, pool *pgxpool.Pool, jobID uuid.UUID, name string,
 ) {
@@ -990,6 +1221,7 @@ func waitForJobSettled(
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
+	explainUnsettledJob(t, ctx, pool, jobID)
 	t.Fatalf("%s: job did not settle inside the deadline (status=%s actual=%.9f); the "+
 		"assertions below read a charge that has not been written yet",
 		name, status, actual)

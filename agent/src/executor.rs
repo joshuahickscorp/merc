@@ -1217,13 +1217,43 @@ pub async fn run_benchmarks(pool: &crate::pool::ModelPool, _memory_gb: f32) -> V
     out
 }
 
+/// Matches `bytesPerTokenHeuristic` in control/quote.go. Embed settlement
+/// uses this exact 4.0 with float division, not a ceiling.
+const BYTES_PER_TOKEN_HEURISTIC: f64 = 4.0;
+
+fn embed_benchmark_batch() -> Vec<String> {
+    (0..8)
+        .map(|i| format!("benchmark sentence number {i} for throughput measurement"))
+        .collect()
+}
+
+/// Input-side settlement units for the embed geometry:
+/// `max(records, input_bytes / 4.0)`. Same formula as
+/// `settlementInputUnitsForGeometry` in control/compute_plan.go — float
+/// division, no rounding. Empty or zero-byte batches are 0, matching control.
+fn settlement_input_units_for_geometry(batch: &[String]) -> f64 {
+    let records = batch.len();
+    if records == 0 {
+        return 0.0;
+    }
+    let input_bytes: u64 = batch.iter().map(|s| s.len() as u64).sum();
+    if input_bytes == 0 {
+        return 0.0;
+    }
+    let units = records as f64;
+    let byte_units = input_bytes as f64 / BYTES_PER_TOKEN_HEURISTIC;
+    if byte_units > units {
+        byte_units
+    } else {
+        units
+    }
+}
+
 async fn bench_embed(pool: &crate::pool::ModelPool) -> Result<BenchResult, RunError> {
     let load_started = std::time::Instant::now();
     let embedder = pool.embedder("").await?;
     let load_ms = load_started.elapsed().as_millis() as u64;
-    let batch: Vec<String> = (0..8)
-        .map(|i| format!("benchmark sentence number {i} for throughput measurement"))
-        .collect();
+    let batch = embed_benchmark_batch();
 
     let embedder = embedder.lock().await;
 
@@ -1247,6 +1277,9 @@ async fn bench_embed(pool: &crate::pool::ModelPool) -> Result<BenchResult, RunEr
         token_cache_entries = cache.entries,
         "measured cold model load"
     );
+    // Advertised embed cells settle token_like_input_units /
+    // token_like_input_geometry: max(records, utf8_bytes/4). Measure that
+    // quantity on this corpus rather than completed embeddings/s.
     Ok(BenchResult {
         model_id: "all-minilm-l6-v2".to_string(),
         job_type: "embed".to_string(),
@@ -1255,18 +1288,18 @@ async fn bench_embed(pool: &crate::pool::ModelPool) -> Result<BenchResult, RunEr
         p99_ms,
         thermal_ok,
         load_ms,
-        unit: "embeddings".to_string(),
-        unit_scope: "completed_embedding_records".to_string(),
+        unit: "token_like_input_units".to_string(),
+        unit_scope: "token_like_input_geometry".to_string(),
         measured_unix: 0,
     })
 }
 
 fn sustained_eps(embedder: &Embedder, batch: &[String]) -> Result<(f32, bool), RunError> {
-    let n = batch.len() as f64;
+    let units = settlement_input_units_for_geometry(batch);
     sustained_throughput(|| {
         let t = std::time::Instant::now();
         embedder.embed(batch)?;
-        Ok(n / t.elapsed().as_secs_f64().max(1e-6))
+        Ok(units / t.elapsed().as_secs_f64().max(1e-6))
     })
 }
 
@@ -1469,5 +1502,45 @@ mod sustained_benchmark_tests {
         assert_eq!(conservative_sustained_rate(&[]), None);
         assert_eq!(conservative_sustained_rate(&[100.0, f64::NAN]), None);
         assert_eq!(conservative_sustained_rate(&[100.0, 0.0]), None);
+    }
+}
+
+#[cfg(test)]
+mod embed_settlement_geometry_tests {
+    use super::{embed_benchmark_batch, settlement_input_units_for_geometry};
+
+    #[test]
+    fn settlement_units_are_max_of_records_and_bytes_over_four_without_ceiling() {
+        // 2 records, 4 bytes → max(2, 1.0) = 2 (record floor).
+        let short = vec!["ab".to_string(), "cd".to_string()];
+        assert_eq!(settlement_input_units_for_geometry(&short), 2.0);
+
+        // 1 record, 8 bytes → max(1, 2.0) = 2.
+        let long = vec!["abcdefgh".to_string()];
+        assert_eq!(settlement_input_units_for_geometry(&long), 2.0);
+
+        // Float division, not ceil: 5 bytes → 1.25, not 2.
+        let odd = vec!["abcde".to_string()];
+        assert_eq!(settlement_input_units_for_geometry(&odd), 1.25);
+
+        let empty: Vec<String> = vec![];
+        assert_eq!(settlement_input_units_for_geometry(&empty), 0.0);
+
+        let zero_bytes = vec![String::new(), String::new()];
+        assert_eq!(settlement_input_units_for_geometry(&zero_bytes), 0.0);
+    }
+
+    #[test]
+    fn embed_benchmark_corpus_is_byte_dominated_token_like_input() {
+        let batch = embed_benchmark_batch();
+        let records = batch.len() as f64;
+        let input_bytes: f64 = batch.iter().map(|s| s.len() as f64).sum();
+        let units = settlement_input_units_for_geometry(&batch);
+        assert_eq!(batch.len(), 8);
+        assert!(
+            input_bytes / 4.0 > records,
+            "corpus should be byte-dominated so units != record count"
+        );
+        assert_eq!(units, input_bytes / 4.0);
     }
 }

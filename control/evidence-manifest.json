@@ -459,7 +459,7 @@
     "model_ids": [
       "llama-3.2-1b-instruct-q4"
     ],
-    "measured_at": "2026-08-24T04:52:48Z",
+    "measured_at": "2026-08-24T19:23:17Z",
     "hw_class": "apple_silicon_ultra",
     "throughput": {
       "candle_metal": {
@@ -467,17 +467,17 @@
         "unit_scope": "token_like_input_plus_max_output_tokens",
         "precision": "Q4_K_M GGUF",
         "operating_batch": 1,
-        "units_per_sec_at_operating_batch": 141.1353,
+        "units_per_sec_at_operating_batch": 302.3194,
         "best_observed_units_per_sec": 323.5676,
         "best_observed_batch": 64,
         "basis": "settlement geometry token_like_input_plus_max_output_tokens: billable units/request = max(1, prompt_bytes/4)+max_tokens = 62.75 (prompt_bytes=59, max_tokens=48); rate at operating_batch=1 is batch_infer.throughput_units_per_second from merc-agent bench-batch re-expressed under the same wall samples. best_observed is peak at batch 64 (ceiling to refuse, not an offer rate)."
       }
     },
-    "merc_source_commit": "de04668975a6348554d850e64c2becf24c23059a",
+    "merc_source_commit": "c0c9e3fce0fd8d376575d4770de517aba9c42816",
     "profile_revision": "r9",
     "harness": "merc-agent bench-batch (candle-metal-llama1-infer r7 settlement-geometry re-measure)",
     "binding_status": "BOUND",
-    "engine_build_hash": "f4210c0ef62e4490",
+    "engine_build_hash": "0b6a7a9cd7578343",
     "engine_build_identity_policy": "merc_agent_running_executable_sha256_v1",
     "hardware_identity": "apple_silicon_v1|brand=Apple M3 Ultra|model=Mac15,14|memory_bytes=103079215104|cpu_cores=28|gpu_cores=60",
     "model_artifact_sha256s": [

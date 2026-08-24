@@ -48,6 +48,7 @@ import (
 // that matches those semantics. It is also not candidate-bound. It cannot mint
 // CANARY_PROVEN or establish a currently sellable production lane.
 func TestFirstCompleteLoopThroughThePublicAPI(t *testing.T) {
+	useLiveAgentPublicationIdentityForTest(t)
 	installBoundCataloguePublicationAuthorityForTest(t)
 	installTestOnlyCombinedTokenAuthority(t)
 	// What remains gating this mechanics test is hardware: a built agent binary

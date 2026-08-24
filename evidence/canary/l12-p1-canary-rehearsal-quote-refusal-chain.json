@@ -28,13 +28,13 @@
   "infer_bindable": true,
   "infer_document_advertised": true,
   "kind": "p1_canary_rehearsal_quote-refusal-chain",
-  "observed_at": "2026-08-24T05:22:54Z",
+  "observed_at": "2026-08-24T19:24:18Z",
   "operator_owned": true,
   "participant_class": "operator_controlled",
   "plane": "local-source",
   "rehearsal": true,
   "schema_version": 1,
-  "sealed_infer_engine_hash": "f4210c0ef62e4490",
+  "sealed_infer_engine_hash": "0b6a7a9cd7578343",
   "status": "PASS",
   "synthetic": true
 }

@@ -34,7 +34,17 @@ if [[ ! -x "$AGENT_BIN" ]]; then
   exit 2
 fi
 
-COMMIT="$(git -C "$ROOT" rev-parse HEAD)"
+# The declared candidate, not HEAD — the shared bound-evidence writer stamps
+# producer_identity.source_commit from ops/candidate.json, and a receipt whose
+# merc_source_commit disagrees with it is refused as unbindable.
+COMMIT="$(python3 -c "
+import json,subprocess,sys
+try:
+    c=json.load(open('$ROOT/ops/candidate.json'))['commit']
+    if len(c)==40 and all(ch in '0123456789abcdef' for ch in c.lower()): print(c); sys.exit()
+except Exception: pass
+print(subprocess.check_output(['git','-C','$ROOT','rev-parse','HEAD'],text=True).strip())
+")"
 BATCH_SIZES="${BATCH_SIZES:-1,8,32,64}"
 REPS="${REPS:-5}"
 PROMPT="${PROMPT:-Write a detailed paragraph about the ocean and its wonders:}"
@@ -173,9 +183,20 @@ if not all_det:
         "byte_exact cell cannot seal on a non-deterministic measurement"
     )
 
-commit = subprocess.check_output(
-    ["git", "-C", "$ROOT", "rev-parse", "HEAD"], text=True
-).strip()
+# Same rule as the shell above: the declared candidate, else HEAD.
+def _candidate():
+    try:
+        c = json.load(open("$ROOT/ops/candidate.json"))["commit"]
+        if len(c) == 40 and all(ch in "0123456789abcdef" for ch in c.lower()):
+            return c
+    except Exception:
+        pass
+    return subprocess.check_output(
+        ["git", "-C", "$ROOT", "rev-parse", "HEAD"], text=True
+    ).strip()
+
+
+commit = _candidate()
 measured_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 # Host load note (honest, non-authoritative).
