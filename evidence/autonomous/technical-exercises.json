@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "status": "PASS",
-  "completed_at": "2026-08-24T05:58:09Z",
+  "completed_at": "2026-08-24T06:23:03Z",
   "go_test_exit_code": 0,
   "go_test_jsonl": "/Users/scammermike/Downloads/merc/.artifacts/technical-exercises-go-test.jsonl",
   "test_results": {
@@ -92,12 +92,12 @@
     "qualified_human_tabletop": "NOT EXECUTED",
     "external_subprocessor_deletion": "NOT EXECUTED"
   },
-  "source_commit": "cf78b8b4c4663c2ebd4fde34535d98d5a2b0eca4",
+  "source_commit": "3949455a5d1f333a9ff6e90f318840acbde3c8d9",
   "produced_by": "scripts/derive-technical-exercises-receipt.py",
   "binding_status": "BOUND",
   "producer_identity": {
     "source_commit": {
-      "value": "cf78b8b4c4663c2ebd4fde34535d98d5a2b0eca4"
+      "value": "3949455a5d1f333a9ff6e90f318840acbde3c8d9"
     },
     "build_digest": {
       "value": "81916a1946d7699ce6e4e0e82536178a579aba18172fdeb67cd7d495e52a7082"
