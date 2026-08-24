@@ -28,7 +28,7 @@
   "infer_bindable": true,
   "infer_document_advertised": true,
   "kind": "p1_canary_rehearsal_quote-refusal-chain",
-  "observed_at": "2026-08-24T05:15:32Z",
+  "observed_at": "2026-08-24T05:22:54Z",
   "operator_owned": true,
   "participant_class": "operator_controlled",
   "plane": "local-source",
