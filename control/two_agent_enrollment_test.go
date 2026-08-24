@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
@@ -86,39 +87,31 @@ type enrolledAgent struct {
 	logPath    string
 }
 
-// launchAgent writes a config and starts a real merc-agent `run` process.
+// launchAgent enrols a real merc-agent through the production device-bound
+// flow and starts `run`.
 //
 // Each agent gets its own HOME, data directory and log, so two agents on one host
 // cannot share credentials or state — the isolation a two-supplier fleet has by
-// construction and a test has to arrange.
+// construction and a test has to arrange. The worker token is the one the agent
+// itself wrote after generating its device key; the harness does not mint it.
 func launchAgent(
 	t *testing.T, ctx context.Context, store *Store, pool *pgxpool.Pool,
 	controlURL, name, embedRuntime, llamaURL string,
 ) *enrolledAgent {
 	t.Helper()
 
-	supplierID, workerID := uuid.New(), uuid.New()
-	if _, err := pool.Exec(ctx, `
-		INSERT INTO suppliers (id,email,status,reputation,completed_tasks)
-		VALUES ($1,$2,'active',0.95,100)`,
-		supplierID, name+"-"+uuid.NewString()+"@proof.test"); err != nil {
-		t.Fatalf("%s: seed supplier: %v", name, err)
-	}
-	// The credential, and nothing else. The agent does the rest itself.
-	token, err := store.CreateWorkerToken(ctx, workerID, supplierID)
-	mustf(t, err, "%s: issue worker token: %v", name)
-
 	home := t.TempDir()
 	dataDir := filepath.Join(home, "data")
 	must(t, os.MkdirAll(dataDir, 0o755))
+	stateDir := filepath.Join(home, "enrollment")
+	must(t, os.MkdirAll(stateDir, 0o700))
 	configPath := filepath.Join(home, "agent.toml")
-	// Every field the agent requires. power_only has no serde default, so an
-	// otherwise-valid config without it fails to parse before the process does
-	// anything — which only a real process start reveals.
+	// Every field the agent requires except the credential. power_only has no
+	// serde default, so an otherwise-valid config without it fails to parse
+	// before the process does anything — which only a real process start
+	// reveals. worker_token and supplier_id are written by `enroll complete`.
 	config := fmt.Sprintf(`
 control_url = %q
-worker_token = %q
-supplier_id = %q
 data_dir = %q
 power_only = false
 min_payout_usd_per_hr = 0.0
@@ -127,14 +120,106 @@ max_memory_pct = 95.0
 checkpoint_secs = 30
 embed_runtime = %q
 llama_embed_base_url = %q
-`, controlURL, token, supplierID, dataDir, embedRuntime, llamaURL)
+`, controlURL, dataDir, embedRuntime, llamaURL)
 	must(t, os.WriteFile(configPath, []byte(config), 0o600))
+
+	// A distinct owner from the stranger who later submits buyer work.
+	// claimIndependenceSQL excludes a supplier whose owner_buyer_id is the
+	// job's buyer; reusing one account would swap a containment failure for
+	// an independence failure.
+	ownerEmail := name + "-owner-" + uuid.NewString() + "@proof.test"
+	signup := postJSON(t, controlURL+"/v1/signup", "", map[string]any{
+		"email": ownerEmail, "password": "a-supplier-owner-password-1234",
+	})
+	if signup.status != http.StatusOK && signup.status != http.StatusCreated {
+		t.Fatalf("%s: owner signup: HTTP %d: %s", name, signup.status, signup.body)
+	}
+	ownerKey, _ := signup.json["sandbox_key"].(string)
+	if ownerKey == "" {
+		ownerKey, _ = signup.json["token"].(string)
+	}
+	if ownerKey == "" {
+		t.Fatalf("%s: owner signup issued no credential: %s", name, signup.body)
+	}
+
+	bin := agentBinaryPath(t)
+	enrollEnv := append(os.Environ(), "HOME="+home)
+
+	reqCmd := exec.CommandContext(ctx, bin, "enroll", "request",
+		"--control-origin", controlURL, "--state-dir", stateDir)
+	reqCmd.Dir = home
+	reqCmd.Env = enrollEnv
+	reqOut, err := reqCmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("%s: enroll request: %v\n%s", name, err, reqOut)
+	}
+	deviceRequest := firstPrefixedLine(string(reqOut), "device_request=")
+	if !strings.HasPrefix(deviceRequest, "cxer2_") {
+		t.Fatalf("%s: enroll request printed no cxer2_ device_request:\n%s", name, reqOut)
+	}
+
+	approval := postJSON(t, controlURL+"/v1/supplier/enrollment-approvals", ownerKey, map[string]any{
+		"device_request": deviceRequest,
+		"label":          name,
+	})
+	if approval.status != http.StatusCreated {
+		t.Fatalf("%s: enrollment approval: HTTP %d: %s", name, approval.status, approval.body)
+	}
+	bundle, _ := approval.json["enrollment_bundle"].(string)
+	if !strings.HasPrefix(bundle, "cxeb2_") {
+		t.Fatalf("%s: approval issued no cxeb2_ bundle: %s", name, approval.body)
+	}
+
+	completeCmd := exec.CommandContext(ctx, bin, "enroll", "complete",
+		"--bundle", bundle, "--config", configPath, "--state-dir", stateDir)
+	completeCmd.Dir = home
+	completeCmd.Env = enrollEnv
+	completeOut, err := completeCmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("%s: enroll complete: %v\n%s", name, err, completeOut)
+	}
+	workerIDText := firstPrefixedLine(string(completeOut), "worker_id=")
+	supplierIDText := firstPrefixedLine(string(completeOut), "supplier_id=")
+	if workerIDText == "" || supplierIDText == "" {
+		t.Fatalf("%s: enroll complete printed no worker_id/supplier_id:\n%s", name, completeOut)
+	}
+	workerID, err := uuid.Parse(workerIDText)
+	mustf(t, err, "%s: parse worker_id from enroll complete: %v", name)
+	supplierID, err := uuid.Parse(supplierIDText)
+	mustf(t, err, "%s: parse supplier_id from enroll complete: %v", name)
+
+	// Enrolment creates the supplier as pending/active with default
+	// reputation. Fields the flow does not set still need the values the
+	// rest of this harness has always assumed; owner_buyer_id stays the
+	// owner account the approval just bound.
+	tag, err := pool.Exec(ctx, `
+		UPDATE suppliers
+		   SET status='active', reputation=0.95, completed_tasks=100
+		 WHERE id=$1 AND owner_buyer_id IS NOT NULL`,
+		supplierID)
+	if err != nil {
+		t.Fatalf("%s: seed supplier fields: %v", name, err)
+	}
+	if tag.RowsAffected() != 1 {
+		t.Fatalf("%s: supplier %s was not owner-bound after enrolment", name, supplierID)
+	}
+	var fingerprint string
+	if err := pool.QueryRow(ctx, `
+		SELECT COALESCE(device_fingerprint,'')
+		  FROM worker_tokens
+		 WHERE worker_id=$1 AND revoked=false
+		 ORDER BY created_at DESC LIMIT 1`, workerID).Scan(&fingerprint); err != nil {
+		t.Fatalf("%s: read enrolled credential: %v", name, err)
+	}
+	if strings.TrimSpace(fingerprint) == "" {
+		t.Fatalf("%s: enroll complete left an unbound worker token", name)
+	}
 
 	logPath := filepath.Join(home, "agent.log")
 	logFile, err := os.Create(logPath)
 	must(t, err)
 
-	cmd := exec.Command(agentBinaryPath(t), "run", "--config", configPath)
+	cmd := exec.Command(bin, "run", "--config", configPath)
 	cmd.Dir = home
 	cmd.Env = append(os.Environ(),
 		"HOME="+home,
@@ -179,6 +264,16 @@ func tailLines(s string, n int) string {
 	return strings.Join(lines, "\n")
 }
 
+func firstPrefixedLine(s, prefix string) string {
+	for _, line := range strings.Split(s, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, prefix) {
+			return strings.TrimSpace(strings.TrimPrefix(line, prefix))
+		}
+	}
+	return ""
+}
+
 type enrolment struct {
 	engine    string
 	profileID string
@@ -191,9 +286,19 @@ type enrolment struct {
 // waitForEnrolment polls until the CONTROL PLANE has stored a governed identity
 // and at least one authorized capability for this worker.
 func waitForEnrolment(
-	t *testing.T, ctx context.Context, pool *pgxpool.Pool, agent *enrolledAgent,
+	t *testing.T, _ context.Context, pool *pgxpool.Pool, agent *enrolledAgent,
 ) enrolment {
 	t.Helper()
+	// NOT the caller's context. openIsolatedDatabase hands out a 90-second setup
+	// context, and a real agent takes longer than that to benchmark and register:
+	// the second agent in this file registered at 93s, three seconds after that
+	// context expired, so every poll below failed with a dead context and the wait
+	// span the full ten minutes reporting "did not enrol" about a worker that had
+	// enrolled. One agent fit inside 90s by luck, which is why this held until a
+	// peer was added. The wait owns a context as long as the deadline it enforces.
+	ctx, cancel := context.WithTimeout(context.Background(), twoAgentEnrolTimeout+30*time.Second)
+	defer cancel()
+	var lastErr error
 	deadline := time.Now().Add(twoAgentEnrolTimeout)
 	for time.Now().Before(deadline) {
 		var out enrolment
@@ -201,6 +306,9 @@ func waitForEnrolment(
 		err := pool.QueryRow(ctx, `
 			SELECT engine, runtime_profile_id, runtime_profile_revision, runtime_profile_digest
 			  FROM workers WHERE id=$1`, agent.workerID).Scan(&out.engine, &pid, &rev, &dig)
+		if err != nil {
+			lastErr = err
+		}
 		if err == nil && pid != nil && rev != nil && dig != nil {
 			rows, qerr := pool.Query(ctx, `
 				SELECT cell_id, routable FROM worker_authorized_capabilities
@@ -227,7 +335,11 @@ func waitForEnrolment(
 		}
 		time.Sleep(250 * time.Millisecond)
 	}
-	t.Fatalf("%s agent did not enrol within %s", agent.name, twoAgentEnrolTimeout)
+	explainEnrolmentTimeout(t, ctx, pool, agent)
+	// The last query error, not just the timeout: a wait that cannot read the
+	// database looks exactly like a worker that never arrived.
+	t.Fatalf("%s agent did not enrol within %s (last poll error: %v)",
+		agent.name, twoAgentEnrolTimeout, lastErr)
 	return enrolment{}
 }
 
@@ -1204,7 +1316,11 @@ func waitForJobSettled(
 	t *testing.T, ctx context.Context, pool *pgxpool.Pool, jobID uuid.UUID, name string,
 ) {
 	t.Helper()
-	deadline := time.Now().Add(120 * time.Second)
+	// Verification is bought with extra executions: a primary, a redundancy peer
+	// and a honeypot each run the model before a job can settle. 120s covered the
+	// claim but expired mid-verifying on a real agent, which reads as a stuck loop
+	// when the loop is simply still working.
+	deadline := time.Now().Add(360 * time.Second)
 	var status string
 	var actual float64
 	for time.Now().Before(deadline) {
@@ -1225,4 +1341,46 @@ func waitForJobSettled(
 	t.Fatalf("%s: job did not settle inside the deadline (status=%s actual=%.9f); the "+
 		"assertions below read a charge that has not been written yet",
 		name, status, actual)
+}
+
+// explainEnrolmentTimeout says which half of enrolment is missing. The wait
+// keys on the worker id `enroll complete` printed, so a worker that registered
+// under a different id, or registered with no authorized capability rows, both
+// look identical from here: a silent timeout. Print every worker and its cell
+// count so the two cases are told apart.
+func explainEnrolmentTimeout(t *testing.T, _ context.Context, pool *pgxpool.Pool, agent *enrolledAgent) {
+	t.Helper()
+	// The caller's context is the one that just ran out; reusing it would make
+	// the diagnosis fail with the very deadline it is trying to explain.
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	t.Logf("diagnosis: %s waited on worker_id=%s supplier_id=%s",
+		agent.name, agent.workerID, agent.supplierID)
+	rows, err := pool.Query(ctx, `
+		SELECT w.id::text, w.supplier_id::text, COALESCE(w.engine,''),
+		       COALESCE(w.runtime_profile_id,'<null>'),
+		       COALESCE(w.runtime_profile_revision,'<null>'),
+		       (SELECT count(*) FROM worker_authorized_capabilities wac
+		         WHERE wac.worker_id = w.id) AS cells
+		  FROM workers w ORDER BY w.created_at`)
+	if err != nil {
+		t.Logf("diagnosis: cannot list workers: %v", err)
+		return
+	}
+	defer rows.Close()
+	seen := 0
+	for rows.Next() {
+		var id, supplierID, engine, profileID, revision string
+		var cells int
+		if err := rows.Scan(&id, &supplierID, &engine, &profileID, &revision, &cells); err != nil {
+			t.Logf("diagnosis: scan worker: %v", err)
+			return
+		}
+		seen++
+		t.Logf("diagnosis: worker id=%s supplier=%s engine=%s profile=%s revision=%s cells=%d is_waited_on=%t",
+			id, supplierID, engine, profileID, revision, cells, id == agent.workerID.String())
+	}
+	if seen == 0 {
+		t.Logf("diagnosis: no workers row exists at all, so registration never landed")
+	}
 }

@@ -105,6 +105,18 @@ func TestFirstCompleteLoopThroughThePublicAPI(t *testing.T) {
 	// --- the supply side: a real agent, enrolled, on a real runtime -----------
 	agent := launchAgent(t, ctx, store, pool, srv.URL, "candle", "candle_metal", llamaURL)
 	waitForEnrolment(t, ctx, pool, agent)
+	// A SECOND, INDEPENDENT SUPPLIER, because verification is not optional.
+	//
+	// Merc buys verification by executing the work again on a peer that did not
+	// produce the original answer, and claimIndependenceSQL permanently excludes
+	// prior executors from their own redundancy task. With one agent the primary
+	// task completes, the redundancy task is left with no eligible peer, and the
+	// job sits in `verifying` until the deadline — which reads as a hung loop when
+	// it is actually the anti-collusion rule doing its job. launchAgent signs up
+	// its own owner and supplier per call, so this peer is independent of both the
+	// first supplier and the buyer.
+	peer := launchAgent(t, ctx, store, pool, srv.URL, "candle-peer", "candle_metal", llamaURL)
+	waitForEnrolment(t, ctx, pool, peer)
 
 	loopCtx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	t.Cleanup(cancel)
@@ -248,9 +260,40 @@ func TestFirstCompleteLoopThroughThePublicAPI(t *testing.T) {
 	}
 	rows.Close()
 	mustf(t, rows.Err(), "read supplier attribution: %v")
-	if len(paidSuppliers) != 1 || !paidSuppliers[agent.supplierID] {
-		t.Fatalf("credited suppliers %v, but %s is the one that executed the work",
-			paidSuppliers, agent.supplierID)
+	// Merc buys verification by executing the work again on an INDEPENDENT peer,
+	// so more than one supplier legitimately earns from one job. Asserting a count
+	// of exactly one encoded the old single-agent harness, not a money rule, and
+	// it would fail the moment verification did its job. The rule that matters is
+	// that nobody is paid who did not run something: every credited supplier must
+	// own a worker that holds a task on this job.
+	executedSuppliers := map[uuid.UUID]bool{}
+	execRows, err := pool.Query(loopCtx, `
+		SELECT DISTINCT w.supplier_id
+		  FROM tasks t JOIN workers w ON w.id = COALESCE(t.claimed_by, t.worker_id)
+		 WHERE t.job_id=$1`, jobID)
+	mustf(t, err, "read executing suppliers: %v")
+	for execRows.Next() {
+		var id uuid.UUID
+		if err := execRows.Scan(&id); err != nil {
+			execRows.Close()
+			t.Fatalf("scan executing supplier: %v", err)
+		}
+		executedSuppliers[id] = true
+	}
+	execRows.Close()
+	mustf(t, execRows.Err(), "read executing suppliers: %v")
+	if len(paidSuppliers) == 0 {
+		t.Fatal("no supplier was credited, so the work was done for free")
+	}
+	for id := range paidSuppliers {
+		if !executedSuppliers[id] {
+			t.Fatalf("credited supplier %s never held a task on job %s; credited=%v executed=%v",
+				id, jobID, paidSuppliers, executedSuppliers)
+		}
+	}
+	if !paidSuppliers[agent.supplierID] {
+		t.Fatalf("the supplier that ran the primary task (%s) was not credited; credited=%v",
+			agent.supplierID, paidSuppliers)
 	}
 	paidSupplier := agent.supplierID
 
