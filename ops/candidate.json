@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "commit": "ae7392768855a23909d3730959a5e59440333111",
-  "declared_at": "2026-08-24T04:29:13Z",
-  "reason": "Backend-alpha candidate: final code commit, all producers bind through the shared writer to this."
+  "commit": "8e7c25f1096e20d2c7b0b3b42e2bea47739282d8",
+  "declared_at": "2026-08-24T04:35:09Z",
+  "reason": "Backend-alpha candidate: final code commit including both publish-workflow fixes."
 }
