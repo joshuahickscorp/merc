@@ -372,7 +372,24 @@ def validate_git_object(repo_root: str | Path, rev: str) -> None:
 
 
 def resolve_source_commit(repo_root: str | Path) -> str:
-    """HEAD only — never accept free-form MERC_SOURCE_COMMIT strings."""
+    """The declared candidate if there is one, else HEAD.
+
+    Never accepts a free-form MERC_SOURCE_COMMIT string: the value comes from
+    ops/candidate.json or from git, and is validated as a real object either way.
+
+    HEAD alone cannot converge a regeneration pass. Committing a regenerated
+    receipt moves HEAD, so the next receipt in the same pass names a different
+    commit than the one before it and the set never agrees. Reading the declared
+    candidate makes one pass over every producer yield one commit.
+
+    Honest only because scripts/validate-readiness.py separately refuses to score
+    when tracked code has changed since the candidate. Without that, this would
+    let a receipt name a commit whose code it never ran.
+    """
+    declared = _declared_candidate(repo_root)
+    if declared is not None:
+        validate_git_object(repo_root, declared)
+        return declared
     try:
         out = subprocess.check_output(
             ["git", "-C", str(repo_root), "rev-parse", "HEAD"],
@@ -384,6 +401,19 @@ def resolve_source_commit(repo_root: str | Path) -> str:
     head = out.strip()
     validate_git_object(repo_root, head)
     return head
+
+
+def _declared_candidate(repo_root: str | Path) -> str | None:
+    """ops/candidate.json's commit, or None when nothing valid is declared."""
+    path = Path(repo_root) / "ops" / "candidate.json"
+    try:
+        commit = json.loads(path.read_text(encoding="utf-8")).get("commit")
+    except (OSError, ValueError, AttributeError):
+        return None
+    text = str(commit or "").strip().lower()
+    if len(text) != 40 or any(c not in "0123456789abcdef" for c in text):
+        return None
+    return text
 
 
 def validate_identity(

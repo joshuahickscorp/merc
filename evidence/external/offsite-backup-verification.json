@@ -2,15 +2,15 @@
   "schema_version": 1,
   "kind": "merc_offsite_backup_verification",
   "status": "PASS",
-  "backup_id": "20260817T011802Z",
-  "offsite_uri": "s3://merc/offsite-alpha/20260817T011802Z",
-  "manifest_sha256": "bf0a116589f1342e5bcfc7b9244c7c6326e3ee976057944fbda35ebba2a9d425",
+  "backup_id": "20260824T042743Z",
+  "offsite_uri": "s3://merc/offsite-alpha/20260824T042743Z",
+  "manifest_sha256": "3b2afbd2b8f45e395849d4011a8a50617810df81133bfbadf25878eb71cdb78d",
   "ciphertext": {
-    "manifest_sha256": "4512fe5f3e1323ddcf8fecff3601fed9df7bcdf5c8ed7d1e697c65bf7879e08b",
-    "downloaded_sha256": "4512fe5f3e1323ddcf8fecff3601fed9df7bcdf5c8ed7d1e697c65bf7879e08b",
-    "bytes": 676200
+    "manifest_sha256": "cb3a9b04385fb2fbe00152dd277ba4f8727a6b2e95fb68f4590094cd52d283da",
+    "downloaded_sha256": "cb3a9b04385fb2fbe00152dd277ba4f8727a6b2e95fb68f4590094cd52d283da",
+    "bytes": 677224
   },
-  "verified_at": "2026-08-17T01:18:35Z",
+  "verified_at": "2026-08-24T04:27:53Z",
   "checks": {
     "offsite_bundle_visible": true,
     "independent_manifest_download": true,
@@ -28,19 +28,19 @@
     "provider": "cloudflare_r2",
     "endpoint_host": "b0b28181939a4f2a9169fb4a0df36cae.r2.cloudflarestorage.com",
     "operator_controlled": true,
-    "source_kind": "live_droplet_volume",
-    "live_droplet_volume_is_source": true,
-    "live_droplet_volume_not_the_source": false,
+    "source_kind": "isolated_rehearsal_environment",
+    "live_droplet_volume_is_source": false,
+    "live_droplet_volume_not_the_source": true,
     "live_volumes_untouched": true,
     "producer_plaintext_destroyed": true,
-    "ciphertext_transit": "droplet_direct_presigned_put",
+    "ciphertext_transit": "direct_from_isolated_source",
     "offsite_credential_distinct_from_source_object_store": true,
     "ciphertext_only_crossed_the_boundary": true,
     "verifying_side_hashed_its_own_download": true
   },
   "producer_identity": {
     "source_commit": {
-      "value": "d8d2e65ad336a87407a9446fafd4e94c7a663554"
+      "value": "aa13a2848c9a42fc8dac47e01aef7b33abd69eb6"
     },
     "build_digest": {
       "value": "93bb875336f12a7d2819bf1adf3b80b7953ed91fd16979f5bde8b0b92103fa60"
@@ -55,10 +55,10 @@
       "value": "scripts/offsite-independent-restore.sh"
     },
     "corpus_digest": {
-      "na": "live droplet postgres+minio; no external corpus"
+      "na": "no external corpus; isolated seed only"
     },
     "exact_config": {
-      "value": "offsite backup verification backup_id=20260817T011802Z offsite=s3://merc/offsite-alpha/20260817T011802Z boundary=cloudflare_r2_operator_controlled source=live_droplet_volume transit=droplet_direct_presigned_put"
+      "value": "offsite backup verification backup_id=20260824T042743Z offsite=s3://merc/offsite-alpha/20260824T042743Z boundary=cloudflare_r2_operator_controlled source=isolated_rehearsal_environment transit=direct_from_isolated_source"
     },
     "raw_samples": {
       "value": "independently downloaded manifest and ciphertext SHA-256"

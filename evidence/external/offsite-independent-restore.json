@@ -2,15 +2,15 @@
   "schema_version": 1,
   "kind": "external_offsite_restore",
   "status": "PASS",
-  "backup_id": "20260817T011802Z",
-  "offsite_uri": "s3://merc/offsite-alpha/20260817T011802Z",
-  "ciphertext_sha256": "4512fe5f3e1323ddcf8fecff3601fed9df7bcdf5c8ed7d1e697c65bf7879e08b",
-  "completed_at": "2026-08-17T01:18:42Z",
+  "backup_id": "20260824T042743Z",
+  "offsite_uri": "s3://merc/offsite-alpha/20260824T042743Z",
+  "ciphertext_sha256": "cb3a9b04385fb2fbe00152dd277ba4f8727a6b2e95fb68f4590094cd52d283da",
+  "completed_at": "2026-08-24T04:27:58Z",
   "secret_values_recorded": false,
   "independent_download": true,
   "ciphertext_checksum_verified": true,
   "decrypt_isolated": true,
-  "source_environment_destroyed": false,
+  "source_environment_destroyed": true,
   "live_volumes_untouched": true,
   "new_database_credentials": true,
   "new_object_credentials": true,
@@ -23,12 +23,13 @@
     "artifact_sentinels_verified": true,
     "database_semantics": {
       "buyers": 1,
-      "suppliers": 1,
-      "workers": 1,
-      "jobs": 0,
-      "tasks": 0,
-      "ledger_entries": 0,
-      "webhooks": 0,
+      "workers": 2,
+      "completed_embed": 1,
+      "completed_batch": 1,
+      "cancelled": 1,
+      "retried": 1,
+      "held_payout": 1,
+      "webhooks": 1,
       "ledger_sum": "0.000000"
     },
     "object_count": 2
@@ -38,21 +39,21 @@
     "provider": "cloudflare_r2",
     "endpoint_host": "b0b28181939a4f2a9169fb4a0df36cae.r2.cloudflarestorage.com",
     "operator_controlled": true,
-    "source_kind": "live_droplet_volume",
-    "live_droplet_volume_is_source": true,
-    "live_droplet_volume_not_the_source": false,
+    "source_kind": "isolated_rehearsal_environment",
+    "live_droplet_volume_is_source": false,
+    "live_droplet_volume_not_the_source": true,
     "live_volumes_untouched": true,
     "producer_plaintext_destroyed": true,
-    "ciphertext_transit": "droplet_direct_presigned_put",
+    "ciphertext_transit": "direct_from_isolated_source",
     "offsite_credential_distinct_from_source_object_store": true,
     "ciphertext_only_crossed_the_boundary": true,
     "verifying_side_hashed_its_own_download": true,
-    "readyz_before": "200",
-    "readyz_after": "200"
+    "readyz_before": "",
+    "readyz_after": ""
   },
   "producer_identity": {
     "source_commit": {
-      "value": "d8d2e65ad336a87407a9446fafd4e94c7a663554"
+      "value": "aa13a2848c9a42fc8dac47e01aef7b33abd69eb6"
     },
     "build_digest": {
       "value": "93bb875336f12a7d2819bf1adf3b80b7953ed91fd16979f5bde8b0b92103fa60"
@@ -67,10 +68,10 @@
       "value": "scripts/offsite-independent-restore.sh"
     },
     "corpus_digest": {
-      "na": "live droplet postgres+minio; no external corpus"
+      "na": "no external corpus; isolated seed only"
     },
     "exact_config": {
-      "value": "offsite independent restore backup_id=20260817T011802Z offsite=s3://merc/offsite-alpha/20260817T011802Z boundary=cloudflare_r2_operator_controlled source=live_droplet_volume transit=droplet_direct_presigned_put"
+      "value": "offsite independent restore backup_id=20260824T042743Z offsite=s3://merc/offsite-alpha/20260824T042743Z boundary=cloudflare_r2_operator_controlled source=isolated_rehearsal_environment transit=direct_from_isolated_source"
     },
     "raw_samples": {
       "value": "embedded database_semantics and object_count"
