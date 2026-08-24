@@ -2,7 +2,7 @@
   "schema_version": 1,
   "kind": "website_contract_and_accessibility_validation",
   "status": "PASS_AUTOMATED_BROWSER",
-  "completed_at": "2026-08-24T04:11:46Z",
+  "completed_at": "2026-08-24T04:16:29Z",
   "target": {
     "kind": "loopback_static_server",
     "url_not_tested": "https://mercmerc.net/buyer"
@@ -67,7 +67,7 @@
     "node scripts/site-build.mjs",
     "Playwright against a loopback static server using the installed Google Chrome executable"
   ],
-  "source_commit": "98e3b01852a038c814377ed530efb6d928642d34",
+  "source_commit": "7987135786d523ffa7eb5fe364aee0e2d8cf6cfe",
   "produced_by": "scripts/produce-website-validation.py",
   "binding_status": "BOUND"
 }
