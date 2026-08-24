@@ -2,15 +2,15 @@
   "schema_version": 1,
   "kind": "merc_offsite_backup_verification",
   "status": "PASS",
-  "backup_id": "20260824T165315Z",
-  "offsite_uri": "s3://merc/offsite-alpha/20260824T165315Z",
-  "manifest_sha256": "8fcb5e4387f37b0bce7ad12588de0ed5aa248a022acd944055d7921cd67142fe",
+  "backup_id": "20260824T170630Z",
+  "offsite_uri": "s3://merc/offsite-alpha/20260824T170630Z",
+  "manifest_sha256": "9e1e0a85495e39a4d763317abe86ed80fdbabcccb7931ef8213ca5cd5be3bb9a",
   "ciphertext": {
-    "manifest_sha256": "5661c4297f91093d600df8851d543971c8ac86d5eda956cd325f4164f2a85427",
-    "downloaded_sha256": "5661c4297f91093d600df8851d543971c8ac86d5eda956cd325f4164f2a85427",
+    "manifest_sha256": "8a9acdc9382f9e1171f91a63101766df1ccc340f99fb8d3f6eb5b12b447887e7",
+    "downloaded_sha256": "8a9acdc9382f9e1171f91a63101766df1ccc340f99fb8d3f6eb5b12b447887e7",
     "bytes": 677224
   },
-  "verified_at": "2026-08-24T16:53:23Z",
+  "verified_at": "2026-08-24T17:06:39Z",
   "checks": {
     "offsite_bundle_visible": true,
     "independent_manifest_download": true,
@@ -40,7 +40,7 @@
   },
   "producer_identity": {
     "source_commit": {
-      "value": "d91551a1ac1c8d6c073802a5d618f74f37bafe98"
+      "value": "c0c9e3fce0fd8d376575d4770de517aba9c42816"
     },
     "build_digest": {
       "value": "93bb875336f12a7d2819bf1adf3b80b7953ed91fd16979f5bde8b0b92103fa60"
@@ -58,7 +58,7 @@
       "na": "no external corpus; isolated seed only"
     },
     "exact_config": {
-      "value": "offsite backup verification backup_id=20260824T165315Z offsite=s3://merc/offsite-alpha/20260824T165315Z boundary=cloudflare_r2_operator_controlled source=isolated_rehearsal_environment transit=direct_from_isolated_source"
+      "value": "offsite backup verification backup_id=20260824T170630Z offsite=s3://merc/offsite-alpha/20260824T170630Z boundary=cloudflare_r2_operator_controlled source=isolated_rehearsal_environment transit=direct_from_isolated_source"
     },
     "raw_samples": {
       "value": "independently downloaded manifest and ciphertext SHA-256"

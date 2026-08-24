@@ -24,7 +24,7 @@
     }
   },
   "deployment_evidence": "NOT EXECUTED",
-  "source_commit": "d91551a1ac1c8d6c073802a5d618f74f37bafe98",
+  "source_commit": "c0c9e3fce0fd8d376575d4770de517aba9c42816",
   "produced_by": "scripts/release-staging.sh",
   "binding_status": "BOUND"
 }

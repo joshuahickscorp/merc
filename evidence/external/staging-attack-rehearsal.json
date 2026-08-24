@@ -4,7 +4,7 @@
   "surface": "persistent_staging_tls",
   "qualification": "EXTERNAL",
   "secret_values_recorded": false,
-  "source_commit_recorded": "d91551a1ac1c8d6c073802a5d618f74f37bafe98",
+  "source_commit_recorded": "c0c9e3fce0fd8d376575d4770de517aba9c42816",
   "target": {
     "scheme": "https",
     "hostname": "mercmerc.net",
@@ -4168,8 +4168,8 @@
   },
   "finding_rows": [],
   "observations": {
-    "started_at": "2026-08-24T16:53:29Z",
-    "finished_at": "2026-08-24T16:53:58Z",
+    "started_at": "2026-08-24T17:06:46Z",
+    "finished_at": "2026-08-24T17:07:16Z",
     "request_count": 255,
     "distinct_routes_exercised": 112,
     "attacks_executed": 265,
@@ -4279,7 +4279,7 @@
   },
   "producer_identity": {
     "source_commit": {
-      "value": "d91551a1ac1c8d6c073802a5d618f74f37bafe98"
+      "value": "c0c9e3fce0fd8d376575d4770de517aba9c42816"
     },
     "build_digest": {
       "value": "a503448723560f048ee39ed8bf765f1a9aab750ec5daecd837048f79219ef189"
