@@ -7,7 +7,7 @@
 #
 # rebuild-redeploy.py ships ops/staging/compose.alpha.yml onto the droplet
 # before it recreates control. That overlay pins
-# MERC_CANARY_APPROVED_BUILD_HASHES=7cc01c442c7f6dbe. The host .env still
+# MERC_CANARY_APPROVED_BUILD_HASHES=f4210c0ef62e4490 (r7). The host .env still
 # carries only the superseded r5 hash f4303a751ca2b2af; loading the new
 # binary without the compose pin makes /readyz a 503 configError. That is
 # the boot check working. Do not rewrite .env and do not disable the check.
