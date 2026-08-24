@@ -80,11 +80,11 @@ from pathlib import Path
 
 root, path, producer = sys.argv[1], sys.argv[2], sys.argv[3]
 sys.path.insert(0, str(Path(root) / "scripts"))
-from lib.receipt_binding import head_commit, stamp
+from lib.receipt_binding import candidate_commit, stamp
 
 p = Path(path)
 doc = json.loads(p.read_text(encoding="utf-8"))
-stamp(doc, head_commit(root), producer)
+stamp(doc, candidate_commit(root), producer)
 p.write_text(json.dumps(doc, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 PY
 }

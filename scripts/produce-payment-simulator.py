@@ -15,7 +15,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
-from lib.receipt_binding import head_commit, stamp  # noqa: E402
+from lib.receipt_binding import candidate_commit, stamp  # noqa: E402
 
 OUT = ROOT / "evidence" / "autonomous" / "payment-simulator.json"
 CONTROL = ROOT / "control"
@@ -76,7 +76,7 @@ def main() -> int:
         if not isinstance(doc, dict):
             print(f"{PRODUCER}: simulator payload was not a JSON object", file=sys.stderr)
             return 2
-        stamp(doc, head_commit(str(ROOT)), PRODUCER)
+        stamp(doc, candidate_commit(str(ROOT)), PRODUCER)
         OUT.write_text(json.dumps(doc, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
         print(
             f"wrote {OUT} source_commit={doc['source_commit']} "

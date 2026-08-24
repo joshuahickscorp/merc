@@ -17,10 +17,10 @@ from pathlib import Path
 root = Path(sys.argv[1])
 out = Path(sys.argv[2])
 sys.path.insert(0, str(root / "scripts"))
-from lib.receipt_binding import head_commit, stamp
+from lib.receipt_binding import candidate_commit, stamp
 
 doc = json.loads(out.read_text(encoding="utf-8"))
-stamp(doc, head_commit(str(root)), "scripts/produce-alert-delivery-r1.sh")
+stamp(doc, candidate_commit(str(root)), "scripts/produce-alert-delivery-r1.sh")
 out.write_text(json.dumps(doc, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 print(
     f"stamped {out} source_commit={doc['source_commit']} "

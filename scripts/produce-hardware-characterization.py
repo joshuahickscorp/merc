@@ -19,7 +19,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 from lib.evidence_binding import EvidenceBindingError, emit_bound_json  # noqa: E402
-from lib.receipt_binding import head_commit, stamp  # noqa: E402
+from lib.receipt_binding import candidate_commit, stamp  # noqa: E402
 
 OUT = ROOT / "evidence" / "autonomous" / "hardware-characterization.json"
 PRODUCER = "scripts/produce-hardware-characterization.py"
@@ -79,7 +79,7 @@ def main() -> int:
         )
         return 1
 
-    stamp(doc, head_commit(str(ROOT)), PRODUCER)
+    stamp(doc, candidate_commit(str(ROOT)), PRODUCER)
     try:
         emit_bound_json(
             OUT,

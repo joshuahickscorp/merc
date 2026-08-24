@@ -52,6 +52,32 @@ def head_commit(root: str = ".") -> str:
     return out.stdout.strip()
 
 
+def candidate_commit(root: str = ".") -> str:
+    """The commit receipts must attest to: the declared candidate, else HEAD.
+
+    Producers stamp this rather than HEAD. Binding against a moving HEAD never
+    settles — committing a regenerated receipt moves HEAD and invalidates the
+    receipt just written, so a full regeneration pass could never converge. The
+    candidate is declared once in ops/candidate.json and every producer in the
+    pass stamps that same commit.
+
+    This is only honest because scripts/validate-readiness.py separately asserts
+    no CODE changed after the candidate. Without that assertion this function
+    would let a receipt claim a commit whose code it never ran.
+    """
+    import json
+    from pathlib import Path
+
+    path = Path(root) / "ops" / "candidate.json"
+    try:
+        declared = json.loads(path.read_text(encoding="utf-8")).get("commit")
+    except (OSError, ValueError, AttributeError):
+        return head_commit(root)
+    if not _looks_like_commit(declared):
+        return head_commit(root)
+    return _as_commit(declared)
+
+
 def receipt_commit(doc: Any) -> str | None:
     """The commit a receipt claims, or None when it claims none.
 
@@ -116,6 +142,15 @@ def _selftest() -> None:
     assert not bound_to({"source_commit": other}, real)
     assert not bound_to({}, real)
     assert not bound_to({"source_commit": real}, "not-a-sha")
+
+    import os, tempfile, json as _json
+    with tempfile.TemporaryDirectory() as d:
+        os.makedirs(os.path.join(d, "ops"))
+        # No candidate declared and not a git tree -> head_commit raises, so the
+        # only thing asserted here is that a declared candidate is preferred.
+        with open(os.path.join(d, "ops", "candidate.json"), "w") as fh:
+            _json.dump({"schema_version": 1, "commit": other}, fh)
+        assert candidate_commit(d) == other, "declared candidate must win over HEAD"
 
     doc = stamp({"kind": "x"}, real, "scripts/thing.py")
     assert doc["source_commit"] == real

@@ -20,7 +20,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
-from lib.receipt_binding import head_commit, stamp  # noqa: E402
+from lib.receipt_binding import candidate_commit, stamp  # noqa: E402
 
 OUT = ROOT / "evidence" / "autonomous" / "website-validation.json"
 WEB = ROOT / "web"
@@ -217,7 +217,7 @@ def main() -> int:
             "Playwright against a loopback static server using the installed Google Chrome executable",
         ],
     }
-    stamp(receipt, head_commit(str(ROOT)), PRODUCER)
+    stamp(receipt, candidate_commit(str(ROOT)), PRODUCER)
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(json.dumps(receipt, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     print(
