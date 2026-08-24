@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "commit": "cf78b8b4c4663c2ebd4fde34535d98d5a2b0eca4",
-  "declared_at": "2026-08-24T05:57:13Z",
-  "reason": "Backend-alpha candidate: FINAL v3. Adds the CI LFS-hydrate step so the published image materializes evidence/perf receipts and control boots. No code after this."
+  "commit": "3949455a5d1f333a9ff6e90f318840acbde3c8d9",
+  "declared_at": "2026-08-24T06:22:02Z",
+  "reason": "Backend-alpha candidate: FINAL v4. All r6->r7 references reconciled (pricing, tests, canary compose+env), CI LFS-hydrate, staging deployed+healthy on the candidate. No config after this."
 }
