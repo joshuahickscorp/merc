@@ -130,10 +130,10 @@ func assertAdvertisedSurface(
 }
 
 func TestSupersededIncompleteAgentContentRootCannotAuthorizeCurrentAdmission(t *testing.T) {
-	// G070: the cell is current-bound under r6. The incomplete-content-root
+	// G070: the cell is current-bound under r7. The incomplete-content-root
 	// guard still holds: the superseded r4 credential (97acc / SUPERSEDED)
 	// cannot authorize current admission if a cell is temporarily repointed at
-	// it. The live cell remains advertised only via its current r6 authority.
+	// it. The live cell remains advertised only via its current r7 authority.
 	const cellID = "candle-metal-llama1-infer"
 	const supersededPath = "evidence/perf/runtime-benchmarks/candle-metal-llama1-q4-r4.json"
 
@@ -149,10 +149,10 @@ func TestSupersededIncompleteAgentContentRootCannotAuthorizeCurrentAdmission(t *
 			r4.EngineBuildHash)
 	}
 
-	// Live cell must resolve under r6 and stay buyer-advertised.
+	// Live cell must resolve under r7 and stay buyer-advertised.
 	_, _, current, err := currentRuntimeCellBenchmarkIdentity(cellID)
 	if err != nil {
-		t.Fatalf("current r6-bound cell must authorize: %v", err)
+		t.Fatalf("current r7-bound cell must authorize: %v", err)
 	}
 	if current.EngineBuildHash == "97acc6fe17daca56" ||
 		strings.Contains(strings.ToLower(current.Harness), "r4") {
@@ -162,15 +162,19 @@ func TestSupersededIncompleteAgentContentRootCannotAuthorizeCurrentAdmission(t *
 		strings.Contains(strings.ToLower(current.Harness), "r5") {
 		t.Fatalf("current identity still carries the superseded r5 credential: %+v", current)
 	}
-	if !strings.Contains(strings.ToLower(current.Harness), "r6") {
-		t.Fatalf("current identity is not the r6 authority: %+v", current)
+	if current.EngineBuildHash == "7cc01c442c7f6dbe" ||
+		strings.Contains(strings.ToLower(current.Harness), "r6") {
+		t.Fatalf("current identity still carries the superseded r6 credential: %+v", current)
 	}
-	t.Run("document advertised under r6 authority", func(t *testing.T) {
+	if !strings.Contains(strings.ToLower(current.Harness), "r7") {
+		t.Fatalf("current identity is not the r7 authority: %+v", current)
+	}
+	t.Run("document advertised under r7 authority", func(t *testing.T) {
 		if !documentAdvertisedCell(cellID) {
-			t.Fatalf("BOUND cell %s is not advertised in the embedded document under r6", cellID)
+			t.Fatalf("BOUND cell %s is not advertised in the embedded document under r7", cellID)
 		}
 	})
-	t.Run("live activation advertised under r6 authority", func(t *testing.T) {
+	t.Run("live activation advertised under r7 authority", func(t *testing.T) {
 		if !advertisedRuntimeCell(cellID) {
 			t.Fatalf("BOUND cell %s is not in currentActivation().advertised; empty or QUARANTINED live projection", cellID)
 		}
@@ -253,9 +257,9 @@ func TestNonGitMercSourceCommitIsRejected(t *testing.T) {
 // Automatic demotion: invalidate an authority and the dependent cell leaves the
 // routable set without any lifecycle field being edited.
 func TestInvalidatingAuthorityDemotesDependentCell(t *testing.T) {
-	// G070: the live cell cites r6. Invalidate that authority path so demotion
+	// G070: the live cell cites r7. Invalidate that authority path so demotion
 	// targets the credential currently authorizing the cell, not historical r4/r5.
-	const path = "evidence/perf/runtime-benchmarks/candle-metal-llama1-q4-r6.json"
+	const path = "evidence/perf/runtime-benchmarks/candle-metal-llama1-q4-r7.json"
 	const cellID = "candle-metal-llama1-infer"
 
 	profile, ok := runtimeProfileByID("candle_metal")
@@ -528,7 +532,7 @@ func TestAdvertisedSurfaceIsTheBindableSet(t *testing.T) {
 	// Live buyer catalogue: currentActivation().advertised. An empty or
 	// QUARANTINED overlay fails this, which is the point — production sells
 	// through this helper, not through the document projection.
-	// G070: exactly candle-metal-llama1-infer is ACTIVE+BOUND under r6
+	// G070: exactly candle-metal-llama1-infer is ACTIVE+BOUND under r7
 	// settlement geometry, so it is the advertised surface. Prior r4/r5 remain
 	// SUPERSEDED history. Embed is CANARY+BOUND under r3 (document-routable,
 	// not advertised). Media/render are CANARY+BOUND. Reject any extra cell.
