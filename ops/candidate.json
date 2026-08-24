@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "commit": "87b0ea63be7ccf49bd4f517c26df4dcdfe5af686",
-  "declared_at": "2026-08-24T16:38:38Z",
-  "reason": "Backend-alpha candidate: FINAL v5. Adds the model-cache and staging-scaffold regression fixes. No code after this; remaining gap is the agent identity-reproducibility defect (F55), not a missing receipt."
+  "commit": "d91551a1ac1c8d6c073802a5d618f74f37bafe98",
+  "declared_at": "2026-08-24T16:52:05Z",
+  "reason": "Backend-alpha candidate: FINAL. Last producer-binding fix (attack suite). Remaining gap is the agent identity-reproducibility defect (F55), not a missing receipt."
 }
