@@ -71,6 +71,24 @@ case "$HOST_ARCH" in arm64|aarch64) PLATFORM=linux/arm64 ;; x86_64|amd64) PLATFO
   *) echo "unsupported host architecture: $HOST_ARCH" >&2; exit 1 ;;
 esac
 
+# Last step before a receipt is left on disk: name the commit and producer.
+# Matches the restore/staging producers; do not invent a second shape.
+stamp_receipt() {
+  python3 - "$ROOT" "$1" "scripts/local-resilience-rehearsal.sh" <<'PY'
+import json, sys
+from pathlib import Path
+
+root, path, producer = sys.argv[1], sys.argv[2], sys.argv[3]
+sys.path.insert(0, str(Path(root) / "scripts"))
+from lib.receipt_binding import head_commit, stamp
+
+p = Path(path)
+doc = json.loads(p.read_text(encoding="utf-8"))
+stamp(doc, head_commit(root), producer)
+p.write_text(json.dumps(doc, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+PY
+}
+
 AGENT_ONE=""
 AGENT_TWO=""
 DRIVER_PID=""
@@ -107,18 +125,45 @@ else
 fi
 [[ "$LOCAL_IMAGE" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "local build lacks immutable image ID" >&2; exit 1; }
 
+# Current control refuses to boot without MERC_SETTLEMENT_CURRENCY.
+# ops/local/compose.rehearsal.yml does not inject it (prod/smallhost do).
+# usd matches the catalogue board's reference currency, so FX identity applies
+# and no invented conversion rate is required. The image_id in the receipt is
+# this process-configured artifact.
+CURRENCY_BASE="cx-control-local-proof:${SOURCE_COMMIT:0:12}-${SOURCE_STATE:0:12}-base"
+CURRENCY_TAG="cx-control-local-proof:${SOURCE_COMMIT:0:12}-${SOURCE_STATE:0:12}-currency"
+docker tag "$LOCAL_IMAGE" "$CURRENCY_BASE"
+printf 'FROM %s\nENV MERC_SETTLEMENT_CURRENCY=usd\n' "$CURRENCY_BASE" | \
+  docker build --platform "$PLATFORM" --provenance=false --pull=false -t "$CURRENCY_TAG" - >/dev/null
+LOCAL_IMAGE="$(docker image inspect "$CURRENCY_TAG" --format '{{.Id}}')"
+[[ "$LOCAL_IMAGE" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "currency-configured local image lacks immutable image ID" >&2; exit 1; }
+
 # Keep fast startup checks, then use a production-shaped post-start cadence for
 # soaks. HTTPS readiness is also asserted on every sample and Prometheus
 # independently scrapes the control every five seconds.
 CONTROL_HEALTH_INTERVAL=5s
 [ "$MODE" != soak ] || CONTROL_HEALTH_INTERVAL=30s
 
+# Seatbelt re-exec happens before config load. The deny-default profile only
+# reads HOME/DATADIR/MODELCACHE/BINDIR/TMPDIR; the topology config and TLS CA
+# live under the artifact dir, so TMPDIR must cover that tree.
+export TMPDIR="$ART/topology"
+mkdir -p "$TMPDIR"
+# Pin the HuggingFace cache to the host tree. Topology start_agent rewrites
+# HOME into the artifact dir; without this, hf-hub looks under the sandbox
+# home, misses the already-fetched weights, and the egress proxy refuses the
+# HuggingFace CDN host.
+export HF_HOME="${HF_HOME:-$HOME/.cache/huggingface}"
+export MERC_MODEL_CACHE="${MERC_MODEL_CACHE:-$HF_HOME}"
+export HUGGINGFACE_HUB_CACHE="${HUGGINGFACE_HUB_CACHE:-$HF_HOME/hub}"
+
 KEEP=1 KEEP_AGENTS=1 MERC_LOCAL_SOURCE_PROOF=1 \
   MERC_LOCAL_PROJECT="$PROJECT" MERC_LOCAL_ARTIFACT_DIR="$ART/topology" \
   MERC_LOCAL_EVIDENCE_FILE="$TOPOLOGY_RECEIPT" MERC_LOCAL_CONTROL_IMAGE="$LOCAL_IMAGE" \
   MERC_LOCAL_CONTROL_HEALTHCHECK=/merc-healthcheck \
   MERC_LOCAL_CONTROL_HEALTH_INTERVAL="$CONTROL_HEALTH_INTERVAL" \
-  MERC_LOCAL_CONTROL_PLATFORM="$PLATFORM" bash "$ROOT/scripts/local-production-rehearsal.sh"
+  MERC_LOCAL_CONTROL_PLATFORM="$PLATFORM" TMPDIR="$TMPDIR" \
+  bash "$ROOT/scripts/local-production-rehearsal.sh"
 
 # The topology setup intentionally leaves these two local sandboxed agent
 # processes and its exact runtime environment for the fault exercise.
@@ -214,6 +259,7 @@ start_agent() {
   local model_cache="${MERC_MODEL_CACHE:-${HF_HOME:-$HOME/.cache/huggingface}}"
   HOME="$ART/topology/home" MERC_MODEL_CACHE="$model_cache" \
     MERC_TLS_CA_FILE="$ART/topology/tls/ca.crt" MERC_REQUIRE_SANDBOX=1 \
+    TMPDIR="$ART/topology" \
     MERC_SANDBOX_PROFILE="$ROOT/clients/macapp/ComputeExchangeAgent/merc-agent.sb" \
     "$ROOT/.artifacts/local-production-cargo-target/release/merc-agent" run \
     --config "$ART/topology/agent$n/config.toml" > "$output" 2>&1 &
@@ -295,6 +341,7 @@ SQL
     --model-na "rollback rehearsal does not load model weights" \
     --image-na "image_id recorded in receipt body; not a content digest slot" \
     --corpus-na "no external corpus"
+  stamp_receipt "$EVIDENCE_DIR/local-rollback.json"
   echo "PASS local rollback and forward recovery"
   exit 0
 fi
@@ -368,6 +415,7 @@ if [ "$MODE" = restart-storm ]; then
     --model-na "restart-storm rehearsal does not load model weights" \
     --image-na "immutable_local_image_id recorded in receipt body" \
     --corpus-na "no external corpus"
+  stamp_receipt "$EVIDENCE_DIR/local-restart-storm.json"
   echo "PASS local restart storm seed=$seed"
   exit 0
 fi
@@ -494,4 +542,5 @@ merc_emit_bound_json "$receipt" "scripts/local-resilience-rehearsal.sh" "$payloa
   --model-na "soak rehearsal does not load model weights" \
   --image-na "immutable_local_image_id recorded in receipt body" \
   --corpus-na "no external corpus"
+stamp_receipt "$receipt"
 echo "PASS local soak ${actual}s; 24-hour qualification=$qualifies"
