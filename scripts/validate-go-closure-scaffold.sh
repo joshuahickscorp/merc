@@ -231,14 +231,27 @@ else
   skip "shellcheck is not installed"
 fi
 
-if docker compose version >/dev/null 2>&1 && [ -f "$ROOT/.env.go-closure" ]; then
+# Honour MERC_GO_CLOSURE_ENV_FILE like backup.sh, restore.sh, release-doctor.sh
+# and offsite-independent-restore.sh already do. This check renders the manifest
+# only to prove it PARSES and that every required variable is declared — the
+# receipt records structural booleans, never substituted values — so it can run
+# against a throwaway complete env without touching the operator's real
+# credential file.
+GO_CLOSURE_ENV="${MERC_GO_CLOSURE_ENV_FILE:-$ROOT/.env.go-closure}"
+# Refuse the live-secret file by name even if an operator points the override at
+# it, matching the sibling scripts.
+case "$(basename -- "$GO_CLOSURE_ENV")" in
+  .merc-secrets.env) die "refusing to read .merc-secrets.env" ;;
+esac
+if docker compose version >/dev/null 2>&1 && [ -f "$GO_CLOSURE_ENV" ]; then
   # Never render the config to stdout: it contains substituted secret values.
   set -a
-  # shellcheck disable=SC1091
-  . "$ROOT/.env.go-closure"
+  # shellcheck source=/dev/null
+  # shellcheck disable=SC1090,SC1091
+  . "$GO_CLOSURE_ENV"
   set +a
   export MERC_ACTIVE_CONTROL_IMAGE="${MERC_CANDIDATE_CONTROL_IMAGE:-}"
-  docker compose --env-file "$ROOT/.env.go-closure" -f "$COMPOSE" config -q \
+  docker compose --env-file "$GO_CLOSURE_ENV" -f "$COMPOSE" config -q \
     || die "docker compose config failed"
   pass "docker compose config"
 else

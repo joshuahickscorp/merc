@@ -15,7 +15,13 @@ SOURCE_PROOF="${MERC_LOCAL_SOURCE_PROOF:-0}"
 AGENT_ONE=""
 AGENT_TWO=""
 STAGE="initialization"
-MODEL_CACHE="${MERC_MODEL_CACHE:-${HF_HOME:-$HOME/.cache/huggingface}}"
+# hf-hub resolves models at <root>/models--org--name/. Cache::default() appends
+# "hub" to HF_HOME, but the agent calls Cache::new(MERC_MODEL_CACHE) with the
+# path VERBATIM. Passing the HF root (no /hub) therefore made every model miss,
+# the agent fall back to the network, the egress proxy refuse the CDN, and the
+# benchmarks come back unavailable — so the agent advertised an identity that did
+# not match the sealed cell and registration was rejected. Point at the hub dir.
+MODEL_CACHE="${MERC_MODEL_CACHE:-${HF_HOME:-$HOME/.cache/huggingface}/hub}"
 
 die() { printf 'local-production-rehearsal: %s\n' "$*" >&2; exit 1; }
 compose() { docker compose -p "$PROJECT" -f "$COMPOSE" "$@"; }

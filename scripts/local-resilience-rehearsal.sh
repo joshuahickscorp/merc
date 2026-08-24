@@ -154,7 +154,14 @@ mkdir -p "$TMPDIR"
 # home, misses the already-fetched weights, and the egress proxy refuses the
 # HuggingFace CDN host.
 export HF_HOME="${HF_HOME:-$HOME/.cache/huggingface}"
-export MERC_MODEL_CACHE="${MERC_MODEL_CACHE:-$HF_HOME}"
+# The agent passes MERC_MODEL_CACHE to hf-hub Cache::new VERBATIM, and hf-hub
+# resolves <root>/models--org--name/. HF_HOME is the parent; the models live in
+# $HF_HOME/hub (which is exactly why HUGGINGFACE_HUB_CACHE below appends it).
+# Passing the parent made every model miss, the agent fall back to the network,
+# the egress proxy refuse the CDN, and the benchmarks come back unavailable — so
+# the agent advertised an identity that did not match the sealed cell and
+# registration was rejected.
+export MERC_MODEL_CACHE="${MERC_MODEL_CACHE:-$HF_HOME/hub}"
 export HUGGINGFACE_HUB_CACHE="${HUGGINGFACE_HUB_CACHE:-$HF_HOME/hub}"
 
 KEEP=1 KEEP_AGENTS=1 MERC_LOCAL_SOURCE_PROOF=1 \
@@ -256,7 +263,7 @@ run_simulator() {
 start_agent() {
   local n="$1"
   local output="$ART/restarted-agent$n.log"
-  local model_cache="${MERC_MODEL_CACHE:-${HF_HOME:-$HOME/.cache/huggingface}}"
+  local model_cache="${MERC_MODEL_CACHE:-${HF_HOME:-$HOME/.cache/huggingface}/hub}"
   HOME="$ART/topology/home" MERC_MODEL_CACHE="$model_cache" \
     MERC_TLS_CA_FILE="$ART/topology/tls/ca.crt" MERC_REQUIRE_SANDBOX=1 \
     TMPDIR="$ART/topology" \
