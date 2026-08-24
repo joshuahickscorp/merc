@@ -28,52 +28,52 @@
       "model_id": "all-minilm-l6-v2",
       "job_type": "embed",
       "tps": 0.0,
-      "eps": 688.76715,
-      "p99_ms": 17,
+      "eps": 1803.6016,
+      "p99_ms": 4,
       "thermal_ok": true,
-      "load_ms": 225,
+      "load_ms": 229,
       "unit": "embeddings",
       "unit_scope": "completed_embedding_records",
-      "measured_unix": 1787548816
+      "measured_unix": 1787589283
     },
     {
       "model_id": "llama-3.2-1b-instruct-q4",
       "job_type": "batch_infer",
-      "tps": 131.05199,
+      "tps": 277.4489,
       "eps": 0.0,
-      "p99_ms": 9,
+      "p99_ms": 4,
       "thermal_ok": true,
-      "load_ms": 2792,
+      "load_ms": 2787,
       "unit": "tokens",
       "unit_scope": "token_like_input_plus_max_output_tokens",
-      "measured_unix": 1787548816
+      "measured_unix": 1787589283
     },
     {
       "model_id": "ffmpeg-transcode-v1",
       "job_type": "media_transcode",
-      "tps": 4173.861,
+      "tps": 4496.8174,
       "eps": 0.0,
-      "p99_ms": 103,
+      "p99_ms": 96,
       "thermal_ok": true,
       "load_ms": 0,
       "unit": "media_work_units",
       "unit_scope": "single_object_input_byte_quarters",
-      "measured_unix": 1787548816
+      "measured_unix": 1787589283
     },
     {
       "model_id": "svg-scene-render-v1",
       "job_type": "media_rendering",
-      "tps": 329896900.0,
+      "tps": 442810800.0,
       "eps": 0.0,
       "p99_ms": 1,
       "thermal_ok": true,
       "load_ms": 0,
       "unit": "pixels",
       "unit_scope": "declared_output_pixels_per_scene",
-      "measured_unix": 1787548816
+      "measured_unix": 1787589283
     }
   ],
-  "peak_rss_bytes": 30900224,
+  "peak_rss_bytes": 30965760,
   "thermal_state": "nominal",
   "throttling": false,
   "cache_behavior": "warm benchmark cache reused after build/hardware identity validation",
@@ -81,12 +81,12 @@
     "single physical Mac only",
     "additional authorized devices require separate receipts"
   ],
-  "source_commit": "3949455a5d1f333a9ff6e90f318840acbde3c8d9",
+  "source_commit": "87b0ea63be7ccf49bd4f517c26df4dcdfe5af686",
   "produced_by": "scripts/produce-hardware-characterization.py",
   "binding_status": "BOUND",
   "producer_identity": {
     "source_commit": {
-      "value": "3949455a5d1f333a9ff6e90f318840acbde3c8d9"
+      "value": "87b0ea63be7ccf49bd4f517c26df4dcdfe5af686"
     },
     "build_digest": {
       "value": "5489f7d27043dd5f93242a4ab359c043876efe493cde9d37bab3476f62340647"

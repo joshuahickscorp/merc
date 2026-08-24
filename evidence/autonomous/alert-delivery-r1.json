@@ -2,9 +2,9 @@
   "schema_version": 1,
   "kind": "alert_delivery",
   "status": "PASS",
-  "completed_at": "2026-08-24T06:22:52Z",
+  "completed_at": "2026-08-24T16:39:21Z",
   "compose_file": "docker-compose.observability.yml",
-  "compose_project": "merc-alert-delivery-56172",
+  "compose_project": "merc-alert-delivery-28485",
   "alertname": "MercSyntheticLocalDelivery",
   "receiver": {
     "transport": "alertmanager_webhook",
@@ -12,16 +12,16 @@
     "secret_values_recorded": false
   },
   "delivery": {
-    "firing_received_at": "2026-08-24T06:22:46Z",
-    "resolved_received_at": "2026-08-24T06:22:51Z",
-    "firing_fingerprint": "4a5b43e61a4ce22a",
-    "resolved_fingerprint": "4a5b43e61a4ce22a",
+    "firing_received_at": "2026-08-24T16:39:16Z",
+    "resolved_received_at": "2026-08-24T16:39:21Z",
+    "firing_fingerprint": "696b0a3c5ea73f90",
+    "resolved_fingerprint": "696b0a3c5ea73f90",
     "sink_event_count": 2,
-    "sink_log": "/Users/scammermike/Downloads/merc/.artifacts/alert-delivery/merc-alert-delivery-56172/sink-events.jsonl"
+    "sink_log": "/Users/scammermike/Downloads/merc/.artifacts/alert-delivery/merc-alert-delivery-28485/sink-events.jsonl"
   },
   "observations": {
     "firing": {
-      "received_at": "2026-08-24T06:22:46Z",
+      "received_at": "2026-08-24T16:39:16Z",
       "path": "/alertmanager",
       "content_type": "application/json",
       "body": {
@@ -32,7 +32,7 @@
             "status": "firing",
             "labels": {
               "alertname": "MercSyntheticLocalDelivery",
-              "instance": "cx-local-alert-delivery-56172",
+              "instance": "cx-local-alert-delivery-28485",
               "job": "alert-delivery-proof",
               "severity": "page"
             },
@@ -40,10 +40,10 @@
               "runbook": "docs/RUNBOOKS.md#control-plane-or-database-outage",
               "summary": "synthetic local alert delivery proof"
             },
-            "startsAt": "2026-08-24T06:22:44Z",
+            "startsAt": "2026-08-24T16:39:14Z",
             "endsAt": "0001-01-01T00:00:00Z",
             "generatorURL": "",
-            "fingerprint": "4a5b43e61a4ce22a"
+            "fingerprint": "696b0a3c5ea73f90"
           }
         ],
         "groupLabels": {
@@ -52,7 +52,7 @@
         },
         "commonLabels": {
           "alertname": "MercSyntheticLocalDelivery",
-          "instance": "cx-local-alert-delivery-56172",
+          "instance": "cx-local-alert-delivery-28485",
           "job": "alert-delivery-proof",
           "severity": "page"
         },
@@ -60,14 +60,14 @@
           "runbook": "docs/RUNBOOKS.md#control-plane-or-database-outage",
           "summary": "synthetic local alert delivery proof"
         },
-        "externalURL": "http://090baad8c44b:9093",
+        "externalURL": "http://0c2f3aae07d4:9093",
         "version": "4",
         "groupKey": "{}/{severity=\"page\"}:{alertname=\"MercSyntheticLocalDelivery\", severity=\"page\"}",
         "truncatedAlerts": 0
       }
     },
     "resolved": {
-      "received_at": "2026-08-24T06:22:51Z",
+      "received_at": "2026-08-24T16:39:21Z",
       "path": "/alertmanager",
       "content_type": "application/json",
       "body": {
@@ -78,7 +78,7 @@
             "status": "resolved",
             "labels": {
               "alertname": "MercSyntheticLocalDelivery",
-              "instance": "cx-local-alert-delivery-56172",
+              "instance": "cx-local-alert-delivery-28485",
               "job": "alert-delivery-proof",
               "severity": "page"
             },
@@ -86,10 +86,10 @@
               "runbook": "docs/RUNBOOKS.md#control-plane-or-database-outage",
               "summary": "synthetic local alert delivery proof"
             },
-            "startsAt": "2026-08-24T06:22:44Z",
-            "endsAt": "2026-08-24T06:22:46Z",
+            "startsAt": "2026-08-24T16:39:14Z",
+            "endsAt": "2026-08-24T16:39:16Z",
             "generatorURL": "",
-            "fingerprint": "4a5b43e61a4ce22a"
+            "fingerprint": "696b0a3c5ea73f90"
           }
         ],
         "groupLabels": {
@@ -98,7 +98,7 @@
         },
         "commonLabels": {
           "alertname": "MercSyntheticLocalDelivery",
-          "instance": "cx-local-alert-delivery-56172",
+          "instance": "cx-local-alert-delivery-28485",
           "job": "alert-delivery-proof",
           "severity": "page"
         },
@@ -106,7 +106,7 @@
           "runbook": "docs/RUNBOOKS.md#control-plane-or-database-outage",
           "summary": "synthetic local alert delivery proof"
         },
-        "externalURL": "http://090baad8c44b:9093",
+        "externalURL": "http://0c2f3aae07d4:9093",
         "version": "4",
         "groupKey": "{}/{severity=\"page\"}:{alertname=\"MercSyntheticLocalDelivery\", severity=\"page\"}",
         "truncatedAlerts": 0
@@ -120,7 +120,7 @@
   ],
   "producer_identity": {
     "source_commit": {
-      "value": "3949455a5d1f333a9ff6e90f318840acbde3c8d9"
+      "value": "87b0ea63be7ccf49bd4f517c26df4dcdfe5af686"
     },
     "build_digest": {
       "value": "dbae83e21ca77b259a6be00c890320dcd3e7601c75d12b9de5cacaf9b0777b7b"
@@ -138,13 +138,13 @@
       "na": "no external corpus"
     },
     "exact_config": {
-      "value": "alertmanager compose project=merc-alert-delivery-56172 alertname=MercSyntheticLocalDelivery"
+      "value": "alertmanager compose project=merc-alert-delivery-28485 alertname=MercSyntheticLocalDelivery"
     },
     "raw_samples": {
       "value": "embedded firing/resolved sink observations"
     }
   },
   "binding_status": "BOUND",
-  "source_commit": "3949455a5d1f333a9ff6e90f318840acbde3c8d9",
+  "source_commit": "87b0ea63be7ccf49bd4f517c26df4dcdfe5af686",
   "produced_by": "scripts/produce-alert-delivery-r1.sh"
 }
