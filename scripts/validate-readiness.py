@@ -40,6 +40,16 @@ from pathlib import Path
 from typing import Any, Callable, Iterable
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT / "scripts") not in sys.path:
+    sys.path.insert(0, str(ROOT / "scripts"))
+from lib.receipt_binding import bound_to, head_commit, receipt_commit  # noqa: E402
+
+CANDIDATE_PATH = "ops/candidate.json"
+# Filled by load_candidate() before any receipt is scored.
+_CANDIDATE_COMMIT: str | None = None
+_CANDIDATE_ORIGIN: str = ""
+# HTTPS-observer sampling slack, matching scripts/soak/soak24.py.
+_SOAK24_GAP_SLACK_S = 30
 
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _COMMIT = re.compile(r"^[0-9a-f]{40}$")
@@ -80,6 +90,159 @@ def load_json(relative: str) -> Any:
         return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return None
+
+
+def _git(args: list[str]) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["git", "-C", str(ROOT), *args],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def load_candidate() -> str:
+    """Declared candidate commit, or HEAD if ops/candidate.json is absent."""
+    global _CANDIDATE_COMMIT, _CANDIDATE_ORIGIN
+    path = ROOT / CANDIDATE_PATH
+    if not path.is_file():
+        commit = head_commit(str(ROOT)).strip().lower()
+        if not _COMMIT.fullmatch(commit):
+            fail("HEAD is not a 40-hex commit")
+        _CANDIDATE_COMMIT = commit
+        _CANDIDATE_ORIGIN = "ops/candidate.json absent; falling back to HEAD"
+        return commit
+    doc = load_json(CANDIDATE_PATH)
+    if not isinstance(doc, dict):
+        fail("ops/candidate.json is not an object")
+    if doc.get("schema_version") != 1:
+        fail("ops/candidate.json schema_version must be 1")
+    commit = str(doc.get("commit") or "").strip().lower()
+    if not _COMMIT.fullmatch(commit):
+        fail("ops/candidate.json commit is not a 40-hex sha")
+    if not _is_rfc3339_z(doc.get("declared_at")):
+        fail("ops/candidate.json declared_at must be RFC3339 UTC Z")
+    reason = doc.get("reason")
+    if not isinstance(reason, str) or not reason.strip() or "\n" in reason:
+        fail("ops/candidate.json reason must be one non-empty line")
+    verified = _git(["rev-parse", "--verify", f"{commit}^{{commit}}"])
+    if verified.returncode != 0:
+        fail(f"ops/candidate.json commit {commit} is not a commit in this repo")
+    _CANDIDATE_COMMIT = commit
+    _CANDIDATE_ORIGIN = (
+        f"declared in ops/candidate.json at {doc.get('declared_at')}: {reason.strip()}"
+    )
+    return commit
+
+
+_DRIFT_EXCLUSIONS = (
+    ":!evidence",
+    ":!ops/authorization-matrix.json",
+    ":!ops/readiness.json",
+    ":!ops/go-no-go.json",
+    ":!ops/candidate.json",
+)
+
+
+def assert_no_code_drift(candidate: str) -> None:
+    """Fail if tracked code changed after the candidate.
+
+    Four kinds of file legitimately move after the candidate is declared, and
+    nothing else does:
+
+      evidence/                      the receipts, which are regenerated at the
+                                     candidate and committed after it
+      ops/authorization-matrix.json  a scored receipt that happens to live here
+      ops/readiness.json             declared-score mirrors, which move when the
+      ops/go-no-go.json              receipts they mirror are regenerated
+      ops/candidate.json             the declaration itself, necessarily
+                                     committed in a commit after the one it names
+
+    ops/backend-alpha-gates.json is deliberately NOT excluded. It is the bar, not
+    a ledger of results, and moving the bar after freezing the candidate is
+    exactly the change that must be loud rather than silent — otherwise a gate
+    could be reclassified underneath receipts that were earned against the old
+    classification, and the score would still read as honest.
+
+    Compared as commits (HEAD vs candidate), not the working tree.
+    """
+    diff = _git(
+        [
+            "diff",
+            "--quiet",
+            candidate,
+            "HEAD",
+            "--",
+            ".",
+            *_DRIFT_EXCLUSIONS,
+        ]
+    )
+    if diff.returncode == 0:
+        return
+    if diff.returncode == 1:
+        named = _git(
+            [
+                "diff",
+                "--name-only",
+                candidate,
+                "HEAD",
+                "--",
+                ".",
+                *_DRIFT_EXCLUSIONS,
+            ]
+        )
+        files = [line for line in named.stdout.splitlines() if line]
+        preview = ", ".join(files[:30]) if files else "(names unavailable)"
+        fail(f"code changed since candidate {candidate}: {preview}")
+    err = (diff.stderr or diff.stdout or "").strip() or f"exit {diff.returncode}"
+    fail(f"cannot diff candidate {candidate} against HEAD: {err}")
+
+
+def receipt_unbound_reason(doc: Any, candidate: str) -> str | None:
+    """Why this receipt is not bound to the candidate, or None if it is.
+
+    Uses scripts/lib/receipt_binding.py. binding_status is not authority:
+    a BOUND label on a different commit is still unbound for scoring.
+    """
+    claimed = receipt_commit(doc)
+    if claimed is None:
+        return "receipt names no 40-hex commit"
+    if not bound_to(doc, candidate):
+        return f"receipt names {claimed}, candidate is {candidate}"
+    return None
+
+
+def evaluate_receipt(
+    relative: str,
+    checker: Callable[[Any], bool],
+    points: int,
+    candidate: str,
+) -> tuple[bool, int, str]:
+    """Return (ok, earned, note) for one DOMAIN_RECEIPTS row.
+
+    Unbound receipts score zero even when the content check would pass.
+    """
+    points = int(points)
+    path = ROOT / relative
+    if not path.is_file():
+        return False, 0, f"{relative}: MISSING → 0/{points}"
+    doc: Any = load_json(relative) if relative.endswith(".json") else True
+    if relative.endswith(".json") and doc is None:
+        return False, 0, f"{relative}: UNREADABLE → 0/{points}"
+    if relative.endswith(".json"):
+        unbound = receipt_unbound_reason(doc, candidate)
+        if unbound:
+            return False, 0, f"{relative}: UNBOUND → 0/{points} ({unbound})"
+    if not checker(doc):
+        if checker is stripe_sandbox_matrix_proven:
+            return (
+                False,
+                0,
+                f"{relative}: CHECK_FAILED → 0/{points} "
+                f"({stripe_sandbox_matrix_failure_reason(doc)})",
+            )
+        return False, 0, f"{relative}: CHECK_FAILED → 0/{points}"
+    return True, points, f"{relative}: OK → {points}/{points}"
 
 
 def status_in(*allowed: str) -> Callable[[Any], bool]:
@@ -499,29 +662,131 @@ def stripe_sandbox_matrix_proven(doc: Any) -> bool:
     return True
 
 
+def _soak24_samples_corroborate(
+    doc: dict[str, Any],
+    *,
+    expected_commit: str,
+    host: str,
+    interval: int,
+) -> bool:
+    """Re-derive the 24 h window from the HTTPS-observer JSONL.
+
+    A hand-typed PASS without a corroborating ≥86400 s sample stream cannot
+    survive this. Does not trust duration.* on the receipt.
+    """
+    samples = doc.get("samples")
+    if not isinstance(samples, dict):
+        return False
+    samples_rel = str(samples.get("path", "")).strip()
+    if not samples_rel or samples_rel.startswith("/") or ".." in Path(samples_rel).parts:
+        return False
+    samples_path = ROOT / samples_rel
+    if not samples_path.is_file() or samples_path.is_symlink():
+        return False
+    samples_sha = str(samples.get("sha256", "")).strip()
+    if samples_sha:
+        if not _SHA256.fullmatch(samples_sha):
+            return False
+        digest = hashlib.sha256()
+        try:
+            with samples_path.open("rb") as handle:
+                for chunk in iter(lambda: handle.read(1 << 20), b""):
+                    digest.update(chunk)
+        except OSError:
+            return False
+        if digest.hexdigest() != samples_sha:
+            return False
+    rows: list[dict[str, Any]] = []
+    try:
+        with samples_path.open(encoding="utf-8") as handle:
+            for raw in handle:
+                line = raw.strip()
+                if not line:
+                    return False
+                row = json.loads(line)
+                if not isinstance(row, dict):
+                    return False
+                rows.append(row)
+    except (OSError, json.JSONDecodeError):
+        return False
+    if len(rows) < 2:
+        return False
+    times: list[dt.datetime] = []
+    last_epoch: int | None = None
+    max_gap = 0
+    for row in rows:
+        if row.get("ok") is not True:
+            return False
+        observed = _parse_utc(str(row.get("observed_at", "")))
+        if observed is None:
+            return False
+        epoch = int(observed.timestamp())
+        if last_epoch is not None:
+            gap = epoch - last_epoch
+            if gap > max_gap:
+                max_gap = gap
+        last_epoch = epoch
+        times.append(observed)
+        if str(row.get("host", "")).strip().lower().rstrip(".") != host:
+            return False
+        commit = str(row.get("commit") or "").strip().lower()
+        if commit != expected_commit:
+            return False
+        if str(row.get("payment_mode", "")).strip().lower() != "test":
+            return False
+        if row.get("live_value_movement") is not False:
+            return False
+        http = row.get("http") if isinstance(row.get("http"), dict) else {}
+        try:
+            version_status = int(http.get("version_status", 0))
+            readyz_status = int(http.get("readyz_status", 0))
+        except (TypeError, ValueError):
+            return False
+        if version_status != 200 or readyz_status != 200:
+            return False
+        version = row.get("version")
+        if isinstance(version, dict) and version.get("modified") is True:
+            return False
+    window = int((times[-1] - times[0]).total_seconds())
+    if window < 86400:
+        return False
+    if times != sorted(times):
+        return False
+    if max_gap > interval + _SOAK24_GAP_SLACK_S:
+        return False
+    return True
+
+
 def qualifying_24h_soak_proven(doc: Any) -> bool:
     """Qualifying ≥24 h soak on persistent staging (3 pts).
 
-    Requires the go_closure_soak schema, qualifying mode, wall-clock and
-    requested duration ≥86400 s, immutable candidate binding, safety policy,
-    and an independent re-validation of the retained raw sample stream via
-    scripts/validate-go-closure-soak-receipt.py. Local 60 s / 300 s soaks and
-    iteration mode cannot pass.
+    The wired path evidence/external/qualifying-soak-24h.json is written by
+    scripts/soak/soak24.py as qualifying_24h_https_observer v1 (the
+    go_closure_soak producer writes under evidence/go-closure/ and is not
+    this row). Demand that observer shape. Do not award on an in-progress
+    window, a redeploy, a payment-envelope break, or a receipt that does
+    not independently re-derive ≥86400 s from the JSONL sample stream.
+    Local 60 s / 300 s soaks and iteration mode cannot pass.
     """
     if not isinstance(doc, dict):
         return False
-    if doc.get("schema_version") != 2:
+    if doc.get("schema_version") != 1:
         return False
-    if str(doc.get("kind", "")) != "go_closure_soak":
+    if str(doc.get("kind", "")) != "qualifying_24h_https_observer":
         return False
     if str(doc.get("status", "")).upper() != "PASS":
         return False
     if str(doc.get("mode", "")) != "qualifying":
         return False
+    if doc.get("secret_values_recorded") is not False:
+        return False
 
     started = _parse_utc(str(doc.get("started_at", "")))
     finished = _parse_utc(str(doc.get("finished_at", "")))
     if started is None or finished is None or finished <= started:
+        return False
+    wall = int((finished - started).total_seconds())
+    if wall < 86400:
         return False
 
     duration = doc.get("duration")
@@ -529,17 +794,28 @@ def qualifying_24h_soak_proven(doc: Any) -> bool:
         return False
     try:
         requested = int(duration["requested_seconds"])
-        actual = int(duration["actual_seconds"])
+        elapsed = int(duration["elapsed_seconds"])
+        observed_window = int(duration["observed_window_seconds"])
         interval = int(duration["interval_seconds"])
         sample_count = int(duration["samples"])
+        ok_samples = int(duration["ok_samples"])
+        failed_samples = int(duration["failed_samples"])
+        max_gap = int(duration["max_inter_sample_gap_seconds"])
     except (KeyError, TypeError, ValueError):
         return False
-    if requested < 86400 or actual < 86400 or interval < 15 or interval > 900:
+    if requested < 86400 or elapsed < 86400 or observed_window < 86400:
         return False
-    if sample_count < 1 or actual < requested:
+    if elapsed < requested:
         return False
-    wall = int((finished - started).total_seconds())
-    if wall < actual or wall > actual + 300:
+    if interval < 15 or interval > 900:
+        return False
+    if sample_count < 2 or ok_samples < 2 or failed_samples != 0:
+        return False
+    if ok_samples + failed_samples != sample_count:
+        return False
+    if max_gap > interval + _SOAK24_GAP_SLACK_S:
+        return False
+    if wall < elapsed:
         return False
 
     qualification = doc.get("qualification")
@@ -550,43 +826,54 @@ def qualifying_24h_soak_proven(doc: Any) -> bool:
     if qualification.get("reason") != "observed_at_least_86400_seconds":
         return False
 
-    commit = str(doc.get("expected_commit", ""))
-    image = str(doc.get("control_image", ""))
-    if not _COMMIT.fullmatch(commit) or not _IMMUTABLE_IMAGE.fullmatch(image):
+    expected_commit = str(doc.get("expected_commit", "")).strip().lower()
+    if not _COMMIT.fullmatch(expected_commit):
         return False
 
-    runtime = doc.get("runtime")
-    if not isinstance(runtime, dict):
+    host = str(doc.get("host", "")).strip().lower().rstrip(".")
+    if not _is_public_staging_host(host):
         return False
-    if not _CONTAINER_ID.fullmatch(str(runtime.get("container_id", ""))):
-        return False
-    if str(runtime.get("configured_image", "")) != image:
-        return False
-    if not _IMAGE_ID.fullmatch(str(runtime.get("image_id", ""))):
-        return False
-    try:
-        restart_count = int(runtime.get("restart_count", -1))
-    except (TypeError, ValueError):
-        return False
-    if restart_count != 0:
+    base_url = str(doc.get("base_url", "")).strip().lower()
+    if not base_url.startswith("https://" + host):
         return False
 
-    assertions = doc.get("assertions")
-    if not isinstance(assertions, dict) or not assertions:
+    candidate = doc.get("candidate")
+    if not isinstance(candidate, dict):
         return False
-    if not all(value is True for value in assertions.values()):
+    if candidate.get("changed") is not False:
         return False
-    for key in (
-        "two_agents_continuously_present",
-        "no_page_alerts",
-        "no_webhook_dead_letters",
-        "no_control_restarts_or_recreates",
-        "no_stuck_terminal_jobs",
-        "bounded_resource_growth",
-        "raw_samples_independently_validated",
-    ):
-        if assertions.get(key) is not True:
-            return False
+    if candidate.get("modified_seen") is not False:
+        return False
+    if str(candidate.get("continuity", "")) != "uninterrupted":
+        return False
+    if str(candidate.get("expected_commit", "")).strip().lower() != expected_commit:
+        return False
+    observed_commits = candidate.get("observed_commits")
+    if not isinstance(observed_commits, list) or not observed_commits:
+        return False
+    if any(str(item).strip().lower() != expected_commit for item in observed_commits):
+        return False
+
+    payment = doc.get("payment")
+    if not isinstance(payment, dict):
+        return False
+    if str(payment.get("required_payment_mode", "")).strip().lower() != "test":
+        return False
+    if payment.get("required_live_value_movement") is not False:
+        return False
+    if payment.get("left_test_envelope") is not False:
+        return False
+
+    observer = doc.get("observer")
+    if not isinstance(observer, dict):
+        return False
+    if str(observer.get("kind", "")) != "https_public_tls":
+        return False
+    paths = observer.get("paths")
+    if not isinstance(paths, list):
+        return False
+    if "/version" not in paths or "/readyz" not in paths:
+        return False
 
     policy = doc.get("policy")
     if policy != {
@@ -597,59 +884,23 @@ def qualifying_24h_soak_proven(doc: Any) -> bool:
     }:
         return False
 
-    samples = doc.get("samples")
-    if not isinstance(samples, dict):
+    last_readyz = doc.get("last_readyz")
+    if not isinstance(last_readyz, dict):
         return False
-    samples_rel = str(samples.get("path", "")).strip()
-    samples_sha = str(samples.get("sha256", "")).strip()
-    if not samples_rel or not _SHA256.fullmatch(samples_sha):
+    if str(last_readyz.get("payment_mode", "")).strip().lower() != "test":
         return False
-    if samples_rel.startswith("/") or ".." in Path(samples_rel).parts:
-        return False
-    samples_path = ROOT / samples_rel
-    if not samples_path.is_file() or samples_path.is_symlink():
-        return False
-    digest = hashlib.sha256()
-    try:
-        with samples_path.open("rb") as handle:
-            for chunk in iter(lambda: handle.read(1 << 20), b""):
-                digest.update(chunk)
-    except OSError:
-        return False
-    if digest.hexdigest() != samples_sha:
+    if last_readyz.get("live_value_movement") is not False:
         return False
 
     if _has_secret_shaped(doc):
         return False
 
-    # Re-derive continuity / bounds from the sample stream. A hand-typed PASS
-    # receipt without a corroborating 24 h JSONL cannot survive this.
-    receipt_path = ROOT / "evidence/external/qualifying-soak-24h.json"
-    if not receipt_path.is_file():
-        return False
-    validator = ROOT / "scripts/validate-go-closure-soak-receipt.py"
-    if not validator.is_file():
-        return False
-    try:
-        completed = subprocess.run(
-            [
-                sys.executable,
-                str(validator),
-                str(receipt_path),
-                "--root",
-                str(ROOT),
-                "--commit",
-                commit,
-                "--image",
-                image,
-            ],
-            capture_output=True,
-            timeout=120,
-            check=False,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return False
-    return completed.returncode == 0
+    return _soak24_samples_corroborate(
+        doc,
+        expected_commit=expected_commit,
+        host=host,
+        interval=interval,
+    )
 
 
 def independent_offsite_backup_proven(doc: Any) -> bool:
@@ -1598,13 +1849,12 @@ def require_complete_classification(
 
 
 def receipt_passes(relative: str, checker: Callable[[Any], bool]) -> bool:
-    path = ROOT / relative
-    if not path.is_file():
-        return False
-    doc: Any = load_json(relative) if relative.endswith(".json") else True
-    if relative.endswith(".json") and doc is None:
-        return False
-    return bool(checker(doc))
+    if not _CANDIDATE_COMMIT:
+        fail("candidate commit is not loaded")
+    ok, _earned, _note = evaluate_receipt(
+        relative, checker, 0, _CANDIDATE_COMMIT
+    )
+    return ok
 
 
 def derive_backend_alpha_score(
@@ -1614,7 +1864,10 @@ def derive_backend_alpha_score(
 
     Level B's 100-point bar is untouched: this function never changes
     derive_domain_score and never drops a receipt from DOMAIN_RECEIPTS.
+    Unbound receipts score zero here too.
     """
+    if not _CANDIDATE_COMMIT:
+        fail("candidate commit is not loaded")
     earned = 0
     possible = 0
     notes: list[str] = []
@@ -1625,13 +1878,11 @@ def derive_backend_alpha_score(
                 continue
             points = int(points)
             possible += points
-            if receipt_passes(relative, checker):
-                earned += points
-                notes.append(f"{relative}: OK → {points}/{points} ({record['classification']})")
-            else:
-                notes.append(
-                    f"{relative}: MISSING_OR_FAILED → 0/{points} ({record['classification']})"
-                )
+            _ok, got, note = evaluate_receipt(
+                relative, checker, points, _CANDIDATE_COMMIT
+            )
+            earned += got
+            notes.append(f"{note} ({record['classification']})")
     return earned, possible, notes
 
 
@@ -1646,7 +1897,12 @@ def backend_alpha_blocker_receipts_open(by_id: dict[str, dict[str, Any]]) -> lis
             if not receipt_passes(relative, checker):
                 open_ids.append(gid)
     soak = load_json(ALPHA_SOAK_RECEIPT)
-    if not qualifying_alpha_soak_proven(soak):
+    soak_unbound = (
+        isinstance(soak, dict)
+        and _CANDIDATE_COMMIT is not None
+        and receipt_unbound_reason(soak, _CANDIDATE_COMMIT) is not None
+    )
+    if not qualifying_alpha_soak_proven(soak) or soak_unbound:
         open_ids.append("soak:alpha-derived")
     return open_ids
 
@@ -1800,36 +2056,29 @@ DOMAIN_RECEIPTS: dict[str, dict[str, Any]] = {
 
 
 def derive_domain_score(domain_id: str) -> tuple[int, int, list[str]]:
+    if not _CANDIDATE_COMMIT:
+        fail("candidate commit is not loaded")
     spec = DOMAIN_RECEIPTS[domain_id]
     possible = int(spec["possible"])
     earned = 0
     notes: list[str] = []
     for relative, checker, points in spec["receipts"]:
-        path = ROOT / relative
-        if not path.is_file():
-            notes.append(f"{relative}: MISSING → 0/{points}")
-            continue
-        doc = load_json(relative) if relative.endswith(".json") else True
-        if relative.endswith(".json") and doc is None:
-            notes.append(f"{relative}: UNREADABLE → 0/{points}")
-            continue
-        if not checker(doc):
-            if checker is stripe_sandbox_matrix_proven:
-                notes.append(
-                    f"{relative}: CHECK_FAILED → 0/{points} "
-                    f"({stripe_sandbox_matrix_failure_reason(doc)})"
-                )
-            else:
-                notes.append(f"{relative}: CHECK_FAILED → 0/{points}")
-            continue
-        earned += int(points)
-        notes.append(f"{relative}: OK → {points}/{points}")
+        _ok, got, note = evaluate_receipt(
+            relative, checker, points, _CANDIDATE_COMMIT
+        )
+        notes.append(note)
+        earned += got
     if earned > possible:
         fail(f"{domain_id}: derived earned {earned} exceeds possible {possible}")
     return earned, possible, notes
 
 
 def main() -> None:
+    candidate = load_candidate()
+    print(f"readiness: candidate {candidate} ({_CANDIDATE_ORIGIN})", flush=True)
+    assert_no_code_drift(candidate)
+    print("readiness: code-drift OK (no code changes since candidate)", flush=True)
+
     readiness_path = ROOT / "ops" / "readiness.json"
     decision_path = ROOT / "ops" / "go-no-go.json"
     try:
@@ -1872,13 +2121,36 @@ def main() -> None:
         else:
             per_domain.append(f"{domain_id}: derived={earned}/{possible}")
         for note in notes:
-            if "MISSING" in note or "FAILED" in note or "UNREADABLE" in note:
+            if (
+                "MISSING" in note
+                or "FAILED" in note
+                or "UNREADABLE" in note
+                or "UNBOUND" in note
+            ):
                 per_domain.append(f"  - {note}")
         derived_total += earned
         possible_total += possible
 
     if possible_total != 100:
         fail(f"domain possibles sum to {possible_total}, want 100")
+
+    # Show the derived picture before ledger-agreement checks so a
+    # go-no-go mismatch still names which receipts scored zero.
+    classification_spec = load_backend_alpha_gates()
+    by_id = require_complete_classification(classification_spec)
+    alpha_earned, alpha_possible, alpha_notes = derive_backend_alpha_score(by_id)
+    print(f"readiness: derived {derived_total}/100 (candidate {candidate})", flush=True)
+    print(f"readiness: backend_alpha derived {alpha_earned}/{alpha_possible}", flush=True)
+    for line in per_domain:
+        print(f"  {line}", flush=True)
+    for note in alpha_notes:
+        if (
+            "MISSING" in note
+            or "FAILED" in note
+            or "UNREADABLE" in note
+            or "UNBOUND" in note
+        ):
+            print(f"  - {note}", flush=True)
 
     if decision.get("readiness_score") != derived_total:
         fail(
@@ -1946,10 +2218,6 @@ def main() -> None:
     level_b_meta = levels.get("level_b_private_canary") or {}
     if level_b_meta.get("live_money") is not False or level_b_meta.get("public_access") is not False:
         fail("Level B live_money and public_access must remain false")
-
-    classification_spec = load_backend_alpha_gates()
-    by_id = require_complete_classification(classification_spec)
-    alpha_earned, alpha_possible, alpha_notes = derive_backend_alpha_score(by_id)
 
     # Every open P1 / out-of-scope P0 must carry the same classification as
     # the gate file. Rescoping lives in one place.
@@ -2127,8 +2395,6 @@ def main() -> None:
             f"  public_launch open {NAMED_REVIEWER_GATE_ID}: "
             "reviewer.name/organization unmet (requirement kept; not an alpha point)"
         )
-    for line in per_domain:
-        print(f"  {line}")
 
 
 if __name__ == "__main__":

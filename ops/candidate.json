@@ -1,0 +1,6 @@
+{
+  "schema_version": 1,
+  "commit": "fa47cafe39570db1ba1d0551d6d664780264e826",
+  "declared_at": "2026-08-24T03:23:53Z",
+  "reason": "Evaluate scored receipts against this commit; a moving HEAD cannot bind."
+}
