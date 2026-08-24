@@ -81,6 +81,15 @@ board numbers as CAD.
 Nobody on this machine can complete these. Test-mode Connect on
 `acct_1TxbzMCwPLrR4vaY` does not satisfy them.
 
+The whole test-mode Connect remainder is now proven, and none of it clears this
+row. `scripts/stripe-sandbox-connect.sh` creates a Canadian connected account,
+transfers CAD to it, holds, manually releases, fails and reverses payouts, and
+exercises restriction and capability events against a Connect-scoped webhook
+endpoint — all on the sandbox platform, all recorded in
+`evidence/external/stripe-sandbox-matrix.json` with real provider ids. A
+test-mode `acct_` is not a live connected account. Reading the matrix's PASS as
+live eligibility is the specific mistake this section exists to prevent.
+
 ### 4. Live credentials (files, never git, never chat)
 
 | Input | Accepted form |
