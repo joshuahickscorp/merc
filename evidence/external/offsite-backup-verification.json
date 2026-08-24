@@ -2,15 +2,15 @@
   "schema_version": 1,
   "kind": "merc_offsite_backup_verification",
   "status": "PASS",
-  "backup_id": "20260824T052108Z",
-  "offsite_uri": "s3://merc/offsite-alpha/20260824T052108Z",
-  "manifest_sha256": "b663d3eca3769fd38b538d199f88cdc2f3b6f52e6f3b0ed708deea75ddf1f888",
+  "backup_id": "20260824T054257Z",
+  "offsite_uri": "s3://merc/offsite-alpha/20260824T054257Z",
+  "manifest_sha256": "c3462bb4074158ed9647ad1fe2d3c149c471e302cf7b7ac688b99a441364b0a4",
   "ciphertext": {
-    "manifest_sha256": "5257df6914fce65944b013333030dd41a1ae39d3afe6425654c69a9c926cf043",
-    "downloaded_sha256": "5257df6914fce65944b013333030dd41a1ae39d3afe6425654c69a9c926cf043",
-    "bytes": 677224
+    "manifest_sha256": "07458d2023c6fe19635a9a2e5872d181c907858f5b44e87ba897f0b12e13cb79",
+    "downloaded_sha256": "07458d2023c6fe19635a9a2e5872d181c907858f5b44e87ba897f0b12e13cb79",
+    "bytes": 689512
   },
-  "verified_at": "2026-08-24T05:21:17Z",
+  "verified_at": "2026-08-24T05:43:06Z",
   "checks": {
     "offsite_bundle_visible": true,
     "independent_manifest_download": true,
@@ -40,7 +40,7 @@
   },
   "producer_identity": {
     "source_commit": {
-      "value": "703edfccf0c46fe94cb2026242367e14353d4303"
+      "value": "974f176675e08cb144afa92aff71baca221f5a52"
     },
     "build_digest": {
       "value": "93bb875336f12a7d2819bf1adf3b80b7953ed91fd16979f5bde8b0b92103fa60"
@@ -58,7 +58,7 @@
       "na": "no external corpus; isolated seed only"
     },
     "exact_config": {
-      "value": "offsite backup verification backup_id=20260824T052108Z offsite=s3://merc/offsite-alpha/20260824T052108Z boundary=cloudflare_r2_operator_controlled source=isolated_rehearsal_environment transit=direct_from_isolated_source"
+      "value": "offsite backup verification backup_id=20260824T054257Z offsite=s3://merc/offsite-alpha/20260824T054257Z boundary=cloudflare_r2_operator_controlled source=isolated_rehearsal_environment transit=direct_from_isolated_source"
     },
     "raw_samples": {
       "value": "independently downloaded manifest and ciphertext SHA-256"

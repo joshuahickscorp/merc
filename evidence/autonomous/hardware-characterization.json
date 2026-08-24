@@ -73,7 +73,7 @@
       "measured_unix": 1787548816
     }
   ],
-  "peak_rss_bytes": 3698114560,
+  "peak_rss_bytes": 30949376,
   "thermal_state": "nominal",
   "throttling": false,
   "cache_behavior": "warm benchmark cache reused after build/hardware identity validation",
@@ -81,12 +81,12 @@
     "single physical Mac only",
     "additional authorized devices require separate receipts"
   ],
-  "source_commit": "703edfccf0c46fe94cb2026242367e14353d4303",
+  "source_commit": "974f176675e08cb144afa92aff71baca221f5a52",
   "produced_by": "scripts/produce-hardware-characterization.py",
   "binding_status": "BOUND",
   "producer_identity": {
     "source_commit": {
-      "value": "703edfccf0c46fe94cb2026242367e14353d4303"
+      "value": "974f176675e08cb144afa92aff71baca221f5a52"
     },
     "build_digest": {
       "value": "5489f7d27043dd5f93242a4ab359c043876efe493cde9d37bab3476f62340647"

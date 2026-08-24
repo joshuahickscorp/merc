@@ -2,7 +2,7 @@
   "schema_version": 1,
   "kind": "logical_independent_restore",
   "status": "PASS",
-  "completed_at": "2026-08-24T05:21:05Z",
+  "completed_at": "2026-08-24T05:42:54Z",
   "separation": {
     "source_environment_destroyed": true,
     "separate_transfer_process": true,
@@ -12,7 +12,7 @@
     "new_namespace": true
   },
   "integrity": {
-    "ciphertext_sha256": "dca7f3f351fc3d9de5a7d2cba5ea1012c6bea3f42f49fbe1f13f02c72ad30a5d",
+    "ciphertext_sha256": "7d2d97892cabc6473ff3917646222dff7993e5ed90fc1955ea7f771b3d1878c7",
     "ciphertext_verified": true,
     "corrupt_backup_rejected": true,
     "payload_checksums_verified": true,
@@ -35,7 +35,7 @@
   "secret_values_recorded": false,
   "producer_identity": {
     "source_commit": {
-      "value": "703edfccf0c46fe94cb2026242367e14353d4303"
+      "value": "974f176675e08cb144afa92aff71baca221f5a52"
     },
     "build_digest": {
       "value": "cd1516119287e35d730af5392b0ae2aa95d1f9141a5d1c87589d18195483e852"
@@ -53,13 +53,13 @@
       "na": "no external corpus; synthetic seed only"
     },
     "exact_config": {
-      "value": "logical independent restore; ciphertext_sha256=dca7f3f351fc3d9de5a7d2cba5ea1012c6bea3f42f49fbe1f13f02c72ad30a5d"
+      "value": "logical independent restore; ciphertext_sha256=7d2d97892cabc6473ff3917646222dff7993e5ed90fc1955ea7f771b3d1878c7"
     },
     "raw_samples": {
       "value": "embedded database_semantics and object_count"
     }
   },
   "binding_status": "BOUND",
-  "source_commit": "703edfccf0c46fe94cb2026242367e14353d4303",
+  "source_commit": "974f176675e08cb144afa92aff71baca221f5a52",
   "produced_by": "scripts/local-independent-restore.sh"
 }
