@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "commit": "3949455a5d1f333a9ff6e90f318840acbde3c8d9",
-  "declared_at": "2026-08-24T06:22:02Z",
-  "reason": "Backend-alpha candidate: FINAL v4. All r6->r7 references reconciled (pricing, tests, canary compose+env), CI LFS-hydrate, staging deployed+healthy on the candidate. No config after this."
+  "commit": "87b0ea63be7ccf49bd4f517c26df4dcdfe5af686",
+  "declared_at": "2026-08-24T16:38:38Z",
+  "reason": "Backend-alpha candidate: FINAL v5. Adds the model-cache and staging-scaffold regression fixes. No code after this; remaining gap is the agent identity-reproducibility defect (F55), not a missing receipt."
 }
