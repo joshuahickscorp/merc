@@ -4,23 +4,19 @@
 #   scripts/stripe-sandbox-connect.sh
 #   scripts/stripe-sandbox.sh connect
 #
-# After the operator clicks "Get started" on dashboard.stripe.com/connect for
-# test platform acct_1TxbzMCwPLrR4vaY, this command creates the CA/CAD
-# connected account, transfers CAD, holds / manually releases / fails a
-# payout, exercises Connect restriction and capability events, and recreates
-# the Connect webhook with connect=true pinned to the compiled
-# stripeAPIVersion (2025-06-30.basil).
-#
-# Until that dashboard action exists, every step that does not require
-# Connect still runs (inventory, payload dry-run, connect=true webhook
-# probe). The first API call that requires Connect is POST /v1/accounts.
-# The command then exits:
-#
-#   blocked: Connect not signed up
+# After Connect is signed up on test platform acct_1TxbzMCwPLrR4vaY, this
+# command creates the CA/CAD connected account, supplies the currently_due
+# KYC fields (individual.phone, individual.relationship.title) so transfers
+# goes active, transfers CAD, holds / manually releases / fails a standard
+# bank-account payout (not instant-to-card), observes connected-account
+# capability events on the connected event list, and keeps a Connect-scoped
+# webhook. Basil omits the connect field on webhook_endpoint objects;
+# Connect scope is application=ca_* when connect=true is accepted.
 #
 # Test-mode only. Never prints secret values. Never reads .merc-secrets.env.
 # Never synthesizes a tr_ / acct_ / po_ / we_. Receipt stays BLOCKED until
-# Connect is real.
+# the remainder produces those objects. External dashboard gates still
+# print "blocked: <id>" and exit 3.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
@@ -31,11 +27,9 @@ if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
   cat >&2 <<'EOF'
 usage: scripts/stripe-sandbox-connect.sh [--self-test]
 
-One-command Connect remainder (CA/CAD account, transfer, payout
-hold/release/failure, capability events, connect=true webhook).
-
-Today, without Connect signup, prints "blocked: Connect not signed up"
-at POST /v1/accounts after every step that does not require Connect.
+One-command Connect remainder (CA/CAD account, KYC so transfers is
+active, transfer, standard bank payout hold/release/failure, capability
+events, Connect-scoped webhook).
 
 Also accepted as: scripts/stripe-sandbox.sh connect
 EOF

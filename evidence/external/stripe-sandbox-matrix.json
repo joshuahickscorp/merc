@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "kind": "stripe_sandbox_matrix",
-  "status": "BLOCKED",
+  "status": "PASS",
   "provider_mode": "test",
   "live_mode": "PROHIBITED",
   "secret_values_printed": false,
@@ -25,7 +25,7 @@
     "live_mode": "PROHIBITED",
     "connect_remainder_command": "scripts/stripe-sandbox-connect.sh",
     "connect_remainder_alias": "scripts/stripe-sandbox.sh connect",
-    "connect_remainder_status": "BLOCKED-ON-CONNECT"
+    "connect_remainder_status": "PASS"
   },
   "payment_objects": {
     "authorization": true,
@@ -33,7 +33,7 @@
     "decline": true,
     "idempotency": true,
     "refunds": true,
-    "transfer": false,
+    "transfer": true,
     "timeout": {
       "client_deadline": true,
       "idempotent_recovery": true
@@ -157,11 +157,11 @@
   "fixtures": {
     "provider_mode": "test",
     "livemode": false,
-    "transfer": null,
-    "payout_hold": null,
-    "payout_release": null,
-    "payout_failure": null,
-    "payout_reversal": null,
+    "transfer": "tr_1U7o8yCwPLrR4vaYFGSTY5Dz",
+    "payout_hold": "po_1U7o90CfNHJ3i6uNdgLMfKBz",
+    "payout_release": "po_1U7o90CfNHJ3i6uNdgLMfKBz",
+    "payout_failure": "po_1U7o94CfNHJ3i6uNFOnGy3uT",
+    "payout_reversal": "po_1U7o91CfNHJ3i6uNZK7gmRSt",
     "platform_account": "acct_1TxbzMCwPLrR4vaY",
     "platform_country": "CA",
     "platform_default_currency": "cad",
@@ -195,16 +195,16 @@
     "live_signature_connect_http": 400,
     "live_delivery_drained": true,
     "disposable_customer_cleanup": "attempted",
-    "connected_account": "acct_1U7npECeWJZCwOUN"
+    "connected_account": "acct_1U7o8lCfNHJ3i6uN"
   },
   "external_scenarios": {
     "schema_version": 1,
-    "status": "BLOCKED",
+    "status": "PASS",
     "provider_mode": "test",
     "run_id": "20260816T235949Z-l9nc",
     "payment_intent": "pi_3U5Dy4CwPLrR4vaY19W85ypY",
     "charge": "ch_3U5Dy4CwPLrR4vaY1OXT7VJr",
-    "transfer": "",
+    "transfer": "tr_1U7o8yCwPLrR4vaYFGSTY5Dz",
     "disputed_payment_intent": "pi_3U5DyBCwPLrR4vaY1tC3QTH3",
     "disputed_charge": "ch_3U5DyBCwPLrR4vaY1iflEwMA",
     "secret_values_recorded": false,
@@ -226,10 +226,10 @@
       "provider_object_class": "du"
     },
     "payout": {
-      "hold": false,
-      "release": false,
-      "failure": false,
-      "reversal": false
+      "hold": true,
+      "release": true,
+      "failure": true,
+      "reversal": true
     },
     "reconciliation": {
       "clean": true,
@@ -277,68 +277,68 @@
       "status": "PASS",
       "provider_mode": "test",
       "live_mode": "PROHIBITED",
-      "fixture_id": "acct_1U7npECeWJZCwOUN",
-      "detail": "type=custom country=CA",
+      "fixture_id": "acct_1U7o8lCfNHJ3i6uN",
+      "detail": "type=custom country=CA; transfers inactive->active; currently_due before=['business_type', 'external_account', 'tos_acceptance.date', 'tos_acceptance.ip'] after=[]",
       "would_prove": "A project-controlled Canadian test connected account exists and is distinct from the platform.",
       "dry_run_verified": true
     },
     {
       "id": "transfer_to_connected_account",
-      "status": "FAILED",
+      "status": "PASS",
       "provider_mode": "test",
       "live_mode": "PROHIBITED",
-      "fixture_id": null,
-      "detail": "http=400 Your destination account needs to have at least one of the following capabilities enabled: transfers, crypto_transfers, legacy_payments",
+      "fixture_id": "tr_1U7o8yCwPLrR4vaYFGSTY5Dz",
+      "detail": "100 cad -> acct_1U7o8lCfNHJ3i6uN source_type=card",
       "would_prove": "A CAD tr_ from the platform to a connected account appears in the provider log and Merc ledger.",
       "dry_run_verified": true
     },
     {
       "id": "payout_hold",
-      "status": "FAILED",
+      "status": "PASS",
       "provider_mode": "test",
       "live_mode": "PROHIBITED",
-      "fixture_id": null,
-      "detail": "no po_ from success-bank payout",
+      "fixture_id": "po_1U7o90CfNHJ3i6uNdgLMfKBz",
+      "detail": "manual schedule; standard bank payout method=standard type=bank_account source_type=card destination=ba_1U7o8tCfNHJ3i6uNNJYPEx2O",
       "would_prove": "Manual payout schedule plus payout.created on the connected account holds supplier cash.",
       "dry_run_verified": true
     },
     {
       "id": "payout_manual_release",
-      "status": "FAILED",
+      "status": "PASS",
       "provider_mode": "test",
       "live_mode": "PROHIBITED",
-      "fixture_id": null,
-      "detail": "hold never created a po_",
+      "fixture_id": "po_1U7o90CfNHJ3i6uNdgLMfKBz",
+      "detail": "status=paid method=standard type=bank_account",
       "would_prove": "A po_ to the documented Canadian success bank reaches paid.",
       "dry_run_verified": true
     },
     {
       "id": "payout_failure",
-      "status": "FAILED",
+      "status": "PASS",
       "provider_mode": "test",
       "live_mode": "PROHIBITED",
-      "fixture_id": null,
-      "detail": "no po_ You have insufficient funds in your Stripe account for this transfer. Your card balance is too low.  You can use the /v1/balance endpoint to view your Stripe balance (for more details, see stripe.com/docs/api#balance).",
+      "fixture_id": "po_1U7o94CfNHJ3i6uNFOnGy3uT",
+      "detail": "status=failed method=standard type=bank_account source_type=card",
       "would_prove": "A po_ to the documented Canadian failure bank reaches failed.",
       "dry_run_verified": true
     },
     {
       "id": "connect_restriction_capability_events",
-      "status": "FAILED",
+      "status": "PASS",
       "provider_mode": "test",
       "live_mode": "PROHIBITED",
-      "fixture_id": null,
-      "detail": "capabilities http=200 update http=200 event=-",
+      "fixture_id": "evt_1U7o8yCfNHJ3i6uNg7v8znYX",
+      "detail": "capabilities http=200; update http=200; capability.updated=evt_1U7o8yCfNHJ3i6uNg7v8znYX account.updated=evt_1U7o98CfNHJ3i6uN41PfvFP3 (listed with Stripe-Account=acct_1U7o8lCfNHJ3i6uN)",
       "would_prove": "account.updated / capability restriction events on a connected account update supplier payout readiness.",
       "dry_run_verified": true
     },
     {
       "id": "connect_true_webhook_delivery",
-      "status": "FAILED",
+      "status": "PASS",
       "provider_mode": "test",
       "live_mode": "PROHIBITED",
-      "fixture_id": "we_1U7npHCwPLrR4vaYfgzEMO1Q",
-      "detail": "http=200 connect=None api_version=2025-06-30.basil ",
+      "fixture_id": "we_1U7o6RCwPLrR4vaYkLfmNjCV",
+      "detail": "reused Connect-scoped we_1U7o6RCwPLrR4vaYkLfmNjCV; requested connect=true; basil connect=None application=ca_V7Df0n9ofZqlquTrJTDBS1gZf3NXHEie; api_version=2025-06-30.basil; connected event evt_1U7o8yCfNHJ3i6uNg7v8znYX pending_webhooks=2",
       "would_prove": "Connected-account events are delivered to the Connect endpoint with connect=true and the Connect signing secret.",
       "dry_run_verified": true
     },
@@ -552,8 +552,8 @@
       "id": "connected_account_creation",
       "status": "PASS",
       "would_prove": "A project-controlled Canadian test connected account exists and is distinct from the platform.",
-      "detail": "type=custom country=CA",
-      "fixture_id": "acct_1U7npECeWJZCwOUN",
+      "detail": "type=custom country=CA; transfers inactive->active; currently_due before=['business_type', 'external_account', 'tos_acceptance.date', 'tos_acceptance.ip'] after=[]",
+      "fixture_id": "acct_1U7o8lCfNHJ3i6uN",
       "dry_run_verified": true,
       "request": {
         "id": "connected_account_creation",
@@ -566,19 +566,40 @@
           "country": "CA",
           "capabilities[card_payments][requested]": "true",
           "capabilities[transfers][requested]": "true",
-          "metadata[cx_matrix_run]": "20260824T024126Z-l9cn",
+          "metadata[cx_matrix_run]": "20260824T030135Z-l9cn",
           "metadata[cx_purpose]": "connect_remainder"
         },
         "dry_run_verified": true,
-        "sent": false
+        "sent": false,
+        "kyc_fields": {
+          "business_type": "individual",
+          "business_profile[url]": "https://mercmerc.net",
+          "business_profile[mcc]": "5734",
+          "business_profile[product_description]": "Compute marketplace supplier payouts for rendered jobs (20260824T030135Z-l9cn)",
+          "tos_acceptance[date]": "1787540495",
+          "tos_acceptance[ip]": "127.0.0.1",
+          "individual[first_name]": "Jenny",
+          "individual[last_name]": "Rosen",
+          "individual[email]": "connect-remainder-20260824T030135Z-l9cn@example.invalid",
+          "individual[dob][day]": "1",
+          "individual[dob][month]": "1",
+          "individual[dob][year]": "1901",
+          "individual[address][line1]": "address_full_match",
+          "individual[address][city]": "Toronto",
+          "individual[address][state]": "ON",
+          "individual[address][postal_code]": "M4B 1B3",
+          "individual[address][country]": "CA",
+          "individual[phone]": "0000000000",
+          "individual[relationship][title]": "Owner"
+        }
       }
     },
     {
       "id": "transfer_to_connected_account",
-      "status": "FAILED",
+      "status": "PASS",
       "would_prove": "A CAD tr_ from the platform to a connected account appears in the provider log and Merc ledger.",
-      "detail": "http=400 Your destination account needs to have at least one of the following capabilities enabled: transfers, crypto_transfers, legacy_payments",
-      "fixture_id": null,
+      "detail": "100 cad -> acct_1U7o8lCfNHJ3i6uN source_type=card",
+      "fixture_id": "tr_1U7o8yCwPLrR4vaYFGSTY5Dz",
       "dry_run_verified": true,
       "request": {
         "id": "transfer_to_connected_account",
@@ -590,18 +611,18 @@
           "amount": "100",
           "currency": "cad",
           "destination": "<connected_account>",
-          "metadata[cx_matrix_run]": "20260824T024126Z-l9cn"
+          "metadata[cx_matrix_run]": "20260824T030135Z-l9cn"
         },
         "dry_run_verified": true,
-        "sent": false
+        "sent": true
       }
     },
     {
       "id": "payout_hold",
-      "status": "FAILED",
+      "status": "PASS",
       "would_prove": "Manual payout schedule plus payout.created on the connected account holds supplier cash.",
-      "detail": "no po_ from success-bank payout",
-      "fixture_id": null,
+      "detail": "manual schedule; standard bank payout method=standard type=bank_account source_type=card destination=ba_1U7o8tCfNHJ3i6uNNJYPEx2O",
+      "fixture_id": "po_1U7o90CfNHJ3i6uNdgLMfKBz",
       "dry_run_verified": true,
       "request": {
         "id": "payout_hold",
@@ -613,15 +634,15 @@
           "settings[payouts][schedule][interval]": "manual"
         },
         "dry_run_verified": true,
-        "sent": false
+        "sent": true
       }
     },
     {
       "id": "payout_manual_release",
-      "status": "FAILED",
+      "status": "PASS",
       "would_prove": "A po_ to the documented Canadian success bank reaches paid.",
-      "detail": "hold never created a po_",
-      "fixture_id": null,
+      "detail": "status=paid method=standard type=bank_account",
+      "fixture_id": "po_1U7o90CfNHJ3i6uNdgLMfKBz",
       "dry_run_verified": true,
       "request": {
         "id": "payout_manual_release",
@@ -632,6 +653,7 @@
         "fields": {
           "amount": "40",
           "currency": "cad",
+          "method": "standard",
           "external_account": {
             "object": "bank_account",
             "country": "CA",
@@ -646,10 +668,10 @@
     },
     {
       "id": "payout_failure",
-      "status": "FAILED",
+      "status": "PASS",
       "would_prove": "A po_ to the documented Canadian failure bank reaches failed.",
-      "detail": "no po_ You have insufficient funds in your Stripe account for this transfer. Your card balance is too low.  You can use the /v1/balance endpoint to view your Stripe balance (for more details, see stripe.com/docs/api#balance).",
-      "fixture_id": null,
+      "detail": "status=failed method=standard type=bank_account source_type=card",
+      "fixture_id": "po_1U7o94CfNHJ3i6uNFOnGy3uT",
       "dry_run_verified": true,
       "request": {
         "id": "payout_failure",
@@ -660,6 +682,7 @@
         "fields": {
           "amount": "30",
           "currency": "cad",
+          "method": "standard",
           "external_account": {
             "object": "bank_account",
             "country": "CA",
@@ -674,31 +697,32 @@
     },
     {
       "id": "connect_restriction_capability_events",
-      "status": "FAILED",
+      "status": "PASS",
       "would_prove": "account.updated / capability restriction events on a connected account update supplier payout readiness.",
-      "detail": "capabilities http=200 update http=200 event=-",
-      "fixture_id": null,
+      "detail": "capabilities http=200; update http=200; capability.updated=evt_1U7o8yCfNHJ3i6uNg7v8znYX account.updated=evt_1U7o98CfNHJ3i6uN41PfvFP3 (listed with Stripe-Account=acct_1U7o8lCfNHJ3i6uN)",
+      "fixture_id": "evt_1U7o8yCfNHJ3i6uNg7v8znYX",
       "dry_run_verified": true,
       "request": {
         "id": "connect_restriction_capability_events",
         "method": "GET",
         "path": "/v1/accounts/<connected_account>/capabilities",
         "requires_connect": true,
-        "stripe_account": null,
+        "stripe_account": "<connected_account>",
         "fields": {
+          "events_list": "GET /v1/events?type=capability.updated with Stripe-Account",
           "follow_up_post": "/v1/accounts/<connected_account>",
-          "business_profile[product_description]": "merc connect remainder 20260824T024126Z-l9cn"
+          "business_profile[product_description]": "merc connect remainder 20260824T030135Z-l9cn"
         },
         "dry_run_verified": true,
-        "sent": false
+        "sent": true
       }
     },
     {
       "id": "connect_true_webhook_delivery",
-      "status": "FAILED",
+      "status": "PASS",
       "would_prove": "Connected-account events are delivered to the Connect endpoint with connect=true and the Connect signing secret.",
-      "detail": "http=200 connect=None api_version=2025-06-30.basil ",
-      "fixture_id": "we_1U7npHCwPLrR4vaYfgzEMO1Q",
+      "detail": "reused Connect-scoped we_1U7o6RCwPLrR4vaYkLfmNjCV; requested connect=true; basil connect=None application=ca_V7Df0n9ofZqlquTrJTDBS1gZf3NXHEie; api_version=2025-06-30.basil; connected event evt_1U7o8yCfNHJ3i6uNg7v8znYX pending_webhooks=2",
+      "fixture_id": "we_1U7o6RCwPLrR4vaYkLfmNjCV",
       "dry_run_verified": true,
       "request": {
         "id": "connect_true_webhook_delivery",
@@ -714,12 +738,13 @@
             "account.updated",
             "payout.created",
             "payout.paid",
-            "payout.failed"
+            "payout.failed",
+            "capability.updated"
           ],
-          "description": "merc connect remainder 20260824T024126Z-l9cn"
+          "description": "merc connect remainder 20260824T030135Z-l9cn"
         },
         "dry_run_verified": true,
-        "sent": false
+        "sent": true
       }
     }
   ],
@@ -736,14 +761,14 @@
   "validator": {
     "path": "scripts/validate-readiness.py:stripe_sandbox_matrix_proven",
     "accepts_only": "status=PASS plus transfer tr_ and payout hold/release/failure/reversal",
-    "this_receipt": "honest BLOCKED; expected CHECK_FAILED until Connect remainder completes"
+    "this_receipt": "honest PASS; Connect remainder completed"
   },
   "connect_remainder": {
     "command": "scripts/stripe-sandbox-connect.sh",
     "alias": "scripts/stripe-sandbox.sh connect",
-    "run_id": "20260824T024126Z-l9cn",
-    "status": "BLOCKED",
-    "exit_reason": "blocked: external gate",
+    "run_id": "20260824T030135Z-l9cn",
+    "status": "PASS",
+    "exit_reason": null,
     "stopped_at": null,
     "pre_connect": [
       {
@@ -780,18 +805,20 @@
         "step": "GET /v1/accounts",
         "status": "ok",
         "http": 200,
-        "count": 3,
-        "detail": "listed 3 connected account id(s); none synthesized"
+        "count": 10,
+        "detail": "listed 10 connected account id(s); none synthesized"
       },
       {
         "step": "POST /v1/webhook_endpoints (connect=true probe)",
         "status": "ok",
         "http": 200,
-        "id": "we_1U7npECwPLrR4vaYGg1kuBHw",
+        "id": "we_1U7o8lCwPLrR4vaYXzlAyr5F",
         "connect_flag": null,
+        "application": "ca_V7Df0n9ofZqlquTrJTDBS1gZf3NXHEie",
+        "connect_scoped": true,
         "api_version": "2025-06-30.basil",
         "deleted": true,
-        "detail": "requested connect=true api_version=2025-06-30.basil; returned connect=None api_version=2025-06-30.basil deleted=True secret_present=True"
+        "detail": "requested connect=true api_version=2025-06-30.basil; returned connect=None application='ca_V7Df0n9ofZqlquTrJTDBS1gZf3NXHEie' connect_scoped=True api_version=2025-06-30.basil deleted=True secret_present=True"
       }
     ],
     "dry_runs": [
@@ -806,11 +833,32 @@
           "country": "CA",
           "capabilities[card_payments][requested]": "true",
           "capabilities[transfers][requested]": "true",
-          "metadata[cx_matrix_run]": "20260824T024126Z-l9cn",
+          "metadata[cx_matrix_run]": "20260824T030135Z-l9cn",
           "metadata[cx_purpose]": "connect_remainder"
         },
         "dry_run_verified": true,
-        "sent": false
+        "sent": false,
+        "kyc_fields": {
+          "business_type": "individual",
+          "business_profile[url]": "https://mercmerc.net",
+          "business_profile[mcc]": "5734",
+          "business_profile[product_description]": "Compute marketplace supplier payouts for rendered jobs (20260824T030135Z-l9cn)",
+          "tos_acceptance[date]": "1787540495",
+          "tos_acceptance[ip]": "127.0.0.1",
+          "individual[first_name]": "Jenny",
+          "individual[last_name]": "Rosen",
+          "individual[email]": "connect-remainder-20260824T030135Z-l9cn@example.invalid",
+          "individual[dob][day]": "1",
+          "individual[dob][month]": "1",
+          "individual[dob][year]": "1901",
+          "individual[address][line1]": "address_full_match",
+          "individual[address][city]": "Toronto",
+          "individual[address][state]": "ON",
+          "individual[address][postal_code]": "M4B 1B3",
+          "individual[address][country]": "CA",
+          "individual[phone]": "0000000000",
+          "individual[relationship][title]": "Owner"
+        }
       },
       {
         "id": "transfer_to_connected_account",
@@ -822,10 +870,10 @@
           "amount": "100",
           "currency": "cad",
           "destination": "<connected_account>",
-          "metadata[cx_matrix_run]": "20260824T024126Z-l9cn"
+          "metadata[cx_matrix_run]": "20260824T030135Z-l9cn"
         },
         "dry_run_verified": true,
-        "sent": false
+        "sent": true
       },
       {
         "id": "payout_hold",
@@ -837,7 +885,7 @@
           "settings[payouts][schedule][interval]": "manual"
         },
         "dry_run_verified": true,
-        "sent": false
+        "sent": true
       },
       {
         "id": "payout_manual_release",
@@ -848,6 +896,7 @@
         "fields": {
           "amount": "40",
           "currency": "cad",
+          "method": "standard",
           "external_account": {
             "object": "bank_account",
             "country": "CA",
@@ -868,6 +917,7 @@
         "fields": {
           "amount": "30",
           "currency": "cad",
+          "method": "standard",
           "external_account": {
             "object": "bank_account",
             "country": "CA",
@@ -884,13 +934,14 @@
         "method": "GET",
         "path": "/v1/accounts/<connected_account>/capabilities",
         "requires_connect": true,
-        "stripe_account": null,
+        "stripe_account": "<connected_account>",
         "fields": {
+          "events_list": "GET /v1/events?type=capability.updated with Stripe-Account",
           "follow_up_post": "/v1/accounts/<connected_account>",
-          "business_profile[product_description]": "merc connect remainder 20260824T024126Z-l9cn"
+          "business_profile[product_description]": "merc connect remainder 20260824T030135Z-l9cn"
         },
         "dry_run_verified": true,
-        "sent": false
+        "sent": true
       },
       {
         "id": "connect_true_webhook_delivery",
@@ -906,26 +957,29 @@
             "account.updated",
             "payout.created",
             "payout.paid",
-            "payout.failed"
+            "payout.failed",
+            "capability.updated"
           ],
-          "description": "merc connect remainder 20260824T024126Z-l9cn"
+          "description": "merc connect remainder 20260824T030135Z-l9cn"
         },
         "dry_run_verified": true,
-        "sent": false
+        "sent": true
       }
     ],
     "webhook_recreate_probe": {
       "stopped": false,
       "http": 200,
-      "probe_url": "https://mercmerc.net/v1/stripe/connect-webhook-probe/20260824T024126Z-l9cn",
-      "probe_id": "we_1U7npECwPLrR4vaYGg1kuBHw",
+      "probe_url": "https://mercmerc.net/v1/stripe/connect-webhook-probe/20260824T030135Z-l9cn",
+      "probe_id": "we_1U7o8lCwPLrR4vaYXzlAyr5F",
       "requested_connect": true,
       "requested_api_version": "2025-06-30.basil",
       "returned_connect": null,
+      "returned_application": "ca_V7Df0n9ofZqlquTrJTDBS1gZf3NXHEie",
+      "connect_scoped": true,
       "returned_api_version": "2025-06-30.basil",
       "secret_present": true,
       "deleted": true,
-      "detail": "requested connect=true api_version=2025-06-30.basil; returned connect=None api_version=2025-06-30.basil deleted=True secret_present=True"
+      "detail": "requested connect=true api_version=2025-06-30.basil; returned connect=None application='ca_V7Df0n9ofZqlquTrJTDBS1gZf3NXHEie' connect_scoped=True api_version=2025-06-30.basil deleted=True secret_present=True"
     },
     "scenarios": [
       {
@@ -933,63 +987,120 @@
         "status": "PASS",
         "provider_mode": "test",
         "live_mode": "PROHIBITED",
-        "fixture_id": "acct_1U7npECeWJZCwOUN",
-        "detail": "type=custom country=CA",
-        "would_prove": "A project-controlled Canadian test connected account exists and is distinct from the platform."
+        "fixture_id": "acct_1U7o8lCfNHJ3i6uN",
+        "detail": "type=custom country=CA; transfers inactive->active; currently_due before=['business_type', 'external_account', 'tos_acceptance.date', 'tos_acceptance.ip'] after=[]",
+        "would_prove": "A project-controlled Canadian test connected account exists and is distinct from the platform.",
+        "capabilities_before": {
+          "card_payments": "inactive",
+          "transfers": "inactive",
+          "currently_due": [
+            "business_type",
+            "external_account",
+            "tos_acceptance.date",
+            "tos_acceptance.ip"
+          ],
+          "past_due": [
+            "business_type",
+            "external_account",
+            "tos_acceptance.date",
+            "tos_acceptance.ip"
+          ],
+          "disabled_reason": "requirements.past_due",
+          "charges_enabled": false,
+          "payouts_enabled": false
+        },
+        "capabilities_after": {
+          "card_payments": "active",
+          "transfers": "active",
+          "currently_due": [],
+          "past_due": [],
+          "disabled_reason": null,
+          "charges_enabled": true,
+          "payouts_enabled": true
+        },
+        "kyc_fields_sent": [
+          "individual[phone]",
+          "individual[relationship][title]",
+          "business_profile[product_description]",
+          "business_type",
+          "tos_acceptance[date]",
+          "tos_acceptance[ip]",
+          "external_account"
+        ],
+        "kyc_http": 200
       },
       {
         "id": "connect_true_webhook_delivery",
-        "status": "FAILED",
+        "status": "PASS",
         "provider_mode": "test",
         "live_mode": "PROHIBITED",
-        "fixture_id": "we_1U7npHCwPLrR4vaYfgzEMO1Q",
-        "detail": "http=200 connect=None api_version=2025-06-30.basil ",
-        "would_prove": "Connected-account events are delivered to the Connect endpoint with connect=true and the Connect signing secret."
+        "fixture_id": "we_1U7o6RCwPLrR4vaYkLfmNjCV",
+        "detail": "reused Connect-scoped we_1U7o6RCwPLrR4vaYkLfmNjCV; requested connect=true; basil connect=None application=ca_V7Df0n9ofZqlquTrJTDBS1gZf3NXHEie; api_version=2025-06-30.basil; connected event evt_1U7o8yCfNHJ3i6uNg7v8znYX pending_webhooks=2",
+        "would_prove": "Connected-account events are delivered to the Connect endpoint with connect=true and the Connect signing secret.",
+        "attempted": true,
+        "application": "ca_V7Df0n9ofZqlquTrJTDBS1gZf3NXHEie",
+        "connect_flag": null,
+        "connect_scoped": true
       },
       {
         "id": "transfer_to_connected_account",
-        "status": "FAILED",
+        "status": "PASS",
         "provider_mode": "test",
         "live_mode": "PROHIBITED",
-        "fixture_id": null,
-        "detail": "http=400 Your destination account needs to have at least one of the following capabilities enabled: transfers, crypto_transfers, legacy_payments",
-        "would_prove": "A CAD tr_ from the platform to a connected account appears in the provider log and Merc ledger."
+        "fixture_id": "tr_1U7o8yCwPLrR4vaYFGSTY5Dz",
+        "detail": "100 cad -> acct_1U7o8lCfNHJ3i6uN source_type=card",
+        "would_prove": "A CAD tr_ from the platform to a connected account appears in the provider log and Merc ledger.",
+        "attempted": true,
+        "http": 200,
+        "request_fields": {
+          "amount": "100",
+          "currency": "cad",
+          "destination": "acct_1U7o8lCfNHJ3i6uN",
+          "metadata[cx_matrix_run]": "20260824T030135Z-l9cn"
+        }
       },
       {
         "id": "payout_hold",
-        "status": "FAILED",
+        "status": "PASS",
         "provider_mode": "test",
         "live_mode": "PROHIBITED",
-        "fixture_id": null,
-        "detail": "no po_ from success-bank payout",
-        "would_prove": "Manual payout schedule plus payout.created on the connected account holds supplier cash."
+        "fixture_id": "po_1U7o90CfNHJ3i6uNdgLMfKBz",
+        "detail": "manual schedule; standard bank payout method=standard type=bank_account source_type=card destination=ba_1U7o8tCfNHJ3i6uNNJYPEx2O",
+        "would_prove": "Manual payout schedule plus payout.created on the connected account holds supplier cash.",
+        "attempted": true,
+        "method": "standard",
+        "source_type": "card"
       },
       {
         "id": "payout_manual_release",
-        "status": "FAILED",
+        "status": "PASS",
         "provider_mode": "test",
         "live_mode": "PROHIBITED",
-        "fixture_id": null,
-        "detail": "hold never created a po_",
+        "fixture_id": "po_1U7o90CfNHJ3i6uNdgLMfKBz",
+        "detail": "status=paid method=standard type=bank_account",
         "would_prove": "A po_ to the documented Canadian success bank reaches paid."
       },
       {
         "id": "payout_failure",
-        "status": "FAILED",
+        "status": "PASS",
         "provider_mode": "test",
         "live_mode": "PROHIBITED",
-        "fixture_id": null,
-        "detail": "no po_ You have insufficient funds in your Stripe account for this transfer. Your card balance is too low.  You can use the /v1/balance endpoint to view your Stripe balance (for more details, see stripe.com/docs/api#balance).",
+        "fixture_id": "po_1U7o94CfNHJ3i6uNFOnGy3uT",
+        "detail": "status=failed method=standard type=bank_account source_type=card",
         "would_prove": "A po_ to the documented Canadian failure bank reaches failed."
       },
       {
         "id": "connect_restriction_capability_events",
-        "status": "FAILED",
+        "status": "PASS",
         "provider_mode": "test",
         "live_mode": "PROHIBITED",
-        "fixture_id": null,
-        "detail": "capabilities http=200 update http=200 event=-",
-        "would_prove": "account.updated / capability restriction events on a connected account update supplier payout readiness."
+        "fixture_id": "evt_1U7o8yCfNHJ3i6uNg7v8znYX",
+        "detail": "capabilities http=200; update http=200; capability.updated=evt_1U7o8yCfNHJ3i6uNg7v8znYX account.updated=evt_1U7o98CfNHJ3i6uN41PfvFP3 (listed with Stripe-Account=acct_1U7o8lCfNHJ3i6uN)",
+        "would_prove": "account.updated / capability restriction events on a connected account update supplier payout readiness.",
+        "attempted": true,
+        "capability_event": "evt_1U7o8yCfNHJ3i6uNg7v8znYX",
+        "account_event": "evt_1U7o98CfNHJ3i6uN41PfvFP3",
+        "pending_webhooks": 2
       }
     ],
     "secret_values_printed": false,

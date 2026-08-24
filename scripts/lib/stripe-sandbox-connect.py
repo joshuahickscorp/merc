@@ -5,12 +5,16 @@ Test-mode only. Never prints secret values. Never reads .merc-secrets.env.
 Never synthesizes a tr_, acct_, po_, or we_. Does not write PASS for a
 scenario that did not run.
 
-Today POST /v1/accounts is the first call that can refuse connected-account
-creation. Every earlier step still runs. A Stripe 400 whose message names a
-dashboard action is an external gate, not a product defect; the receipt
-blocker is derived from that refusal. When nothing refuses, there is no
-blocker. The receipt stays BLOCKED until the current dashboard action is
-real and the remainder produces a tr_ plus payout hold/release/failure/reversal.
+Connect signup and the platform-profile / Accounts-v1 dashboard walls are
+cleared. The remainder is: supply the two currently_due KYC fields so
+`transfers` goes active, transfer CAD, pay out to the documented Canadian
+bank (standard method, not instant-to-card), observe connected-account
+capability events on the connected event list, and keep a Connect-scoped
+webhook. Basil omits the `connect` field on webhook_endpoint objects;
+Connect scope is the `application=ca_*` value returned when connect=true
+is accepted. A Stripe 400 whose message names a dashboard action is an
+external gate, not a product defect. The receipt stays BLOCKED until the
+remainder produces a tr_ plus payout hold/release/failure/reversal.
 """
 from __future__ import annotations
 
@@ -44,6 +48,11 @@ CONNECT_EVENTS = [
     )
     if item
 ]
+# capability.updated is how a restriction lift shows up. Compiled Connect
+# events stay required; this is a superset, not a replacement.
+WEBHOOK_EVENTS = list(dict.fromkeys([*CONNECT_EVENTS, "capability.updated"]))
+PHONE_TOKEN = "0000000000"
+RELATIONSHIP_TITLE = "Owner"
 COMMAND = os.environ.get("MERC_STRIPE_CONNECT_REMAINDER_COMMAND", "scripts/stripe-sandbox-connect.sh")
 PLATFORM_ACCOUNT = "acct_1TxbzMCwPLrR4vaY"
 CONNECT_PATH = "/v1/stripe/connect-webhook"
@@ -144,6 +153,22 @@ def redact(value: str) -> str:
     if value.startswith(("sk_", "rk_", "pk_", "whsec_")):
         return value[:8] + "…"
     return value
+
+
+def is_connect_scoped(endpoint: dict[str, Any] | None) -> bool:
+    """Basil webhook_endpoint objects omit `connect` even when it was sent.
+
+    A create with connect=true returns application=ca_* (the Connect
+    application). A create with connect=false returns application=null.
+    That is the field that distinguishes a genuine Connect-scoped endpoint
+    under 2025-06-30.basil.
+    """
+    if not isinstance(endpoint, dict):
+        return False
+    if endpoint.get("connect") is True:
+        return True
+    application = endpoint.get("application")
+    return isinstance(application, str) and application.startswith("ca_")
 
 
 def die_live(variable: str) -> None:
@@ -393,8 +418,82 @@ def account_create_fields(run_id: str) -> dict[str, str]:
     }
 
 
+def account_kyc_fields(hostname: str, run_id: str) -> dict[str, str]:
+    """Custom CA individual KYC plus the two currently_due fields.
+
+    Stripe test-mode phone token 0000000000; relationship.title is a
+    free-form job title. Observed against acct_1U7npECeWJZCwOUN: supplying
+    both flips transfers and card_payments from inactive to active.
+    """
+    return {
+        "business_type": "individual",
+        "business_profile[url]": f"https://{hostname}",
+        "business_profile[mcc]": "5734",
+        "business_profile[product_description]": (
+            f"Compute marketplace supplier payouts for rendered jobs ({run_id})"
+        ),
+        "tos_acceptance[date]": str(int(time.time())),
+        "tos_acceptance[ip]": "127.0.0.1",
+        "individual[first_name]": "Jenny",
+        "individual[last_name]": "Rosen",
+        "individual[email]": f"connect-remainder-{run_id}@example.invalid",
+        "individual[dob][day]": "1",
+        "individual[dob][month]": "1",
+        "individual[dob][year]": "1901",
+        "individual[address][line1]": "address_full_match",
+        "individual[address][city]": "Toronto",
+        "individual[address][state]": "ON",
+        "individual[address][postal_code]": "M4B 1B3",
+        "individual[address][country]": COUNTRY,
+        "individual[phone]": PHONE_TOKEN,
+        "individual[relationship][title]": RELATIONSHIP_TITLE,
+    }
+
+
+def capability_snapshot(account: dict[str, Any]) -> dict[str, Any]:
+    req = account.get("requirements") if isinstance(account.get("requirements"), dict) else {}
+    caps = account.get("capabilities") if isinstance(account.get("capabilities"), dict) else {}
+    return {
+        "card_payments": caps.get("card_payments"),
+        "transfers": caps.get("transfers"),
+        "currently_due": req.get("currently_due"),
+        "past_due": req.get("past_due"),
+        "disabled_reason": req.get("disabled_reason"),
+        "charges_enabled": account.get("charges_enabled"),
+        "payouts_enabled": account.get("payouts_enabled"),
+    }
+
+
+def funded_source_type(balance: dict[str, Any], amount: int) -> str | None:
+    """Pick the balance rail that actually has CAD available.
+
+    Platform CAD sits in source_types.card (charges), not bank_account.
+    Transfers land on the connected account in the same rail. Forcing
+    source_type=bank_account against a card-funded balance is the empty-rail
+    failure this matrix used to report as a payout defect.
+    """
+    for item in balance.get("available") or []:
+        if not isinstance(item, dict) or item.get("currency") != CURRENCY:
+            continue
+        sources = item.get("source_types") if isinstance(item.get("source_types"), dict) else {}
+        for name, value in sources.items():
+            try:
+                available = int(value)
+            except (TypeError, ValueError):
+                continue
+            if available >= amount:
+                return str(name)
+        try:
+            if int(item.get("amount") or 0) >= amount:
+                return "card"
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
 def dry_run_plans(hostname: str, run_id: str) -> list[dict[str, Any]]:
     connect_url = f"https://{hostname}{CONNECT_PATH}"
+    kyc = account_kyc_fields(hostname, run_id)
     return [
         {
             "id": "connected_account_creation",
@@ -402,6 +501,7 @@ def dry_run_plans(hostname: str, run_id: str) -> list[dict[str, Any]]:
             "path": "/v1/accounts",
             "requires_connect": True,
             "fields": account_create_fields(run_id),
+            "kyc_fields": kyc,
         },
         {
             "id": "transfer_to_connected_account",
@@ -431,6 +531,7 @@ def dry_run_plans(hostname: str, run_id: str) -> list[dict[str, Any]]:
             "fields": {
                 "amount": "40",
                 "currency": CURRENCY,
+                "method": "standard",
                 "external_account": {
                     "object": "bank_account",
                     "country": COUNTRY,
@@ -449,6 +550,7 @@ def dry_run_plans(hostname: str, run_id: str) -> list[dict[str, Any]]:
             "fields": {
                 "amount": "30",
                 "currency": CURRENCY,
+                "method": "standard",
                 "external_account": {
                     "object": "bank_account",
                     "country": COUNTRY,
@@ -463,7 +565,9 @@ def dry_run_plans(hostname: str, run_id: str) -> list[dict[str, Any]]:
             "method": "GET",
             "path": f"/v1/accounts/{PLACEHOLDER_ACCOUNT}/capabilities",
             "requires_connect": True,
+            "stripe_account": PLACEHOLDER_ACCOUNT,
             "fields": {
+                "events_list": "GET /v1/events?type=capability.updated with Stripe-Account",
                 "follow_up_post": f"/v1/accounts/{PLACEHOLDER_ACCOUNT}",
                 "business_profile[product_description]": f"merc connect remainder {run_id}",
             },
@@ -477,7 +581,7 @@ def dry_run_plans(hostname: str, run_id: str) -> list[dict[str, Any]]:
                 "url": connect_url,
                 "connect": "true",
                 "api_version": API_VERSION,
-                "enabled_events": CONNECT_EVENTS,
+                "enabled_events": list(WEBHOOK_EVENTS),
                 "description": f"merc connect remainder {run_id}",
             },
         },
@@ -501,6 +605,13 @@ def validate_dry_runs(plans: list[dict[str, Any]]) -> list[str]:
         errors.append("account create does not request transfers")
     if fields.get("capabilities[card_payments][requested]") != "true":
         errors.append("account create does not request card_payments")
+    kyc = create.get("kyc_fields") if isinstance(create.get("kyc_fields"), dict) else {}
+    if kyc.get("individual[phone]") != PHONE_TOKEN:
+        errors.append("kyc update missing documented test phone token")
+    if kyc.get("individual[relationship][title]") != RELATIONSHIP_TITLE:
+        errors.append("kyc update missing individual.relationship.title")
+    if not kyc.get("business_profile[product_description]"):
+        errors.append("kyc update missing business_profile.product_description")
 
     transfer = by_id.get("transfer_to_connected_account", {})
     tfields = transfer.get("fields") if isinstance(transfer.get("fields"), dict) else {}
@@ -518,12 +629,16 @@ def validate_dry_runs(plans: list[dict[str, Any]]) -> list[str]:
         errors.append("success bank is not CA/cad")
     if bank.get("routing_number") != "11000-000" or bank.get("account_number") != "000123456789":
         errors.append("success bank fixture drifted")
+    if rfields.get("method") != "standard":
+        errors.append("success payout is not method=standard")
 
     failure = by_id.get("payout_failure", {})
     ffields = failure.get("fields") if isinstance(failure.get("fields"), dict) else {}
     fbank = ffields.get("external_account") if isinstance(ffields.get("external_account"), dict) else {}
     if fbank.get("account_number") != "000111111116":
         errors.append("failure bank fixture drifted")
+    if ffields.get("method") != "standard":
+        errors.append("failure payout is not method=standard")
 
     webhook = by_id.get("connect_true_webhook_delivery", {})
     wfields = webhook.get("fields") if isinstance(webhook.get("fields"), dict) else {}
@@ -599,6 +714,12 @@ class ConnectRun:
             row.update(extra)
         self.scenarios.append(row)
         log(f"{sid}: {status} fixture={fixture_id or '-'} {detail}")
+
+    def patch(self, sid: str, **fields: Any) -> None:
+        for row in self.scenarios:
+            if row.get("id") == sid:
+                row.update(fields)
+                return
 
     def record_pre(self, step: str, **fields: Any) -> None:
         row = {"step": step, **fields}
@@ -715,6 +836,25 @@ def self_test() -> int:
     if PLACEHOLDER_ACCOUNT.startswith("acct_"):
         log("self-test: placeholder looks like an acct_")
         return 1
+    if not is_connect_scoped({"connect": True, "application": None}):
+        log("self-test: connect=true endpoint not treated as Connect-scoped")
+        return 1
+    if not is_connect_scoped({"connect": None, "application": "ca_V7Df0n9ofZqlquTrJTDBS1gZf3NXHEie"}):
+        log("self-test: basil application=ca_ endpoint not treated as Connect-scoped")
+        return 1
+    if is_connect_scoped({"connect": None, "application": None}):
+        log("self-test: account-scoped endpoint treated as Connect-scoped")
+        return 1
+    kyc = account_kyc_fields("canary.example.invalid", "self-test")
+    if kyc.get("individual[phone]") != PHONE_TOKEN or kyc.get("individual[relationship][title]") != RELATIONSHIP_TITLE:
+        log("self-test: kyc fields drifted")
+        return 1
+    if funded_source_type({"available": [{"currency": "cad", "amount": 100, "source_types": {"card": 100}}]}, 40) != "card":
+        log("self-test: funded_source_type missed the card rail")
+        return 1
+    if funded_source_type({"available": [{"currency": "cad", "amount": 0, "source_types": {"card": 0}}]}, 40) is not None:
+        log("self-test: funded_source_type invented a rail")
+        return 1
     class_error = _self_test_gate_vs_defect()
     if class_error:
         log(f"self-test: {class_error}")
@@ -797,7 +937,7 @@ def load_matrix(path: Path) -> dict[str, Any]:
 
 def public_plan(plan: dict[str, Any], sent: bool = False) -> dict[str, Any]:
     fields = plan.get("fields")
-    return {
+    out = {
         "id": plan["id"],
         "method": plan["method"],
         "path": plan["path"],
@@ -807,6 +947,9 @@ def public_plan(plan: dict[str, Any], sent: bool = False) -> dict[str, Any]:
         "dry_run_verified": True,
         "sent": sent,
     }
+    if plan.get("kyc_fields"):
+        out["kyc_fields"] = plan["kyc_fields"]
+    return out
 
 
 def merge_matrix(existing: dict[str, Any], run: ConnectRun) -> dict[str, Any]:
@@ -1157,7 +1300,7 @@ def _probe_connect_webhook(api: StripeClient, run: ConnectRun) -> dict[str, Any]
         "connect": "true",
         "api_version": API_VERSION,
         "description": f"merc connect remainder probe {run.run_id}",
-        "enabled_events[]": list(CONNECT_EVENTS),
+        "enabled_events[]": list(WEBHOOK_EVENTS),
     }
     status, created = api.call("POST", "webhook_endpoints", fields)
     gate = classify_external_gate(status, created)
@@ -1170,6 +1313,8 @@ def _probe_connect_webhook(api: StripeClient, run: ConnectRun) -> dict[str, Any]
     secret_present = bool(created.get("secret"))
     returned_connect = created.get("connect")
     returned_version = created.get("api_version")
+    returned_application = created.get("application")
+    scoped = is_connect_scoped(created)
     deleted = False
     if probe_id.startswith("we_"):
         del_status, _deleted = api.call("DELETE", f"webhook_endpoints/{probe_id}")
@@ -1179,7 +1324,8 @@ def _probe_connect_webhook(api: StripeClient, run: ConnectRun) -> dict[str, Any]
 
     detail = (
         f"requested connect=true api_version={API_VERSION}; "
-        f"returned connect={returned_connect!r} api_version={returned_version} "
+        f"returned connect={returned_connect!r} application={returned_application!r} "
+        f"connect_scoped={scoped} api_version={returned_version} "
         f"deleted={deleted} secret_present={secret_present}"
     )
     run.record_pre(
@@ -1188,6 +1334,8 @@ def _probe_connect_webhook(api: StripeClient, run: ConnectRun) -> dict[str, Any]
         http=status,
         id=probe_id if probe_id.startswith("we_") else None,
         connect_flag=returned_connect,
+        application=returned_application if isinstance(returned_application, str) else None,
+        connect_scoped=scoped,
         api_version=returned_version,
         deleted=deleted,
         detail=detail,
@@ -1200,6 +1348,8 @@ def _probe_connect_webhook(api: StripeClient, run: ConnectRun) -> dict[str, Any]
         "requested_connect": True,
         "requested_api_version": API_VERSION,
         "returned_connect": returned_connect,
+        "returned_application": returned_application,
+        "connect_scoped": scoped,
         "returned_api_version": returned_version,
         "secret_present": secret_present,
         "deleted": deleted,
@@ -1208,60 +1358,116 @@ def _probe_connect_webhook(api: StripeClient, run: ConnectRun) -> dict[str, Any]
 
 
 def _drive_remainder(api: StripeClient, run: ConnectRun, connected: str, connect_ep: dict[str, Any] | None) -> str:
-    # Recreate the real Connect webhook first so later events can land on it.
+    # Recreate (or reuse) the Connect webhook first so later events can land on it.
     webhook_status = _recreate_connect_webhook(api, run, connect_ep)
 
-    tos = api.call(
-        "POST",
-        f"accounts/{connected}",
-        {
-            "business_type": "individual",
-            "business_profile[url]": f"https://{run.hostname}",
-            "business_profile[mcc]": "5734",
-            "tos_acceptance[date]": str(int(time.time())),
-            "tos_acceptance[ip]": "127.0.0.1",
-            "individual[first_name]": "Jenny",
-            "individual[last_name]": "Rosen",
-            "individual[email]": f"connect-remainder-{run.run_id}@example.invalid",
-            "individual[dob][day]": "1",
-            "individual[dob][month]": "1",
-            "individual[dob][year]": "1901",
-            "individual[address][line1]": "address_full_match",
-            "individual[address][city]": "Toronto",
-            "individual[address][state]": "ON",
-            "individual[address][postal_code]": "M4B 1B3",
-            "individual[address][country]": COUNTRY,
-        },
+    _st, before_acct = api.call("GET", f"accounts/{connected}")
+    before_caps = capability_snapshot(before_acct)
+    log(
+        f"capabilities before kyc transfers={before_caps.get('transfers')} "
+        f"currently_due={before_caps.get('currently_due')} "
+        f"disabled_reason={before_caps.get('disabled_reason')}"
     )
-    log(f"tos/kyc http={tos[0]} payouts_enabled={tos[1].get('payouts_enabled')}")
 
-    status, transfer = api.call(
-        "POST",
-        "transfers",
-        {
-            "amount": "100",
-            "currency": CURRENCY,
-            "destination": connected,
-            "metadata[cx_matrix_run]": run.run_id,
-        },
-        idempotency=f"merc-connect-{run.run_id}-transfer",
+    kyc_fields = account_kyc_fields(run.hostname, run.run_id)
+    kyc_started = int(time.time())
+    tos_status, tos_body = api.call("POST", f"accounts/{connected}", kyc_fields)
+    log(
+        f"tos/kyc http={tos_status} payouts_enabled={tos_body.get('payouts_enabled')} "
+        f"currently_due={(tos_body.get('requirements') or {}).get('currently_due')} "
+        f"transfers={(tos_body.get('capabilities') or {}).get('transfers')}"
     )
-    transfer_id = str(transfer.get("id") or "")
-    if (
-        status == 200
-        and transfer_id.startswith("tr_")
-        and transfer.get("livemode") is False
-        and transfer.get("currency") == CURRENCY
-        and transfer.get("destination") == connected
-    ):
-        run.fixtures["transfer"] = transfer_id
-        run.add("transfer_to_connected_account", PASS, fixture_id=transfer_id, detail=f"100 {CURRENCY} -> {connected}")
-    else:
+    # external_account is currently_due on a fresh Custom CA account and
+    # blocks payouts_enabled until a bank is attached. Attach both banks
+    # before waiting on transfers so the remainder is not racing KYC.
+    success_bank = _add_bank(api, connected, PAYOUT_SUCCESS)
+    failure_bank = _add_bank(api, connected, PAYOUT_FAILURE)
+    log(f"external_accounts success={success_bank or '-'} failure={failure_bank or '-'}")
+    _wait_transfers_active(api, connected)
+    _st, after_acct = api.call("GET", f"accounts/{connected}")
+    after_caps = capability_snapshot(after_acct)
+    log(
+        f"capabilities after kyc transfers={after_caps.get('transfers')} "
+        f"currently_due={after_caps.get('currently_due')} "
+        f"disabled_reason={after_caps.get('disabled_reason')}"
+    )
+    run.patch(
+        "connected_account_creation",
+        detail=(
+            f"type={after_acct.get('type')} country={after_acct.get('country')}; "
+            f"transfers {before_caps.get('transfers')}->{after_caps.get('transfers')}; "
+            f"currently_due before={before_caps.get('currently_due')} after={after_caps.get('currently_due')}"
+        ),
+        capabilities_before=before_caps,
+        capabilities_after=after_caps,
+        kyc_fields_sent=[
+            "individual[phone]",
+            "individual[relationship][title]",
+            "business_profile[product_description]",
+            "business_type",
+            "tos_acceptance[date]",
+            "tos_acceptance[ip]",
+            "external_account",
+        ],
+        kyc_http=tos_status,
+    )
+
+    transfer_fields = {
+        "amount": "100",
+        "currency": CURRENCY,
+        "destination": connected,
+        "metadata[cx_matrix_run]": run.run_id,
+    }
+    if after_caps.get("transfers") != "active":
         run.add(
             "transfer_to_connected_account",
             FAILED,
-            detail=f"http={status} {err_of(transfer).get('message')}",
+            detail=(
+                f"transfers={after_caps.get('transfers')} "
+                f"currently_due={after_caps.get('currently_due')} "
+                f"disabled_reason={after_caps.get('disabled_reason')}"
+            ),
+            extra={"attempted": False, "capabilities_after": after_caps},
         )
+    else:
+        status, transfer = api.call(
+            "POST",
+            "transfers",
+            transfer_fields,
+            idempotency=f"merc-connect-{run.run_id}-transfer",
+        )
+        transfer_id = str(transfer.get("id") or "")
+        if (
+            status == 200
+            and transfer_id.startswith("tr_")
+            and transfer.get("livemode") is False
+            and transfer.get("currency") == CURRENCY
+            and transfer.get("destination") == connected
+        ):
+            run.fixtures["transfer"] = transfer_id
+            run.add(
+                "transfer_to_connected_account",
+                PASS,
+                fixture_id=transfer_id,
+                detail=f"100 {CURRENCY} -> {connected} source_type={transfer.get('source_type')}",
+                extra={"attempted": True, "http": status, "request_fields": {**transfer_fields, "destination": connected}},
+            )
+        else:
+            run.add(
+                "transfer_to_connected_account",
+                FAILED,
+                detail=f"http={status} {err_of(transfer).get('message')}",
+                extra={"attempted": True, "http": status, "request_fields": {"amount": "100", "currency": CURRENCY}},
+            )
+
+    funded = None
+    source_type = None
+    connected_balance: dict[str, Any] = {}
+    if run.fixtures.get("transfer"):
+        funded = _wait_available(api, connected, 40)
+        if isinstance(funded, tuple):
+            connected_balance, source_type = funded
+        log(f"connected available source_type={source_type} balance={connected_balance.get('available')}")
 
     status, manual = api.call(
         "POST",
@@ -1271,20 +1477,60 @@ def _drive_remainder(api: StripeClient, run: ConnectRun, connected: str, connect
     interval = ((manual.get("settings") or {}).get("payouts") or {}).get("schedule", {}).get("interval")
     if status != 200 or interval != "manual":
         run.add("payout_hold", FAILED, fixture_id=connected, detail=f"http={status} interval={interval}")
+        if not any(row["id"] == "payout_manual_release" for row in run.scenarios):
+            run.add("payout_manual_release", FAILED, detail="manual schedule was not set")
+        if not any(row["id"] == "payout_failure" for row in run.scenarios):
+            run.add("payout_failure", FAILED, detail="manual schedule was not set")
+    elif run.fixtures.get("transfer") is None:
+        run.add("payout_hold", FAILED, detail="no transfer landed; connected card/bank balance was not funded")
+        run.add("payout_manual_release", FAILED, detail="hold skipped; no funded transfer")
+        run.add("payout_failure", FAILED, detail="failure skipped; no funded transfer")
+    elif not source_type:
+        run.add(
+            "payout_hold",
+            FAILED,
+            detail=f"connected account has no funded CAD rail for a 40-cent standard payout; available={connected_balance.get('available')}",
+        )
+        run.add("payout_manual_release", FAILED, detail="no funded CAD rail")
+        run.add("payout_failure", FAILED, detail="no funded CAD rail")
     else:
-        success_bank = _add_bank(api, connected, PAYOUT_SUCCESS)
-        failure_bank = _add_bank(api, connected, PAYOUT_FAILURE)
+        if not success_bank:
+            success_bank = _add_bank(api, connected, PAYOUT_SUCCESS)
+        if not failure_bank:
+            failure_bank = _add_bank(api, connected, PAYOUT_FAILURE)
         released = None
         if success_bank:
-            released = _create_payout(api, connected, 40, success_bank, f"merc-connect-{run.run_id}-release")
+            released = _create_payout(
+                api,
+                connected,
+                40,
+                success_bank,
+                f"merc-connect-{run.run_id}-release",
+                source_type=source_type,
+            )
         if isinstance(released, dict) and str(released.get("id") or "").startswith("po_"):
             payout_id = str(released["id"])
             run.fixtures["payout_hold"] = payout_id
             run.fixtures["payout_release"] = payout_id
-            run.add("payout_hold", PASS, fixture_id=payout_id, detail="manual schedule; payout.created object created")
+            run.add(
+                "payout_hold",
+                PASS,
+                fixture_id=payout_id,
+                detail=(
+                    f"manual schedule; standard bank payout method={released.get('method')} "
+                    f"type={released.get('type')} source_type={released.get('source_type')} "
+                    f"destination={success_bank}"
+                ),
+                extra={"attempted": True, "method": released.get("method"), "source_type": released.get("source_type")},
+            )
             paid = _wait_payout(api, connected, payout_id, "paid")
             if paid:
-                run.add("payout_manual_release", PASS, fixture_id=payout_id, detail="status=paid")
+                run.add(
+                    "payout_manual_release",
+                    PASS,
+                    fixture_id=payout_id,
+                    detail=f"status=paid method={released.get('method')} type={released.get('type')}",
+                )
                 rev_status, reversed = api.call("POST", f"payouts/{payout_id}/reverse", stripe_account=connected)
                 rev_id = str(reversed.get("id") or "")
                 if rev_status == 200 and rev_id.startswith("po_") and reversed.get("amount", 0) < 0:
@@ -1294,57 +1540,129 @@ def _drive_remainder(api: StripeClient, run: ConnectRun, connected: str, connect
             else:
                 run.add("payout_manual_release", FAILED, fixture_id=payout_id, detail="did not reach paid")
         else:
-            run.add("payout_hold", FAILED, detail="no po_ from success-bank payout")
+            run.add(
+                "payout_hold",
+                FAILED,
+                detail=(
+                    f"no po_ from standard bank payout source_type={source_type} "
+                    f"{err_of(released or {}).get('message') or ''}"
+                ).strip(),
+            )
             run.add("payout_manual_release", FAILED, detail="hold never created a po_")
 
+        fail_funded = _wait_available(api, connected, 30)
+        fail_source = fail_funded[1] if isinstance(fail_funded, tuple) else source_type
         if failure_bank:
-            failed = _create_payout(api, connected, 30, failure_bank, f"merc-connect-{run.run_id}-failure")
+            failed = _create_payout(
+                api,
+                connected,
+                30,
+                failure_bank,
+                f"merc-connect-{run.run_id}-failure",
+                source_type=fail_source,
+            )
             fail_id = str((failed or {}).get("id") or "")
             if fail_id.startswith("po_"):
                 reached = _wait_payout(api, connected, fail_id, "failed")
                 if reached:
                     run.fixtures["payout_failure"] = fail_id
-                    run.add("payout_failure", PASS, fixture_id=fail_id, detail="status=failed")
+                    run.add(
+                        "payout_failure",
+                        PASS,
+                        fixture_id=fail_id,
+                        detail=(
+                            f"status=failed method={(failed or {}).get('method')} "
+                            f"type={(failed or {}).get('type')} source_type={(failed or {}).get('source_type')}"
+                        ),
+                    )
                 else:
                     run.add("payout_failure", FAILED, fixture_id=fail_id, detail="did not reach failed")
             else:
-                run.add("payout_failure", FAILED, detail=f"no po_ {err_of(failed or {}).get('message')}")
+                run.add(
+                    "payout_failure",
+                    FAILED,
+                    detail=f"no po_ source_type={fail_source} {err_of(failed or {}).get('message')}",
+                )
         else:
             run.add("payout_failure", FAILED, detail="failure bank was not created")
 
-    cap_status, caps = api.call("GET", f"accounts/{connected}/capabilities")
-    upd_status, updated = api.call(
+    cap_status, _caps = api.call("GET", f"accounts/{connected}/capabilities")
+    upd_status, _updated = api.call(
         "POST",
         f"accounts/{connected}",
         {"business_profile[product_description]": f"merc connect remainder {run.run_id}"},
     )
 
-    def find_updated():
-        st, body = api.call("GET", "events?type=account.updated&limit=40")
-        for item in body.get("data") or []:
-            obj = ((item.get("data") or {}).get("object") or {})
-            if item.get("livemode") is False and obj.get("id") == connected:
-                return item
-        return None
+    def find_capability():
+        return _find_connected_event(
+            api,
+            connected,
+            "capability.updated",
+            object_id="transfers",
+            since=kyc_started - 30,
+            status_value="active",
+        )
 
-    event = wait_for(find_updated, 60, 2.0)
-    event_id = str(event.get("id") or "") if isinstance(event, dict) else ""
+    def find_updated():
+        return _find_connected_event(
+            api,
+            connected,
+            "account.updated",
+            object_id=connected,
+            since=kyc_started - 30,
+        )
+
+    cap_event = wait_for(find_capability, 90, 2.0)
+    acct_event = wait_for(find_updated, 90, 2.0)
+    cap_event_id = str(cap_event.get("id") or "") if isinstance(cap_event, dict) else ""
+    acct_event_id = str(acct_event.get("id") or "") if isinstance(acct_event, dict) else ""
+    event_id = cap_event_id if cap_event_id.startswith("evt_") else acct_event_id
     if cap_status == 200 and upd_status == 200 and event_id.startswith("evt_"):
+        pending = None
+        chosen = cap_event if cap_event_id.startswith("evt_") else acct_event
+        if isinstance(chosen, dict):
+            pending = chosen.get("pending_webhooks")
         run.add(
             "connect_restriction_capability_events",
             PASS,
             fixture_id=event_id,
-            detail=f"capabilities http={cap_status}; account.updated {event_id}",
+            detail=(
+                f"capabilities http={cap_status}; update http={upd_status}; "
+                f"capability.updated={cap_event_id or '-'} account.updated={acct_event_id or '-'} "
+                f"(listed with Stripe-Account={connected})"
+            ),
+            extra={
+                "attempted": True,
+                "capability_event": cap_event_id or None,
+                "account_event": acct_event_id or None,
+                "pending_webhooks": pending,
+            },
         )
+        if webhook_status == PASS and isinstance(pending, int) and pending >= 0:
+            for row in run.scenarios:
+                if row.get("id") == "connect_true_webhook_delivery":
+                    row["detail"] = (
+                        f"{row.get('detail')}; connected event {event_id} "
+                        f"pending_webhooks={pending}"
+                    )
+                    break
     else:
+        platform_count = 0
+        st_p, platform_events = api.call("GET", "events?type=account.updated&limit=10")
+        if st_p == 200:
+            platform_count = len(platform_events.get("data") or [])
         run.add(
             "connect_restriction_capability_events",
             FAILED,
-            detail=f"capabilities http={cap_status} update http={upd_status} event={event_id or '-'}",
+            detail=(
+                f"capabilities http={cap_status} update http={upd_status} "
+                f"capability.updated={cap_event_id or '-'} account.updated={acct_event_id or '-'} "
+                f"platform_account.updated_count={platform_count}"
+            ),
         )
 
     if webhook_status != PASS and not any(row["id"] == "connect_true_webhook_delivery" for row in run.scenarios):
-        run.add("connect_true_webhook_delivery", webhook_status, detail="recreate did not pin connect=true")
+        run.add("connect_true_webhook_delivery", webhook_status, detail="recreate did not pin Connect scope")
 
     if all(any(row["id"] == sid and row["status"] == PASS for row in run.scenarios) for sid, _ in CONNECT_SCENARIOS):
         return PASS
@@ -1366,26 +1684,52 @@ def _add_bank(api: StripeClient, connected: str, account_number: str) -> str | N
     bank_id = str(body.get("id") or "")
     if status == 200 and bank_id.startswith("ba_"):
         return bank_id
-    log(f"external_account http={status} {err_of(body).get('message')}")
+    message = str(err_of(body).get("message") or "")
+    log(f"external_account http={status} {message}")
+    if "already exists" in message.lower() or status == 400:
+        st, listed = api.call("GET", f"accounts/{connected}/external_accounts?limit=20")
+        want_last4 = account_number[-4:]
+        for item in listed.get("data") or []:
+            if (
+                isinstance(item, dict)
+                and str(item.get("id") or "").startswith("ba_")
+                and str(item.get("last4") or "") == want_last4
+            ):
+                return str(item["id"])
     return None
 
 
-def _create_payout(api: StripeClient, connected: str, amount: int, destination: str, idem: str) -> dict[str, Any] | None:
+def _create_payout(
+    api: StripeClient,
+    connected: str,
+    amount: int,
+    destination: str,
+    idem: str,
+    *,
+    source_type: str | None,
+) -> dict[str, Any] | None:
+    fields: dict[str, str] = {
+        "amount": str(amount),
+        "currency": CURRENCY,
+        "destination": destination,
+        "method": "standard",
+        "description": idem,
+    }
+    if source_type:
+        fields["source_type"] = source_type
     status, body = api.call(
         "POST",
         "payouts",
-        {
-            "amount": str(amount),
-            "currency": CURRENCY,
-            "destination": destination,
-            "description": idem,
-        },
+        fields,
         stripe_account=connected,
         idempotency=idem,
     )
     if status == 200 and str(body.get("id") or "").startswith("po_"):
         return body
-    log(f"payout http={status} {err_of(body).get('message')}")
+    log(
+        f"payout http={status} method=standard source_type={source_type} "
+        f"destination={destination} {err_of(body).get('message')}"
+    )
     return body if isinstance(body, dict) else None
 
 
@@ -1402,21 +1746,119 @@ def _wait_payout(api: StripeClient, connected: str, payout_id: str, wanted: str)
     return result is True
 
 
+def _wait_transfers_active(api: StripeClient, connected: str, timeout: float = 90.0) -> dict[str, Any] | None:
+    def check():
+        st, body = api.call("GET", f"accounts/{connected}/capabilities/transfers")
+        if st == 200 and body.get("status") == "active":
+            return body
+        return None
+
+    last = wait_for(check, timeout, 2.0)
+    return last if isinstance(last, dict) else None
+
+
+def _wait_available(api: StripeClient, connected: str, amount: int, timeout: float = 60.0):
+    def check():
+        st, body = api.call("GET", "balance", stripe_account=connected)
+        if st != 200:
+            return None
+        source = funded_source_type(body, amount)
+        if source:
+            return (body, source)
+        return None
+
+    return wait_for(check, timeout, 2.0)
+
+
+def _find_connected_event(
+    api: StripeClient,
+    connected: str,
+    event_type: str,
+    *,
+    object_id: str,
+    since: int = 0,
+    status_value: str | None = None,
+) -> dict[str, Any] | None:
+    st, body = api.call("GET", f"events?type={event_type}&limit=40", stripe_account=connected)
+    if st != 200:
+        return None
+    for item in body.get("data") or []:
+        if not isinstance(item, dict) or item.get("livemode") is True:
+            continue
+        if int(item.get("created") or 0) < since:
+            continue
+        obj = (item.get("data") or {}).get("object") or {}
+        if obj.get("id") != object_id:
+            continue
+        if status_value and obj.get("status") != status_value:
+            continue
+        if str(item.get("id") or "").startswith("evt_"):
+            return item
+    return None
+
+
 def _recreate_connect_webhook(api: StripeClient, run: ConnectRun, existing: dict[str, Any] | None) -> str:
     connect_url = f"https://{run.hostname}{CONNECT_PATH}"
+    st, listed = api.call("GET", "webhook_endpoints?limit=100")
+    reusable = None
+    if st == 200:
+        for ep in listed.get("data") or []:
+            if not isinstance(ep, dict):
+                continue
+            if ep.get("url") != connect_url or ep.get("status") != "enabled":
+                continue
+            if ep.get("api_version") != API_VERSION or ep.get("livemode") is True:
+                continue
+            if not is_connect_scoped(ep):
+                continue
+            events = ep.get("enabled_events") or []
+            if "*" in events or all(name in events for name in CONNECT_EVENTS):
+                reusable = ep
+                break
+    if isinstance(reusable, dict) and str(reusable.get("id") or "").startswith("we_"):
+        rid = str(reusable["id"])
+        events = list(reusable.get("enabled_events") or [])
+        if any(name not in events and "*" not in events for name in WEBHOOK_EVENTS):
+            upd_status, updated = api.call(
+                "POST",
+                f"webhook_endpoints/{rid}",
+                {"enabled_events[]": list(WEBHOOK_EVENTS)},
+            )
+            if upd_status == 200 and isinstance(updated, dict):
+                reusable = updated
+        run.add(
+            "connect_true_webhook_delivery",
+            PASS,
+            fixture_id=rid,
+            detail=(
+                f"reused Connect-scoped {rid}; requested connect=true; "
+                f"basil connect={reusable.get('connect')!r} "
+                f"application={reusable.get('application')}; "
+                f"api_version={reusable.get('api_version')}"
+            ),
+            extra={
+                "attempted": True,
+                "application": reusable.get("application"),
+                "connect_flag": reusable.get("connect"),
+                "connect_scoped": True,
+            },
+        )
+        return PASS
+
     fields: dict[str, Any] = {
         "url": connect_url,
         "connect": "true",
         "api_version": API_VERSION,
         "description": f"merc connect remainder {run.run_id}",
-        "enabled_events[]": list(CONNECT_EVENTS),
+        "enabled_events[]": list(WEBHOOK_EVENTS),
     }
     status, created = api.call("POST", "webhook_endpoints", fields)
     created_id = str(created.get("id") or "")
+    scoped = is_connect_scoped(created)
     if (
         status == 200
         and created_id.startswith("we_")
-        and created.get("connect") is True
+        and scoped
         and created.get("api_version") == API_VERSION
         and created.get("url") == connect_url
         and created.get("livemode") is False
@@ -1425,25 +1867,39 @@ def _recreate_connect_webhook(api: StripeClient, run: ConnectRun, existing: dict
             "connect_true_webhook_delivery",
             PASS,
             fixture_id=created_id,
-            detail=f"connect=true api_version={API_VERSION}; previous={existing.get('id') if existing else None}",
+            detail=(
+                f"created connect=true api_version={API_VERSION}; "
+                f"basil connect={created.get('connect')!r} "
+                f"application={created.get('application')}; "
+                f"previous={existing.get('id') if existing else None}"
+            ),
+            extra={
+                "attempted": True,
+                "application": created.get("application"),
+                "connect_flag": created.get("connect"),
+                "connect_scoped": True,
+                "secret_present": bool(created.get("secret")),
+            },
         )
         run.notes.append(
-            f"Recreated Connect webhook {created_id} with connect=true. "
+            f"Recreated Connect webhook {created_id} (application={created.get('application')}). "
             "Rotate MERC_CONNECT_WEBHOOK_SECRET from the dashboard reveal; this command does not print it."
         )
         return PASS
     run.add(
         "connect_true_webhook_delivery",
-        FAILED if status == 200 else FAILED,
+        FAILED,
         fixture_id=created_id if created_id.startswith("we_") else None,
         detail=(
             f"http={status} connect={created.get('connect')!r} "
+            f"application={created.get('application')!r} "
             f"api_version={created.get('api_version')} {err_of(created).get('message') or ''}"
         ),
+        extra={"attempted": True, "connect_scoped": scoped},
     )
-    if created_id.startswith("we_") and created.get("connect") is not True:
+    if created_id.startswith("we_") and not scoped:
         api.call("DELETE", f"webhook_endpoints/{created_id}")
-        run.notes.append(f"deleted unusable connect!=true recreate {created_id}")
+        run.notes.append(f"deleted unusable non-Connect recreate {created_id}")
     return FAILED
 
 
