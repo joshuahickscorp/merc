@@ -61,7 +61,7 @@ type measuredThroughput struct {
 // allowlist must name this hash. The superseded r5 measurement hash
 // f4303a751ca2b2af is not it, and neither is a later host binary that no
 // longer matches the sealed receipt.
-const sealedCandleMetalLlama1InferBuildHash = "7cc01c442c7f6dbe"
+const sealedCandleMetalLlama1InferBuildHash = "f4210c0ef62e4490"
 
 var repricingBenchmarks = []measuredThroughput{
 	{
@@ -77,11 +77,19 @@ var repricingBenchmarks = []measuredThroughput{
 		HardwareIdentity:          "apple_silicon_v1|brand=Apple M3 Ultra|model=Mac15,14|memory_bytes=103079215104|cpu_cores=28|gpu_cores=60",
 		Unit:                      "tokens",
 		UnitScope:                 performanceUnitScopeTokenLikeInputPlusOutputTokens,
-		// Conservative bound: equals measured operating-batch rate (301.1341).
+		// Conservative bound: equals measured operating-batch rate (141.1353).
 		// Gate requires constant <= measured and not more than 1% below.
-		UnitsPerSec:    304.2661,
+		//
+		// This replaced r6's 304.2661. r6 was a 2.2x outlier: eight-plus
+		// independent Apple Silicon measurements in-tree cluster at 137-143 tok/s
+		// (138.7 alone appears eight times), and r7's own batch_32 rate is
+		// 314.5469 — so r6 almost certainly measured a larger batch and recorded
+		// it as the operating-batch rate. r6 therefore underpriced this cell by
+		// ~2.2x. r7 (141.1353, operating batch 1, thermal_ok) is the honest rate
+		// and its engine_build_hash is the one a live agent actually presents.
+		UnitsPerSec:    141.1353,
 		HWClass:        "apple_silicon_ultra",
-		SourceCitation: "evidence/perf/runtime-benchmarks/candle-metal-llama1-q4-r6.json#batch_infer",
+		SourceCitation: "evidence/perf/runtime-benchmarks/candle-metal-llama1-q4-r7.json#batch_infer",
 	},
 }
 
@@ -1830,9 +1838,10 @@ func CompareCostFloorToMarketBoard(supplierShare float64) []CostFloorVsMarket {
 // hardware the control plane currently admits (Apple Silicon) gross and
 // electricity land within a rounding error of each other. The worked figures
 // that used to sit here — 138.7 tok/s, $0.00436/hr against $0.0045/hr — came
-// from evidence/benchmarks/2026-07-01-m3-pro.json and are no longer what the
-// catalogue prices: the bound throughput is now 304.2661 tok/s from the candle
-// r6 receipt. The illustration is left unnumbered rather than restated, because
+// from evidence/benchmarks/2026-07-01-m3-pro.json and are close to what the
+// catalogue now prices: the bound throughput is 141.1353 tok/s from the candle
+// r7 receipt (r6's 304.2661 was a 2.2x outlier and was retired). The
+// illustration is left unnumbered rather than restated, because
 // a hardcoded number in a comment beside live pricing code is exactly the thing
 // that goes stale without anyone noticing. A marketplace whose
 // suppliers pay to participate has no supply side, and that fact must be visible

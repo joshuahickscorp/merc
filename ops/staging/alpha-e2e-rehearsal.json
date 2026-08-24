@@ -12,9 +12,9 @@
   "allowlist": "ops/staging/alpha-participants.json",
   "allowlist_widened": false,
   "allowlist_hash_replaced": {
-    "removed": "f4303a751ca2b2af",
-    "added": "7cc01c442c7f6dbe",
-    "reason": "named the sealed r6 running-executable identity; did not widen to host-observed 2939a8e26ffe6fd2"
+    "removed": "7cc01c442c7f6dbe",
+    "added": "f4210c0ef62e4490",
+    "reason": "named the sealed r7 running-executable identity that a live merc-agent from HEAD actually presents; r6 7cc01c442c7f6dbe could not be reproduced from current source"
   },
   "participants_exercised": {
     "synthetic_or_operator_buyers": 1,

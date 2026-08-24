@@ -23,11 +23,13 @@
       "origin": "uuid5(NAMESPACE_DNS, mercmerc.net:alpha-worker-2); reserved for the operator agent, not an enrolled device"
     }
   ],
-  "agent_versions": ["0.1.0"],
+  "agent_versions": [
+    "0.1.0"
+  ],
   "build_hashes": [
     {
-      "hash": "7cc01c442c7f6dbe",
-      "origin": "sealed r6 candle-metal-llama1-infer engine_build_hash (control/pricing.go sealedCandleMetalLlama1InferBuildHash / evidence/perf/runtime-benchmarks/candle-metal-llama1-q4-r6.json). Replaces superseded r5 hash f4303a751ca2b2af, which is not the running-executable identity the advertised cell accepts. Does not add host-observed 2939a8e26ffe6fd2 — that binary cannot project the sealed cell."
+      "hash": "f4210c0ef62e4490",
+      "origin": "sealed r7 candle-metal-llama1-infer engine_build_hash (control/pricing.go sealedCandleMetalLlama1InferBuildHash / evidence/perf/runtime-benchmarks/candle-metal-llama1-q4-r7.json). Replaces r6 hash 7cc01c442c7f6dbe, whose binary no longer matches current agent source: a live merc-agent built from HEAD presents f4210c0ef62e4490 and enrols. r6's 304.2661 tok/s was a 2.2x outlier retired in favour of r7's honest 141.1353."
     }
   ],
   "ceilings": {

@@ -32,7 +32,7 @@ print_runbook() {
 # The staging catalogue IS published: models.llama-3.2-1b-instruct-q4
 # points at schedule 86e62a72… citing
 # evidence/perf/runtime-benchmarks/candle-metal-llama1-q4-r6.json
-# engine_build_hash=7cc01c442c7f6dbe. The r6 receipt in the image is BOUND.
+# engine_build_hash=f4210c0ef62e4490. The r7 receipt in the image is BOUND (r6 retired: outlier rate + unreproducible binary).
 #
 # loadCurrentPublicCatalogue walks activation.advertised, not that schedule.
 # The revision-1 document seed for candle-metal-llama1-infer still names
