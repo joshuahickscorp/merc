@@ -608,12 +608,16 @@ class ConnectRun:
     def stop_connect(self, method: str, path: str, status: int, doc: dict[str, Any], sent: dict[str, Any]) -> None:
         self.stopped_at = stopped_at_record(method, path, status, doc, sent)
         message = str(self.stopped_at.get("error_message") or "")
-        print(blocked_message(blocker_id), file=sys.stderr)
-        gate_id = self.stopped_at.get("blocker_id")
+        gate_id = str(self.stopped_at.get("blocker_id") or "")
         dashboard_url = self.stopped_at.get("dashboard_url")
+        # One line, naming the gate that actually refused. This used to print a
+        # constant "Connect not signed up" and then the real gate id underneath,
+        # so the tool contradicted itself on every run.
         if gate_id:
-            print(f"blocked: {gate_id} {dashboard_url}", file=sys.stderr)
-        log(f"{blocked_message(blocker_id)} at {method} {path} http={status} {message}")
+            print(f"{blocked_message(gate_id)} {dashboard_url}", file=sys.stderr)
+        else:
+            print(blocked_message(""), file=sys.stderr)
+        log(f"{blocked_message(gate_id)} at {method} {path} http={status} {message}")
 
 
 def _self_test_gate_vs_defect() -> str | None:
