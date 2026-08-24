@@ -208,7 +208,7 @@ def stamp_matrix(doc: dict[str, Any]) -> dict[str, Any]:
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     root = str(Path(__file__).resolve().parents[2])
-    return mod.stamp(doc, mod.head_commit(root), "scripts/stripe-sandbox.sh")
+    return mod.stamp(doc, mod.candidate_commit(root), "scripts/stripe-sandbox.sh")
 
 
 def die_live(variable: str) -> None:

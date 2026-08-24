@@ -941,7 +941,7 @@ def _drive_live_and_refusals(
         if bind_spec is not None and bind_spec.loader is not None:
             bind_mod = importlib.util.module_from_spec(bind_spec)
             bind_spec.loader.exec_module(bind_mod)
-            matrix.fixtures["candidate_commit"] = bind_mod.head_commit(
+            matrix.fixtures["candidate_commit"] = bind_mod.candidate_commit(
                 str(Path(__file__).resolve().parents[2])
             )
         else:
