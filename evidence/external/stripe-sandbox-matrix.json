@@ -11,35 +11,7 @@
   "platform_country": "CA",
   "platform_default_currency": "cad",
   "disposable_customer_cleanup": "attempted",
-  "blocker": {
-    "id": "connect_accounts_v1_not_enabled",
-    "detail": "POST /v1/accounts on acct_1TxbzMCwPLrR4vaY returns: Stripe no longer recommends Accounts v1 for new Connect integrations. Create connected accounts with POST /v2/core/accounts instead: https://docs.stripe.com/api/v2/core/accounts. Read more about Accounts v2: https://docs.stripe.com/connect/accounts-v2/account-creation. If your integration requires v1 account creation for a supported compatibility scenario, enable Accounts v1 support in the Dashboard: https://dashboard.stripe.com/settings/features/feat_accounts_v1_support. For agent-based integrations, use Stripe's current best-practices skill: npx skills add stripe/ai. Dashboard action: Create connected accounts with POST /v2/core/accounts, or enable Accounts v1 support https://dashboard.stripe.com/settings/features/feat_accounts_v1_support. After that action, scripts/stripe-sandbox-connect.sh is the one command that finishes the Connect remainder.",
-    "unreachable_in_test_mode_api": true,
-    "classification": "external_gate",
-    "dashboard_url": "https://dashboard.stripe.com/settings/features/feat_accounts_v1_support",
-    "dashboard_action": "Create connected accounts with POST /v2/core/accounts, or enable Accounts v1 support",
-    "stopped_at": {
-      "method": "POST",
-      "path": "/v1/accounts",
-      "http": 400,
-      "error_type": "invalid_request_error",
-      "error_code": null,
-      "error_message": "Stripe no longer recommends Accounts v1 for new Connect integrations. Create connected accounts with POST /v2/core/accounts instead: https://docs.stripe.com/api/v2/core/accounts. Read more about Accounts v2: https://docs.stripe.com/connect/accounts-v2/account-creation. If your integration requires v1 account creation for a supported compatibility scenario, enable Accounts v1 support in the Dashboard: https://dashboard.stripe.com/settings/features/feat_accounts_v1_support. For agent-based integrations, use Stripe's current best-practices skill: npx skills add stripe/ai.",
-      "request_fields": {
-        "type": "custom",
-        "country": "CA",
-        "capabilities[card_payments][requested]": "true",
-        "capabilities[transfers][requested]": "true",
-        "metadata[cx_matrix_run]": "20260824T023901Z-l9cn",
-        "metadata[cx_purpose]": "connect_remainder"
-      },
-      "classification": "external_gate",
-      "blocker_id": "connect_accounts_v1_not_enabled",
-      "dashboard_url": "https://dashboard.stripe.com/settings/features/feat_accounts_v1_support",
-      "dashboard_action": "Create connected accounts with POST /v2/core/accounts, or enable Accounts v1 support"
-    },
-    "exit_reason": "blocked: connect_accounts_v1_not_enabled"
-  },
+  "blocker": null,
   "harness": {
     "stripe_check": "EXTERNAL CREDENTIAL REQUIRED",
     "stripe_matrix": "BLOCKED-ON-CONNECT",
@@ -223,7 +195,7 @@
     "live_signature_connect_http": 400,
     "live_delivery_drained": true,
     "disposable_customer_cleanup": "attempted",
-    "connected_account": null
+    "connected_account": "acct_1U7npECeWJZCwOUN"
   },
   "external_scenarios": {
     "schema_version": 1,
@@ -302,71 +274,71 @@
     },
     {
       "id": "connected_account_creation",
-      "status": "BLOCKED-ON-CONNECT",
+      "status": "PASS",
       "provider_mode": "test",
       "live_mode": "PROHIBITED",
-      "fixture_id": null,
-      "detail": "Stripe no longer recommends Accounts v1 for new Connect integrations. Create connected accounts with POST /v2/core/accounts instead: https://docs.stripe.com/api/v2/core/accounts. Read more about Accounts v2: https://docs.stripe.com/connect/accounts-v2/account-creation. If your integration requires v1 account creation for a supported compatibility scenario, enable Accounts v1 support in the Dashboard: https://dashboard.stripe.com/settings/features/feat_accounts_v1_support. For agent-based integrations, use Stripe's current best-practices skill: npx skills add stripe/ai.",
+      "fixture_id": "acct_1U7npECeWJZCwOUN",
+      "detail": "type=custom country=CA",
       "would_prove": "A project-controlled Canadian test connected account exists and is distinct from the platform.",
       "dry_run_verified": true
     },
     {
       "id": "transfer_to_connected_account",
-      "status": "BLOCKED-ON-CONNECT",
+      "status": "FAILED",
       "provider_mode": "test",
       "live_mode": "PROHIBITED",
       "fixture_id": null,
-      "detail": "requires connect_accounts_v1_not_enabled on acct_1TxbzMCwPLrR4vaY",
+      "detail": "http=400 Your destination account needs to have at least one of the following capabilities enabled: transfers, crypto_transfers, legacy_payments",
       "would_prove": "A CAD tr_ from the platform to a connected account appears in the provider log and Merc ledger.",
       "dry_run_verified": true
     },
     {
       "id": "payout_hold",
-      "status": "BLOCKED-ON-CONNECT",
+      "status": "FAILED",
       "provider_mode": "test",
       "live_mode": "PROHIBITED",
       "fixture_id": null,
-      "detail": "requires connect_accounts_v1_not_enabled on acct_1TxbzMCwPLrR4vaY",
+      "detail": "no po_ from success-bank payout",
       "would_prove": "Manual payout schedule plus payout.created on the connected account holds supplier cash.",
       "dry_run_verified": true
     },
     {
       "id": "payout_manual_release",
-      "status": "BLOCKED-ON-CONNECT",
+      "status": "FAILED",
       "provider_mode": "test",
       "live_mode": "PROHIBITED",
       "fixture_id": null,
-      "detail": "requires connect_accounts_v1_not_enabled on acct_1TxbzMCwPLrR4vaY",
+      "detail": "hold never created a po_",
       "would_prove": "A po_ to the documented Canadian success bank reaches paid.",
       "dry_run_verified": true
     },
     {
       "id": "payout_failure",
-      "status": "BLOCKED-ON-CONNECT",
+      "status": "FAILED",
       "provider_mode": "test",
       "live_mode": "PROHIBITED",
       "fixture_id": null,
-      "detail": "requires connect_accounts_v1_not_enabled on acct_1TxbzMCwPLrR4vaY",
+      "detail": "no po_ You have insufficient funds in your Stripe account for this transfer. Your card balance is too low.  You can use the /v1/balance endpoint to view your Stripe balance (for more details, see stripe.com/docs/api#balance).",
       "would_prove": "A po_ to the documented Canadian failure bank reaches failed.",
       "dry_run_verified": true
     },
     {
       "id": "connect_restriction_capability_events",
-      "status": "BLOCKED-ON-CONNECT",
+      "status": "FAILED",
       "provider_mode": "test",
       "live_mode": "PROHIBITED",
       "fixture_id": null,
-      "detail": "requires connect_accounts_v1_not_enabled on acct_1TxbzMCwPLrR4vaY",
+      "detail": "capabilities http=200 update http=200 event=-",
       "would_prove": "account.updated / capability restriction events on a connected account update supplier payout readiness.",
       "dry_run_verified": true
     },
     {
       "id": "connect_true_webhook_delivery",
-      "status": "BLOCKED-ON-CONNECT",
+      "status": "FAILED",
       "provider_mode": "test",
       "live_mode": "PROHIBITED",
-      "fixture_id": null,
-      "detail": "requires connect_accounts_v1_not_enabled on acct_1TxbzMCwPLrR4vaY",
+      "fixture_id": "we_1U7npHCwPLrR4vaYfgzEMO1Q",
+      "detail": "http=200 connect=None api_version=2025-06-30.basil ",
       "would_prove": "Connected-account events are delivered to the Connect endpoint with connect=true and the Connect signing secret.",
       "dry_run_verified": true
     },
@@ -578,10 +550,10 @@
   "connect_gated_remainder": [
     {
       "id": "connected_account_creation",
-      "status": "BLOCKED-ON-CONNECT",
+      "status": "PASS",
       "would_prove": "A project-controlled Canadian test connected account exists and is distinct from the platform.",
-      "detail": "Stripe no longer recommends Accounts v1 for new Connect integrations. Create connected accounts with POST /v2/core/accounts instead: https://docs.stripe.com/api/v2/core/accounts. Read more about Accounts v2: https://docs.stripe.com/connect/accounts-v2/account-creation. If your integration requires v1 account creation for a supported compatibility scenario, enable Accounts v1 support in the Dashboard: https://dashboard.stripe.com/settings/features/feat_accounts_v1_support. For agent-based integrations, use Stripe's current best-practices skill: npx skills add stripe/ai.",
-      "fixture_id": null,
+      "detail": "type=custom country=CA",
+      "fixture_id": "acct_1U7npECeWJZCwOUN",
       "dry_run_verified": true,
       "request": {
         "id": "connected_account_creation",
@@ -594,18 +566,18 @@
           "country": "CA",
           "capabilities[card_payments][requested]": "true",
           "capabilities[transfers][requested]": "true",
-          "metadata[cx_matrix_run]": "20260824T023901Z-l9cn",
+          "metadata[cx_matrix_run]": "20260824T024126Z-l9cn",
           "metadata[cx_purpose]": "connect_remainder"
         },
         "dry_run_verified": true,
-        "sent": true
+        "sent": false
       }
     },
     {
       "id": "transfer_to_connected_account",
-      "status": "BLOCKED-ON-CONNECT",
+      "status": "FAILED",
       "would_prove": "A CAD tr_ from the platform to a connected account appears in the provider log and Merc ledger.",
-      "detail": "requires connect_accounts_v1_not_enabled on acct_1TxbzMCwPLrR4vaY",
+      "detail": "http=400 Your destination account needs to have at least one of the following capabilities enabled: transfers, crypto_transfers, legacy_payments",
       "fixture_id": null,
       "dry_run_verified": true,
       "request": {
@@ -618,7 +590,7 @@
           "amount": "100",
           "currency": "cad",
           "destination": "<connected_account>",
-          "metadata[cx_matrix_run]": "20260824T023901Z-l9cn"
+          "metadata[cx_matrix_run]": "20260824T024126Z-l9cn"
         },
         "dry_run_verified": true,
         "sent": false
@@ -626,9 +598,9 @@
     },
     {
       "id": "payout_hold",
-      "status": "BLOCKED-ON-CONNECT",
+      "status": "FAILED",
       "would_prove": "Manual payout schedule plus payout.created on the connected account holds supplier cash.",
-      "detail": "requires connect_accounts_v1_not_enabled on acct_1TxbzMCwPLrR4vaY",
+      "detail": "no po_ from success-bank payout",
       "fixture_id": null,
       "dry_run_verified": true,
       "request": {
@@ -646,9 +618,9 @@
     },
     {
       "id": "payout_manual_release",
-      "status": "BLOCKED-ON-CONNECT",
+      "status": "FAILED",
       "would_prove": "A po_ to the documented Canadian success bank reaches paid.",
-      "detail": "requires connect_accounts_v1_not_enabled on acct_1TxbzMCwPLrR4vaY",
+      "detail": "hold never created a po_",
       "fixture_id": null,
       "dry_run_verified": true,
       "request": {
@@ -674,9 +646,9 @@
     },
     {
       "id": "payout_failure",
-      "status": "BLOCKED-ON-CONNECT",
+      "status": "FAILED",
       "would_prove": "A po_ to the documented Canadian failure bank reaches failed.",
-      "detail": "requires connect_accounts_v1_not_enabled on acct_1TxbzMCwPLrR4vaY",
+      "detail": "no po_ You have insufficient funds in your Stripe account for this transfer. Your card balance is too low.  You can use the /v1/balance endpoint to view your Stripe balance (for more details, see stripe.com/docs/api#balance).",
       "fixture_id": null,
       "dry_run_verified": true,
       "request": {
@@ -702,9 +674,9 @@
     },
     {
       "id": "connect_restriction_capability_events",
-      "status": "BLOCKED-ON-CONNECT",
+      "status": "FAILED",
       "would_prove": "account.updated / capability restriction events on a connected account update supplier payout readiness.",
-      "detail": "requires connect_accounts_v1_not_enabled on acct_1TxbzMCwPLrR4vaY",
+      "detail": "capabilities http=200 update http=200 event=-",
       "fixture_id": null,
       "dry_run_verified": true,
       "request": {
@@ -715,7 +687,7 @@
         "stripe_account": null,
         "fields": {
           "follow_up_post": "/v1/accounts/<connected_account>",
-          "business_profile[product_description]": "merc connect remainder 20260824T023901Z-l9cn"
+          "business_profile[product_description]": "merc connect remainder 20260824T024126Z-l9cn"
         },
         "dry_run_verified": true,
         "sent": false
@@ -723,10 +695,10 @@
     },
     {
       "id": "connect_true_webhook_delivery",
-      "status": "BLOCKED-ON-CONNECT",
+      "status": "FAILED",
       "would_prove": "Connected-account events are delivered to the Connect endpoint with connect=true and the Connect signing secret.",
-      "detail": "requires connect_accounts_v1_not_enabled on acct_1TxbzMCwPLrR4vaY",
-      "fixture_id": null,
+      "detail": "http=200 connect=None api_version=2025-06-30.basil ",
+      "fixture_id": "we_1U7npHCwPLrR4vaYfgzEMO1Q",
       "dry_run_verified": true,
       "request": {
         "id": "connect_true_webhook_delivery",
@@ -744,7 +716,7 @@
             "payout.paid",
             "payout.failed"
           ],
-          "description": "merc connect remainder 20260824T023901Z-l9cn"
+          "description": "merc connect remainder 20260824T024126Z-l9cn"
         },
         "dry_run_verified": true,
         "sent": false
@@ -758,39 +730,21 @@
     "Existing Connect endpoint still has connect!=true; scripts/stripe-sandbox-connect.sh will recreate it with connect=true after signup.",
     "Connect remainder command: scripts/stripe-sandbox-connect.sh (alias: scripts/stripe-sandbox.sh connect)",
     "Existing Connect endpoint still has connect!=true; scripts/stripe-sandbox-connect.sh will recreate it with connect=true after the current Connect dashboard action.",
-    "driver exception: NameError"
+    "driver exception: NameError",
+    "deleted unusable connect!=true recreate we_1U7npHCwPLrR4vaYfgzEMO1Q"
   ],
   "validator": {
     "path": "scripts/validate-readiness.py:stripe_sandbox_matrix_proven",
     "accepts_only": "status=PASS plus transfer tr_ and payout hold/release/failure/reversal",
-    "this_receipt": "honest BLOCKED; expected CHECK_FAILED until connect_accounts_v1_not_enabled"
+    "this_receipt": "honest BLOCKED; expected CHECK_FAILED until Connect remainder completes"
   },
   "connect_remainder": {
     "command": "scripts/stripe-sandbox-connect.sh",
     "alias": "scripts/stripe-sandbox.sh connect",
-    "run_id": "20260824T023901Z-l9cn",
+    "run_id": "20260824T024126Z-l9cn",
     "status": "BLOCKED",
-    "exit_reason": "blocked: connect_accounts_v1_not_enabled",
-    "stopped_at": {
-      "method": "POST",
-      "path": "/v1/accounts",
-      "http": 400,
-      "error_type": "invalid_request_error",
-      "error_code": null,
-      "error_message": "Stripe no longer recommends Accounts v1 for new Connect integrations. Create connected accounts with POST /v2/core/accounts instead: https://docs.stripe.com/api/v2/core/accounts. Read more about Accounts v2: https://docs.stripe.com/connect/accounts-v2/account-creation. If your integration requires v1 account creation for a supported compatibility scenario, enable Accounts v1 support in the Dashboard: https://dashboard.stripe.com/settings/features/feat_accounts_v1_support. For agent-based integrations, use Stripe's current best-practices skill: npx skills add stripe/ai.",
-      "request_fields": {
-        "type": "custom",
-        "country": "CA",
-        "capabilities[card_payments][requested]": "true",
-        "capabilities[transfers][requested]": "true",
-        "metadata[cx_matrix_run]": "20260824T023901Z-l9cn",
-        "metadata[cx_purpose]": "connect_remainder"
-      },
-      "classification": "external_gate",
-      "blocker_id": "connect_accounts_v1_not_enabled",
-      "dashboard_url": "https://dashboard.stripe.com/settings/features/feat_accounts_v1_support",
-      "dashboard_action": "Create connected accounts with POST /v2/core/accounts, or enable Accounts v1 support"
-    },
+    "exit_reason": "blocked: external gate",
+    "stopped_at": null,
     "pre_connect": [
       {
         "step": "GET /v1/account",
@@ -833,7 +787,7 @@
         "step": "POST /v1/webhook_endpoints (connect=true probe)",
         "status": "ok",
         "http": 200,
-        "id": "we_1U7nmtCwPLrR4vaY3a8cFFcM",
+        "id": "we_1U7npECwPLrR4vaYGg1kuBHw",
         "connect_flag": null,
         "api_version": "2025-06-30.basil",
         "deleted": true,
@@ -852,11 +806,11 @@
           "country": "CA",
           "capabilities[card_payments][requested]": "true",
           "capabilities[transfers][requested]": "true",
-          "metadata[cx_matrix_run]": "20260824T023901Z-l9cn",
+          "metadata[cx_matrix_run]": "20260824T024126Z-l9cn",
           "metadata[cx_purpose]": "connect_remainder"
         },
         "dry_run_verified": true,
-        "sent": true
+        "sent": false
       },
       {
         "id": "transfer_to_connected_account",
@@ -868,7 +822,7 @@
           "amount": "100",
           "currency": "cad",
           "destination": "<connected_account>",
-          "metadata[cx_matrix_run]": "20260824T023901Z-l9cn"
+          "metadata[cx_matrix_run]": "20260824T024126Z-l9cn"
         },
         "dry_run_verified": true,
         "sent": false
@@ -933,7 +887,7 @@
         "stripe_account": null,
         "fields": {
           "follow_up_post": "/v1/accounts/<connected_account>",
-          "business_profile[product_description]": "merc connect remainder 20260824T023901Z-l9cn"
+          "business_profile[product_description]": "merc connect remainder 20260824T024126Z-l9cn"
         },
         "dry_run_verified": true,
         "sent": false
@@ -954,7 +908,7 @@
             "payout.paid",
             "payout.failed"
           ],
-          "description": "merc connect remainder 20260824T023901Z-l9cn"
+          "description": "merc connect remainder 20260824T024126Z-l9cn"
         },
         "dry_run_verified": true,
         "sent": false
@@ -963,8 +917,8 @@
     "webhook_recreate_probe": {
       "stopped": false,
       "http": 200,
-      "probe_url": "https://mercmerc.net/v1/stripe/connect-webhook-probe/20260824T023901Z-l9cn",
-      "probe_id": "we_1U7nmtCwPLrR4vaY3a8cFFcM",
+      "probe_url": "https://mercmerc.net/v1/stripe/connect-webhook-probe/20260824T024126Z-l9cn",
+      "probe_id": "we_1U7npECwPLrR4vaYGg1kuBHw",
       "requested_connect": true,
       "requested_api_version": "2025-06-30.basil",
       "returned_connect": null,
@@ -976,86 +930,66 @@
     "scenarios": [
       {
         "id": "connected_account_creation",
-        "status": "BLOCKED-ON-CONNECT",
+        "status": "PASS",
         "provider_mode": "test",
         "live_mode": "PROHIBITED",
-        "fixture_id": null,
-        "detail": "Stripe no longer recommends Accounts v1 for new Connect integrations. Create connected accounts with POST /v2/core/accounts instead: https://docs.stripe.com/api/v2/core/accounts. Read more about Accounts v2: https://docs.stripe.com/connect/accounts-v2/account-creation. If your integration requires v1 account creation for a supported compatibility scenario, enable Accounts v1 support in the Dashboard: https://dashboard.stripe.com/settings/features/feat_accounts_v1_support. For agent-based integrations, use Stripe's current best-practices skill: npx skills add stripe/ai.",
-        "would_prove": "A project-controlled Canadian test connected account exists and is distinct from the platform.",
-        "attempted": true,
-        "http": 400,
-        "path": "/v1/accounts",
-        "method": "POST",
-        "dry_run_verified": true,
-        "classification": "external_gate",
-        "blocker_id": "connect_accounts_v1_not_enabled",
-        "dashboard_url": "https://dashboard.stripe.com/settings/features/feat_accounts_v1_support"
-      },
-      {
-        "id": "transfer_to_connected_account",
-        "status": "BLOCKED-ON-CONNECT",
-        "provider_mode": "test",
-        "live_mode": "PROHIBITED",
-        "fixture_id": null,
-        "detail": "requires connect_accounts_v1_not_enabled on acct_1TxbzMCwPLrR4vaY",
-        "would_prove": "A CAD tr_ from the platform to a connected account appears in the provider log and Merc ledger.",
-        "dry_run_verified": true,
-        "not_sent": true
-      },
-      {
-        "id": "payout_hold",
-        "status": "BLOCKED-ON-CONNECT",
-        "provider_mode": "test",
-        "live_mode": "PROHIBITED",
-        "fixture_id": null,
-        "detail": "requires connect_accounts_v1_not_enabled on acct_1TxbzMCwPLrR4vaY",
-        "would_prove": "Manual payout schedule plus payout.created on the connected account holds supplier cash.",
-        "dry_run_verified": true,
-        "not_sent": true
-      },
-      {
-        "id": "payout_manual_release",
-        "status": "BLOCKED-ON-CONNECT",
-        "provider_mode": "test",
-        "live_mode": "PROHIBITED",
-        "fixture_id": null,
-        "detail": "requires connect_accounts_v1_not_enabled on acct_1TxbzMCwPLrR4vaY",
-        "would_prove": "A po_ to the documented Canadian success bank reaches paid.",
-        "dry_run_verified": true,
-        "not_sent": true
-      },
-      {
-        "id": "payout_failure",
-        "status": "BLOCKED-ON-CONNECT",
-        "provider_mode": "test",
-        "live_mode": "PROHIBITED",
-        "fixture_id": null,
-        "detail": "requires connect_accounts_v1_not_enabled on acct_1TxbzMCwPLrR4vaY",
-        "would_prove": "A po_ to the documented Canadian failure bank reaches failed.",
-        "dry_run_verified": true,
-        "not_sent": true
-      },
-      {
-        "id": "connect_restriction_capability_events",
-        "status": "BLOCKED-ON-CONNECT",
-        "provider_mode": "test",
-        "live_mode": "PROHIBITED",
-        "fixture_id": null,
-        "detail": "requires connect_accounts_v1_not_enabled on acct_1TxbzMCwPLrR4vaY",
-        "would_prove": "account.updated / capability restriction events on a connected account update supplier payout readiness.",
-        "dry_run_verified": true,
-        "not_sent": true
+        "fixture_id": "acct_1U7npECeWJZCwOUN",
+        "detail": "type=custom country=CA",
+        "would_prove": "A project-controlled Canadian test connected account exists and is distinct from the platform."
       },
       {
         "id": "connect_true_webhook_delivery",
-        "status": "BLOCKED-ON-CONNECT",
+        "status": "FAILED",
+        "provider_mode": "test",
+        "live_mode": "PROHIBITED",
+        "fixture_id": "we_1U7npHCwPLrR4vaYfgzEMO1Q",
+        "detail": "http=200 connect=None api_version=2025-06-30.basil ",
+        "would_prove": "Connected-account events are delivered to the Connect endpoint with connect=true and the Connect signing secret."
+      },
+      {
+        "id": "transfer_to_connected_account",
+        "status": "FAILED",
         "provider_mode": "test",
         "live_mode": "PROHIBITED",
         "fixture_id": null,
-        "detail": "requires connect_accounts_v1_not_enabled on acct_1TxbzMCwPLrR4vaY",
-        "would_prove": "Connected-account events are delivered to the Connect endpoint with connect=true and the Connect signing secret.",
-        "dry_run_verified": true,
-        "not_sent": true
+        "detail": "http=400 Your destination account needs to have at least one of the following capabilities enabled: transfers, crypto_transfers, legacy_payments",
+        "would_prove": "A CAD tr_ from the platform to a connected account appears in the provider log and Merc ledger."
+      },
+      {
+        "id": "payout_hold",
+        "status": "FAILED",
+        "provider_mode": "test",
+        "live_mode": "PROHIBITED",
+        "fixture_id": null,
+        "detail": "no po_ from success-bank payout",
+        "would_prove": "Manual payout schedule plus payout.created on the connected account holds supplier cash."
+      },
+      {
+        "id": "payout_manual_release",
+        "status": "FAILED",
+        "provider_mode": "test",
+        "live_mode": "PROHIBITED",
+        "fixture_id": null,
+        "detail": "hold never created a po_",
+        "would_prove": "A po_ to the documented Canadian success bank reaches paid."
+      },
+      {
+        "id": "payout_failure",
+        "status": "FAILED",
+        "provider_mode": "test",
+        "live_mode": "PROHIBITED",
+        "fixture_id": null,
+        "detail": "no po_ You have insufficient funds in your Stripe account for this transfer. Your card balance is too low.  You can use the /v1/balance endpoint to view your Stripe balance (for more details, see stripe.com/docs/api#balance).",
+        "would_prove": "A po_ to the documented Canadian failure bank reaches failed."
+      },
+      {
+        "id": "connect_restriction_capability_events",
+        "status": "FAILED",
+        "provider_mode": "test",
+        "live_mode": "PROHIBITED",
+        "fixture_id": null,
+        "detail": "capabilities http=200 update http=200 event=-",
+        "would_prove": "account.updated / capability restriction events on a connected account update supplier payout readiness."
       }
     ],
     "secret_values_printed": false,
