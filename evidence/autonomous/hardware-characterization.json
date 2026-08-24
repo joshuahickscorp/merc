@@ -6,11 +6,13 @@
   "device": "metal",
   "device_model": "Mac15,14",
   "hardware_class": "apple_silicon_ultra",
+  "hardware_identity": "apple_silicon_v1|brand=Apple M3 Ultra|model=Mac15,14|memory_bytes=103079215104|cpu_cores=28|gpu_cores=60",
   "memory_gb": 103.079216,
-  "operating_system": "macOS 27.0 (26A5378j)",
+  "operating_system": "macOS 27.0 (26A5416b)",
   "metal_available": true,
-  "source_identity": "4a4807d69d8747a5",
-  "runtime_authority_sha256": "ecbf2fc6cc2b749860cd769d29a6b39bcf76f8c96ad0b785c0cdb29851b1f5c8",
+  "source_identity": "6c54533ff8f4a766",
+  "build_identity_policy": "merc_agent_running_executable_sha256_v1",
+  "runtime_authority_sha256": "0b569a272b2bef7f553cad0efbe7bac9fc42a18944b16ac60b590763f497d60c",
   "model_revisions": [
     [
       "all-minilm-l6-v2",
@@ -26,38 +28,86 @@
       "model_id": "all-minilm-l6-v2",
       "job_type": "embed",
       "tps": 0.0,
-      "eps": 1902.0637,
-      "p99_ms": 14,
+      "eps": 1634.4673,
+      "p99_ms": 7,
       "thermal_ok": true,
-      "load_ms": 275
+      "load_ms": 4544,
+      "unit": "embeddings",
+      "unit_scope": "completed_embedding_records",
+      "measured_unix": 1787542184
     },
     {
       "model_id": "llama-3.2-1b-instruct-q4",
       "job_type": "batch_infer",
-      "tps": 202.76547,
+      "tps": 262.42694,
       "eps": 0.0,
-      "p99_ms": 9,
+      "p99_ms": 5,
       "thermal_ok": true,
-      "load_ms": 3308
+      "load_ms": 38606,
+      "unit": "tokens",
+      "unit_scope": "token_like_input_plus_max_output_tokens",
+      "measured_unix": 1787542184
+    },
+    {
+      "model_id": "ffmpeg-transcode-v1",
+      "job_type": "media_transcode",
+      "tps": 4277.5845,
+      "eps": 0.0,
+      "p99_ms": 101,
+      "thermal_ok": true,
+      "load_ms": 0,
+      "unit": "media_work_units",
+      "unit_scope": "single_object_input_byte_quarters",
+      "measured_unix": 1787542184
+    },
+    {
+      "model_id": "svg-scene-render-v1",
+      "job_type": "media_rendering",
+      "tps": 358794700.0,
+      "eps": 0.0,
+      "p99_ms": 1,
+      "thermal_ok": true,
+      "load_ms": 0,
+      "unit": "pixels",
+      "unit_scope": "declared_output_pixels_per_scene",
+      "measured_unix": 1787542184
     }
   ],
-  "peak_rss_bytes": 3703095296,
+  "peak_rss_bytes": 3720986624,
   "thermal_state": "nominal",
   "throttling": false,
-  "cache_behavior": "fresh isolated benchmark run completed and cache receipt written",
+  "cache_behavior": "warm benchmark cache reused after build/hardware identity validation",
   "limitations": [
     "single physical Mac only",
     "additional authorized devices require separate receipts"
   ],
-  "binding_status": "UNBOUND",
-  "missing_identity_fields": [
-    "source_commit",
-    "build_digest",
-    "model_artifact_digest",
-    "image_digest",
-    "harness_revision",
-    "corpus_digest",
-    "exact_config",
-    "raw_samples"
-  ]
+  "source_commit": "fa47cafe39570db1ba1d0551d6d664780264e826",
+  "produced_by": "scripts/produce-hardware-characterization.py",
+  "binding_status": "BOUND",
+  "producer_identity": {
+    "source_commit": {
+      "value": "fa47cafe39570db1ba1d0551d6d664780264e826"
+    },
+    "build_digest": {
+      "value": "4dc659cfac68a17a4f1c7bb49b95af6081e471355687b1c36c7cd850bbe6d10e"
+    },
+    "model_artifact_digest": {
+      "na": "model revisions recorded in receipt body; weights not inlined"
+    },
+    "image_digest": {
+      "na": "no container image in this measurement"
+    },
+    "harness_revision": {
+      "value": "scripts/produce-hardware-characterization.py"
+    },
+    "corpus_digest": {
+      "na": "no external corpus; retained models are loaded by the agent"
+    },
+    "exact_config": {
+      "value": "cargo run --release -- characterize"
+    },
+    "raw_samples": {
+      "value": "embedded benchmarks and device fields in receipt body"
+    }
+  }
 }

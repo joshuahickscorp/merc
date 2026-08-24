@@ -1,7 +1,19 @@
 {
   "schema_version": 1,
   "status": "PASS",
-  "completed_at": "2026-07-20T05:49:23Z",
+  "completed_at": "2026-08-24T03:30:12Z",
+  "go_test_exit_code": 0,
+  "go_test_jsonl": "/Users/scammermike/.claude-grok/worktrees/F-stamp-batch1-20260823-231618/.artifacts/technical-exercises-go-test.jsonl",
+  "test_results": {
+    "TestBuyerObjectDeletionQueueAndSweep": "pass",
+    "TestDSARDeletionTombstoneAndRestoreReplay": "pass",
+    "TestSupportAndSecurityTechnicalTabletops": "pass",
+    "TestPrivilegedAdminMutationsHaveCompleteAtomicAudit": "pass",
+    "TestPrivilegedMutationIdempotentConcurrentReplay": "pass",
+    "TestConcurrentNamedOperatorsRetainIndependentAttribution": "pass",
+    "TestRevocationWinsRaceBeforePrivilegedMutation": "pass",
+    "TestAdminMutationRollsBackWhenAuditInsertFails": "pass"
+  },
   "dsar": {
     "export_complete": true,
     "foreign_data_absent": true,
@@ -11,11 +23,11 @@
     "provenance": true
   },
   "deletion": {
-    "deletable_data_removed": true,
     "minimal_financial_retention": true,
     "artifact_expiry_harness": true,
     "authentication_revoked": true,
-    "foreign_keys_valid": true
+    "foreign_keys_valid": true,
+    "deletable_data_removed": true
   },
   "tombstone": {
     "authentication_denied": true,
@@ -72,38 +84,41 @@
     "unauthorized_rejected": true,
     "audit_failure_aborts": true,
     "concurrent_operators": true,
-    "idempotent_retries": true
+    "idempotent_retries": true,
+    "revocation_wins_race": true
   },
   "qualification": {
     "technical_tabletop": "PASS",
     "qualified_human_tabletop": "NOT EXECUTED",
     "external_subprocessor_deletion": "NOT EXECUTED"
   },
+  "source_commit": "fa47cafe39570db1ba1d0551d6d664780264e826",
+  "produced_by": "scripts/derive-technical-exercises-receipt.py",
   "binding_status": "BOUND",
   "producer_identity": {
     "source_commit": {
-      "value": "87a818578ed151d87df0139d1e7d31f98f9840b5"
+      "value": "fa47cafe39570db1ba1d0551d6d664780264e826"
     },
     "build_digest": {
-      "value": "fdc7eb3a4977f7c46bf43071ccbc0da3ff6c1231907aaff008bcaf0ce8e54097"
+      "value": "bea57e921124d56a407bfc8293e95e6e8b2f0f9e202aec0a77df73148c6c680c"
     },
     "model_artifact_digest": {
       "na": "technical exercises do not load model weights"
     },
     "image_digest": {
-      "na": "drill uses pinned postgres image; digest lives in script pin, not receipt identity"
+      "na": "no container image in this measurement"
     },
     "harness_revision": {
-      "value": "scripts/technical-exercises.sh"
+      "value": "scripts/derive-technical-exercises-receipt.py"
     },
     "corpus_digest": {
-      "na": "no external corpus; suite is go test + authorization-matrix check"
+      "na": "no external corpus"
     },
     "exact_config": {
-      "value": "NAME=cx-technical-exercises-20260719 PG_IMAGE=postgres:17@sha256:a426e44bac0b759c95894d68e1a0ac03ecc20b619f498a91aae373bf06d8508d port=55441; go test DSAR/tabletop/break-glass; qualification.qualified_human_tabletop=NOT EXECUTED qualification.external_subprocessor_deletion=NOT EXECUTED"
+      "value": "go test -json events at technical-exercises-go-test.jsonl; exit=0"
     },
     "raw_samples": {
-      "value": "embedded dsar/deletion/tombstone/provenance/tabletop/break_glass booleans in receipt body"
+      "value": "embedded test_results from go test -json"
     }
   }
 }

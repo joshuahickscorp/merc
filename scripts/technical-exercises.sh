@@ -29,6 +29,13 @@ for name in STRIPE_SECRET_KEY STRIPE_LIVE_SECRET_KEY STRIPE_RESTRICTED_KEY; do
 done
 unset STRIPE_SECRET_KEY STRIPE_LIVE_SECRET_KEY STRIPE_RESTRICTED_KEY STRIPE_WEBHOOK_SECRET
 
+# TestBuyerObjectDeletionQueueAndSweep skips unless S3_* is set. Re-exec under
+# the pinned MinIO sidecar so deletable_data_removed can be re-earned rather
+# than silently skipped. If the caller already provided object storage, keep it.
+if [ -z "${S3_ENDPOINT:-}" ]; then
+  exec bash "$ROOT/scripts/with-isolated-test-storage.sh" bash "$ROOT/scripts/technical-exercises.sh" "$@"
+fi
+
 docker inspect "$NAME" >/dev/null 2>&1 && { echo "container $NAME already exists" >&2; exit 1; }
 cleanup() { docker stop "$NAME" >/dev/null 2>&1 || true; }
 trap cleanup EXIT INT TERM

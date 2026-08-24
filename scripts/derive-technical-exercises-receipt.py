@@ -15,6 +15,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 from lib.evidence_binding import EvidenceBindingError, emit_bound_json  # noqa: E402
+from lib.receipt_binding import head_commit, stamp  # noqa: E402
 
 REQUIRED_TESTS = [
     "TestBuyerObjectDeletionQueueAndSweep",
@@ -159,6 +160,11 @@ def main() -> int:
     go_exit = int(sys.argv[3])
     results = parse_results(events_path)
     receipt = build_receipt(results, go_exit, events_path)
+    stamp(
+        receipt,
+        head_commit(str(ROOT)),
+        "scripts/derive-technical-exercises-receipt.py",
+    )
     try:
         emit_bound_json(
             evidence_path,
