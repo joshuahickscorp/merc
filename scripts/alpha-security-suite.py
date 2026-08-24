@@ -165,14 +165,28 @@ def run(
     )
 
 
+def _candidate_commit() -> str:
+    """ops/candidate.json's commit, else HEAD. Mirrors receipt_binding."""
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parents[0]))
+        from lib.receipt_binding import candidate_commit
+
+        return candidate_commit(str(Path(__file__).resolve().parents[1]))
+    except Exception:
+        return run(["git", "rev-parse", "HEAD"]).stdout.strip()
+
+
 class Suite:
     def __init__(self) -> None:
         self.started = utcnow()
         self.attacks: list[dict[str, Any]] = []
         self.classes: dict[str, dict[str, Any]] = {}
-        self.source_commit = (
-            run(["git", "rev-parse", "HEAD"]).stdout.strip() or "unknown"
-        )
+        # The declared candidate, not HEAD. Binding to HEAD cannot converge: the
+        # commit that carries a regenerated receipt is not the commit the receipt
+        # then names, so a regeneration pass never settles. Every other producer
+        # reads ops/candidate.json; this one was missed because the rev-parse is
+        # split across lines.
+        self.source_commit = _candidate_commit() or "unknown"
 
     def record(
         self,

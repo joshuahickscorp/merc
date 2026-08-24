@@ -4,7 +4,7 @@
   "surface": "persistent_staging_tls",
   "qualification": "EXTERNAL",
   "secret_values_recorded": false,
-  "source_commit_recorded": "bcc7ebc6b61877a83ad04a39e04ac49cf4f0b112",
+  "source_commit_recorded": "87b0ea63be7ccf49bd4f517c26df4dcdfe5af686",
   "target": {
     "scheme": "https",
     "hostname": "mercmerc.net",
@@ -4168,8 +4168,8 @@
   },
   "finding_rows": [],
   "observations": {
-    "started_at": "2026-08-24T16:49:47Z",
-    "finished_at": "2026-08-24T16:50:14Z",
+    "started_at": "2026-08-24T16:51:05Z",
+    "finished_at": "2026-08-24T16:51:34Z",
     "request_count": 255,
     "distinct_routes_exercised": 112,
     "attacks_executed": 265,
@@ -4279,10 +4279,10 @@
   },
   "producer_identity": {
     "source_commit": {
-      "value": "bcc7ebc6b61877a83ad04a39e04ac49cf4f0b112"
+      "value": "87b0ea63be7ccf49bd4f517c26df4dcdfe5af686"
     },
     "build_digest": {
-      "value": "172dedb3bc63a5c7533d064d52c765135742901cc137fa2438a6dd4d16f2d02d"
+      "value": "a503448723560f048ee39ed8bf765f1a9aab750ec5daecd837048f79219ef189"
     },
     "model_artifact_digest": {
       "na": "security suite does not load model weights"
