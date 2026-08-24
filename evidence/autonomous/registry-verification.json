@@ -1,96 +1,36 @@
 {
   "schema_version": 1,
+  "kind": "registry_verification",
+  "label": "REGISTRY VERIFICATION",
+  "evidence_source": "GitHub Actions publish-candidate artifact bundle",
   "status": "PASS",
-  "label": "CLEAN REGISTRY VERIFICATION",
-  "verified_at": "2026-07-20T04:18:24Z",
-  "updated_at": "2026-07-20T04:21:25Z",
-  "honesty": {
-    "record_class": "historical_registry_sbom_verification",
-    "event_date": "2026-07-20",
-    "describes_candidate_image": "ghcr.io/joshuahickscorp/computexchange-control@sha256:f848a8048af250f7135f54b15d8bf4455bd24af6d42fd4d380dd99e0c1b91563",
-    "describes_source_commit": "a4d50d93d0d8e44742fabe9d6b06380e3191b2e5",
-    "describes_version": "v0.1.0-rc.1",
-    "does_not_describe_running_plane": true,
-    "later_plane_observations_that_are_not_this_candidate": [
-      "closeout plane: a5bca8c0 @ sha256:2b2f85c9… from the local docker store, not pushed to a remote registry",
-      "2026-08-17 remaining-work probe /version: 19fe0b23940c7e3d4da9b45d9cc5689c2c515d07",
-      "2026-08-17 this-lane public /version: 9e31c65b27860d659d7ce972e2de7052691c0642 (readyz payment_mode=test, live_value_movement=false). None of these are f848a804 / a4d50d93."
-    ],
-    "binding_status_means": "UNBOUND — producer identity was never recovered for this run"
+  "checks": {
+    "candidate_digest_pinned": true,
+    "prior_digest_pinned": true,
+    "candidate_signature_verified": true,
+    "candidate_attestation_verified": true,
+    "candidate_provenance_verified": true,
+    "prior_signature_verified": true,
+    "candidate_sbom_present": true,
+    "candidate_no_critical_vulnerabilities": true,
+    "prior_no_critical_vulnerabilities": true,
+    "image_contains_candidate_code": true
   },
   "candidate": {
-    "image": "ghcr.io/joshuahickscorp/computexchange-control@sha256:f848a8048af250f7135f54b15d8bf4455bd24af6d42fd4d380dd99e0c1b91563",
-    "architecture": "amd64",
-    "source_commit": "a4d50d93d0d8e44742fabe9d6b06380e3191b2e5",
-    "version": "v0.1.0-rc.1",
-    "digest_pull": "PASS",
-    "signature": "PASS",
-    "signature_records": 1,
-    "spdx_sbom_attestation": "PASS",
-    "attestation_records": 3
+    "image": "ghcr.io/joshuahickscorp/computexchange-control@sha256:923433c674f1d0af0ba1e23415417280daa4807a5f98330603b8aeee2067ac45",
+    "built_from_commit": "53eb3c21ee761379a41104d3f792cb082e290cd3",
+    "declared_candidate": "8e7c25f1096e20d2c7b0b3b42e2bea47739282d8",
+    "delta_to_candidate": [
+      "ops/candidate.json"
+    ],
+    "delta_is_ops_only": true
   },
   "prior": {
-    "image": "ghcr.io/joshuahickscorp/computexchange-control@sha256:098edaa7f97892724b9e62a7008f1b3aecae452a9e08c11e60525c05cc6fdacf",
-    "architecture": "amd64",
-    "digest_pull": "PASS",
-    "signature": "PASS",
-    "spdx_sbom_attestation": "PASS",
-    "retained_for_rollback": true
+    "image": "ghcr.io/joshuahickscorp/computexchange-control@sha256:7bad607e23627d53dec541eb4d618b819278cd6e3ae7bf4297eb4e2ee8c79bf0"
   },
-  "identity": {
-    "certificate_identity": "https://github.com/joshuahickscorp/computexchange/.github/workflows/publish-candidate.yml@refs/heads/release/rc1-go-closure",
-    "oidc_issuer": "https://token.actions.githubusercontent.com",
-    "workflow_source_commit": "a4d50d93d0d8e44742fabe9d6b06380e3191b2e5"
-  },
-  "policy": {
-    "candidate_and_prior_retained": true,
-    "rollback_pull": "PASS",
-    "vulnerability_scan": {
-      "status": "PASS",
-      "scanner": "Trivy v0.66.0",
-      "database_refreshed_for_run": true,
-      "severity_scope": [
-        "HIGH",
-        "CRITICAL"
-      ],
-      "candidate_high": 0,
-      "candidate_critical": 0,
-      "prior_high": 0,
-      "prior_critical": 0,
-      "fixable_critical_gate": "PASS"
-    },
-    "vulnerability_scan_policy_added_to_workflow": true,
-    "fixable_critical_blocks_publication": true,
-    "protected_release_tags": {
-      "status": "PASS",
-      "verified_at": "2026-07-20T05:46:21Z",
-      "ruleset_id": 19184161,
-      "ruleset": "Protect release tags",
-      "enforcement": "active",
-      "patterns": [
-        "refs/tags/v*",
-        "refs/tags/rc*"
-      ],
-      "creation_restricted": true,
-      "update_restricted": true,
-      "deletion_restricted": true,
-      "non_fast_forward_blocked": true,
-      "bypass_actor_count": 1,
-      "bypass_actor_scope": "repository owner only",
-      "bypass_mode": "always"
-    },
-    "rc_tag_created": false
-  },
+  "workflow_run": "https://github.com/joshuahickscorp/merc/actions/runs/32690567898",
   "secret_values_recorded": false,
-  "binding_status": "UNBOUND",
-  "missing_identity_fields": [
-    "source_commit",
-    "build_digest",
-    "model_artifact_digest",
-    "image_digest",
-    "harness_revision",
-    "corpus_digest",
-    "exact_config",
-    "raw_samples"
-  ]
+  "source_commit": "8e7c25f1096e20d2c7b0b3b42e2bea47739282d8",
+  "produced_by": "scripts/produce-registry-receipts.py",
+  "binding_status": "BOUND"
 }

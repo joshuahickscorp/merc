@@ -1,61 +1,38 @@
 {
   "schema_version": 1,
   "kind": "registry_supply_chain_verification",
+  "label": "SUPPLY CHAIN",
+  "sbom_format": "SPDX JSON",
+  "sbom_packages": 32,
+  "scanner": "trivy (CRITICAL, ignore-unfixed)",
   "status": "PASS",
-  "completed_at": "2026-07-20T05:46:21Z",
+  "checks": {
+    "candidate_digest_pinned": true,
+    "prior_digest_pinned": true,
+    "candidate_signature_verified": true,
+    "candidate_attestation_verified": true,
+    "candidate_provenance_verified": true,
+    "prior_signature_verified": true,
+    "candidate_sbom_present": true,
+    "candidate_no_critical_vulnerabilities": true,
+    "prior_no_critical_vulnerabilities": true,
+    "image_contains_candidate_code": true
+  },
   "candidate": {
-    "image": "ghcr.io/joshuahickscorp/computexchange-control@sha256:f848a8048af250f7135f54b15d8bf4455bd24af6d42fd4d380dd99e0c1b91563",
-    "digest_pull": true,
-    "signature_verified": true,
-    "spdx_attestation_verified": true,
-    "high_or_critical_findings": 0,
-    "fixable_critical_policy": "PASS"
+    "image": "ghcr.io/joshuahickscorp/computexchange-control@sha256:923433c674f1d0af0ba1e23415417280daa4807a5f98330603b8aeee2067ac45",
+    "built_from_commit": "53eb3c21ee761379a41104d3f792cb082e290cd3",
+    "declared_candidate": "8e7c25f1096e20d2c7b0b3b42e2bea47739282d8",
+    "delta_to_candidate": [
+      "ops/candidate.json"
+    ],
+    "delta_is_ops_only": true
   },
   "prior": {
-    "image": "ghcr.io/joshuahickscorp/computexchange-control@sha256:098edaa7f97892724b9e62a7008f1b3aecae452a9e08c11e60525c05cc6fdacf",
-    "digest_pull": true,
-    "signature_verified": true,
-    "spdx_attestation_verified": true,
-    "high_or_critical_findings": 0,
-    "fixable_critical_policy": "PASS"
+    "image": "ghcr.io/joshuahickscorp/computexchange-control@sha256:7bad607e23627d53dec541eb4d618b819278cd6e3ae7bf4297eb4e2ee8c79bf0"
   },
-  "verification": {
-    "cosign_version": "3.0.6",
-    "trivy_version": "0.66.0",
-    "certificate_identity": "https://github.com/joshuahickscorp/computexchange/.github/workflows/publish-candidate.yml@refs/heads/release/rc1-go-closure",
-    "certificate_issuer": "https://token.actions.githubusercontent.com",
-    "workflow_commit": "a4d50d93d0d8e44742fabe9d6b06380e3191b2e5",
-    "full_tool_outputs_retained_in_ignored_artifact_directory": true
-  },
-  "rust_paste": {
-    "version": "1.0.15",
-    "known_vulnerabilities": 0,
-    "informational_advisory": "RUSTSEC-2024-0436",
-    "status": "RETAINED_WITH_DOCUMENTED_REMOVAL_CONDITION",
-    "audit": "ops/rust-paste-audit.json"
-  },
-  "external_registry_policy": {
-    "protected_release_tags": "PASS",
-    "ruleset_id": 19184161,
-    "enforcement": "active",
-    "patterns": [
-      "refs/tags/v*",
-      "refs/tags/rc*"
-    ],
-    "creation_update_deletion_restricted": true,
-    "bypass_scope": "repository owner only",
-    "rc_tag_created": false
-  },
-  "exact_head_note": "The publication workflow repeats scan, SBOM, sign, attestation, clean pull, signature verification, and provenance verification for every pushed head.",
-  "binding_status": "UNBOUND",
-  "missing_identity_fields": [
-    "source_commit",
-    "build_digest",
-    "model_artifact_digest",
-    "image_digest",
-    "harness_revision",
-    "corpus_digest",
-    "exact_config",
-    "raw_samples"
-  ]
+  "workflow_run": "https://github.com/joshuahickscorp/merc/actions/runs/32690567898",
+  "secret_values_recorded": false,
+  "source_commit": "8e7c25f1096e20d2c7b0b3b42e2bea47739282d8",
+  "produced_by": "scripts/produce-registry-receipts.py",
+  "binding_status": "BOUND"
 }
