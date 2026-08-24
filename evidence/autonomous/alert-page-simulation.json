@@ -28,12 +28,12 @@
     "receiver_value_recorded": false,
     "attempts": {}
   },
-  "source_commit": "7987135786d523ffa7eb5fe364aee0e2d8cf6cfe",
+  "source_commit": "5fabe47d1f32df442d7d9744ca721ebd78493414",
   "produced_by": "scripts/alert-pipeline-simulation.py",
   "binding_status": "BOUND",
   "producer_identity": {
     "source_commit": {
-      "value": "3c745c2d55da48e850ff520cb668ec149a96e6d2"
+      "value": "b858f5de001368591cdb100e952f27076f440507"
     },
     "build_digest": {
       "value": "1a308726bbcb2b57e6f27a93af25f654e984345227e90dfbcd94cb9c1e693e16"
