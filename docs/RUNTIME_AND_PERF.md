@@ -45,5 +45,6 @@ staging, Stripe, provider, and soak evidence stays under their own gates.
 ## Historical measurements
 
 The detailed benchmark ledger, runtime census, and superseded decision records
-remain in [the engineering archive](archive/engineering/RUNTIME_AND_PERF_2026-08-28.md).
+Historical measurements remain under `evidence/perf/`; this page is the
+canonical runtime and performance index.
 The archived material is useful for provenance and comparison only.

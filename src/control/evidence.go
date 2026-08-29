@@ -27,7 +27,7 @@ const sourceFingerprintSchema = 2
 func isGeneratedReleaseEvidencePath(path string) bool {
 	switch path {
 	case "evidence/census/CODEBASE_CENSUS.json", "evidence/census/CODEBASE_CENSUS.md",
-		"ops/readiness.json", "ops/go-no-go.json", "RELEASE_READINESS.md":
+		"ops/readiness.json", "ops/go-no-go.json", "docs/RELEASE_READINESS.md":
 		return true
 	default:
 		return false
@@ -245,6 +245,19 @@ func loadLFSIndex(repo string) (map[string]lfsIndexEntry, error) {
 		// failures are real.
 		return nil, fmt.Errorf("git lfs ls-files: %w", err)
 	}
+	// git-lfs can include a path from HEAD while a staged rename is already
+	// present in the index. The index is the authority this verifier hashes, so
+	// discard any stale path before asking git for its index blob.
+	trackedRaw, err := gitBytes(repo, "ls-files", "-z")
+	if err != nil {
+		return nil, fmt.Errorf("git ls-files: %w", err)
+	}
+	tracked := map[string]bool{}
+	for _, path := range strings.Split(string(trackedRaw), "\x00") {
+		if path != "" {
+			tracked[path] = true
+		}
+	}
 	idx := map[string]lfsIndexEntry{}
 	for _, line := range strings.Split(string(out), "\n") {
 		line = strings.TrimSpace(line)
@@ -266,7 +279,7 @@ func loadLFSIndex(repo string) (map[string]lfsIndexEntry, error) {
 			continue
 		}
 		rel := strings.TrimSpace(line[pathStart+len(fields[1]):])
-		if rel == "" {
+		if rel == "" || !tracked[rel] {
 			continue
 		}
 		ptr, err := gitBytes(repo, "cat-file", "blob", ":"+rel)

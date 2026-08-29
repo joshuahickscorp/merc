@@ -35,11 +35,9 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[3]
-SOURCE_ROOT = ROOT / "src"
-if str(SOURCE_ROOT) not in sys.path:
-    sys.path.insert(0, str(SOURCE_ROOT))
-if str(ROOT / "ops/scripts") not in sys.path:
-    sys.path.insert(0, str(ROOT / "ops/scripts"))
+SCRIPT_ROOT = ROOT / "ops/scripts"
+if str(SCRIPT_ROOT) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_ROOT))
 
 from lib.device_placement import (  # noqa: E402
     CORPUS_COMPLEXITY,
@@ -58,7 +56,7 @@ from render.metal.scenes import SCENE_RECORDS, validate_records  # noqa: E402
 ENV_GATE = "MERC_RENDER_DEVICE_PLACEMENT"
 EVIDENCE_REL = "evidence/perf/cycles-device-placement.json"
 DEFAULT_BLENDER = "/Applications/Blender.app/Contents/MacOS/Blender"
-ENTRY_REL = "src/render/metal/blender_entry.py"
+ENTRY_REL = "ops/scripts/render/metal/blender_entry.py"
 
 SCENES = ("trivial", "dense_geometry", "many_instances", "principled_graph")
 
@@ -420,7 +418,7 @@ def self_test() -> int:
         errs.append("blender_entry must never assign EEVEE")
     if "--mode=sweep" not in entry and '"sweep"' not in entry:
         errs.append("blender_entry must accept sweep mode")
-    device_src = (ROOT / "src/render" / "metal" / "device.py").read_text(encoding="utf-8")
+    device_src = (ROOT / "ops/scripts/render" / "metal" / "device.py").read_text(encoding="utf-8")
     if 'prefs.compute_device_type = "METAL"' not in device_src:
         errs.append("device.py must pin METAL")
     if "silent CPU fallback" not in device_src and "refusing silent" not in device_src:
@@ -490,7 +488,7 @@ def measure(args: argparse.Namespace) -> dict[str, Any]:
         raise SystemExit(f"blender binary missing: {blender}")
     version = blender_version(blender)
     host = platform.node()
-    work = Path(args.workdir) if args.workdir else ROOT / "src/render" / "corpus" / "output" / "placement"
+    work = Path(args.workdir) if args.workdir else ROOT / ".artifacts" / "render" / "placement"
     work.mkdir(parents=True, exist_ok=True)
     generated = work / "generated"
     generated.mkdir(parents=True, exist_ok=True)

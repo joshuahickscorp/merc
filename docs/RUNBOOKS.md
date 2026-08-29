@@ -1,6 +1,6 @@
 # Merc runbooks
 
-Start with [release readiness](../RELEASE_READINESS.md). The current candidate
+Start with [release readiness](RELEASE_READINESS.md). The current candidate
 is not approved for live money or public production. Preserve receipts and
 authorities during every incident; do not repair a gate by editing evidence or
 loosening a validator.
@@ -83,4 +83,5 @@ proves routing behavior only; it is not external staffed paging evidence.
 - [support and incident runbook](SUPPORT_AND_INCIDENT_RUNBOOK.md)
 - [offsite backup and restore](OFFSITE_BACKUP_RESTORE.md)
 
-The previous long-form runbook remains in [the engineering archive](archive/engineering/RUNBOOKS_2026-08-28.md).
+This page is the canonical operator runbook; historical procedures are not
+release instructions.

@@ -33,7 +33,7 @@ const (
 	renderVerifyBenchSamplesEnv  = "MERC_RENDER_VERIFY_SAMPLES"
 	renderVerifyBenchWorkdirEnv  = "MERC_RENDER_VERIFY_WORKDIR"
 	renderVerifyBenchEvidenceRel = "evidence/perf/render-verify-pipeline.json"
-	renderVerifyServiceRel       = "src/render/verify/blender_service.py"
+	renderVerifyServiceRel       = "ops/scripts/render/verify/blender_service.py"
 	defaultVerifyBlenderBin      = "/Applications/Blender.app/Contents/MacOS/Blender"
 	defaultVerifyFrames          = 8
 	defaultVerifyWidth           = 1024
@@ -504,8 +504,8 @@ func measurePythonDecode(t *testing.T, root string, png []byte, n int) repeatMea
 		t.Fatalf("write png for python decode: %v", err)
 	}
 	script := fmt.Sprintf(`
-import sys, time
-sys.path.insert(0, %q)
+	import os, sys, time
+sys.path.insert(0, os.path.join(%q, "ops", "scripts"))
 from render.lib import pngutil
 path = %q
 n = %d

@@ -44,7 +44,7 @@ mode is prohibited by the current readiness state. Test-mode credentials belong
 in operator-controlled secret storage only; they must not appear in receipts,
 logs, command arguments, or documentation.
 
-The release decision is the intersection of `RELEASE_READINESS.md`,
+The release decision is the intersection of `docs/RELEASE_READINESS.md`,
 `ops/go-no-go.json`, `ops/readiness.json`, backend-alpha gates, and the
 governance/legal records. A green unit test or a local route does not promote a
 claim to staging, private canary, or public production proof.

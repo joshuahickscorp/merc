@@ -2,7 +2,7 @@
 """Blender-side Cycles CPU / Metal GPU renderer for the Metal lane.
 
     blender -b -noaudio --factory-startup --python-exit-code 1 \\
-        --python src/render/metal/blender_entry.py -- \\
+        --python ops/scripts/render/metal/blender_entry.py -- \\
         --mode=probe|render --device=CPU|GPU --scene=trivial --out PATH
 
 Refuses EEVEE. A GPU request that cannot enable a Metal device exits 2
@@ -21,10 +21,10 @@ import sys
 import time
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
-SOURCE_ROOT = REPO_ROOT / "src"
-if str(SOURCE_ROOT) not in sys.path:
-    sys.path.insert(0, str(SOURCE_ROOT))
+REPO_ROOT = Path(__file__).resolve().parents[4]
+SCRIPT_ROOT = REPO_ROOT / "ops" / "scripts"
+if str(SCRIPT_ROOT) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_ROOT))
 
 
 def script_args() -> list[str]:

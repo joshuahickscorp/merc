@@ -27,7 +27,7 @@
     "ops/scripts/install.sh",
     "clients/web/admin.html",
     "clients/web/index.html",
-    "RELEASE_READINESS.md"
+    "docs/RELEASE_READINESS.md"
   ],
   "capability_checks": {
     "macos_menu_bar_requires_package_swift": {

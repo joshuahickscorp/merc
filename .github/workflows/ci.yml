@@ -216,7 +216,7 @@ jobs:
           cp clients/web/index.html clients/web/admin.html clients/web/favicon.ico "$BUNDLE/website/"
           cp src/control/schema.sql src/control/runtime-authority.json \
             clients/proto/manifest.schema.json .env.example "$BUNDLE/contracts/"
-          cp RELEASE_READINESS.md docs/RUNBOOKS.md docs/SECURITY.md \
+          cp docs/RELEASE_READINESS.md docs/RUNBOOKS.md docs/SECURITY.md \
             "$BUNDLE/docs/"
           printf '%s\n' "$CANDIDATE_SHA" > "$BUNDLE/SOURCE_COMMIT"
           (cd src/control && go run . source-id --root .. --field source_sha256) \

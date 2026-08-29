@@ -26,8 +26,8 @@ const (
 	devicePlacementEnv        = "MERC_RENDER_DEVICE_PLACEMENT"
 	devicePlacementHarnessRel = "ops/scripts/render/device_placement_bench.py"
 	devicePlacementPredRel    = "ops/scripts/lib/device_placement.py"
-	devicePlacementEntryRel   = "src/render/metal/blender_entry.py"
-	devicePlacementDeviceRel  = "src/render/metal/device.py"
+	devicePlacementEntryRel   = "ops/scripts/render/metal/blender_entry.py"
+	devicePlacementDeviceRel  = "ops/scripts/render/metal/device.py"
 )
 
 func TestGPUPlacementLicensePredicate(t *testing.T) {

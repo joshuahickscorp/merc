@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Ensure .tools/runpodctl is present, matches the pinned SHA-256, then exec it.
+# Ensure ops/tooling/runpodctl is present, matches the pinned SHA-256, then exec it.
 # Never run an unverified binary. Pin lives in ops/scripts/runpodctl.sha256.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-BIN="$ROOT/.tools/runpodctl"
+BIN="$ROOT/ops/tooling/runpodctl"
 PIN_FILE="$ROOT/ops/scripts/runpodctl.sha256"
 
 if [[ ! -f "$PIN_FILE" ]]; then
@@ -38,7 +38,7 @@ is_pointer() {
 if [[ ! -f "$BIN" ]] || is_pointer "$BIN"; then
   if command -v git >/dev/null 2>&1; then
     # Pull only this object; ignore fetchexclude for this path.
-    git -C "$ROOT" lfs pull --include=".tools/runpodctl" --exclude="" >/dev/null 2>&1 || true
+    git -C "$ROOT" lfs pull --include="ops/tooling/runpodctl" --exclude="" >/dev/null 2>&1 || true
   fi
 fi
 
@@ -50,7 +50,7 @@ fi
 
 if is_pointer "$BIN"; then
   echo "bootstrap-runpodctl: $BIN is still an LFS pointer; cannot verify/exec" >&2
-  echo "  run: git -C \"$ROOT\" lfs pull --include=.tools/runpodctl" >&2
+  echo "  run: git -C \"$ROOT\" lfs pull --include=ops/tooling/runpodctl" >&2
   exit 1
 fi
 

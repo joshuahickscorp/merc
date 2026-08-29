@@ -1,4 +1,4 @@
-# git-lfs tracking (PLAN_300K). L1 installed patterns; L4 converts bodies at tip.
-# Nested perf receipts need **; single-level evidence/perf/*.json would miss them.
+# Large performance receipts stay in Git LFS so the source tree remains usable
+# without downloading every measurement payload.
 evidence/perf/** filter=lfs diff=lfs merge=lfs -text
-.tools/runpodctl filter=lfs diff=lfs merge=lfs -text
+ops/tooling/runpodctl filter=lfs diff=lfs merge=lfs -text

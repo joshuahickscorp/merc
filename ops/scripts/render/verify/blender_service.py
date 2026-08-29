@@ -4,7 +4,7 @@
 Must run inside Blender:
 
     Blender -b -noaudio --factory-startup --python-exit-code 1 \\
-        --python src/render/verify/blender_service.py -- \\
+        --python ops/scripts/render/verify/blender_service.py -- \\
         --workdir DIR --frames N --width 1024 --height 1024 --samples 512
 
 Speaks one JSON object per line on stdout, prefixed with MERC_VERIFY.

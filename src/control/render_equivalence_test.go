@@ -361,7 +361,7 @@ func TestRenderVerifyPipelineListedAsOptInSkip(t *testing.T) {
 }
 
 func TestRenderVerifyServicePinsCyclesCPU(t *testing.T) {
-	raw, err := os.ReadFile(filepath.Join("..", "..", "src", "render", "verify", "blender_service.py"))
+	raw, err := os.ReadFile(filepath.Join("..", "..", "ops", "scripts", "render", "verify", "blender_service.py"))
 	if err != nil {
 		t.Fatalf("read blender service: %v", err)
 	}

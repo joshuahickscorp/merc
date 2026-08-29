@@ -65,7 +65,7 @@ CITE_ROOTS = (
     ROOT / "ops",
     ROOT / "evidence" / "proof",
     ROOT / "README.md",
-    ROOT / "RELEASE_READINESS.md",
+    ROOT / "docs" / "RELEASE_READINESS.md",
     ROOT / "docs" / "RUNTIME_AND_PERF.md",
     ROOT / "docs" / "ARCHITECTURE.md",
     ROOT / "Makefile",

@@ -3,25 +3,25 @@
 * @joshuahickscorp
 
 # Ledger and payments
-/control/billing.go @joshuahickscorp
-/control/collect.go @joshuahickscorp
-/control/connect.go @joshuahickscorp
-/control/ledger_write.go @joshuahickscorp
-/control/payout*.go @joshuahickscorp
-/control/stripe*.go @joshuahickscorp
+/src/control/billing.go @joshuahickscorp
+/src/control/collect.go @joshuahickscorp
+/src/control/connect.go @joshuahickscorp
+/src/control/ledger_write.go @joshuahickscorp
+/src/control/payout*.go @joshuahickscorp
+/src/control/stripe*.go @joshuahickscorp
 
 # Authentication and authorization
-/control/accounts.go @joshuahickscorp
-/control/admin*.go @joshuahickscorp
-/control/api.go @joshuahickscorp
-/control/auth*.go @joshuahickscorp
-/control/suppliers.go @joshuahickscorp
+/src/control/accounts.go @joshuahickscorp
+/src/control/admin*.go @joshuahickscorp
+/src/control/api.go @joshuahickscorp
+/src/control/auth*.go @joshuahickscorp
+/src/control/suppliers.go @joshuahickscorp
 
 # Schema, task lifecycle, and agent sandbox
-/control/schema.sql @joshuahickscorp
-/control/scheduler.go @joshuahickscorp
-/control/store.go @joshuahickscorp
-/agent/ @joshuahickscorp
+/src/control/schema.sql @joshuahickscorp
+/src/control/scheduler.go @joshuahickscorp
+/src/control/store.go @joshuahickscorp
+/src/agent/ @joshuahickscorp
 /clients/macapp/ComputeExchangeAgent/MercAgent.entitlements @joshuahickscorp
 /clients/macapp/ComputeExchangeAgent/merc-agent.sb @joshuahickscorp
 
@@ -30,5 +30,5 @@
 /Caddyfile @joshuahickscorp
 /Dockerfile* @joshuahickscorp
 /docker-compose*.yml @joshuahickscorp
-/scripts/deploy.sh @joshuahickscorp
-/scripts/rollback.sh @joshuahickscorp
+/ops/scripts/deploy.sh @joshuahickscorp
+/ops/scripts/rollback.sh @joshuahickscorp
