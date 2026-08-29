@@ -96,8 +96,8 @@ the tree. Not from prose.
 
 ## Session preconditions
 
-* `GROK_STATUS=DEFERRED_USAGE_LIMIT` — no Grok delegation this session; every
-  adversarial review is labelled `NOT_GROK_INDEPENDENT`.
+* `EXTERNAL_REVIEW_STATUS=DEFERRED` — no delegated review this session; every
+  adversarial review is labelled `NOT_EXTERNALLY_INDEPENDENT`.
 * Stripe **test mode** only, CAD only. No live keys, no real payouts. The
   credential is live: `GET /v1/balance` returns `livemode:false` with a CAD
   bucket.
@@ -482,7 +482,7 @@ guess at a fourth change.
 
 ## A hazard worth naming
 
-**Another Claude Code session was editing this same working tree during the second
+**Another implementation session was editing this same working tree during the second
 pass.** `scripts/merc-credentials.sh` gained a `--runpod` flag at 19:54 and
 `evidence/canary/private-canary.json` (unbound capability inventory) was rewritten
 at 19:57, neither by this session. Those changes are deliberately left uncommitted
@@ -1082,7 +1082,7 @@ still needs BOUND throughput plus exact MEASURED sustained power.
 
 <!-- source: docs/MERC_SHIPPABILITY_DIRECTIVE.md -->
 
-<!-- Preserved from a Codex attachment before that scratch copy was deleted.
+<!-- Preserved from a repository planning attachment before that scratch copy was deleted.
      This is the governing Merc directive; it belongs in the repository, not
      in a transient attachments directory. -->
 
@@ -1093,9 +1093,9 @@ ROLE
 
 You are the primary implementation agent for Merc.
 
-Grok is available as an independent analysis, adversarial review, benchmarking, architecture, and audit tool.
+An external review channel is available for independent analysis, adversarial review, benchmarking, architecture, and audit.
 
-Use Grok continuously as a feedback loop, not as a substitute for implementation.
+Use external review continuously as a feedback loop, not as a substitute for implementation.
 
 The objective is to bring Merc from its current partially canary-proven state to a complete, production-grade managed AI execution platform whose routing, pricing, execution, verification, settlement, developer experience, and operational reliability are all independently defensible.
 
@@ -1190,17 +1190,17 @@ Repeat this loop continuously:
      DEAD
      EXTERNALLY_BLOCKED
 
-2. AUDIT WITH GROK
-   - Give Grok a bounded audit contract.
+2. AUDIT WITH EXTERNAL REVIEW
+   - Give the reviewer a bounded audit contract.
    - Require citations to exact code, schema, runtime evidence, receipts, or measurements.
    - Require a score from 0–10 for each category and subcategory.
    - Require explicit missing evidence.
    - Require a concrete solution set.
-   - Require Grok to distinguish fact, inference, proposal, and unknown.
+   - Require the reviewer to distinguish fact, inference, proposal, and unknown.
    - Require at least one adversarial challenge to every major conclusion.
 
-3. VERIFY GROK
-   - Independently verify Grok’s claims.
+3. VERIFY THE REVIEW
+   - Independently verify the reviewer’s claims.
    - Reject false positives.
    - Correct weak framing.
    - Do not implement unverified recommendations.
@@ -1216,7 +1216,7 @@ Repeat this loop continuously:
    ÷ operational risk
 
 5. SPLIT IMPLEMENTATION
-   - Assign Grok an independent, nonconflicting implementation or audit tranche where useful.
+   - Assign the external reviewer an independent, nonconflicting implementation or audit tranche where useful.
    - Keep the highest-risk money, authority, routing, and lifecycle work under direct review.
    - Use isolated worktrees and isolated databases.
    - Never allow parallel agents to mutate the same authoritative state or test database.
@@ -1245,7 +1245,7 @@ Repeat this loop continuously:
    - Never merge physical, delivered, cached, or outcome-equivalent measurements.
 
 9. RE-GRADE
-   - Ask Grok to independently re-grade only the affected categories.
+   - Ask the external reviewer to independently re-grade only the affected categories.
    - Require evidence for every score increase.
    - Reject score inflation from documentation or test-only progress.
 
@@ -1701,7 +1701,7 @@ CATEGORY 14 — SECURITY
 15. Fuzzing.
 16. Mutation tests.
 17. Fraud defense.
-18. AI-assisted review.
+18. Adversarial review.
 19. Independent penetration test.
 20. Retest.
 
@@ -1725,7 +1725,7 @@ CATEGORY 15 — LEGAL AND GOVERNANCE
 
 SCORING
 
-For every category and subcategory, Grok must give:
+For every category and subcategory, the reviewer must give:
 
 * score 0–10;
 * evidence;
@@ -1909,7 +1909,7 @@ Require invariant tests:
 * refunds cannot exceed original charge;
 * supplier payable cannot exceed verified authority.
 
-Ask Grok to perform a final independent pricing audit and attempt to find any remaining lever or defect.
+Ask the external reviewer to perform a final independent pricing audit and attempt to find any remaining lever or defect.
 
 Do not declare 10/10 until it fails to find a material unaddressed change and the findings are independently checked.
 
@@ -1980,8 +1980,8 @@ AGGRESSIVE RULES
 
 * Prefer real execution over more documentation.
 * Prefer fixing the current highest-value blocker over adding breadth.
-* Use Grok for continuous independent review.
-* Verify Grok.
+* Use external review for continuous independent review.
+* Verify the review.
 * Split parallel work safely.
 * Use isolated databases and worktrees.
 * Do not let agents interfere with one another.
@@ -2005,7 +2005,7 @@ After every constructive cycle:
 1. Category attacked.
 2. Previous grade.
 3. New grade.
-4. Grok findings.
+4. External-review findings.
 5. Independent verification.
 6. Implementation.
 7. Real resource used.
@@ -2026,7 +2026,7 @@ Stop only when:
 
 * all launch-critical categories are 8 or higher;
 * pricing, money correctness, verification integrity, and execution authority are 9 or higher;
-* any category scored 10 has survived independent Grok challenge and direct verification;
+* any category scored 10 has survived independent external challenge and direct verification;
 * all product lanes are canary-proven;
 * at least one real workload demonstrates a sustainable 10× advantage over a normalized alternative;
 * any 50× claim is tied to a specific qualified workload and genuine work elimination or outcome efficiency;
@@ -2057,8 +2057,8 @@ The objective is to make Merc a complete, aggressively verified, economically su
 > `ops/go-no-go.json` for the current gates. This file is retained as an audit
 > trail, not an operator checklist.
 
-**Method:** Grok planned the machine half, Claude planned the product half, both
-under one constraint — *only work needing no human decision, credential, or
+**Method:** The machine and product halves were planned in separate passes under
+one constraint — *only work needing no human decision, credential, or
 approval goes in the plan body*. Everything else is quarantined at the bottom.
 
 **Read this first: 10 is not reachable, and no plan should promise it.** Three of
@@ -3170,9 +3170,10 @@ treat the 24-hour soak as an input. `merc release inputs --explain` classifies
 the detailed adapter fields. Copy `.merc-launch.env.template` before adding any
 secret; use the two JSON templates as non-secret record shapes.
 
-Advisory Grok status: **NO_USABLE_VERDICT**. This workspace has no authenticated
-Grok adapter; prior unavailable-adapter logs remain under `.artifacts/`. Grok is
-not treated as an approval or as evidence for any gate.
+Advisory external-review status: **NO_USABLE_VERDICT**. This workspace has no
+authenticated external-review adapter; prior unavailable-adapter logs remain
+under local tool state. External review is not treated as an approval or as
+evidence for any gate.
 
 ## Resume
 
@@ -3486,7 +3487,7 @@ ledger and the verification apparatus all carry over — the workload changes, n
 the platform.
 
 Sources, fetch dates and the full arithmetic are in the three commissioned
-reports under `~/.claude-grok/tasks/consult-20260726-1551*/`.
+reports under the local external-review task archive.
 
 ---
 

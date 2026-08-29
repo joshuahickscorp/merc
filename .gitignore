@@ -31,6 +31,9 @@ scripts/*.log
 # ── Secrets / local config ───────────────────────────────────────────────────
 .env
 .env.bak*
+.env.*
+!.env.example
+!.env.*.example
 .env.go-closure
 .env.local
 .secrets/

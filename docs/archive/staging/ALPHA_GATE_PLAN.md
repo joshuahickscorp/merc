@@ -416,6 +416,8 @@ Status is whatever `ops/go-no-go.json` records. `scripts/alpha/lib.sh`
 reads that file and does not independently drop or pass this gate. This
 plan does not decide it.
 
+**Exit criterion (quoted from the current ledger):** "Named eligible reviewer independently inspects evidence and grants the required exact-head approval with no unresolved thread."
+
 If the ledger lists the id under `open_p1`, it is open. If the operator
 later moves it to `dropped_p1`, the scripts follow. Do not fork a second
 decision here or in lib.sh.

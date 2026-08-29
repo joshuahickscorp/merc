@@ -743,9 +743,7 @@ def main() -> int:
     write_text(json_path, json.dumps(doc, indent=2, sort_keys=False) + "\n")
 
     inventory_md = render_inventory_md(doc)
-    report_md = render_report_md(doc)
     write_text(ROOT / "docs" / "LICENSE_INVENTORY.md", inventory_md)
-    write_text(ROOT / "docs" / "DEPENDENCY_LICENSE_REPORT.md", report_md)
 
     print(
         f"license-inventory: {len(all_components)} components "
@@ -755,7 +753,6 @@ def main() -> int:
     print(f"license-inventory: incompatible_copyleft={len(incompatible)} undeclared={len(undeclared)}")
     print(f"license-inventory: wrote {json_path.relative_to(ROOT)}")
     print("license-inventory: wrote docs/LICENSE_INVENTORY.md")
-    print("license-inventory: wrote docs/DEPENDENCY_LICENSE_REPORT.md")
     return 0
 
 
@@ -825,6 +822,23 @@ def render_inventory_md(doc: dict[str, Any]) -> str:
         )
     lines += [
         "",
+        "## Compatibility summary",
+        "",
+        "The table above is the complete generated graph. The machine-readable "
+        "JSON beside this file retains the source and reason for every verdict.",
+        "",
+    ]
+    for key, value in sorted(counts["verdicts"].items()):
+        lines.append(f"- `{key}`: {value}")
+    lines += [
+        f"- Incompatible copyleft: **{counts['incompatible_copyleft']}**",
+        f"- Undeclared or unclassified: **{counts['undeclared']}**",
+        "",
+        "No software-graph row is a legal clearance. Catalogue models, fonts, "
+        "and visual assets remain governed by `docs/THIRD_PARTY_LICENSES.md`.",
+    ]
+    lines += [
+        "",
         "## `go.sum` versions not in `go.mod`",
         "",
         "These are checksum-only (typically test or historical). They are not",
@@ -839,143 +853,6 @@ def render_inventory_md(doc: dict[str, Any]) -> str:
         for row in extras:
             lines.append(f"| `{row['path']}` | `{row['version']}` |")
     lines.append("")
-    return "\n".join(lines)
-
-
-def render_report_md(doc: dict[str, Any]) -> str:
-    counts = doc["counts"]
-    lines = [
-        "# Dependency / license report",
-        "",
-        f"> **{DRAFT_HEADER.splitlines()[0]}**",
-        ">",
-        f"> {DRAFT_HEADER.splitlines()[1]}",
-        ">",
-        "> **GENERATED** from the real dependency graph. Not a clearance.",
-        "> Not an SPDX SBOM substitute for a release. Not counsel approval.",
-        "",
-        f"- Generated at: `{doc['generated_at']}`",
-        f"- Source commit: `{doc['source_commit'] or 'UNKNOWN'}`",
-        f"- Machine source: `docs/generated/license-inventory.json`",
-        f"- Companion inventory: `docs/LICENSE_INVENTORY.md`",
-        "",
-        "## Question this report answers",
-        "",
-        "For every software dependency in `control/go.mod`, `agent/Cargo.lock`,",
-        "and the Python/TypeScript SDK manifests that actually exist in",
-        "this repository, what license was declared or read from the upstream",
-        "LICENSE file, and is that license incompatible with how Merc is",
-        "distributed **at backend alpha**?",
-        "",
-        "Backend alpha distribution, as of this draft:",
-        "",
-        "- no public website",
-        "- no public package or binary publish",
-        "- control plane stays proprietary and operator-run",
-        "- the Apache-2.0 agent may be installed on operator-known, operator-controlled devices",
-        "- Stripe test mode only; CAD; connected-account country CA",
-        "",
-        "A public launch or a live-money binary is a different distribution",
-        "and needs a new run of this generator plus counsel review.",
-        "",
-        "## Verdict summary",
-        "",
-        f"- Components examined: **{counts['total_components']}**",
-        f"- Incompatible copyleft found: **{counts['incompatible_copyleft']}**",
-        f"- Undeclared / unclassified: **{counts['undeclared']}**",
-        "",
-        "Verdict counts:",
-        "",
-    ]
-    for key, value in sorted(counts["verdicts"].items()):
-        lines.append(f"- `{key}`: {value}")
-
-    incompatible = [
-        c
-        for c in doc["components"]
-        if c.get("compatibility", {}).get("verdict") == "INCOMPATIBLE_COPYLEFT"
-    ]
-    undeclared = [
-        c
-        for c in doc["components"]
-        if c.get("concluded_spdx") in {None, "UNDECLARED", "UNCLASSIFIED_LICENSE_TEXT"}
-        and c.get("relation") != "first-party"
-    ]
-
-    lines += [
-        "",
-        "## Incompatibilities with current distribution",
-        "",
-    ]
-    if not incompatible:
-        lines.append(
-            "None found in the software graph. This is a generator result, "
-            "not a legal opinion. Catalogue models and fonts are outside this "
-            "graph and remain **RELEASE BLOCKING** in `docs/THIRD_PARTY_LICENSES.md`."
-        )
-    else:
-        lines += [
-            "| Name | Version | SPDX | Reason |",
-            "|---|---|---|---|",
-        ]
-        for row in incompatible:
-            lines.append(
-                f"| `{row['name']}` | `{row['version']}` | {row.get('concluded_spdx')} | "
-                f"{md_escape(row.get('compatibility', {}).get('reason'))} |"
-            )
-
-    lines += [
-        "",
-        "## Undeclared rows",
-        "",
-    ]
-    if not undeclared:
-        lines.append("None. Every third-party row has a concluded SPDX string.")
-    else:
-        lines += [
-            "These rows have no concluded license. They are **not** treated as permissive.",
-            "",
-            "| Ecosystem | Name | Version | Source |",
-            "|---|---|---|---|",
-        ]
-        for row in undeclared:
-            lines.append(
-                f"| {row.get('ecosystem')} | `{row['name']}` | `{row['version']}` | "
-                f"{md_escape(row.get('license_source'))} |"
-            )
-
-    lines += [
-        "",
-        "## Every dependency",
-        "",
-        "| Ecosystem | Name | Version | SPDX | Source | Verdict | Why |",
-        "|---|---|---|---|---|---|---|",
-    ]
-    for row in doc["components"]:
-        lines.append(
-            "| {eco} | `{name}` | `{ver}` | {spdx} | {src} | {verdict} | {why} |".format(
-                eco=md_escape(row.get("ecosystem")),
-                name=md_escape(row.get("name")),
-                ver=md_escape(row.get("version")),
-                spdx=md_escape(row.get("concluded_spdx")),
-                src=md_escape(row.get("license_source")),
-                verdict=md_escape(row.get("compatibility", {}).get("verdict")),
-                why=md_escape(row.get("compatibility", {}).get("reason")),
-            )
-        )
-
-    lines += [
-        "",
-        "## What this does not decide",
-        "",
-        "- It does not clear Llama 3.2 or MiniLM. Those rows stay BLOCKED.",
-        "- It does not clear Geist fonts or visual assets.",
-        "- It does not satisfy Apache-2.0 NOTICE reproduction for a public release image.",
-        "- It does not replace `NOTICE` or the project LICENSE split.",
-        "- It does not attach license obligations to a public website that is not shipping.",
-        "- Regenerating this file after a lockfile change is required; a stale report is worthless.",
-        "",
-    ]
     return "\n".join(lines)
 
 

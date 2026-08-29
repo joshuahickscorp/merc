@@ -77,8 +77,7 @@ ALPHA_GOVERNANCE_DRAFTS = (
     "docs/ALPHA_PAYMENT_PAYOUT_DISCLOSURE.md",
     "docs/PRIVACY_DATA_GOVERNANCE.md",
     "docs/LICENSE_INVENTORY.md",
-    "docs/DEPENDENCY_LICENSE_REPORT.md",
-    "docs/ALPHA_GOVERNANCE_DRAFT_REPORT.md",
+    "docs/archive/staging/ALPHA_GOVERNANCE_DRAFT_REPORT.md",
     "docs/DSAR_RUNBOOK.md",
     "docs/SUPPORT_AND_INCIDENT_RUNBOOK.md",
     "docs/THIRD_PARTY_LICENSES.md",
@@ -105,8 +104,7 @@ def validate_documents() -> None:
         "docs/ALPHA_RISK_DISCLOSURE.md": ("DRAFT", "pre-production", "SLA"),
         "docs/ALPHA_PAYMENT_PAYOUT_DISCLOSURE.md": ("DRAFT", "No live money", "test mode"),
         "docs/LICENSE_INVENTORY.md": ("GENERATED", "GENERATED_DRAFT_NOT_APPROVAL", "go.mod"),
-        "docs/DEPENDENCY_LICENSE_REPORT.md": ("GENERATED", "incompatible", "Cargo.lock"),
-        "docs/ALPHA_GOVERNANCE_DRAFT_REPORT.md": (
+        "docs/archive/staging/ALPHA_GOVERNANCE_DRAFT_REPORT.md": (
             "Before backend alpha",
             "Before live money",
             "human signature is still required",

@@ -10,7 +10,7 @@ import (
 // TestRemainderCarryHasNoProductionCaller is a tripwire on a documentation claim,
 // not on behaviour.
 //
-// docs/PROGRAMME.md describes RemainderCarry as the accrual ledger's fractional
+// docs/archive/engineering/PROGRAMME.md describes RemainderCarry as the accrual ledger's fractional
 // memory: 10,000 accruals of 17 nanos post 170 micros and lose nothing. That is
 // true of the type and money_nanos_test.go proves it. It is NOT true of the
 // running system, because production settlement projects each leg independently
@@ -48,7 +48,7 @@ func TestRemainderCarryHasNoProductionCaller(t *testing.T) {
 		}
 	}
 	if len(callers) > 0 {
-		t.Fatalf("RemainderCarry now has production callers %v: update docs/PROGRAMME.md, which "+
+		t.Fatalf("RemainderCarry now has production callers %v: update docs/archive/engineering/PROGRAMME.md, which "+
 			"currently states that production settlement does NOT post through it and that no "+
 			"exact-nanos-per-task conservation claim may be made until it does", callers)
 	}

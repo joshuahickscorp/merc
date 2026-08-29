@@ -25,7 +25,7 @@ import (
 // WorkerCapability remains the registration ingress DTO. worker rows and
 // worker_authorized_capabilities.routable are compatibility projections of
 // this snapshot + the separate activation authority, with recorded deletion
-// milestones in docs/NETWORK_V2_AUTHORITY_MIGRATION_REGISTER.md §2.
+// milestones in docs/archive/engineering/NETWORK_V2_AUTHORITY_MIGRATION_REGISTER.md §2.
 // ---------------------------------------------------------------------------
 
 const (

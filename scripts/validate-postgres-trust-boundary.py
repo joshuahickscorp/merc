@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """CI check for the production Postgres TLS / trust-boundary decision.
 
-Fails unless docs/ARCHITECTURE.md and docker-compose.prod.yml still
+Fails unless the active architecture page and docker-compose.prod.yml still
 agree that sslmode=disable is only used because Postgres is unpublished on a
 single-host Compose network.
 """
@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-DOC = ROOT / "docs" / "POSTGRES_TRUST_BOUNDARY.md"
+DOC = ROOT / "docs" / "ARCHITECTURE.md"
 COMPOSE = ROOT / "docker-compose.prod.yml"
 
 REQUIRED_DOC_PHRASES = [

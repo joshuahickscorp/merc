@@ -58,7 +58,7 @@ func TestPrefixReuseClaimsNoSavingsUntilItIsAttributed(t *testing.T) {
 	}
 	if len(attributors) > 0 {
 		t.Fatalf("ClassPrefixReusedInput is now attributed in production %v: prefix savings are "+
-			"claimable, so update the Step 25 shape note in docs/NETWORK_V2_EXECUTION_PLAN.md, "+
+			"claimable, so update the Step 25 shape note in docs/archive/engineering/NETWORK_V2_EXECUTION_PLAN.md, "+
 			"which currently records prefix as routing-only with no claimed savings", attributors)
 	}
 }

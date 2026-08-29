@@ -2,8 +2,8 @@
   "schema_version": 1,
   "kind": "merc_generated_license_inventory",
   "status": "GENERATED_DRAFT_NOT_APPROVAL",
-  "generated_at": "2026-08-16T23:54:21Z",
-  "source_commit": "a5bca8c0abcfda4158f5c681fa67f5ae5ebccb05",
+  "generated_at": "2026-08-29T03:35:22Z",
+  "source_commit": "10a469da946a3f4498200f8db8b9da343e20a463",
   "generator": "scripts/generate-license-inventory.py",
   "honesty": {
     "not_legal_advice": true,

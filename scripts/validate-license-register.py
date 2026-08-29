@@ -138,11 +138,8 @@ def validate_generated_inventory() -> None:
                 f"recorded={recorded} observed={observed}"
             )
     inventory_md = ROOT / "docs" / "LICENSE_INVENTORY.md"
-    report_md = ROOT / "docs" / "DEPENDENCY_LICENSE_REPORT.md"
     if not inventory_md.is_file() or "GENERATED" not in inventory_md.read_text(encoding="utf-8"):
         fail("docs/LICENSE_INVENTORY.md missing or not marked GENERATED")
-    if not report_md.is_file() or "GENERATED" not in report_md.read_text(encoding="utf-8"):
-        fail("docs/DEPENDENCY_LICENSE_REPORT.md missing or not marked GENERATED")
 
 
 def main() -> None:

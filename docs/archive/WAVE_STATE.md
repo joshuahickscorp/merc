@@ -1,4 +1,4 @@
-# WAVE_STATE.md — where the superwave landed, and what to re-arm
+# Archived WAVE_STATE — where the superwave landed, and what to re-arm
 
 Written after the 5-hour session limit killed 216 of 515 workflow agents mid-flight.
 Everything below marked **verified** was re-checked by hand after the fact.
@@ -193,7 +193,7 @@ pushing, or CI fails for that reason instead.)*
   are unadjudicated
 - ~10 `G*` control-file merge candidates lost judges
 
-### 4c. Grok audits — all five completed, all unread
+### 4c. External-audit queue — all five completed, all unread
 
 ```
 money-surface   330 lines   ← the unblocker: true money surface vs the 22-file list

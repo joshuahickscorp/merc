@@ -38,7 +38,7 @@ DOC_PATH_RE = re.compile(r"(?<![A-Za-z0-9_./-])(docs/[A-Za-z0-9_./-]+\.md)(?![A-
 TEXT_SUFFIXES = (".md", ".json", ".py", ".sh", ".go", ".yml", ".yaml", ".html", ".mjs", ".js")
 
 # Documents that were never absorbed anywhere and are cited from code comments
-# and ops JSON. Enumerated as dangling in docs/PROGRAMME.md's L6 contradiction
+# and ops JSON. Enumerated as dangling in docs/archive/engineering/PROGRAMME.md's L6 contradiction
 # ledger under "Three dangling references (do not create files)" — writing a
 # file to satisfy a citation would be inventing a source. Exempt by name so the
 # gate stays green on a known, recorded absence and red on a new one.
@@ -57,9 +57,9 @@ KNOWN_DANGLING = frozenset({
     "docs/GPU_CAPABILITY.md",
     "docs/CREED_AND_PATH_TO_TEN.md",
     "docs/internal/CREED_AND_PATH_TO_TEN.md",
-    # FROZEN in docs/RENAME_REGISTER.md: a dated finding, cited as a path
+    # FROZEN in docs/archive/engineering/RENAME_REGISTER.md: a dated finding, cited as a path
     # predicate by scripts/rename-residue-audit.py rather than as a live link.
-    "docs/WEBSITE_3D_BLENDER_STATUS_2026-07-19.md",
+    "docs/archive/engineering/WEBSITE_3D_BLENDER_STATUS_2026-07-19.md",
 })
 
 

@@ -18,7 +18,7 @@ point of this script is that it says WHICH:
   RESIDUE  Nothing is stopping it. This is the only category that is a defect,
            and any occurrence of it fails this script.
 
-The classification comes from docs/RENAME_REGISTER.md; this encodes it so that
+The classification comes from docs/archive/engineering/RENAME_REGISTER.md; this encodes it so that
 "the rename is finished except for the parts that cannot be finished" is a
 checked claim rather than an assertion in a document.
 
@@ -51,17 +51,17 @@ FROZEN_PATHS = (
     ("ops/readiness.json", "recorded receipt"),
     ("ops/legal-review.json", "recorded receipt"),
     ("evidence/census/", "recorded receipt: file sha256 census"),
-    ("docs/RENAME_REGISTER.md", "the register itself names what it freezes"),
+    ("docs/archive/engineering/RENAME_REGISTER.md", "the register itself names what it freezes"),
     ("scripts/rename-residue-audit.py",
      "the audit must contain the patterns it searches for"),
     ("ops/rename-residue.json", "this audit's own output"),
-    ("docs/WEBSITE_3D_BLENDER_STATUS_2026-07-19.md", "dated finding: was true on that date"),
+    ("docs/archive/engineering/WEBSITE_3D_BLENDER_STATUS_2026-07-19.md", "dated finding: was true on that date"),
     ("review/", "frozen review evidence"),
     ("realtime-lane-snapshot/", "checksummed snapshot, verified by manifest"),
     ("clients/macapp/ComputeExchangeAgent/",
      "real directory with 8 consumers including a live claim gate; renames as one commit"),
     ("web/logo/cx-capsule-target.svg", "pinned by path and sha256 in ops/asset-provenance.json"),
-    ("docs/PROGRAMME.md",
+    ("docs/archive/engineering/PROGRAMME.md",
      "absorbed SHIPPABILITY_STATUS; documents the rename"),
     ("docs/ARCHITECTURE.md",
      "absorbed DECISION_ZERO_REVERSAL; documents the rename"),

@@ -7716,7 +7716,7 @@ FOR EACH ROW EXECUTE FUNCTION cx_reject_risk_reserve_ledger_mutation();
 -- workers.* columns below are compatibility projections / indexes derived from
 -- the sealed snapshot at registration. worker_authorized_capabilities.routable
 -- remains an activation-policy projection (NOT a capability fact); deletion
--- milestone recorded in docs/NETWORK_V2_AUTHORITY_MIGRATION_REGISTER.md §2.
+-- milestone recorded in docs/archive/engineering/NETWORK_V2_AUTHORITY_MIGRATION_REGISTER.md §2.
 
 -- Topology / version facts already on the wire but previously unpersisted.
 ALTER TABLE workers ADD COLUMN IF NOT EXISTS gpu_count INTEGER;

@@ -11,7 +11,7 @@ die() { printf 'validate-alpha: %s\n' "$*" >&2; exit 1; }
 pass() { printf 'validate-alpha: PASS %s\n' "$*"; }
 
 alpha_require_command jq
-[ -f "$ROOT/docs/ALPHA_GATE_PLAN.md" ] || die "missing docs/ALPHA_GATE_PLAN.md"
+[ -f "$ROOT/docs/archive/staging/ALPHA_GATE_PLAN.md" ] || die "missing archived alpha gate plan"
 [ -f "$ROOT/ops/go-no-go.json" ] || die "missing ops/go-no-go.json"
 
 scripts=(
@@ -34,14 +34,19 @@ for script in "${scripts[@]}"; do
 done
 pass "bash syntax"
 
-# Plan quotes every in-scope exit criterion.
-for id in P1-STAGING P1-STRIPE-TEST P1-OFFSITE-RESTORE P1-ALERT-DELIVERY \
-  P1-CANARY-REHEARSAL P1-RECOVERY-SOAK P1-GOVERNANCE; do
-  grep -Fq "$id" "$ROOT/docs/ALPHA_GATE_PLAN.md" || die "plan omits $id"
-  crit="$(jq -er --arg id "$id" '.open_p1[] | select(.id==$id) | .exit_criterion' "$ROOT/ops/go-no-go.json")"
-  grep -Fq "$crit" "$ROOT/docs/ALPHA_GATE_PLAN.md" || die "plan does not quote $id exit_criterion"
-done
-grep -Fq 'P1-INDEPENDENT-APPROVAL' "$ROOT/docs/ALPHA_GATE_PLAN.md" \
+# Plan quotes every currently open exit criterion. Satisfied historical gates
+# belong in dropped_p1 and must not make the scaffold fail before it reaches
+# the live decision ledger.
+open_p1_ids="$(jq -er -r '.open_p1[]?.id // empty' "$ROOT/ops/go-no-go.json")" \
+  || die "ops/go-no-go.json has no readable open_p1 list"
+[ -n "$open_p1_ids" ] || die "ops/go-no-go.json has no open P1 gates"
+while IFS= read -r id; do
+  [ -n "$id" ] || continue
+	grep -Fq "$id" "$ROOT/docs/archive/staging/ALPHA_GATE_PLAN.md" || die "plan omits $id"
+	crit="$(jq -er --arg id "$id" '.open_p1[] | select(.id==$id) | .exit_criterion' "$ROOT/ops/go-no-go.json")"
+	grep -Fq "$crit" "$ROOT/docs/archive/staging/ALPHA_GATE_PLAN.md" || die "plan does not quote $id exit_criterion"
+done <<< "$open_p1_ids"
+grep -Fq 'P1-INDEPENDENT-APPROVAL' "$ROOT/docs/archive/staging/ALPHA_GATE_PLAN.md" \
   || die "plan does not name P1-INDEPENDENT-APPROVAL"
 grep -Fq 'alpha_ledger_gate_state' "$ROOT/scripts/alpha/lib.sh" \
   || die "lib.sh must derive P1 state from ops/go-no-go.json"

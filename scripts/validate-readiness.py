@@ -17,7 +17,7 @@ The 3-point qualifying soak stays on evidence/external/qualifying-soak-24h.json
 named time-dependent mechanisms is recorded at
 evidence/autonomous/soak-requirement-derivation.json as a 0-point row; it
 does not award those 3 points and must not claim a 24h wall-clock pass.
-Operator steps for those points: docs/PROGRAMME.md § "Facet external action pack".
+Operator steps for those points: docs/archive/engineering/PROGRAMME.md § "Facet external action pack".
 Do not loosen content checks to "make room".
 
 Backend alpha is an additional decision axis, not a replacement. The 100-point

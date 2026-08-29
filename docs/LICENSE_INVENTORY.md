@@ -6,8 +6,8 @@
 >
 > **GENERATED** from the real dependency graph by `scripts/generate-license-inventory.py`. Do not hand-edit. Regenerate with that script. This is not a license clearance.
 
-- Generated at: `2026-08-16T23:54:21Z`
-- Source commit: `a5bca8c0abcfda4158f5c681fa67f5ae5ebccb05`
+- Generated at: `2026-08-29T03:35:22Z`
+- Source commit: `10a469da946a3f4498200f8db8b9da343e20a463`
 - Status: `GENERATED_DRAFT_NOT_APPROVAL`
 
 ## Graph binding
@@ -479,6 +479,18 @@ Model weights (Llama 3.2, MiniLM), Geist fonts, and visual assets are
 | python | `merc` | `dynamic` | first-party | ["LICENSE"] | FIRST_PARTY |
 | npm | `merc` | `0.1.0` | first-party | Apache-2.0 | FIRST_PARTY |
 | npm | `typescript` | `5.9.3` | devDependency | Apache-2.0 | COMPATIBLE_PERMISSIVE |
+
+## Compatibility summary
+
+The table above is the complete generated graph. The machine-readable JSON beside this file retains the source and reason for every verdict.
+
+- `COMPATIBLE_PERMISSIVE`: 145
+- `COMPATIBLE_PERMISSIVE_OPTION`: 283
+- `FIRST_PARTY`: 3
+- Incompatible copyleft: **0**
+- Undeclared or unclassified: **0**
+
+No software-graph row is a legal clearance. Catalogue models, fonts, and visual assets remain governed by `docs/THIRD_PARTY_LICENSES.md`.
 
 ## `go.sum` versions not in `go.mod`
 

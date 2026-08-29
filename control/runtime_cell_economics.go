@@ -719,7 +719,7 @@ func cellEconomicsEvidenceAuthority(
 	auth := []string{
 		"control/runtime_cell_cost.go#MeasuredSupplierLiabilityProxy",
 		"control/pricing_decision.go#exactTaskEconomics",
-		"docs/PROGRAMME.md#throughput-cancels",
+		"docs/archive/engineering/PROGRAMME.md#throughput-cancels",
 	}
 	if catalogue.ScheduleSHA256 != "" {
 		auth = append(auth, "catalogue_schedule:"+catalogue.ScheduleSHA256)
