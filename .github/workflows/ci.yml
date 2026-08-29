@@ -215,7 +215,8 @@ jobs:
           bash ops/scripts/build-cli-release.sh v0.1.0-rc.1 "$BUNDLE/cli"
           cp clients/web/index.html clients/web/admin.html clients/web/favicon.ico "$BUNDLE/website/"
           cp src/control/schema.sql src/control/runtime-authority.json \
-            clients/proto/manifest.schema.json .env.example "$BUNDLE/contracts/"
+            clients/proto/manifest.schema.json "$BUNDLE/contracts/"
+          cp ops/configs/env.example "$BUNDLE/contracts/.env.example"
           cp docs/RELEASE_READINESS.md docs/RUNBOOKS.md docs/SECURITY.md \
             "$BUNDLE/docs/"
           printf '%s\n' "$CANDIDATE_SHA" > "$BUNDLE/SOURCE_COMMIT"
@@ -257,7 +258,7 @@ jobs:
             --build-arg MERC_BUILD_COMMIT="$CANDIDATE_SHA" \
             --build-arg MERC_BUILD_DATE="$CANDIDATE_DATE" \
             --tag "computexchange/control:sha-$CANDIDATE_SHA" \
-            --file Dockerfile.control .
+            --file ops/deploy/Dockerfile.control .
           mkdir -p "$RUNNER_TEMP/prior-source"
           git archive "$PRIOR_SHA" | tar -x -C "$RUNNER_TEMP/prior-source"
           PRIOR_EPOCH="$(git show -s --format=%ct "$PRIOR_SHA")"
@@ -267,7 +268,7 @@ jobs:
             --build-arg MERC_BUILD_COMMIT="$PRIOR_SHA" \
             --build-arg MERC_BUILD_DATE="$PRIOR_DATE" \
             --tag "computexchange/control:sha-$PRIOR_SHA" \
-            --file "$RUNNER_TEMP/prior-source/Dockerfile.control" \
+            --file "$RUNNER_TEMP/prior-source/ops/deploy/Dockerfile.control" \
             "$RUNNER_TEMP/prior-source"
           {
             printf 'candidate='

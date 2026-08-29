@@ -9,7 +9,7 @@ import (
 
 // The image must ship everything the router serves.
 //
-// Dockerfile.control copied the binary and three HTML pages. The router registers
+// ops/deploy/Dockerfile.control copied the binary and three HTML pages. The router registers
 // seven web routes and reads the catalogue price authority from a file, and none
 // of those files were in the image — so the production container reached
 // log.Fatalf("catalogue price authority unavailable") and could not start at all,
@@ -20,7 +20,7 @@ import (
 // omission in a COPY list — which is exactly what a text check catches. The
 // image-boot proof is a separate gate (ops/scripts/test-release-image-boots.sh).
 func TestReleaseImageShipsEveryFileTheRouterServes(t *testing.T) {
-	dockerfile, err := os.ReadFile("../../Dockerfile.control")
+	dockerfile, err := os.ReadFile("../../ops/deploy/Dockerfile.control")
 	must(t, err)
 	image := string(dockerfile)
 
@@ -70,7 +70,7 @@ func TestReleaseImageShipsEveryFileTheRouterServes(t *testing.T) {
 // dev/unknown, so an operator cannot bind a command to the artifact they are
 // administering. Require both identities to come from the same build arguments.
 func TestReleaseImageStampsServerAndCLIIdentity(t *testing.T) {
-	dockerfile, err := os.ReadFile("../../Dockerfile.control")
+	dockerfile, err := os.ReadFile("../../ops/deploy/Dockerfile.control")
 	must(t, err)
 	image := string(dockerfile)
 	for _, binding := range []string{
@@ -89,15 +89,15 @@ func TestReleaseImageStampsServerAndCLIIdentity(t *testing.T) {
 
 // Production configuration must NAME the price board rather than discover it.
 func TestProductionComposeNamesThePriceBoard(t *testing.T) {
-	compose, err := os.ReadFile("../../docker-compose.prod.yml")
+	compose, err := os.ReadFile("../../ops/deploy/docker-compose.prod.yml")
 	must(t, err)
 	if !strings.Contains(string(compose), priceBoardPathEnv+":") {
-		t.Fatalf("docker-compose.prod.yml does not set %s. Discovery is what let a "+
+		t.Fatalf("ops/deploy/docker-compose.prod.yml does not set %s. Discovery is what let a "+
 			"missing release artifact look like a working service on a developer "+
 			"machine and a dead one in production.", priceBoardPathEnv)
 	}
 	if !strings.Contains(string(compose), releasePriceBoardPath) {
-		t.Errorf("docker-compose.prod.yml does not name %s", releasePriceBoardPath)
+		t.Errorf("ops/deploy/docker-compose.prod.yml does not name %s", releasePriceBoardPath)
 	}
 }
 

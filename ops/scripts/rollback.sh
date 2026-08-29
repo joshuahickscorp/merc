@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-COMPOSE="${MERC_COMPOSE_FILE:-$ROOT/docker-compose.prod.yml}"
+COMPOSE="${MERC_COMPOSE_FILE:-$ROOT/ops/deploy/docker-compose.prod.yml}"
 TARGET="${1:-}"
 
 die() { echo "rollback: $*" >&2; exit 1; }

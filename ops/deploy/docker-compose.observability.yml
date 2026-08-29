@@ -2,10 +2,10 @@
 #
 # Standalone (alert delivery proof; control scrape will soft-fail):
 #   MERC_ALERT_RECEIVER_URL_FILE=/abs/path/to/url.txt \
-#     docker compose -f docker-compose.observability.yml up -d prometheus alertmanager
+#     docker compose -f ops/deploy/docker-compose.observability.yml up -d prometheus alertmanager
 #
 # With the application stack:
-#   docker compose -f docker-compose.prod.yml -f docker-compose.observability.yml up -d
+#   docker compose -f ops/deploy/docker-compose.prod.yml -f ops/deploy/docker-compose.observability.yml up -d
 #
 # Required operator inputs (fail closed when absent):
 #   MERC_ALERT_RECEIVER_URL_FILE  absolute path to a file whose sole contents are the
@@ -30,8 +30,8 @@ services:
       - --storage.tsdb.retention.time=30d
       - --web.enable-lifecycle
     volumes:
-      - ./ops/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - ./ops/monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - ../../ops/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../../ops/monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro
       - prometheus_data:/prometheus
     ports:
       - "127.0.0.1:9090:9090"
@@ -61,7 +61,7 @@ services:
       - --config.file=/etc/alertmanager/alertmanager.yml
       - --storage.path=/alertmanager
     volumes:
-      - ./ops/monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - ../../ops/monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
       - alertmanager_data:/alertmanager
     secrets:
       - source: alert_receiver_url
@@ -96,8 +96,8 @@ services:
       GF_USERS_ALLOW_SIGN_UP: "false"
       GF_AUTH_ANONYMOUS_ENABLED: "false"
     volumes:
-      - ./ops/monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
-      - ./ops/monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - ../../ops/monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../../ops/monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
       - grafana_data:/var/lib/grafana
     ports:
       - "127.0.0.1:3000:3000"

@@ -20,7 +20,7 @@ var (
 // fail closed at the browser; leaving an old hash behind expands the set of
 // executable bytes. Keep the policy an exact manifest of shipped inline bytes.
 func TestCaddyCSPHashesExactlyBindShippedInlineAssets(t *testing.T) {
-	caddy, err := os.ReadFile("../../Caddyfile")
+	caddy, err := os.ReadFile("../../ops/deploy/Caddyfile")
 	must(t, err)
 	match := cspHeaderPattern.FindSubmatch(caddy)
 	if len(match) != 2 {

@@ -49,7 +49,7 @@ jobs:
             --build-arg MERC_BUILD_COMMIT="$GITHUB_SHA" \
             --build-arg MERC_BUILD_DATE="$BUILD_DATE" \
             --tag "$REF" \
-            --file Dockerfile.control .
+            --file ops/deploy/Dockerfile.control .
           docker push "$REF"
           DIGEST="$(docker inspect --format '{{index .RepoDigests 0}}' "$REF" | cut -d@ -f2)"
           test -n "$DIGEST"
@@ -67,7 +67,7 @@ jobs:
             --build-arg MERC_BUILD_COMMIT="$PRIOR_SHA" \
             --build-arg MERC_BUILD_DATE="$PRIOR_DATE" \
             --tag "$PRIOR_TAG" \
-            --file "$PRIOR_DIR/Dockerfile.control" "$PRIOR_DIR"
+            --file "$PRIOR_DIR/ops/deploy/Dockerfile.control" "$PRIOR_DIR"
           docker push "$PRIOR_TAG"
           PRIOR_DIGEST="$(docker inspect --format '{{index .RepoDigests 0}}' "$PRIOR_TAG" | cut -d@ -f2)"
           test -n "$PRIOR_DIGEST"
@@ -99,7 +99,7 @@ jobs:
             --arg builder "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/.github/workflows/publish-candidate.yml@$GITHUB_REF" \
             --arg invocation "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT" '
             {buildDefinition:{buildType:"https://mercmerc.invalid/buildtypes/docker-control/v1",
-              externalParameters:{repository:$repo,ref:$ref,commit:$commit,dockerfile:"Dockerfile.control"},
+              externalParameters:{repository:$repo,ref:$ref,commit:$commit,dockerfile:"ops/deploy/Dockerfile.control"},
               internalParameters:{workflow:"publish-candidate"},
               resolvedDependencies:[{uri:("git+"+$repo+"@"+$ref),digest:{gitCommit:$commit}}]},
              runDetails:{builder:{id:$builder},metadata:{invocationId:$invocation}}}' \

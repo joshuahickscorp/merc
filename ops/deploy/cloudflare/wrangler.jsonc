@@ -17,7 +17,7 @@
   "containers": [
     {
       "class_name": "MercControl",
-      "image": "../../Dockerfile.control",
+      "image": "../Dockerfile.control",
       // The control plane is stateful in Postgres, not on local disk, so
       // instances are interchangeable. Start small; this is a canary.
       "max_instances": 2,

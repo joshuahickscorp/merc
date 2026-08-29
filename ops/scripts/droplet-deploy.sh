@@ -46,7 +46,7 @@ done
 docker compose version >/dev/null 2>&1 && ok "docker compose v2" \
   || { bad "docker compose v2 is required"; FAILED=1; }
 
-[ -f "$ROOT/.env" ] || die ".env is missing. Copy .env.example and fill it in; §1 of
+[ -f "$ROOT/.env" ] || die ".env is missing. Copy ops/configs/env.example and fill it in; §1 of
        docs/RUNBOOKS.md lists every variable the control plane demands."
 perms=$(stat -c '%a' "$ROOT/.env" 2>/dev/null || stat -f '%Lp' "$ROOT/.env")
 [ "$perms" = "600" ] && ok ".env is 600" || warn ".env is $perms; should be 600 (chmod 600 .env)"
@@ -247,10 +247,10 @@ fi
         under 'set -u' the script would abort mid-deploy."; FAILED=1; }
 
 # --------------------------------------------------------------- compose sane
-docker compose -f "$ROOT/docker-compose.prod.yml" -f "$ROOT/docker-compose.observability.yml" \
+docker compose -f "$ROOT/ops/deploy/docker-compose.prod.yml" -f "$ROOT/ops/deploy/docker-compose.observability.yml" \
   config -q 2>/dev/null && ok "compose files validate" \
   || { bad "compose config is invalid; run it yourself to see why:
-        docker compose -f docker-compose.prod.yml -f docker-compose.observability.yml config"
+        docker compose -f ops/deploy/docker-compose.prod.yml -f ops/deploy/docker-compose.observability.yml config"
        FAILED=1; }
 
 [ "$FAILED" -eq 0 ] || die "preflight failed. Nothing was changed. Fix the items above."

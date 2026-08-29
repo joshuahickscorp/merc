@@ -5,7 +5,7 @@ PASS receipt only after the requested command and its assertions succeed. A
 manifest, a dry run, or a short soak cannot satisfy the Level-B canary gate.
 
 The stack is standalone and intentionally does not merge with
-`docker-compose.prod.yml`. The control image has no `build` key, and every
+`ops/deploy/docker-compose.prod.yml`. The control image has no `build` key, and every
 runtime image is either fixed to a reviewed digest in the manifest or supplied
 as an exact `registry/repository@sha256:<64 hex>` reference. The deployment and
 rollback scripts pull and inspect those exact references before activation.

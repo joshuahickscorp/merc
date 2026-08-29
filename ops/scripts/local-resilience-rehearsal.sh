@@ -117,7 +117,7 @@ if [ -n "${MERC_LOCAL_PREBUILT_IMAGE_ID:-}" ]; then
   LOCAL_IMAGE="$MERC_LOCAL_PREBUILT_IMAGE_ID"
 else
   LOCAL_TAG="cx-control-local-proof:${SOURCE_COMMIT:0:12}-${SOURCE_STATE:0:12}"
-  docker build --platform "$PLATFORM" --provenance=false -f "$ROOT/Dockerfile.control" \
+  docker build --platform "$PLATFORM" --provenance=false -f "$ROOT/ops/deploy/Dockerfile.control" \
     --build-arg "MERC_BUILD_VERSION=local-proof" \
     --build-arg "MERC_BUILD_COMMIT=$SOURCE_COMMIT" \
     --build-arg "MERC_BUILD_DATE=$BUILD_DATE" -t "$LOCAL_TAG" "$ROOT" >/dev/null

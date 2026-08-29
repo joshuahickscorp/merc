@@ -1,7 +1,8 @@
 # Local-proof Caddyfile for the small-host profile.
 # Uses internal TLS so the stack can terminate HTTPS without ACME/public DNS.
-# Production deploys keep the root Caddyfile (ACME). Bind over the caddy
-# config with MERC_CADDYFILE=./ops/smallhost/Caddyfile.local.
+# Production deploys use ops/deploy/Caddyfile (ACME). Bind over the caddy
+# config with MERC_CADDYFILE=../../ops/smallhost/Caddyfile.local when passed to
+# ops/deploy/docker-compose.smallhost.yml (an absolute path is safest).
 
 {
 	admin 127.0.0.1:2019

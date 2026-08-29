@@ -20,7 +20,7 @@ command -v docker >/dev/null || die "docker is required"
 docker compose version >/dev/null 2>&1 || die "Docker Compose v2 is required"
 command -v jq >/dev/null || die "jq is required"
 command -v sha256sum >/dev/null || die "sha256sum is required"
-[ -f .env ] || die "copy .env.example to .env and set production values"
+[ -f .env ] || die "copy ops/configs/env.example to .env and set production values"
 set -a
 . ./.env
 set +a
@@ -133,13 +133,13 @@ esac
 [ "${#MERC_VERIFICATION_SAMPLE_SECRET}" -ge 32 ] || die "verification secret is too short"
 [ -f "$MERC_ALERT_RECEIVER_URL_FILE" ] && [ -s "$MERC_ALERT_RECEIVER_URL_FILE" ] \
   || die "MERC_ALERT_RECEIVER_URL_FILE must exist and contain the HTTPS alert webhook URL (see ops/monitoring/README.md)"
-docker compose -f docker-compose.prod.yml -f docker-compose.observability.yml config -q \
+docker compose -f ops/deploy/docker-compose.prod.yml -f ops/deploy/docker-compose.observability.yml config -q \
   || die "invalid production+observability compose"
 
 echo "Deploy ${SITE_HOST} from $(git rev-parse --short HEAD); payment_mode=$payment_mode backup=$((1-SKIP_BACKUP))"
 if [ "$YES" -eq 0 ]; then read -r -p 'Type yes to continue: ' answer; [ "$answer" = yes ] || exit 1; fi
 if [ "$PULL" -eq 1 ]; then git pull --ff-only; fi
-if [ "$SKIP_BACKUP" -eq 0 ] && docker compose -f docker-compose.prod.yml -f docker-compose.observability.yml ps -q postgres | grep -q .; then
+if [ "$SKIP_BACKUP" -eq 0 ] && docker compose -f ops/deploy/docker-compose.prod.yml -f ops/deploy/docker-compose.observability.yml ps -q postgres | grep -q .; then
   bash ops/scripts/backup.sh
 fi
 bash ops/scripts/deploy.sh

@@ -39,28 +39,28 @@
 #    multi-replica failover.
 #    Restore: run the standard prod compose on a host with ≥2 vCPU and scale
 #    `control` (or put a second host behind an external load balancer). The
-#    Caddyfile already reverse-proxies the `control` service name.
+#    ops/deploy/Caddyfile already reverse-proxies the `control` service name.
 #
 # 2. Grafana.
 #    Why: a dashboard is not a production requirement; alerting is. Grafana
 #    alone measured ~147 MiB peak under light load — the largest single
 #    non-serving consumer.
-#    Restore: `docker compose -f docker-compose.smallhost.yml \
-#      -f docker-compose.observability.yml --profile full up -d grafana`
+#    Restore: `docker compose -f ops/deploy/docker-compose.smallhost.yml \
+#      -f ops/deploy/docker-compose.observability.yml --profile full up -d grafana`
 #    on a host with the spare RAM, or point an off-box Grafana at this
 #    Prometheus (127.0.0.1:9090 is bound on loopback).
 #
 # 3. node-exporter.
 #    Why: host metrics are useful but not required for money-correct serving;
 #    ~7 MiB and a host mount. The control plane still exposes /metrics.
-#    Restore: compose with docker-compose.observability.yml `--profile full`,
+#    Restore: compose with ops/deploy/docker-compose.observability.yml `--profile full`,
 #    or scrape node metrics from an off-box exporter.
 #
 # 4. Long Prometheus retention / 15s scrape.
 #    Why: 30d retention and 15s scrapes are the biggest TSDB growth levers.
 #    Smallhost keeps Prometheus (so Alertmanager still evaluates rules and
 #    pages) but with 6h retention, a 128 MB TSDB cap, and 30s scrape.
-#    Restore: use docker-compose.observability.yml defaults on a larger host,
+#    Restore: use ops/deploy/docker-compose.observability.yml defaults on a larger host,
 #    or scrape `control:8080/metrics` from an off-box Prometheus with full
 #    retention. Alerting still fires on-box via Alertmanager →
 #    MERC_ALERT_RECEIVER_URL_FILE (required; fail-closed).
@@ -80,8 +80,8 @@
 #
 #   # requires the same .env as prod (see ops/scripts/bootstrap-prod.sh required list)
 #   # plus MERC_ALERT_RECEIVER_URL_FILE pointing at an https webhook URL file
-#   docker compose -f docker-compose.smallhost.yml config -q
-#   docker compose -f docker-compose.smallhost.yml up -d --build
+#   docker compose -f ops/deploy/docker-compose.smallhost.yml config -q
+#   docker compose -f ops/deploy/docker-compose.smallhost.yml up -d --build
 #
 # To re-add dashboards/node metrics on a larger box, layer the observability
 # compose (see drops above). Do not layer it on a 961 MB host.
@@ -185,7 +185,7 @@ services:
       - config_file=/etc/merc/postgresql.conf
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./ops/smallhost/postgresql.conf:/etc/merc/postgresql.conf:ro
+      - ../../ops/smallhost/postgresql.conf:/etc/merc/postgresql.conf:ro
     healthcheck:
       test: [CMD-SHELL, pg_isready -U cx -d cx]
       interval: 5s
@@ -246,8 +246,8 @@ services:
 
   control:
     build:
-      context: .
-      dockerfile: Dockerfile.control
+      context: ../..
+      dockerfile: ops/deploy/Dockerfile.control
       args:
         MERC_BUILD_VERSION: ${MERC_BUILD_VERSION:-dev}
         MERC_BUILD_COMMIT: ${MERC_BUILD_COMMIT:-unknown}
@@ -265,7 +265,7 @@ services:
     environment: *control-env
     expose: ["8080"]
     volumes:
-      - ${MERC_BACKUP_HEALTH_DIR:-./.artifacts/backup-health}:/run/cx-health:ro
+      - ${MERC_BACKUP_HEALTH_DIR:-../../.artifacts/backup-health}:/run/cx-health:ro
       - ${MERC_LIVE_PAYMENT_ACTIVATION_SOURCE:-/dev/null}:/run/secrets/merc-live-payment-activation.json:ro
       - ${MERC_LIVE_PAYMENT_ACTIVATION_HMAC_KEY_SOURCE:-/dev/null}:/run/secrets/merc-live-payment-activation-hmac-key:ro
       - ${STRIPE_SECRET_KEY_SOURCE:-/dev/null}:/run/secrets/merc-stripe-secret-key:ro
@@ -299,8 +299,8 @@ services:
       SITE_HOST: ${SITE_HOST:-mercmerc.net}
       STORAGE_HOST: ${STORAGE_HOST:-storage.mercmerc.net}
     volumes:
-      # Production: ACME TLS via the root Caddyfile. Local proof may bind-mount
-      # ops/smallhost/Caddyfile.local over this path for tls internal.
+      # Production: ACME TLS via the canonical Caddyfile. Local proof may bind-mount
+      # ../../ops/smallhost/Caddyfile.local over this path for tls internal.
       - ${MERC_CADDYFILE:-./Caddyfile}:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
@@ -325,8 +325,8 @@ services:
       - --storage.tsdb.retention.size=128MB
       - --web.enable-lifecycle
     volumes:
-      - ./ops/smallhost/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - ./ops/monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - ../../ops/smallhost/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../../ops/monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro
       - prometheus_data:/prometheus
     ports:
       - "127.0.0.1:9090:9090"
@@ -354,7 +354,7 @@ services:
       - --config.file=/etc/alertmanager/alertmanager.yml
       - --storage.path=/alertmanager
     volumes:
-      - ./ops/monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - ../../ops/monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
       - alertmanager_data:/alertmanager
     secrets:
       - source: alert_receiver_url

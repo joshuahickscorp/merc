@@ -92,14 +92,14 @@ attacks over 255 HTTPS requests on 112 distinct routes. No finding. Per class:
 | identity_webhook | 8 | 8 | 0 | stripped, forged, and correct signature from the wrong authority in both directions |
 | money | 15 | 15 | 0 | unauthenticated / wrong-role money routes; no matching-authority cash event sent |
 | authority | 62 | 62 | 0 | operator surface plus `/readyz` payment_mode=test before and after |
-| tls | 12 | 12 | 0 | TLS 1.3, SAN `mercmerc.net`, Caddyfile headers, `:80` 308 to https |
-| containment | 1 | 1 | 0 | public `GET /metrics` returned 404 as the Caddyfile claims |
+| tls | 12 | 12 | 0 | TLS 1.3, SAN `mercmerc.net`, `ops/deploy/Caddyfile` headers, `:80` 308 to https |
+| containment | 1 | 1 | 0 | public `GET /metrics` returned 404 as `ops/deploy/Caddyfile` claims |
 | concurrency | 0 | 0 | 0 | not driven — would race live rows |
 | resource | 0 | 0 | 0 | not driven — a flood would take the endpoint down |
 | supply_chain | 0 | 0 | 0 | not driven — those probes read the checkout |
 
 TLS: Let's Encrypt, protocol TLSv1.3, SAN `mercmerc.net`. Observed headers
-matched the Caddyfile (`Strict-Transport-Security`, CSP, `Permissions-Policy`,
+matched `ops/deploy/Caddyfile` (`Strict-Transport-Security`, CSP, `Permissions-Policy`,
 `Cross-Origin-Opener-Policy`, `X-Content-Type-Options`, `X-Frame-Options`,
 `Referrer-Policy`; `Server` stripped). No error body leaked internals.
 `payment_mode` was `test` and `/readyz` was 200 before and after.

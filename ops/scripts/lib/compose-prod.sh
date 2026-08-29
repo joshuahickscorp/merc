@@ -7,8 +7,8 @@ cx_prod_compose() {
     return
   fi
   docker compose \
-    -f "$ROOT/docker-compose.prod.yml" \
-    -f "$ROOT/docker-compose.observability.yml" \
+    -f "$ROOT/ops/deploy/docker-compose.prod.yml" \
+    -f "$ROOT/ops/deploy/docker-compose.observability.yml" \
     "$@"
 }
 

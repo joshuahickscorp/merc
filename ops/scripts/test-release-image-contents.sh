@@ -2,7 +2,7 @@
 # Inspect the BUILT control image for every page and asset the control plane
 # reads at runtime. The source-tree site-build gate cannot catch this:
 # .dockerignore excludes ops/scripts/, and production mounts no clients/web/ volume — pages
-# come only from COPY clients/web/ /web/ and COPY ops/configs/pricing/board.json in Dockerfile.control.
+# come only from COPY clients/web/ /web/ and COPY ops/configs/pricing/board.json in ops/deploy/Dockerfile.control.
 #
 # Commit 0abb578a shipped an image whose clients/web/ copy listed three pages and omitted
 # ops/configs/pricing/board.json; the process could not start and nothing noticed. This gate
@@ -35,7 +35,7 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-# .lfsconfig fetchexclude skips evidence/perf/**. Dockerfile.control copies
+# .lfsconfig fetchexclude skips evidence/perf/**. ops/deploy/Dockerfile.control copies
 # those receipts into the image; a pointer file crash-loops the control plane
 # with "cited receipt is not JSON". Hydrate before the build so the check
 # inspects real payloads, then still fail if any copied receipt is a pointer.
@@ -47,8 +47,8 @@ fi
 echo "release image contents: building $TAG"
 # Prefer BuildKit; fall back to classic builder when buildx activity files are
 # unwritable (common under sandboxed CI agents / restricted Docker contexts).
-if ! "$RUNTIME" build -f Dockerfile.control -t "$TAG" . >/tmp/merc-image-contents-build.log 2>&1; then
-  if ! DOCKER_BUILDKIT=0 "$RUNTIME" build -f Dockerfile.control -t "$TAG" . \
+if ! "$RUNTIME" build -f ops/deploy/Dockerfile.control -t "$TAG" . >/tmp/merc-image-contents-build.log 2>&1; then
+  if ! DOCKER_BUILDKIT=0 "$RUNTIME" build -f ops/deploy/Dockerfile.control -t "$TAG" . \
       >/tmp/merc-image-contents-build.log 2>&1; then
     echo "release image contents: FAIL -- build" >&2
     tail -40 /tmp/merc-image-contents-build.log >&2

@@ -176,7 +176,7 @@ func languageOf(path string) string {
 		return lang
 	}
 	switch filepath.Base(path) {
-	case "Dockerfile", "Makefile", "Caddyfile", "go.mod", "Cargo.toml":
+	case "Dockerfile", "Dockerfile.control", "Makefile", "Caddyfile", "go.mod", "Cargo.toml":
 		return "config"
 	case "cx":
 		return "shell"

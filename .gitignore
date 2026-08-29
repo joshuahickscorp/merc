@@ -32,7 +32,7 @@ ops/scripts/*.log
 .env
 .env.bak*
 .env.*
-!.env.example
+!ops/configs/env.example
 !.env.*.example
 .env.go-closure
 .env.local

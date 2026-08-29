@@ -177,7 +177,7 @@ services:
     ports:
       - "${MINIO_PORT}:9000"
 EOF
-  export COMPOSE_FILE="$ROOT/docker-compose.yml:$COMPOSE_OVERRIDE"
+  export COMPOSE_FILE="$ROOT/ops/deploy/docker-compose.yml:$COMPOSE_OVERRIDE"
   docker compose up -d postgres minio createbuckets
   export DATABASE_URL="postgres://cx:cx@127.0.0.1:$PGPORT/cx?sslmode=disable"
   TEST_DATABASE_URL="postgres://cx:cx@127.0.0.1:$PGPORT/cx_prove_tests?sslmode=disable"

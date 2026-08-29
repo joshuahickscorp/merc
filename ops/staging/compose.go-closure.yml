@@ -175,7 +175,7 @@ services:
       SITE_HOST: ${STAGING_TLS_HOSTNAME:?declared in ops/go-closure-inputs.json}
       STORAGE_HOST: ${STAGING_STORAGE_TLS_HOSTNAME:?required in .env.go-closure}
     volumes:
-      - ../../Caddyfile:/etc/caddy/Caddyfile:ro
+      - ../deploy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
     ports:

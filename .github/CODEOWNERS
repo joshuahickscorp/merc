@@ -27,8 +27,8 @@
 
 # Release and deployment
 /.github/ @joshuahickscorp
-/Caddyfile @joshuahickscorp
-/Dockerfile* @joshuahickscorp
-/docker-compose*.yml @joshuahickscorp
+/ops/deploy/Caddyfile @joshuahickscorp
+/ops/deploy/Dockerfile* @joshuahickscorp
+/ops/deploy/docker-compose*.yml @joshuahickscorp
 /ops/scripts/deploy.sh @joshuahickscorp
 /ops/scripts/rollback.sh @joshuahickscorp

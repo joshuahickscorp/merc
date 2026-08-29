@@ -46,7 +46,7 @@ make offsite-droplet-restore
 
 ## A. SUPERVISOR — dump + encrypt + upload (on the droplet or via existing backup.sh)
 # From a checkout that can docker exec merc-postgres-1:
-export MERC_COMPOSE_FILE=$ROOT/docker-compose.smallhost.yml
+export MERC_COMPOSE_FILE=$ROOT/ops/deploy/docker-compose.smallhost.yml
 export MERC_PG_SERVICE=postgres
 # or, if the compose project is already named merc:
 #   docker exec merc-postgres-1 pg_dump -U cx -d cx -Fc > /tmp/cx.dump

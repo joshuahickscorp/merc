@@ -20,7 +20,7 @@ import (
 // EmbedRunner over the production RuntimeDriver — the same code path a claimed
 // task takes — and writes the exact bytes a worker would commit:
 //
-//	docker compose up -d minio createbuckets
+//	docker compose -f ops/deploy/docker-compose.yml up -d minio createbuckets
 //	llama-server -m <pinned GGUF> --embedding --pooling mean -c 32768 -np 128 \
 //	  -b 4096 -ub 4096 --port 8188 --host 127.0.0.1
 //	for rt in candle_metal llama_cpp_metal; do

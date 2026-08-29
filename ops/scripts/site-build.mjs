@@ -103,7 +103,7 @@ if (labelContrast < 4.5) {
   throw new Error(`clients/web/index.html: label contrast ${labelContrast.toFixed(2)} is below WCAG AA 4.5:1`);
 }
 
-const caddy = fs.readFileSync(path.join(root, 'Caddyfile'), 'utf8');
+const caddy = fs.readFileSync(path.join(root, 'ops', 'deploy', 'Caddyfile'), 'utf8');
 for (const header of [
   'Strict-Transport-Security',
   'Content-Security-Policy',

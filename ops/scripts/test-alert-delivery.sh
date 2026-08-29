@@ -4,7 +4,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
-COMPOSE_FILE="$ROOT/docker-compose.observability.yml"
+COMPOSE_FILE="$ROOT/ops/deploy/docker-compose.observability.yml"
 PROJECT="merc-alert-delivery-$$"
 ART="${MERC_ALERT_DELIVERY_DIR:-$ROOT/.artifacts/alert-delivery}/$PROJECT"
 EVIDENCE_OUT="${MERC_ALERT_DELIVERY_EVIDENCE:-$ROOT/evidence/autonomous/alert-delivery.json}"
@@ -289,7 +289,7 @@ jq -n \
   --arg resolved_fingerprint "$RESOLVED_FP" \
   --argjson sink_event_count "$SINK_LINES" \
   --arg sink_log "$SINK_LOG" \
-  --arg compose_file "docker-compose.observability.yml" \
+  --arg compose_file "ops/deploy/docker-compose.observability.yml" \
   --argjson firing_event "$FIRING_EVENT" \
   --argjson resolved_event "$RESOLVED_EVENT" \
   '{

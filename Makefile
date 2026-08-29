@@ -1,18 +1,19 @@
 DATABASE_URL ?= postgres://cx:cx@localhost:5432/cx?sslmode=disable
+COMPOSE_FILE ?= ops/deploy/docker-compose.yml
 
 .PHONY: credentials credentials-check droplet-deploy private-canary realtime-sdk-conformance up down dev-up dev-down test-qualification test-unit test-normal test-integration test-expensive test-full test-certification certify license-register release-gates alert-delivery-test backup-age-metric-test migrate seed control agent-run agent-bench agent-characterize prove-local metrics build fmt test ci audit loc docker-build install uninstall backup restore-drill backup-envelope-test local-independent-restore offsite-independent-restore offsite-independent-restore-check offsite-droplet-restore offsite-droplet-restore-check local-production-tls local-rollback restart-storm-local technical-exercises recovery-suite alert-check alert-page render-staging validate-staging soak-15m soak-2h soak-24h soak-24h-persistent soak-24h-status release-doctor stripe-simulate stripe-check stripe-matrix secret-audit approvals-check mutation-test mutation-test-parallel mutation-fast mutation-authority mutation-full mutation-deep alpha-security stripe-nonconnect stripe-endpoint-subscriptions alpha-e2e-rehearsal test-money-contract
 
 up:
-	docker compose up -d --build
+	docker compose -f "$(COMPOSE_FILE)" up -d --build
 
 down:
-	docker compose down
+	docker compose -f "$(COMPOSE_FILE)" down
 
 dev-up:
-	docker compose up -d postgres minio createbuckets
+	docker compose -f "$(COMPOSE_FILE)" up -d postgres minio createbuckets
 
 dev-down:
-	docker compose down
+	docker compose -f "$(COMPOSE_FILE)" down
 
 migrate:
 	psql "$(DATABASE_URL)" -v ON_ERROR_STOP=1 --single-transaction -f src/control/schema.sql
@@ -235,7 +236,7 @@ audit:
 loc: audit
 
 docker-build:
-	docker build -f Dockerfile.control -t cx-control .
+	docker build -f ops/deploy/Dockerfile.control -t cx-control .
 
 install:
 	bash ops/scripts/install.sh $(ARGS)

@@ -3,14 +3,14 @@
 # published to the internet.
 #
 # Compose merges `ports` by appending, so this file cannot unpublish the
-# 0.0.0.0:443 bindings in docker-compose.prod.yml. The droplet copy of that
+# 0.0.0.0:443 bindings in ops/deploy/docker-compose.prod.yml. The droplet copy of that
 # file must name ${CADDY_TLS_BIND:-127.0.0.1} for the 443 mappings.
 #
 # One command to flip 443 public, after the operator approves:
 #   CADDY_TLS_BIND=0.0.0.0 docker compose \
-#     -f docker-compose.prod.yml \
-#     -f docker-compose.smallhost.yml \
-#     -f docker-compose.canary.yml \
+#     -f ops/deploy/docker-compose.prod.yml \
+#     -f ops/deploy/docker-compose.smallhost.yml \
+#     -f ops/deploy/docker-compose.canary.yml \
 #     up -d --no-deps --no-recreate caddy
 name: merc
 

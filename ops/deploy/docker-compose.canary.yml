@@ -1,5 +1,5 @@
-# Alpha / Level B overlay. Layer on docker-compose.prod.yml and/or
-# docker-compose.smallhost.yml.
+# Alpha / Level B overlay. Layer on ops/deploy/docker-compose.prod.yml and/or
+# ops/deploy/docker-compose.smallhost.yml.
 #
 # Both base files hardcode MERC_ENV=production in x-control-env, which
 # refuses TEST payment mode (src/control/payment_authority.go). Level B is
@@ -7,7 +7,7 @@
 # variable on the control service. It does not start extra services, does
 # not open public admission, and does not enable live Stripe.
 #
-#   docker compose -f docker-compose.smallhost.yml -f docker-compose.canary.yml \
+#   docker compose -f ops/deploy/docker-compose.smallhost.yml -f ops/deploy/docker-compose.canary.yml \
 #     up -d --no-deps --no-recreate control
 
 services:

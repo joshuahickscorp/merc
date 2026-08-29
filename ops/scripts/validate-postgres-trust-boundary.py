@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """CI check for the production Postgres TLS / trust-boundary decision.
 
-Fails unless the active architecture page and docker-compose.prod.yml still
+Fails unless the active architecture page and ops/deploy/docker-compose.prod.yml still
 agree that sslmode=disable is only used because Postgres is unpublished on a
 single-host Compose network.
 """
@@ -14,7 +14,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 DOC = ROOT / "docs" / "ARCHITECTURE.md"
-COMPOSE = ROOT / "docker-compose.prod.yml"
+COMPOSE = ROOT / "ops" / "deploy" / "docker-compose.prod.yml"
 
 REQUIRED_DOC_PHRASES = [
     "sslmode=disable",
@@ -35,7 +35,7 @@ def postgres_service_block(compose: str) -> str:
     # Capture from "  postgres:" until the next top-level service or EOF.
     m = re.search(r"(?ms)^  postgres:\n(.*?)(?=^  [a-z].*:|\Z)", compose)
     if not m:
-        fail("docker-compose.prod.yml has no postgres service")
+        fail("ops/deploy/docker-compose.prod.yml has no postgres service")
     return m.group(1)
 
 
@@ -62,7 +62,7 @@ def main() -> None:
         compose,
     )
     if not dsn_match:
-        fail("control DATABASE_URL not found in docker-compose.prod.yml")
+        fail("control DATABASE_URL not found in ops/deploy/docker-compose.prod.yml")
     dsn = dsn_match.group(1).strip()
     if "sslmode=disable" not in dsn:
         fail(

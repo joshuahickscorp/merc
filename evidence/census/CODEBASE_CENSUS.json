@@ -1,5 +1,5 @@
 {
-  "authority_sha256": "3c23456d010795f3de1729d9eaa812889fde13e95cc87b74be2aba46ad141678",
+  "authority_sha256": "c63a346d5d222f106918b1a08100092bba4e2ca706d24ce5739181ad51186658",
   "dependencies": {
     "go_direct": 6,
     "cargo_direct": 30,
@@ -8,7 +8,6 @@
   },
   "files": {
     ".dockerignore": 41,
-    ".env.example": 143,
     ".gitattributes": 4,
     ".githooks/pre-push": 27,
     ".github/CODEOWNERS": 34,
@@ -16,14 +15,12 @@
     ".github/ISSUE_TEMPLATE/config.yml": 14,
     ".github/ISSUE_TEMPLATE/support_request.yml": 42,
     ".github/workflows/agent-release.yml": 242,
-    ".github/workflows/ci.yml": 331,
+    ".github/workflows/ci.yml": 332,
     ".github/workflows/publish-candidate.yml": 194,
     ".gitignore": 177,
     ".lfsconfig": 12,
-    "Caddyfile": 69,
-    "Dockerfile.control": 59,
     "LICENSE": 47,
-    "Makefile": 466,
+    "Makefile": 467,
     "NOTICE": 66,
     "README.md": 81,
     "clients/cli/LICENSE": 202,
@@ -72,11 +69,6 @@
     "clients/web/prices.html": 217,
     "clients/web/site.webmanifest": 11,
     "clients/web/supplier.html": 138,
-    "docker-compose.canary.yml": 16,
-    "docker-compose.observability.yml": 149,
-    "docker-compose.prod.yml": 243,
-    "docker-compose.smallhost.yml": 390,
-    "docker-compose.yml": 70,
     "docs/ACCEPTABLE_USE_AND_ABUSE_RESPONSE.md": 155,
     "docs/ALPHA_BUYER_ACKNOWLEDGEMENT.md": 111,
     "docs/ALPHA_PAYMENT_PAYOUT_DISCLOSURE.md": 123,
@@ -393,11 +385,19 @@
     "ops/authorization-matrix.json": 257,
     "ops/backend-alpha-gates.json": 747,
     "ops/candidate.json": 6,
+    "ops/configs/env.example": 143,
     "ops/configs/launch.env.template": 16,
     "ops/configs/pricing/board.json": 158,
+    "ops/deploy/Caddyfile": 69,
+    "ops/deploy/Dockerfile.control": 59,
     "ops/deploy/cloudflare/container-entry.js": 34,
     "ops/deploy/cloudflare/migrate-to-cloudflare.sh": 50,
     "ops/deploy/cloudflare/wrangler.jsonc": 38,
+    "ops/deploy/docker-compose.canary.yml": 16,
+    "ops/deploy/docker-compose.observability.yml": 149,
+    "ops/deploy/docker-compose.prod.yml": 243,
+    "ops/deploy/docker-compose.smallhost.yml": 390,
+    "ops/deploy/docker-compose.yml": 70,
     "ops/deploy/recovery/compose.yml": 20,
     "ops/deploy/recovery/load-operator-image.sh": 35,
     "ops/deploy/recovery/offsite.env.example": 22,
@@ -684,7 +684,7 @@
     "ops/scripts/with-isolated-test-db.sh": 66,
     "ops/scripts/with-isolated-test-storage.sh": 77,
     "ops/scripts/write-bound-evidence.py": 105,
-    "ops/smallhost/Caddyfile.local": 51,
+    "ops/smallhost/Caddyfile.local": 52,
     "ops/smallhost/postgresql.conf": 101,
     "ops/smallhost/prometheus.yml": 33,
     "ops/staging/Caddyfile.alpha": 73,
@@ -1357,12 +1357,12 @@
       "bytes": 4860843
     },
     "config": {
-      "files": 9,
-      "loc": 957,
-      "code": 629,
-      "blank": 135,
-      "comment": 193,
-      "bytes": 43505
+      "files": 10,
+      "loc": 1017,
+      "code": 661,
+      "blank": 137,
+      "comment": 219,
+      "bytes": 46945
     },
     "documentation": {
       "files": 57,
@@ -1370,7 +1370,7 @@
       "code": 17775,
       "blank": 4268,
       "comment": 0,
-      "bytes": 1277752
+      "bytes": 1277808
     },
     "go": {
       "files": 607,
@@ -1378,7 +1378,7 @@
       "code": 202297,
       "blank": 13449,
       "comment": 24920,
-      "bytes": 9634349
+      "bytes": 9634585
     },
     "javascript": {
       "files": 11,
@@ -1386,7 +1386,7 @@
       "code": 1195,
       "blank": 124,
       "comment": 145,
-      "bytes": 58320
+      "bytes": 58337
     },
     "json": {
       "files": 294,
@@ -1394,7 +1394,7 @@
       "code": 778223,
       "blank": 0,
       "comment": 0,
-      "bytes": 21867316
+      "bytes": 21867407
     },
     "lockfile": {
       "files": 2,
@@ -1405,12 +1405,12 @@
       "bytes": 107342
     },
     "other": {
-      "files": 32,
-      "loc": 1893,
-      "code": 1657,
-      "blank": 236,
+      "files": 31,
+      "loc": 1835,
+      "code": 1601,
+      "blank": 234,
       "comment": 0,
-      "bytes": 13271700
+      "bytes": 13268599
     },
     "python": {
       "files": 111,
@@ -1418,7 +1418,7 @@
       "code": 39783,
       "blank": 4423,
       "comment": 1311,
-      "bytes": 1775417
+      "bytes": 1775590
     },
     "rust": {
       "files": 24,
@@ -1434,7 +1434,7 @@
       "code": 22787,
       "blank": 2173,
       "comment": 2806,
-      "bytes": 1216226
+      "bytes": 1216923
     },
     "sql": {
       "files": 2,
@@ -1478,11 +1478,11 @@
     },
     "yaml": {
       "files": 23,
-      "loc": 2721,
-      "code": 2299,
+      "loc": 2722,
+      "code": 2300,
       "blank": 123,
       "comment": 299,
-      "bytes": 110936
+      "bytes": 111393
     }
   },
   "owned_by_subsystem": {
@@ -1500,7 +1500,7 @@
       "code": 19242,
       "blank": 3019,
       "comment": 0,
-      "bytes": 1654237
+      "bytes": 1654280
     },
     "interface": {
       "files": 2,
@@ -1512,11 +1512,11 @@
     },
     "ops": {
       "files": 1277,
-      "loc": 1131558,
-      "code": 1075401,
+      "loc": 1131561,
+      "code": 1075378,
       "blank": 24060,
-      "comment": 32097,
-      "bytes": 53784735
+      "comment": 32123,
+      "bytes": 53786666
     },
     "proof": {
       "files": 4,
@@ -1524,7 +1524,7 @@
       "code": 1662,
       "blank": 8,
       "comment": 1,
-      "bytes": 75180
+      "bytes": 75272
     },
     "sdk": {
       "files": 10,
@@ -1536,8 +1536,8 @@
     }
   },
   "ownership": {
-    "global_owned_loc": 1157698,
-    "non_design_production_core_loc": 1008338,
+    "global_owned_loc": 1157701,
+    "non_design_production_core_loc": 1008341,
     "test_loc": 120895,
     "documentation_loc": 22043,
     "python_loc": 45517,
@@ -1565,7 +1565,7 @@
       "media_rendering"
     ]
   },
-  "tracked_bytes": 55608361,
+  "tracked_bytes": 55610427,
   "tracked_files": 1339,
   "untracked_files": 0,
   "walked_files": 1339

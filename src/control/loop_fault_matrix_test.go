@@ -105,7 +105,7 @@ func enableLocalObjectStoreForLoopFaults(t *testing.T) {
 	if os.Getenv(allowSkippingDBTestsEnv) == "1" {
 		t.Skipf("MERC_TEST_S3_ENDPOINT is unset and %s=1; loop-fault cases require object storage", allowSkippingDBTestsEnv)
 	}
-	// Local compose defaults (docker-compose.yml). The harness skips when these
+	// Local compose defaults (ops/deploy/docker-compose.yml). The harness skips when these
 	// stay unset; this lane has to actually take the proof.
 	t.Setenv("MERC_TEST_S3_ENDPOINT", "http://127.0.0.1:9000")
 	t.Setenv("MERC_TEST_S3_BUCKET", "cx-jobs")

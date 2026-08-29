@@ -50,7 +50,7 @@ if [ -d /opt/computexchange ] && [ "$ROOT" != /opt/computexchange ]; then
   ROOT=/opt/computexchange
 fi
 cd "$ROOT"
-C=(docker compose -f docker-compose.prod.yml)
+C=(docker compose -f ops/deploy/docker-compose.prod.yml)
 case "${1:-help}" in
   ps|status) "${C[@]}" ps ;;
   up)        "${C[@]}" up -d ;;

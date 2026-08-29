@@ -1,7 +1,7 @@
 # Overlay for the mercmerc.net backend alpha.
 # Applied on the droplet as the third compose file:
-#   docker compose -f docker-compose.prod.yml \
-#                  -f docker-compose.smallhost.yml \
+#   docker compose -f ops/deploy/docker-compose.prod.yml \
+#                  -f ops/deploy/docker-compose.smallhost.yml \
 #                  -f ops/staging/compose.alpha.yml
 #
 # Forces MERC_ENV=staging and MERC_CANARY_MODE=true. Buyer/worker allowlist

@@ -28,7 +28,7 @@ x-control-env: &control-env
   # start against a board nobody chose. An override is allowed, and in production
   # it must declare MERC_PRICE_BOARD_SHA256 as well.
   # Required in production by validateAdminAccessConfig; the control plane refuses
-  # to start without it. It was in neither this file nor .env.example, so the
+  # to start without it. It was in neither this file nor ops/configs/env.example, so the
   # shipped compose could not boot even once the price board was fixed -- the
   # image-boot gate found it on its first real run.
   MERC_ADMIN_CIDRS: ${MERC_ADMIN_CIDRS:?required in production (comma-separated operator management CIDRs)}
@@ -162,8 +162,8 @@ services:
 
   control:
     build:
-      context: .
-      dockerfile: Dockerfile.control
+      context: ../..
+      dockerfile: ops/deploy/Dockerfile.control
       args:
         MERC_BUILD_VERSION: ${MERC_BUILD_VERSION:-dev}
         MERC_BUILD_COMMIT: ${MERC_BUILD_COMMIT:-unknown}
@@ -173,13 +173,13 @@ services:
       postgres: {condition: service_healthy}
       minio: {condition: service_healthy}
       createbuckets: {condition: service_completed_successfully}
-    env_file: [.env]
+    env_file: [../../.env]
     environment: *control-env
     expose: ["8080"]
     volumes:
       # Host path written by ops/scripts/backup.sh (and the systemd timer). Mounted
       # read-only so the metrics endpoint can export merc_backup_age_seconds.
-      - ${MERC_BACKUP_HEALTH_DIR:-./.artifacts/backup-health}:/run/cx-health:ro
+      - ${MERC_BACKUP_HEALTH_DIR:-../../.artifacts/backup-health}:/run/cx-health:ro
       # LIVE mode replaces /dev/null with a candidate-bound activation file.
       # SEALED mode leaves the container env path empty, so this mount grants
       # no authority and exists only to keep the Compose shape deterministic.

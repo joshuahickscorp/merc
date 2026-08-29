@@ -52,9 +52,9 @@ grep -Fq 'alpha_ledger_gate_state' "$ROOT/ops/scripts/alpha/lib.sh" \
   || die "lib.sh must derive P1 state from ops/go-no-go.json"
 grep -Fq 'ops/go-no-go.json' "$ROOT/ops/scripts/alpha/lib.sh" \
   || die "lib.sh must name the go-no-go ledger"
-[ -f "$ROOT/docker-compose.canary.yml" ] \
-  || die "missing docker-compose.canary.yml (launch review cites it)"
-grep -Fq 'MERC_ENV: staging' "$ROOT/docker-compose.canary.yml" \
+[ -f "$ROOT/ops/deploy/docker-compose.canary.yml" ] \
+  || die "missing ops/deploy/docker-compose.canary.yml (launch review cites it)"
+grep -Fq 'MERC_ENV: staging' "$ROOT/ops/deploy/docker-compose.canary.yml" \
   || die "docker-compose.canary.yml must override MERC_ENV=staging"
 pass "plan quotes in-scope exit criteria; P1 approval follows one ledger"
 

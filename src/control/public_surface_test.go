@@ -72,7 +72,7 @@ func TestSupplierSurfaceSeparatesOwnerAndWorkerAuthority(t *testing.T) {
 }
 
 func TestDeploymentWiresPublicBrowserAndContactAuthority(t *testing.T) {
-	for _, path := range []string{"../../docker-compose.prod.yml", "../../ops/staging/compose.go-closure.yml"} {
+	for _, path := range []string{"../../ops/deploy/docker-compose.prod.yml", "../../ops/staging/compose.go-closure.yml"} {
 		deployment := readSurfaceFixture(t, path)
 		for _, required := range []string{
 			"STRIPE_PUBLISHABLE_KEY", "MERC_SUPPORT_EMAIL", "MERC_SECURITY_EMAIL",

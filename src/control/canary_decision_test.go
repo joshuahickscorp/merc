@@ -201,7 +201,7 @@ func TestCanaryPolicyKeepsBuyersOutWithoutAResolvableDecision(t *testing.T) {
 // never receives them cannot be handed a decision without also being rebuilt,
 // and a placeholder value would be a decision nobody took.
 func TestProductionComposeCarriesTheCanaryDisableDecision(t *testing.T) {
-	compose, err := os.ReadFile("../../docker-compose.prod.yml")
+	compose, err := os.ReadFile("../../ops/deploy/docker-compose.prod.yml")
 	must(t, err)
 	for _, name := range []string{canaryDisableDecisionEnv, canaryDisableDecisionDigestEnv} {
 		line := ""
@@ -211,7 +211,7 @@ func TestProductionComposeCarriesTheCanaryDisableDecision(t *testing.T) {
 			}
 		}
 		if line == "" {
-			t.Fatalf("docker-compose.prod.yml does not pass %s to the control plane", name)
+		t.Fatalf("ops/deploy/docker-compose.prod.yml does not pass %s to the control plane", name)
 		}
 		if !strings.HasSuffix(line, ":-}") {
 			t.Errorf("%s is not empty by default: %s", name, line)
@@ -222,12 +222,12 @@ func TestProductionComposeCarriesTheCanaryDisableDecision(t *testing.T) {
 	// be set correctly and production still refuses with "cannot be read".
 	if !strings.Contains(string(compose),
 		"${MERC_CANARY_DISABLE_DECISION_SOURCE:-/dev/null}:/run/secrets/merc-canary-disable-decision.json:ro") {
-		t.Fatal("docker-compose.prod.yml does not mount the decision artifact the env names")
+		t.Fatal("ops/deploy/docker-compose.prod.yml does not mount the decision artifact the env names")
 	}
 	// The refusal is on the file mode, and the operator's editor writes 0644, so
 	// the required mode has to be stated where the mount is declared.
 	if !strings.Contains(string(compose), "0600") {
-		t.Error("docker-compose.prod.yml does not tell the operator the required file mode")
+		t.Error("ops/deploy/docker-compose.prod.yml does not tell the operator the required file mode")
 	}
 }
 

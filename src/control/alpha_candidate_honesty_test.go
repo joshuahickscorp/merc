@@ -227,7 +227,7 @@ func TestP1IndependentApprovalFollowsGoNoGoLedger(t *testing.T) {
 
 func TestCitedCanaryComposeOverlayIsTracked(t *testing.T) {
 	root := alphaHonestyRepoRoot(t)
-	overlay := filepath.Join(root, "docker-compose.canary.yml")
+	overlay := filepath.Join(root, "ops", "deploy", "docker-compose.canary.yml")
 	raw, err := os.ReadFile(overlay)
 	if err != nil {
 		t.Fatalf("launch review names docker-compose.canary.yml but it is not a file: %v", err)

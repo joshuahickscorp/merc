@@ -5,7 +5,7 @@ services:
     ports: ["5432:5432"]
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./ops/local/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+      - ../../ops/local/postgresql.conf:/etc/postgresql/postgresql.conf:ro
     # config_file= so lock-table knobs apply on restart of an existing volume,
     # not only on first init. Values and rationale: ops/local/postgresql.conf.
     command: ["postgres", "-c", "config_file=/etc/postgresql/postgresql.conf"]
@@ -41,7 +41,7 @@ services:
     restart: "no"
 
   control:
-    build: {context: ., dockerfile: Dockerfile.control}
+    build: {context: ../.., dockerfile: ops/deploy/Dockerfile.control}
     depends_on:
       postgres: {condition: service_healthy}
       minio: {condition: service_healthy}

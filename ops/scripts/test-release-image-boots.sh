@@ -2,7 +2,7 @@
 # Build the FINAL image from a clean tree and prove it serves.
 #
 # This exists because the production image could not start and nothing noticed.
-# Dockerfile.control shipped the binary and three HTML pages; the catalogue price
+# ops/deploy/Dockerfile.control shipped the binary and three HTML pages; the catalogue price
 # authority is read from a file that was never copied, so the container reached
 # log.Fatalf("catalogue price authority unavailable") on every boot. The live host
 # was up only because it had been assembled by hand -- meaning the revenue host
@@ -56,7 +56,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 echo "release image boot: building $TAG from exact HEAD ${HEAD_SHA:0:12}"
-if ! "$RUNTIME" build -f Dockerfile.control -t "$TAG" \
+if ! "$RUNTIME" build -f ops/deploy/Dockerfile.control -t "$TAG" \
   --build-arg "MERC_BUILD_VERSION=$BUILD_VERSION" \
   --build-arg "MERC_BUILD_COMMIT=$HEAD_SHA" \
   --build-arg "MERC_BUILD_DATE=$BUILD_DATE" \
@@ -106,7 +106,7 @@ done
     echo "release image boot: SKIPPED (could not start a minio sidecar)"; exit 0; }
 sleep 4
 
-# Production-SHAPED configuration: every variable docker-compose.prod.yml marks
+# Production-SHAPED configuration: every variable ops/deploy/docker-compose.prod.yml marks
 # required, and nothing mounted from the host. If this needs a host file, the
 # artifact is not self-contained and the gate has done its job.
 "$RUNTIME" run -d --name "$APP" --network "$NET" -p 18080:8080 \

@@ -10,7 +10,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.." || exit 1
 
-COMPOSE="${MERC_COMPOSE_FILE:-docker-compose.prod.yml}"
+COMPOSE="${MERC_COMPOSE_FILE:-ops/deploy/docker-compose.prod.yml}"
 LABEL="${MERC_ADMIN_KEY_LABEL:-operator admin}"
 command -v openssl >/dev/null 2>&1 || { echo "openssl not found" >&2; exit 1; }
 

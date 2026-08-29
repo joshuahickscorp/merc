@@ -73,9 +73,9 @@ COMPOSE_PIN_REMOTE = "/opt/merc/ops/staging/compose.alpha.yml"
 # canary.yml stays in the stack: the droplet copy carries GOMEMLIMIT.
 COMPOSE = (
     "docker compose "
-    "-f docker-compose.prod.yml "
-    "-f docker-compose.smallhost.yml "
-    "-f docker-compose.canary.yml "
+    "-f ops/deploy/docker-compose.prod.yml "
+    "-f ops/deploy/docker-compose.smallhost.yml "
+    "-f ops/deploy/docker-compose.canary.yml "
     "-f ops/staging/compose.alpha.yml"
 )
 FORBIDDEN_VOLUME_ARGS = ("merc_pgdata", "merc_miniodata", "volume rm", "compose down")
@@ -217,9 +217,9 @@ def merged_compose_build_hash() -> str:
         "import subprocess, sys\n"
         "cmd = [\n"
         "    'docker', 'compose',\n"
-        "    '-f', 'docker-compose.prod.yml',\n"
-        "    '-f', 'docker-compose.smallhost.yml',\n"
-        "    '-f', 'docker-compose.canary.yml',\n"
+        "    '-f', 'ops/deploy/docker-compose.prod.yml',\n"
+        "    '-f', 'ops/deploy/docker-compose.smallhost.yml',\n"
+        "    '-f', 'ops/deploy/docker-compose.canary.yml',\n"
         "    '-f', 'ops/staging/compose.alpha.yml',\n"
         "    'config',\n"
         "]\n"

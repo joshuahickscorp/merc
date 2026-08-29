@@ -12,7 +12,7 @@ import (
 
 // Where the immutable release artifact puts the files the control plane must have.
 //
-// The production image could not start. Dockerfile.control copied four HTML files
+// The production image could not start. ops/deploy/Dockerfile.control copied four HTML files
 // and the binary; it did not copy ops/configs/pricing/board.json. The final stage is
 // distroless with WORKDIR /, so every relative candidate missed, the source-file
 // fallback resolves to a build-time path that does not exist in the image, no
@@ -147,7 +147,7 @@ func verifyPriceBoardDigest(raw []byte, expected string) (string, error) {
 //
 // Same reasoning as the board, milder consequence: a missing HTML file is a 404
 // rather than a dead process, which is exactly why it went unnoticed that
-// Dockerfile.control shipped three of the seven pages the router serves.
+// ops/deploy/Dockerfile.control shipped three of the seven pages the router serves.
 func releaseWebAsset(name string) string {
 	for _, root := range []string{releaseWebRoot, "../../clients/web"} {
 		candidate := filepath.Join(root, name)

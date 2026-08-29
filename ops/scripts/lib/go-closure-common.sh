@@ -444,8 +444,8 @@ gc_sync_bundle() {
   gc_require_command rsync
   gc_validate_absolute_path STAGING_DEPLOYMENT_ROOT
   local files=(
-    Caddyfile
-    monitoring
+    ops/deploy/Caddyfile
+    ops/monitoring
     ops/go-closure-inputs.json
     ops/staging/compose.go-closure.yml
     ops/staging/env.go-closure.example

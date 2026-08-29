@@ -78,7 +78,7 @@ envval() { [ -f "$ENV" ] && grep -E "^[[:space:]]*$1=" "$ENV" 2>/dev/null | tail
 
 set_env() {
   local key="$1" val="$2" tmp
-  [ -f "$ENV" ] || { cp .env.example "$ENV" 2>/dev/null || touch "$ENV"; }
+  [ -f "$ENV" ] || { cp ops/configs/env.example "$ENV" 2>/dev/null || touch "$ENV"; }
   chmod 600 "$ENV"
   tmp="$(mktemp)"
   grep -vE "^[[:space:]]*#?[[:space:]]*${key}=" "$ENV" > "$tmp" || true
@@ -173,4 +173,4 @@ ensure_endpoint "https://$HOST/v1/stripe/connect-webhook" "MERC_CONNECT_WEBHOOK_
 
 hr "done"
 info "If secrets were written to .env, restart the control plane so it loads them:"
-info "  local:  make control     ·     prod:  cx reload   (or docker compose -f docker-compose.prod.yml up -d control)"
+info "  local:  make control     ·     prod:  cx reload   (or docker compose -f ops/deploy/docker-compose.prod.yml up -d control)"

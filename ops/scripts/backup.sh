@@ -58,10 +58,10 @@ write_backup_status() {
 
 OFFSITE="${MERC_BACKUP_OFFSITE:-}"
 [ -n "$OFFSITE" ] || die "MERC_BACKUP_OFFSITE is unset. Set it (and the offsite \
-S3 creds) in .env · see .env.example. Refusing to take a backup with nowhere \
+S3 creds) in .env · see ops/configs/env.example. Refusing to take a backup with nowhere \
 offsite to put it."
 
-COMPOSE_FILE="${MERC_COMPOSE_FILE:-$ROOT/docker-compose.prod.yml}"
+COMPOSE_FILE="${MERC_COMPOSE_FILE:-$ROOT/ops/deploy/docker-compose.prod.yml}"
 PG_SERVICE="${MERC_PG_SERVICE:-postgres}"
 PG_USER="${POSTGRES_USER:-cx}"
 PG_DB="${POSTGRES_DB:-cx}"
@@ -115,7 +115,7 @@ command -v python3 >/dev/null 2>&1 || die "python3 not found; backup verificatio
 
 [ -n "${AWS_ACCESS_KEY_ID:-}" ] && [ -n "${AWS_SECRET_ACCESS_KEY:-}" ] \
   || die "AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY (offsite bucket creds) not \
-set. See .env.example. Refusing to back up with no way to authenticate offsite."
+set. See ops/configs/env.example. Refusing to back up with no way to authenticate offsite."
 
 dc() { docker compose -f "$COMPOSE_FILE" "$@"; }
 

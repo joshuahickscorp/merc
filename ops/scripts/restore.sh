@@ -27,11 +27,11 @@ done
 [ -n "$WHICH" ] || die "specify a timestamp or --latest. List: aws s3 ls \$MERC_BACKUP_OFFSITE/"
 
 OFFSITE="${MERC_BACKUP_OFFSITE:-}"
-[ -n "$OFFSITE" ] || die "MERC_BACKUP_OFFSITE unset (see .env.example)."
+[ -n "$OFFSITE" ] || die "MERC_BACKUP_OFFSITE unset (see ops/configs/env.example)."
 [ -n "${AWS_ACCESS_KEY_ID:-}" ] && [ -n "${AWS_SECRET_ACCESS_KEY:-}" ] \
   || die "offsite creds (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY) not set."
 
-COMPOSE_FILE="${MERC_COMPOSE_FILE:-$ROOT/docker-compose.prod.yml}"
+COMPOSE_FILE="${MERC_COMPOSE_FILE:-$ROOT/ops/deploy/docker-compose.prod.yml}"
 PG_SERVICE="${MERC_PG_SERVICE:-postgres}"
 PG_USER="${POSTGRES_USER:-cx}"
 PG_DB="${POSTGRES_DB:-cx}"
