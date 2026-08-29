@@ -6,11 +6,10 @@ WORKDIR /src/control
 COPY src/control/go.mod src/control/go.sum ./
 RUN go mod download
 COPY src/control/ ./
-COPY ops/healthcheck.c /tmp/healthcheck.c
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath \
     -ldflags="-s -w -X main.controlVersion=${MERC_BUILD_VERSION} -X main.controlCommit=${MERC_BUILD_COMMIT} -X main.controlBuildDate=${MERC_BUILD_DATE} -X main.cliVersion=${MERC_BUILD_VERSION} -X main.cliCommit=${MERC_BUILD_COMMIT} -X main.cliBuildDate=${MERC_BUILD_DATE}" \
     -o /merc . && \
-    cc -static -Os -s -Wall -Wextra -Werror -o /merc-healthcheck /tmp/healthcheck.c
+    CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /merc-healthcheck ./cmd/healthcheck
 
 FROM gcr.io/distroless/static:nonroot@sha256:f7f8f729987ad0fdf6b05eeeae94b26e6a0f613bdf46feea7fc40f7bd72953e6
 ARG MERC_BUILD_VERSION=dev
@@ -27,7 +26,7 @@ COPY --from=build /merc-healthcheck /merc-healthcheck
 # The release artifact.
 #
 # This image could not start. The catalogue price authority is read from
-# src/pricing/board.json, the final stage is distroless with WORKDIR /, and this file
+# ops/configs/pricing/board.json, the final stage is distroless with WORKDIR /, and this file
 # copied the binary and three HTML pages -- so every candidate path missed and
 # startup reached log.Fatalf("catalogue price authority unavailable"). The live
 # host was up only because it had been assembled by hand, which means the revenue
@@ -36,7 +35,7 @@ COPY --from=build /merc-healthcheck /merc-healthcheck
 # One absolute path, named by production configuration, digest reported on
 # /version. Not another fallback: the more places a file can be found, the less a
 # successful start says about which one was loaded.
-COPY src/pricing/board.json /etc/merc/pricing/board.json
+COPY ops/configs/pricing/board.json /etc/merc/pricing/board.json
 # Cited price receipts. The catalogue price authority resolves every
 # SourceCitation at startup and refuses to publish a price whose receipt is
 # missing or whose throughput disagrees, so the image must carry the receipts it

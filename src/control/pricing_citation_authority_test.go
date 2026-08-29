@@ -390,7 +390,7 @@ func TestPricingThroughputAuthorityMustMatchCurrentSettlementUnitScope(t *testin
 	if err == nil || !strings.Contains(err.Error(), "incompatible with current settlement authority") ||
 		!strings.Contains(err.Error(), performanceUnitScopeCompletedEmbeddingRecords) ||
 		!strings.Contains(err.Error(), performanceUnitScopeTokenLikeInputGeometry) {
-		t.Fatalf("src/pricing/settlement semantic mismatch error=%v", err)
+		t.Fatalf("pricing/settlement semantic mismatch error=%v", err)
 	}
 }
 

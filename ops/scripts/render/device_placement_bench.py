@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Cycles CPU vs Metal device-placement sweep.
 
-    python3 src/render/harness/device_placement_bench.py --self-test
-    MERC_RENDER_DEVICE_PLACEMENT=1 python3 src/render/harness/device_placement_bench.py --write-evidence
+    python3 ops/scripts/render/device_placement_bench.py --self-test
+    MERC_RENDER_DEVICE_PLACEMENT=1 python3 ops/scripts/render/device_placement_bench.py --write-evidence
 
 Finds the resolution × samples × complexity curve where Metal overtakes
 CPU on this host, evaluates gpu_placement_license() against that curve,
@@ -1038,7 +1038,7 @@ def measure(args: argparse.Namespace) -> dict[str, Any]:
             "blender_bin": blender,
             "blender_version": version,
             "script": ENTRY_REL,
-            "harness": "src/render/harness/device_placement_bench.py",
+            "harness": "ops/scripts/render/device_placement_bench.py",
             "engine": "CYCLES",
             "gpu_backend_required": "METAL",
             "adaptive_sampling": False,

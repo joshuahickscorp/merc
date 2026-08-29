@@ -69,7 +69,6 @@ CITE_ROOTS = (
     ROOT / "docs" / "RUNTIME_AND_PERF.md",
     ROOT / "docs" / "ARCHITECTURE.md",
     ROOT / "Makefile",
-    ROOT / "src/pricing",
     ROOT / "clients/web",
 )
 

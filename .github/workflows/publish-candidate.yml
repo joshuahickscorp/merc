@@ -1,8 +1,6 @@
 name: publish candidate image
 
 on:
-  push:
-    branches: [release/rc1-go-closure]
   workflow_dispatch:
 
 concurrency:
@@ -140,9 +138,9 @@ jobs:
           # The signing identity is whatever ref actually ran, not a branch
           # chosen when this workflow was written. Sigstore puts the real ref in
           # the certificate subject, so pinning one branch here made the workflow
-          # able to verify itself on release/rc1-go-closure and nowhere else — a
-          # workflow_dispatch on main produced a perfectly valid signature and
-          # then rejected it.
+          # able to verify itself only on the branch chosen when this workflow
+          # was written — a workflow_dispatch on main produced a perfectly valid
+          # signature and then rejected it.
           IDENTITY="https://github.com/$GITHUB_REPOSITORY/.github/workflows/publish-candidate.yml@$GITHUB_REF"
           ISSUER="https://token.actions.githubusercontent.com"
           go run github.com/sigstore/cosign/v2/cmd/cosign@v2.6.1 \

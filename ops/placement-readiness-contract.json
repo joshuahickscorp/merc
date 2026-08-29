@@ -132,7 +132,7 @@
   },
   "generation_quality_refusal": {
     "contract_id": "batch-infer-metal-q4-vs-cuda-bf16-REFUSED",
-    "authority": "ops/acceptable-quality-contracts.json",
+    "authority": "src/control/acceptable-quality-contracts.json",
     "note": "Metal catalogue generation is GGUF q4; CUDA vLLM profile is HF bf16. Not multi-family substitutable under byte_exact. Do not rank them on price."
   },
   "promotion_blockers": {

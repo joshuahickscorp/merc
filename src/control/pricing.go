@@ -921,7 +921,7 @@ func catalogueConservativeUnitsPerSecond(b measuredThroughput) float64 {
 
 // targetSupplierUSDHr is the cost-plus supplier revenue target used only for
 // the diagnostic floor (diagnosticCostFloorFromSupplierEconomics). Catalogue prices come
-// from src/pricing/board.json (market board × positioning_multiplier).
+// from ops/configs/pricing/board.json (market board × positioning_multiplier).
 const targetSupplierUSDHr = 2.0
 
 type RepriceResult struct {

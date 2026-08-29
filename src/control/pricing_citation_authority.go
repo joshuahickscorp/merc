@@ -51,7 +51,7 @@ func pricingRepoRootCandidates() []string {
 	}
 	out = append(out, ".", "..")
 	// The release image has no git and no repo tree; it carries the cited
-	// receipts under /etc/merc alongside src/pricing/board.json. Without this the
+	// receipts under /etc/merc alongside ops/configs/pricing/board.json. Without this the
 	// citation gate makes the container unbootable, which is how it was found.
 	out = append(out, "/etc/merc")
 	// Dedup while preserving order.

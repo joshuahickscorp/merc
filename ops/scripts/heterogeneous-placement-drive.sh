@@ -55,8 +55,6 @@ from pathlib import Path
 root = Path(".").resolve()
 auth = json.loads((root / "src/control/runtime-authority.json").read_text())
 qc_path = root / "src/control/acceptable-quality-contracts.json"
-if not qc_path.exists():
-    qc_path = root / "ops/acceptable-quality-contracts.json"
 qc = json.loads(qc_path.read_text()) if qc_path.exists() else {}
 workload = (root / "src/control/workload_classification.go").read_text()
 decision = (root / "src/control/runtime_decision.go").read_text()

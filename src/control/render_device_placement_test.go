@@ -4,7 +4,7 @@ package main
 // run. The live Blender/Metal measurement is opt-in only:
 //
 //	MERC_RENDER_DEVICE_PLACEMENT=1 \
-//	  python3 src/render/harness/device_placement_bench.py --write-evidence
+//	  python3 ops/scripts/render/device_placement_bench.py --write-evidence
 //
 //	MERC_RENDER_DEVICE_PLACEMENT=1 \
 //	  go test -count=1 -run '^TestRenderDevicePlacementBench$' -timeout 180m .
@@ -24,7 +24,7 @@ import (
 
 const (
 	devicePlacementEnv        = "MERC_RENDER_DEVICE_PLACEMENT"
-	devicePlacementHarnessRel = "src/render/harness/device_placement_bench.py"
+	devicePlacementHarnessRel = "ops/scripts/render/device_placement_bench.py"
 	devicePlacementPredRel    = "ops/scripts/lib/device_placement.py"
 	devicePlacementEntryRel   = "src/render/metal/blender_entry.py"
 	devicePlacementDeviceRel  = "src/render/metal/device.py"

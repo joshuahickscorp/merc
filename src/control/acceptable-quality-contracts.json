@@ -62,7 +62,7 @@
       "model_ref": "llama-3.2-1b-instruct-q4",
       "status": "REFUSED",
       "metric": "none — precision/artifact mismatch",
-      "metric_authority": "ops/acceptable-quality-contracts.json",
+      "metric_authority": "src/control/acceptable-quality-contracts.json",
       "metric_revision": "refusal-v1",
       "thresholds": {},
       "reference_cell_id": "candle-metal-llama1-infer",

@@ -2,10 +2,10 @@
 # Inspect the BUILT control image for every page and asset the control plane
 # reads at runtime. The source-tree site-build gate cannot catch this:
 # .dockerignore excludes ops/scripts/, and production mounts no clients/web/ volume — pages
-# come only from COPY clients/web/ /web/ and COPY src/pricing/board.json in Dockerfile.control.
+# come only from COPY clients/web/ /web/ and COPY ops/configs/pricing/board.json in Dockerfile.control.
 #
 # Commit 0abb578a shipped an image whose clients/web/ copy listed three pages and omitted
-# src/pricing/board.json; the process could not start and nothing noticed. This gate
+# ops/configs/pricing/board.json; the process could not start and nothing noticed. This gate
 # asks the artifact, not the checkout.
 #
 #   bash ops/scripts/test-release-image-contents.sh

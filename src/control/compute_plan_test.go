@@ -435,7 +435,7 @@ func TestHistoricalV1ComputePlanRemainsValidUnderOldTokenRule(t *testing.T) {
 		t.Fatal("v1 plan accepted an input depth profile")
 	}
 	// Version 2 is retained exactly as written before v3 introduced explicit
-	// settlement units. Historical src/pricing/receipt validation must not invent a
+	// settlement units. Historical pricing receipt validation must not invent a
 	// field and thereby change an accepted plan's digest.
 	v2 := modern
 	v2.Version = computePlanVersionV2

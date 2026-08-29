@@ -13,7 +13,7 @@ import (
 // Where the immutable release artifact puts the files the control plane must have.
 //
 // The production image could not start. Dockerfile.control copied four HTML files
-// and the binary; it did not copy src/pricing/board.json. The final stage is
+// and the binary; it did not copy ops/configs/pricing/board.json. The final stage is
 // distroless with WORKDIR /, so every relative candidate missed, the source-file
 // fallback resolves to a build-time path that does not exist in the image, no
 // MERC_PRICE_BOARD was set in production compose, and startup reached
@@ -110,10 +110,10 @@ func resolvePriceBoard(env string) (resolvedPriceBoard, error) {
 	// Development only. Kept explicitly separate from the two paths above so that
 	// "it worked on my machine" and "it works in the image" cannot be the same
 	// code path again.
-	candidates := []string{"../../src/pricing/board.json"}
+	candidates := []string{"../../ops/configs/pricing/board.json"}
 	if _, file, _, ok := runtime.Caller(0); ok {
 		candidates = append(candidates,
-			filepath.Join(filepath.Dir(file), "..", "pricing", "board.json"))
+			filepath.Join(filepath.Dir(file), "..", "..", "ops", "configs", "pricing", "board.json"))
 	}
 	for _, candidate := range candidates {
 		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {

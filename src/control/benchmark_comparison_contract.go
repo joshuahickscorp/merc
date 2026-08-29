@@ -10,7 +10,7 @@ import (
 // actually ran. A number with a story attached — q4 Metal timed against bf16
 // CUDA, then labelled an engine delta — is the failure this type exists to
 // refuse. AcceptableQualityContract remains the sole substitutability
-// authority (ops/acceptable-quality-contracts.json, embedded in
+// authority (src/control/acceptable-quality-contracts.json, embedded in
 // src/control/acceptable-quality-contracts.json). This file does not author a
 // second one.
 //

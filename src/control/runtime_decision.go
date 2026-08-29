@@ -88,7 +88,7 @@ type RuntimeDecision struct {
 	// workload verification projection.
 	Precision   string `json:"precision,omitempty"`
 	QualityTier string `json:"quality_tier,omitempty"`
-	// QualityContractID cites ops/control acceptable-quality-contracts.json
+	// QualityContractID cites src/control/acceptable-quality-contracts.json
 	// when multi-family substitutability authorized the eligible set.
 	QualityContractID string `json:"quality_contract_id,omitempty"`
 	// EligibleCellIDs is the multi-family freeze when SelectionBasis is
@@ -375,7 +375,7 @@ func buildBatchRuntimeDecision(
 		}
 		basis = runtimeSelectionBasisHeterogeneousEligibleSet
 		authority = "src/control/workload_classification.go:selectAdmissionCandidates+" +
-			"ops/acceptable-quality-contracts.json:" + qualityContractID
+			"src/control/acceptable-quality-contracts.json:" + qualityContractID
 		note = "multi-family eligible set frozen under AcceptableQualityContract " +
 			qualityContractID + "; CellID is the lifecycle preferred pricing primary; " +
 			"claim may select any eligible cell. Not directed. Not a measured tournament."

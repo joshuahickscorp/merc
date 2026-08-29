@@ -330,7 +330,7 @@ func selectAdmissionCandidates(matches []generatedRuntimeCapability) ([]generate
 	contract, covered := activeQualityContractFor(matches[0].Job, matches[0].Model, cellIDs)
 	if len(devices) > 1 && covered && contract.MultiFamilySubstitutable {
 		// Multi-family under a quality contract: freeze every covered cell.
-		// Preferred (lifecycle winner) is index 0 for src/pricing/placement primary.
+		// Preferred (lifecycle winner) is index 0 for pricing/placement primary.
 		winner, err := rankAndFreezeAdmissionCell(matches)
 		if err != nil {
 			return nil, err

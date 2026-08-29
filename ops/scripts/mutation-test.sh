@@ -520,7 +520,7 @@ MUTATIONS=(
 "runtime_cost_tie_authority.go|a real cost difference is still reported as a forced tie|s#case !out.Tied:#case false:#"
 "runtime_cost_tie_authority.go|a governed term that differs is swallowed by the tie verdict|s#case out.LargestGovernedShare > 0:#case false:#"
 
-# --- Step 5 src/pricing/money authority (true net, currency, risk reserve) ---
+# --- Step 5 pricing/money authority (true net, currency, risk reserve) ---
 # The tranche that closed contribution settlement, realtime FX authority, risk
 # reserve causality, prepaid currency buckets, and cost-schedule FX identity.
 # Without these the suite still proves older money paths and says nothing about

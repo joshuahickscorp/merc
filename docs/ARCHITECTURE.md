@@ -20,7 +20,7 @@ buyer / supplier clients
   verification, accounting, settlement, and the public HTTP contract.
 - `src/agent/` owns the worker-side execution boundary and reports receipts; it
   does not decide prices or move money.
-- `clients/`, `clients/web/`, `src/pricing/`, `ops/deploy/`, and `ops/scripts/` are entry points,
+- `clients/`, `clients/web/`, `ops/configs/pricing/`, `ops/deploy/`, and `ops/scripts/` are entry points,
   policy tooling, or operational wrappers. They do not replace control-plane
   authorities.
 

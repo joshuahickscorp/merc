@@ -169,7 +169,7 @@ func TestNamedLiabilityWritersCiteAuthority(t *testing.T) {
 			}
 		}
 		if !found {
-			t.Errorf("liability writer %s does not cite src/pricing/lane authority helpers", writer)
+			t.Errorf("liability writer %s does not cite pricing/lane authority helpers", writer)
 		}
 	}
 }

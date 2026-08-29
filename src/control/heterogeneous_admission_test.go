@@ -203,17 +203,12 @@ func TestMultiFamilyDecisionRefusesRefusedGenerationContract(t *testing.T) {
 	}
 }
 
-func TestQualityContractFilesStayInLockstep(t *testing.T) {
-	controlBytes, err := os.ReadFile("acceptable-quality-contracts.json")
-	if err != nil {
+func TestQualityContractAuthorityHasOneCanonicalFile(t *testing.T) {
+	if _, err := os.Stat("acceptable-quality-contracts.json"); err != nil {
 		t.Fatal(err)
 	}
-	opsBytes, err := os.ReadFile("../../ops/acceptable-quality-contracts.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(controlBytes) != string(opsBytes) {
-		t.Fatal("src/control/acceptable-quality-contracts.json and ops/acceptable-quality-contracts.json drifted")
+	if _, err := os.Stat("../../ops/acceptable-quality-contracts.json"); err == nil {
+		t.Fatal("ops/acceptable-quality-contracts.json is a duplicate authority")
 	}
 }
 

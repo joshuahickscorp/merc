@@ -134,7 +134,7 @@ TestLivenessWriteAmplificationBench
 # Opt-in integrated control-plane hot-path profile at HEAD. Times
 # HeartbeatRealtimeOffer (both flag states), the live-index bridge,
 # AuthorizeRealtimeContract / eligible-book CTE, CreateServiceLease /
-# ServiceLeaseDataPlaneTarget, and src/pricing/ranking inputs; writes
+# ServiceLeaseDataPlaneTarget, and pricing/ranking inputs; writes
 # evidence/perf/control-plane-hot-path-profile.json plus CPU/alloc pprof.
 # Minutes of wall clock and a live PostgreSQL; never part of make test / make ci.
 # Set MERC_CONTROL_PLANE_PROFILE=1.
@@ -235,4 +235,3 @@ TestBackupAgeMetricObservation
 # and ops/scripts/test-with-isolated-test-db.sh for the template path. Named harm if
 # forced on: a verification run migrates a shared template database.
 TestMutationTemplateSchema
-

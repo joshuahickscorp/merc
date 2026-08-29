@@ -20,7 +20,7 @@ func l12EnsurePriceBoard(t *testing.T) {
 		}
 	}
 	for _, candidate := range []string{
-		filepath.Join("..", "..", "src", "pricing", "board.json"),
+		filepath.Join("..", "..", "ops", "configs", "pricing", "board.json"),
 		"/tmp/merc-l12/board.json",
 	} {
 		if _, err := os.Stat(candidate); err == nil {
@@ -30,7 +30,7 @@ func l12EnsurePriceBoard(t *testing.T) {
 			return
 		}
 	}
-	t.Fatal("src/pricing/board.json is not on disk; set MERC_PRICE_BOARD to the governed board")
+	t.Fatal("ops/configs/pricing/board.json is not on disk; set MERC_PRICE_BOARD to the governed board")
 }
 
 func l12EnsureIsolatedTemplate(t *testing.T) {

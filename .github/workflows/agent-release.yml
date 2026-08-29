@@ -12,7 +12,7 @@ name: agent release binaries
 on:
   push:
     tags: ["agent-v*"]
-    branches: [main, reconstruct/event-horizon]
+    branches: [main]
   workflow_dispatch:
     inputs:
       version:

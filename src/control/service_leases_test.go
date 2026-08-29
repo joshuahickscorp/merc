@@ -315,7 +315,7 @@ func TestServiceLeaseUSDBuyerAndWorkerPathUsesFrozenPricingAndCumulativeMetering
 		lease.Pricing.FixedPoint.AcceptedCeilingNanos != request.BuyerDeclaredCeilingNanos || lease.ActiveReplicas != 3 ||
 		lease.ReservedBuyerMicros != 135_000 || lease.PricingAcceptanceID == nil ||
 		*lease.PricingAcceptanceID != lease.ID || lease.PricingAuthoritySource != serviceLeasePricingSourceAcceptance {
-		t.Fatalf("lease lost frozen src/pricing/capacity authority: %+v", lease)
+		t.Fatalf("lease lost frozen pricing/capacity authority: %+v", lease)
 	}
 	// The agent refreshes this offer continuously. Its static configuration says
 	// it can warm three replicas, but all three are now reserved by this lease;

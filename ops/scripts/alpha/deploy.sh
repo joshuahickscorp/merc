@@ -146,7 +146,7 @@ check_local() {
   grep -q 'MERC_ENV: staging' "$ROOT/docker-compose.canary.yml" \
     || alpha_die "docker-compose.canary.yml must override MERC_ENV=staging"
   [ -f "$ROOT/Caddyfile" ] || alpha_die "missing Caddyfile"
-  [ -f "$ROOT/src/pricing/board.json" ] || alpha_die "missing src/pricing/board.json"
+  [ -f "$ROOT/ops/configs/pricing/board.json" ] || alpha_die "missing ops/configs/pricing/board.json"
   [ -f "$ROOT/ops/smallhost/postgresql.conf" ] || alpha_die "missing ops/smallhost/postgresql.conf"
   [ -f "$ROOT/ops/smallhost/Caddyfile.local" ] || alpha_die "missing ops/smallhost/Caddyfile.local"
   grep -q 'FROM gcr.io/distroless/static:nonroot@sha256:' "$ROOT/Dockerfile.control" \

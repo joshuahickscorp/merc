@@ -2,7 +2,7 @@ name: ci
 
 on:
   push:
-    branches: [main, reconstruct/event-horizon]
+    branches: [main]
   pull_request:
 
 concurrency:

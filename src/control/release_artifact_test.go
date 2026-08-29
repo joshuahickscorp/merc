@@ -25,7 +25,7 @@ func TestReleaseImageShipsEveryFileTheRouterServes(t *testing.T) {
 	image := string(dockerfile)
 
 	// The price board, at the one absolute path the resolver looks for.
-	if !strings.Contains(image, "COPY src/pricing/board.json "+releasePriceBoardPath) {
+	if !strings.Contains(image, "COPY ops/configs/pricing/board.json "+releasePriceBoardPath) {
 		t.Errorf("the image does not ship the price board to %s. Without it the "+
 			"container cannot start: BuildCataloguePriceSchedule fails and main "+
 			"log.Fatalf's before it serves anything.", releasePriceBoardPath)

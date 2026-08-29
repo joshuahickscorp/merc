@@ -17,7 +17,7 @@ import json
 import sys
 from pathlib import Path
 
-# Economics, kept in step with src/control/pricing.go and src/pricing/board.json.
+# Economics, kept in step with src/control/pricing.go and ops/configs/pricing/board.json.
 SUPPLIER_SHARE = 0.97
 ELECTRICITY_USD_PER_KWH = 0.15
 # Sustained package power. Measured when powermetrics is available; otherwise

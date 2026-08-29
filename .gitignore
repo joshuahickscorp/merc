@@ -94,6 +94,7 @@ src/render/cache/
 
 # agent worktrees / local tooling
 .claude/
+.worktrees/
 clients/web/admin-demo.html
 
 # rust crate build dirs (spec-engine, token-spec-poc, renderer)

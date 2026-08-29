@@ -856,7 +856,7 @@ func claimTaskSQL(claimedByPredicate, shapeOrderExpr string) string {
 	   -- registration projection remains the authority and no self-declared dispatch
 	   -- field participates. The model kind is generated from the canonical matrix and
 	   -- persisted with this exact registration row; the mutable DB model catalog is
-	   -- src/pricing/resolver metadata, never dispatch authority.
+	   -- pricing resolver metadata, never dispatch authority.
 	   CROSS JOIN LATERAL (
 	     SELECT wac.cell_id, wac.runtime_id, wac.matrix_sha256, wac.model_kind
 	       FROM worker_authorized_capabilities wac
