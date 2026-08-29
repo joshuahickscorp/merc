@@ -78,7 +78,7 @@
 #
 # ## Usage
 #
-#   # requires the same .env as prod (see scripts/bootstrap-prod.sh required list)
+#   # requires the same .env as prod (see ops/scripts/bootstrap-prod.sh required list)
 #   # plus MERC_ALERT_RECEIVER_URL_FILE pointing at an https webhook URL file
 #   docker compose -f docker-compose.smallhost.yml config -q
 #   docker compose -f docker-compose.smallhost.yml up -d --build

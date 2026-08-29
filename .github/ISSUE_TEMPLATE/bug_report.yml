@@ -8,9 +8,9 @@ body:
       value: |
         **Support is not staffed.** Contacts in
         `docs/SUPPORT_AND_INCIDENT_RUNBOOK.md` and
-        `web/.well-known/security.txt` remain placeholders
+        `clients/web/.well-known/security.txt` remain placeholders
         (`[CONTACT REQUIRED]`, `example.invalid`).
-        `scripts/lib/go-closure-common.sh` rejects those placeholders on purpose.
+        `ops/scripts/lib/go-closure-common.sh` rejects those placeholders on purpose.
 
         Include a job ID when relevant. **Never** paste API keys, worker tokens,
         session cookies, presigned URLs, or private job input.

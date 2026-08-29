@@ -1,3 +1,0 @@
-# Pinned SHA-256 of .tools/runpodctl (darwin/arm64 Mach-O as committed under LFS).
-# scripts/bootstrap-runpodctl.sh refuses to exec unless the binary matches this digest.
-67cc575f518d05258f35c4334422f6f730446b7b88864933ed65a05e990ea1f2  .tools/runpodctl

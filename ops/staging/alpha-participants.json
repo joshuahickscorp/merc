@@ -29,7 +29,7 @@
   "build_hashes": [
     {
       "hash": "0b6a7a9cd7578343",
-      "origin": "sealed r7 candle-metal-llama1-infer engine_build_hash, re-measured on a quiet host so the advertised cell matches the identity a rebuildable agent actually presents (agent/target/release/merc-agent). Replaces f4210c0ef62e4490, which was sealed from a worktree binary that no longer exists \u2014 engine_build_hash digests the built binary, so a build elsewhere could never match it."
+      "origin": "sealed r7 candle-metal-llama1-infer engine_build_hash, re-measured on a quiet host so the advertised cell matches the identity a rebuildable agent actually presents (src/agent/target/release/merc-agent). Replaces f4210c0ef62e4490, which was sealed from a worktree binary that no longer exists \u2014 engine_build_hash digests the built binary, so a build elsewhere could never match it."
     }
   ],
   "ceilings": {

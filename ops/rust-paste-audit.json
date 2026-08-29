@@ -30,7 +30,7 @@
   "reason_retained": "Every occurrence is owned by Candle/GEMM or tokenizer macro internals. Replacing the proc macro locally would fork security-sensitive numerical and tokenizer dependencies without removing those upstream requirements.",
   "removal_condition": "Remove when the supported Candle, GEMM, and tokenizer versions no longer resolve paste, or when those upstream projects adopt a maintained compatible replacement; cargo tree -i paste must then be empty.",
   "verification_commands": [
-    "cargo tree --manifest-path agent/Cargo.toml -i paste --edges normal,build,dev",
-    "cd agent && cargo audit --json"
+    "cargo tree --manifest-path src/agent/Cargo.toml -i paste --edges normal,build,dev",
+    "cd src/agent && cargo audit --json"
   ]
 }

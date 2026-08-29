@@ -4,30 +4,30 @@
   "status": "GENERATED_DRAFT_NOT_APPROVAL",
   "generated_at": "2026-08-29T03:35:22Z",
   "source_commit": "10a469da946a3f4498200f8db8b9da343e20a463",
-  "generator": "scripts/generate-license-inventory.py",
+  "generator": "ops/scripts/generate-license-inventory.py",
   "honesty": {
     "not_legal_advice": true,
     "not_counsel_review": true,
     "does_not_constitute_approval_or_compliance": true,
-    "go_licenses": "Taken from LICENSE files inside the exact module zip on proxy.golang.org for every module listed in control/go.mod. Go module metadata has no license field; nothing is guessed.",
-    "cargo_licenses": "Declared license fields from the crate Cargo.toml matching agent/Cargo.lock name+version in the local cargo registry.",
+    "go_licenses": "Taken from LICENSE files inside the exact module zip on proxy.golang.org for every module listed in src/control/go.mod. Go module metadata has no license field; nothing is guessed.",
+    "cargo_licenses": "Declared license fields from the crate Cargo.toml matching src/agent/Cargo.lock name+version in the local cargo registry.",
     "excluded": "Catalogue model weights, Geist fonts, and visual assets are not software-graph components. They remain in docs/THIRD_PARTY_LICENSES.md (Llama and MiniLM rows BLOCKED).",
     "alpha_distribution": "Backend alpha does not ship a public website or a public binary. The agent may be given to operator-known suppliers; that is limited Apache-2.0 distribution. The control plane is proprietary and is not distributed as source."
   },
   "inputs": {
-    "control/go.mod": {
+    "src/control/go.mod": {
       "sha256": "6641c5a1082f921e394a03fd1e767d0533c0a78eb6241d81bdda654c0207631e",
       "present": true
     },
-    "control/go.sum": {
+    "src/control/go.sum": {
       "sha256": "549318fdf613e18bd4f06b7efc145e0fed5513aeb133878dc1f426b504354f84",
       "present": true
     },
-    "agent/Cargo.lock": {
+    "src/agent/Cargo.lock": {
       "sha256": "9fdebba0ef3baf28189837b429a079b2881bec452f24bde3d5d6f4fbb0cd0f7b",
       "present": true
     },
-    "agent/Cargo.toml": {
+    "src/agent/Cargo.toml": {
       "sha256": "66ad8c64ec83d2eeab6732d56c10271e0a7a309dfcc2f6e8646bfb9175ee5df9",
       "present": true
     },
@@ -3392,7 +3392,7 @@
       "relation": "first-party",
       "declared_license": "Apache-2.0",
       "concluded_spdx": "Apache-2.0",
-      "license_source": "agent/Cargo.toml license = Apache-2.0",
+      "license_source": "src/agent/Cargo.toml license = Apache-2.0",
       "compatibility": {
         "verdict": "FIRST_PARTY",
         "reason": "merc agent; Apache-2.0, intended for supplier distribution"

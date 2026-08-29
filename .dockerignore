@@ -1,16 +1,16 @@
 # Keep the build context tiny and the image clean. The control image needs only
-# control/ source + go.{mod,sum} and db/schema.sql; everything else is noise.
+# src/control/ source + go.{mod,sum} and db/schema.sql; everything else is noise.
 
 # Build artifacts (never copy host-built binaries into the image).
-agent/target/
-control/merc
-control/**/*.test
+src/agent/target/
+src/control/merc
+src/control/**/*.test
 **/*.out
 coverage.out
 
 # The Rust agent is not containerized (Metal needs native macOS) — exclude it
 # wholesale from the control build context.
-agent/
+src/agent/
 
 # Secrets / local config — must never enter an image layer.
 .env
@@ -23,7 +23,7 @@ agent/
 
 # Docs / analysis (not needed at build time).
 *.md
-scripts/
+ops/scripts/
 
 # Editor / OS cruft.
 .DS_Store

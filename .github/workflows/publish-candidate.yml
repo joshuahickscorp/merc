@@ -36,7 +36,7 @@ jobs:
         # (a cited pricing receipt cannot be a pointer). Without this step the
         # image ships pointers and crash-loops. The script clears the exclude,
         # pulls evidence/perf/**, and fails closed on any unresolved pointer.
-        run: bash scripts/hydrate-release-lfs.sh
+        run: bash ops/scripts/hydrate-release-lfs.sh
       - name: Authenticate to GHCR
         run: printf '%s' "$GITHUB_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
         env:

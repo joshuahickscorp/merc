@@ -41,42 +41,42 @@ jobs:
       # .lfsconfig fetchexclude skips evidence/perf/**; checkout's plain
       # git lfs pull honours it. Tests read release-critical perf receipts.
       - name: Hydrate release-critical LFS evidence
-        run: bash scripts/hydrate-release-lfs.sh
+        run: bash ops/scripts/hydrate-release-lfs.sh
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: "1.26.6"
-          cache-dependency-path: control/go.sum
+          cache-dependency-path: src/control/go.sum
       - name: Candidate source identity
         run: test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
       - name: schema is idempotent
         run: |
           sudo apt-get update
           sudo apt-get install -y postgresql-client
-          psql -h localhost -U cx -d cx -v ON_ERROR_STOP=1 --single-transaction -f control/schema.sql
-          psql -h localhost -U cx -d cx -v ON_ERROR_STOP=1 --single-transaction -f control/schema.sql
+          psql -h localhost -U cx -d cx -v ON_ERROR_STOP=1 --single-transaction -f src/control/schema.sql
+          psql -h localhost -U cx -d cx -v ON_ERROR_STOP=1 --single-transaction -f src/control/schema.sql
       - name: format, vet, test, race
         run: |
-          test -z "$(gofmt -l control)"
-          cd control
+          test -z "$(gofmt -l src/control)"
+          cd src/control
           go vet ./...
-          bash ../scripts/with-isolated-test-storage.sh \
-            bash ../scripts/with-isolated-test-db.sh go test ./...
-          bash ../scripts/with-isolated-test-storage.sh \
-            bash ../scripts/with-isolated-test-db.sh go test -race ./...
+          bash ../../ops/scripts/with-isolated-test-storage.sh \
+            bash ../../ops/scripts/with-isolated-test-db.sh go test ./...
+          bash ../../ops/scripts/with-isolated-test-storage.sh \
+            bash ../../ops/scripts/with-isolated-test-db.sh go test -race ./...
       # A skipped test is an assertion nobody made.  MERC_TEST_DATABASE_URL is set
       # for this job, so the money and scheduling suite must actually run; this
       # step fails if any test skips without being allowlisted.
       - name: no silent test skips
-        run: bash scripts/assert-no-test-skips.sh
+        run: bash ops/scripts/assert-no-test-skips.sh
       - name: build and census
         run: |
-          cd control
+          cd src/control
           time go build -trimpath -o "$RUNNER_TEMP/merc" .
-          go run . audit codebase --out evidence/census
+          go run . audit codebase --out ../../evidence/census
       - name: Package control evidence
         run: |
           mkdir -p "$RUNNER_TEMP/control-evidence"
-          cp "$RUNNER_TEMP/merc" control/schema.sql control/runtime-authority.json \
+          cp "$RUNNER_TEMP/merc" src/control/schema.sql src/control/runtime-authority.json \
             clients/proto/manifest.schema.json "$RUNNER_TEMP/control-evidence/"
           cd "$RUNNER_TEMP/control-evidence"
           sha256sum merc schema.sql runtime-authority.json manifest.schema.json > SHA256SUMS
@@ -105,22 +105,22 @@ jobs:
         run: test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
       - name: format, lint, test
         run: |
-          cd agent
+          cd src/agent
           cargo fmt --all -- --check
           cargo clippy --all-targets -- -D warnings
           cargo test
           cd ..
-          bash scripts/test-agent-cross-platform-installers.sh
+          bash ops/scripts/test-agent-cross-platform-installers.sh
       - name: release build and sandbox
         run: |
-          cd agent
+          cd src/agent
           time cargo build --release
           cd ..
           bash clients/macapp/ComputeExchangeAgent/sandbox-profile-test.sh
       - name: Package agent evidence
         run: |
           mkdir -p "$RUNNER_TEMP/agent-evidence"
-          cp agent/target/release/merc-agent "$RUNNER_TEMP/agent-evidence/"
+          cp src/agent/target/release/merc-agent "$RUNNER_TEMP/agent-evidence/"
           cd "$RUNNER_TEMP/agent-evidence"
           shasum -a 256 merc-agent > SHA256SUMS
       - name: Upload agent evidence
@@ -167,11 +167,11 @@ jobs:
       # evidence/perf/** bodies. Without this, .lfsconfig fetchexclude leaves
       # pointers and the suite either false-passes or fails opaquely.
       - name: Hydrate release-critical LFS evidence
-        run: bash scripts/hydrate-release-lfs.sh
+        run: bash ops/scripts/hydrate-release-lfs.sh
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: "1.26.6"
-          cache-dependency-path: control/go.sum
+          cache-dependency-path: src/control/go.sum
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.12"
@@ -187,39 +187,39 @@ jobs:
       - name: schema and generated artifacts
         run: |
           python3 -m json.tool clients/proto/manifest.schema.json >/dev/null
-          python3 -m json.tool control/runtime-authority.json >/dev/null
+          python3 -m json.tool src/control/runtime-authority.json >/dev/null
           python3 -m json.tool ops/governance-approval-bundle.schema.json >/dev/null
-          python3 scripts/validate-authorization-matrix.py
-          python3 scripts/validate-independent-reviews.py
-          python3 scripts/validate-governance.py
-          python3 scripts/validate-readiness.py
-          python3 scripts/assert-soak-claims.py
-          python3 scripts/validate-claim-surfaces.py
-          python3 scripts/test-gateway-parity-receipt.py
-          python3 scripts/validate-evidence-binding.py
-          python3 scripts/runpod-spend-guard.py --self-test
-          python3 scripts/runpod-spend-guard.py revalidate
-          python3 scripts/test-go-closure-evidence-chain.py
-          node scripts/site-build.mjs
-          bash -n scripts/*.sh
-          bash scripts/test-backup-envelope.sh
-          bash scripts/test-backup-schedule.sh
+          python3 ops/scripts/validate-authorization-matrix.py
+          python3 ops/scripts/validate-independent-reviews.py
+          python3 ops/scripts/validate-governance.py
+          python3 ops/scripts/validate-readiness.py
+          python3 ops/scripts/assert-soak-claims.py
+          python3 ops/scripts/validate-claim-surfaces.py
+          python3 ops/scripts/test-gateway-parity-receipt.py
+          python3 ops/scripts/validate-evidence-binding.py
+          python3 ops/scripts/runpod-spend-guard.py --self-test
+          python3 ops/scripts/runpod-spend-guard.py revalidate
+          python3 ops/scripts/test-go-closure-evidence-chain.py
+          node ops/scripts/site-build.mjs
+          bash -n ops/scripts/*.sh
+          bash ops/scripts/test-backup-envelope.sh
+          bash ops/scripts/test-backup-schedule.sh
       - name: Python SDK package
-        run: bash scripts/verify-python-sdk-package.sh
+        run: bash ops/scripts/verify-python-sdk-package.sh
       - name: CLI release archive
-        run: bash scripts/verify-cli-release.sh v0.1.0-rc.1
+        run: bash ops/scripts/verify-cli-release.sh v0.1.0-rc.1
       - name: Package release evidence
         run: |
           BUNDLE="$RUNNER_TEMP/release-bundle"
           mkdir -p "$BUNDLE/contracts" "$BUNDLE/website" "$BUNDLE/docs"
-          bash scripts/build-cli-release.sh v0.1.0-rc.1 "$BUNDLE/cli"
-          cp web/index.html web/admin.html web/favicon.ico "$BUNDLE/website/"
-          cp control/schema.sql control/runtime-authority.json \
+          bash ops/scripts/build-cli-release.sh v0.1.0-rc.1 "$BUNDLE/cli"
+          cp clients/web/index.html clients/web/admin.html clients/web/favicon.ico "$BUNDLE/website/"
+          cp src/control/schema.sql src/control/runtime-authority.json \
             clients/proto/manifest.schema.json .env.example "$BUNDLE/contracts/"
           cp RELEASE_READINESS.md docs/RUNBOOKS.md docs/SECURITY.md \
             "$BUNDLE/docs/"
           printf '%s\n' "$CANDIDATE_SHA" > "$BUNDLE/SOURCE_COMMIT"
-          (cd control && go run . source-id --root .. --field source_sha256) \
+          (cd src/control && go run . source-id --root .. --field source_sha256) \
             > "$BUNDLE/SOURCE_SHA256"
           cd "$BUNDLE"
           find . -type f ! -name SHA256SUMS -print0 | LC_ALL=C sort -z | \
@@ -315,7 +315,7 @@ jobs:
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: "1.26.6"
-          cache-dependency-path: control/go.sum
+          cache-dependency-path: src/control/go.sum
       - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable 2026-07-19
       - name: Candidate source identity
         run: test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"

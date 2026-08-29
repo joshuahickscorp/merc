@@ -2,8 +2,8 @@
 # docker-compose.smallhost.yml.
 #
 # Both base files hardcode MERC_ENV=production in x-control-env, which
-# refuses TEST payment mode (control/payment_authority.go). Level B is
-# staging (control/release_launch.go). This file overrides only that one
+# refuses TEST payment mode (src/control/payment_authority.go). Level B is
+# staging (src/control/release_launch.go). This file overrides only that one
 # variable on the control service. It does not start extra services, does
 # not open public admission, and does not enable live Stripe.
 #

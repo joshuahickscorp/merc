@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "source": "control/api.go:Server.Routes",
+  "source": "src/control/api.go:Server.Routes",
   "policy": {
     "default": "deny",
     "public_routes_are_explicit": true,
@@ -250,8 +250,8 @@
     }
   ],
   "source_commit": "c0c9e3fce0fd8d376575d4770de517aba9c42816",
-  "produced_by": "scripts/produce-authorization-matrix-binding.py",
+  "produced_by": "ops/scripts/produce-authorization-matrix-binding.py",
   "binding_status": "BOUND",
-  "validated_by": "scripts/validate-authorization-matrix.py",
+  "validated_by": "ops/scripts/validate-authorization-matrix.py",
   "validator_output": "authorization matrix: PASS (126 routes, 8 roles, default deny)"
 }

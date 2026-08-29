@@ -56,7 +56,7 @@ See `docs/ALPHA_PAYMENT_PAYOUT_DISCLOSURE.md`.
 
 ## Data the service actually holds about you
 
-Derived from `control/schema.sql` and the account/billing paths, not from
+Derived from `src/control/schema.sql` and the account/billing paths, not from
 a template:
 
 | Held by merc | What it is |

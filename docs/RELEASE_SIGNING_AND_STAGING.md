@@ -12,7 +12,7 @@ Everything marked **automated** already runs unattended. Everything marked
 
 ## 1. macOS signing and notarization
 
-Driver: `scripts/notarize-macos-release.sh`. It signs, submits, staples,
+Driver: `ops/scripts/notarize-macos-release.sh`. It signs, submits, staples,
 verifies as Gatekeeper would, and writes a bound receipt to
 `evidence/state/macos-signing-<version>.json`.
 
@@ -67,8 +67,8 @@ direct download, which is how the merc CLI and agent are distributed.
 ### What runs unattended after that (automated)
 
 ```bash
-scripts/build-cli-release.sh v1.2.3
-scripts/notarize-macos-release.sh v1.2.3
+ops/scripts/build-cli-release.sh v1.2.3
+ops/scripts/notarize-macos-release.sh v1.2.3
 ```
 
 The script then, with no further input:
@@ -113,13 +113,13 @@ Credentials exist, in the **older** secrets file:
 ```
 
 Note that `.merc-credentials.env`, written more recently, does **not** carry
-them. `scripts/merc-credentials.sh` rewrites its output file from scratch on
+them. `ops/scripts/merc-credentials.sh` rewrites its output file from scratch on
 every run, so a value it does not re-emit is a value it drops — that is how
 these ended up split across two files. Consolidate deliberately rather than by
 accident.
 
-Helper scripts already exist: `scripts/merc-cloudflare-key.sh`,
-`scripts/cloudflare-purge.sh`, `scripts/cloudflare-teardown.sh`.
+Helper scripts already exist: `ops/scripts/merc-cloudflare-key.sh`,
+`ops/scripts/cloudflare-purge.sh`, `ops/scripts/cloudflare-teardown.sh`.
 
 **The domains do not resolve.**
 
@@ -166,7 +166,7 @@ connections from Cloudflare.
 
 ### Step 3 — the landing page (automated)
 
-The repo already has `web/` with real pages (`buyer.html`, `admin.html`,
+The repo already has `clients/web/` with real pages (`buyer.html`, `admin.html`,
 `prices.html`). For a deliberately blank landing screen, deploy a single-file
 Worker or a Pages project serving one black page. Once credentials are in the
 environment:
@@ -200,7 +200,7 @@ approval, and an acknowledgement nobody made is exactly that.
 
 ## 3. SBOM and licences — status
 
-**SBOM: generator exists, automated.** `scripts/generate-sbom.py` →
+**SBOM: generator exists, automated.** `ops/scripts/generate-sbom.py` →
 `evidence/state/sbom.json` (unbound historical snapshot at `8e6b1024`;
 CycloneDX 1.5, 639 components at that commit), generated from
 `go list -m -json all` and `cargo metadata` rather than a scanner that would
@@ -220,7 +220,7 @@ would let a green SBOM read as a licence clearance it does not grant.
 
 **Licences: three concrete items**, from `make license-register`:
 
-1. **No owner-approved root project licence.** `agent/Cargo.toml` declares MIT
+1. **No owner-approved root project licence.** `src/agent/Cargo.toml` declares MIT
    but no licence text is tracked, and the Python package has no licence
    metadata. This is a decision only you can make; the mechanical part after it
    is minutes.
@@ -289,11 +289,11 @@ to run."*
    image build/load steps are already prepared in `docs/RUNBOOKS.md` — nothing
    about them needs rediscovering. Two cautions from that runbook that are easy
    to get wrong and expensive to get wrong:
-   - `MERC_TOKEN_KEY` must be copied **byte-for-byte**. `control/crypto.go`
+   - `MERC_TOKEN_KEY` must be copied **byte-for-byte**. `src/control/crypto.go`
      derives the AES key as `sha256(value)`; regenerating it makes every sealed
      OAuth token and webhook secret already in Postgres permanently
      undecryptable.
-   - `MERC_VERIFICATION_SAMPLE_SECRET` must be set, or `control/verification.go`
+   - `MERC_VERIFICATION_SAMPLE_SECRET` must be set, or `src/control/verification.go`
      silently substitutes a **published** default sampling secret — which makes
      verification sampling predictable to anyone who reads the source.
 

@@ -15,7 +15,7 @@ Git commit, or claim that a mutable downloaded artifact is the artifact
 reviewed here.
 
 The software dependency graph (Go, Cargo, Python SDK, TypeScript SDK) is
-**generated**, not hand-written. Run `python3 scripts/generate-license-inventory.py`.
+**generated**, not hand-written. Run `python3 ops/scripts/generate-license-inventory.py`.
 A hand-edited list of crates is worthless. This file keeps the model, font,
 and visual-asset register that the generator deliberately excludes.
 
@@ -44,7 +44,7 @@ and visual-asset register that the generator deliberately excludes.
 |---|---|---|---|---|
 | Llama 3.2 1B Instruct GGUF | `unsloth/Llama-3.2-1B-Instruct-GGUF` @ `b69aef112e9f895e6f98d7ae0949f72ff09aa401`, file `Llama-3.2-1B-Instruct-Q4_K_M.gguf` | Unsloth card YAML `license: llama3.2`; Meta Llama 3.2 Community License and AUP (hashed 2026-08-17; see note) | §1.b.i agreement copy + prominent “Built with Llama”; §1.b.iii Notice on distributed copies; §1.b.iv AUP (“use, or allow others to use”); §2 700M-MAU additional terms | **BLOCKED**: upstream grant and HF LFS artifact identity verified 2026-08-17; §1.b / AUP package, acceptance receipt, counsel review and final-candidate binding remain absent. Do not treat as cleared. |
 | all-MiniLM-L6-v2 | `sentence-transformers/all-MiniLM-L6-v2`: config, tokenizer and safetensors | Model page: Apache-2.0 | Preserve required license/notices; review model-card/dataset and artifact provenance | **BLOCKED**: worktree pin/hash enforcement is not final-candidate-bound; artifact-bound notice and review remain absent |
-| Merc fixed media transcode contract | `ffmpeg-transcode-v1`, fixed Merc-owned control/agent contract | `docs/ARCHITECTURE.md § "Merc media-transcode contract"`; FFmpeg/libx264 are invoked only through the pinned local binary contract | Contract bytes are Merc-owned; exact FFmpeg/libx264 binary notices and distribution terms remain separately tracked | **APPROVED_INTERNAL_CONTRACT**: no remote code or third-party model weights are fetched; public codec/legal activation remains a live authority residual |
+| Merc fixed media transcode contract | `ffmpeg-transcode-v1`, fixed Merc-owned src/control/agent contract | `docs/ARCHITECTURE.md § "Merc media-transcode contract"`; FFmpeg/libx264 are invoked only through the pinned local binary contract | Contract bytes are Merc-owned; exact FFmpeg/libx264 binary notices and distribution terms remain separately tracked | **APPROVED_INTERNAL_CONTRACT**: no remote code or third-party model weights are fetched; public codec/legal activation remains a live authority residual |
 | Merc fixed scene rendering contract | `svg-scene-render-v1`, fixed Merc-owned closed-scene CPU rasteriser | `docs/ARCHITECTURE.md § "Bounded media rendering contract"`; the runtime is the tracked deterministic rasteriser and accepts no remote model or prompt | Contract bytes and rasteriser are Merc-owned; any future prompt-to-image model requires a separate licence/provenance review | **APPROVED_INTERNAL_CONTRACT**: no remote code or third-party model weights are fetched; prompt-to-image activation is not enabled by this contract |
 
 Primary sources:
@@ -68,9 +68,9 @@ card `license: llama3.2`, `base_model: meta-llama/Llama-3.2-1B-Instruct`.
 The tree at that revision lists `Llama-3.2-1B-Instruct-Q4_K_M.gguf` with
 LFS `oid=3f5a22426976ab26cfe84dba63c1d08391717abb1af893e10f1b2968d862dcc1`
 and `size=807694368`. Those two numbers match
-`control/runtime-authority.json`, `agent/src/models.rs` (`INFER`),
+`src/control/runtime-authority.json`, `src/agent/src/models.rs` (`INFER`),
 `ops/model-provenance.json`, and the sole
-`repricingBenchmarks` digest in `control/pricing.go`. The same tree has
+`repricingBenchmarks` digest in `src/control/pricing.go`. The same tree has
 no `LICENSE` file (siblings are GGUF files, `README.md`, `config.json`,
 `imatrix_unsloth.dat`). The README at that revision hashes to
 `sha256:0735a2a005c6ab7788f40951a29a807e439061d30ff4abe8e582ee469c00d8bb`
@@ -169,7 +169,7 @@ attaches; counsel must.
 
 **Priced cell consequence.**
 
-The only row in `control/pricing.go` `repricingBenchmarks` is:
+The only row in `src/control/pricing.go` `repricingBenchmarks` is:
 
 | Field | Value |
 |---|---|
@@ -182,11 +182,11 @@ The only row in `control/pricing.go` `repricingBenchmarks` is:
 
 `all-minilm-l6-v2`, `ffmpeg-transcode-v1` and `svg-scene-render-v1` sit
 in `unpricedThroughputUntilBound` and do not trip
-`scripts/validate-license-register.py`.
+`ops/scripts/validate-license-register.py`.
 
 Must that price be withdrawn for **backend alpha**?
 
-- **Not as an `ALPHA_BLOCKER`.** `scripts/validate-readiness.py`
+- **Not as an `ALPHA_BLOCKER`.** `ops/scripts/validate-readiness.py`
   `KNOWN_P1_IDS` does not include a license-register item. The Llama
   row staying BLOCKED does not, by itself, change Level B 87/100 or
   backend alpha 85/91.
@@ -200,7 +200,7 @@ Must that price be withdrawn for **backend alpha**?
   a number on the catalogue. Moving the cell to
   `unpricedThroughputUntilBound` would green the make target and leave
   the distribution/AUP duties in place.
-- This lane cannot edit `control/pricing.go`. The pricing owner (not
+- This lane cannot edit `src/control/pricing.go`. The pricing owner (not
   this register) is the only engineering path to a green
   `license-register` short of counsel changing **BLOCKED**.
 
@@ -232,15 +232,15 @@ Owner: product owner + license counsel (see `ops/legal-review.json`
    `IMPLEMENTED_IN_CLOSURE_WORKTREE_PENDING_FINAL_CANDIDATE_TEST_AND_BINDING`).
 8. Only then may `ops/legal-review.json` `approvals.license`,
    `ops/model-provenance.json` `review_status`, and this conclusion
-   cell change. `scripts/validate-governance.py` currently **requires**
+   cell change. `ops/scripts/validate-governance.py` currently **requires**
    `review_status == BLOCKED` and provenance status
    `BLOCKED_LICENSE_AND_FINAL_CANDIDATE_BINDING`; those checks have to
    move in the same change as any clearance.
 
 ## Font register
 
-The tracked `web/logo/Geist-VariableFont_wght.ttf` and
-`web/assets/site/fonts/geist-mono.woff2` identify as Geist-family assets. The
+The tracked `clients/web/logo/Geist-VariableFont_wght.ttf` and
+`clients/web/assets/site/fonts/geist-mono.woff2` identify as Geist-family assets. The
 official upstream repository states SIL OFL 1.1 and copyright to Vercel in
 collaboration with basement.studio. The WOFF2 appears in repository history as
 a subset, but the exact upstream version, source binary, subsetting command and
@@ -255,12 +255,12 @@ copyright/license notice before distribution.
 ## Software dependency process
 
 The backend-alpha software graph is generated by
-`scripts/generate-license-inventory.py` into:
+`ops/scripts/generate-license-inventory.py` into:
 
 - `docs/LICENSE_INVENTORY.md`
 - `docs/generated/license-inventory.json`
 
-That generator reads `control/go.mod` / `go.sum`, `agent/Cargo.lock` plus
+That generator reads `src/control/go.mod` / `go.sum`, `src/agent/Cargo.lock` plus
 declared crate licenses, and the Python/TypeScript SDK manifests. It does
 not guess Go licenses: it reads the LICENSE file from the exact module zip
 on `proxy.golang.org`. A generated row is not a clearance.
@@ -268,7 +268,7 @@ on `proxy.golang.org`. A generated row is not a clearance.
 For every **release** artifact (public or live-money), still:
 
 1. Generate lockfile-bound SPDX or CycloneDX SBOMs for the Go control binary,
-   Rust agent/Mac application and packaged Python SDK, plus the container image.
+   Rust src/agent/Mac application and packaged Python SDK, plus the container image.
 2. Produce a license report with declared and concluded licenses, source URL,
    version/checksum, copyright, notice obligations and policy decision.
 3. Fail on missing/unknown license, unreviewed copyleft/network-copyleft,

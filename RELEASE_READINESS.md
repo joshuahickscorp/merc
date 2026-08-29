@@ -31,8 +31,8 @@ the validators.
 Run the read-only candidate check from the repository root:
 
 ```bash
-python3 scripts/validate-readiness.py
-python3 scripts/secret-exposure-audit.py
+python3 ops/scripts/validate-readiness.py
+python3 ops/scripts/secret-exposure-audit.py
 ```
 
 The broader release check is `make ci`. It may require local PostgreSQL,

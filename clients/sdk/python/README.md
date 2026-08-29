@@ -45,7 +45,7 @@ are surfaced, never swallowed.
 **Verify the package from a clean environment:**
 
 ```bash
-bash scripts/verify-python-sdk-package.sh
+bash ops/scripts/verify-python-sdk-package.sh
 ```
 
 The verification script installs into a throwaway virtual environment, changes

@@ -1,0 +1,238 @@
+# Tests permitted to skip, one exact name per line, each with a reason above it.
+#
+#
+# Opt-in live measurement against a real local engine (llama-server / vLLM).
+# Requires MERC_GATEWAY_PARITY=1 plus a reachable MERC_REALTIME_UPSTREAM; CI has
+# neither. Delete this line only when the measurement is folded into a CI lane
+# that always has an engine.
+TestGatewayParityAgainstRealEngine
+#
+# Needs object storage. newArtifactHarness skips when MERC_TEST_S3_* is unset,
+# and every test that drives a real artifact through commit, verification and
+# settlement goes through it. They RUN on a developer machine with `make dev-up`
+# and on any lane that exports the four MERC_TEST_S3_ variables; the CI lane has
+# no object store, so they skip there.
+#
+# This list is long, and that is the honest cost of a gate that names every skip
+# rather than accepting a category. Folding MinIO into the CI lane would let
+# almost all of it be deleted, and until then every line here is a test that CI
+# is not running.
+TestArtifactFailureModes
+TestArtifactHarnessPresignsBothDirections
+TestArtifactHarnessRoundTripsThroughRealStorage
+TestBuyerCannotReachAnotherBuyersJobObjects
+TestChainArtifactsSurviveContentAddressedStorage
+TestJobObjectRetentionHoldsDisputedJobs
+TestJobObjectRetentionPurgesOnlyAgedTerminalJobs
+TestLlamaCppEmbeddingPassesIndependentVerification
+TestMissingCommittedArtifactCannotVerify
+TestRejectedVerificationLeavesNoSupplierCredit
+TestRemovePrefixRefusesEmptyPrefix
+TestRequiredClassIsPinnedSelectedThroughTheRealProcessor
+TestStaleAttemptOutputIsNotVerified
+TestStreamSplitAndUploadMeasuresExactFullInputDepth
+TestVerificationProcessorIsIdempotentPerAttempt
+TestFailureMatrixCancellationBeforeExecution
+TestFailureMatrixCancellationDuringExecution
+TestFailureMatrixDatabaseRestart
+TestFailureMatrixDuplicateCommitPaysOnce
+TestFailureMatrixExpiredLeaseIsRequeuedBounded
+TestFailureMatrixFinalizerAndSettlementRetry
+TestFailureMatrixInputDownloadFailure
+TestFailureMatrixOutputUploadInterrupted
+TestFailureMatrixReceiptGenerationFailsLoudly
+TestFailureMatrixResultDigestMismatch
+TestFailureMatrixVerifierRestartDecidesOnce
+#
+# Needs a real merc-agent binary AND a reachable llama-server. These launch agent
+# PROCESSES against the production Routes() and drive them through claim,
+# execution, verification and settlement; there is no version of them that is
+# meaningful without both. They run with `cargo build --release` in src/agent/ and
+# MERC_LLAMA_EMBED_URL exported.
+TestTwoDistinctAgentsEnrolAutonomously
+TestBothAgentsExecuteADirectedJobEndToEnd
+TestBothAgentsProduceVerifiableReceipts
+TestBothAgentsSettleThroughTheProductionPath
+TestDirectedJobsReachOnlyTheIntendedAgent
+TestFailureMatrixAgentDeathAfterClaim
+TestFailureMatrixAgentDeathBeforeClaim
+TestFailureMatrixRuntimeUnavailable
+#
+# Deliberate self-obsoleting subtests. They assert that the comparator's own
+# NaN/Inf checks are load-bearing on the BINARY path, and they skip when the
+# binary parser starts rejecting those values upstream — at which point the
+# comparator check really is redundant and the subtest says so rather than
+# passing for the wrong reason.
+TestBinaryArtifactValueChecksAreLoadBearing/NaN
+TestBinaryArtifactValueChecksAreLoadBearing/Inf
+#
+# Opt-in paired cohort: forty real executions through two enrolled agents on both
+# embed cells, which is what turns the selector's regret figure from arithmetic
+# into a measurement. Minutes of wall clock and both retained models cold-loaded
+# twice, so it runs behind MERC_PAIRED_COHORT=1 rather than in front of every
+# `go test`. Delete this line only when a lane exists that always has two agents
+# and the time to drive them.
+TestPairedCohortMeasuresCostAndRegret
+#
+# The first-complete-loop driver. The pricing-authority defect this line used to
+# record - modeled supplier gross 0.102978 USD/hr against a 0.104733 USD/hr
+# ceiling from the same catalogue - is FIXED, along with the two defects underneath
+# it, and the driver now runs green end to end on a host with an agent binary and
+# object storage. What remains is hardware: it builds and launches a real
+# merc-agent process and drives a real runtime, which the CI lane has neither the
+# binary nor the time for. The admission half of this loop is asserted with no
+# hardware at all by TestAStrangerCanBeAdmittedForASubMicroJob, which CI does run.
+# Delete this line when a lane exists that always has a built agent.
+TestFirstCompleteLoopThroughThePublicAPI
+
+#
+# Opt-in latency and placement measurement harnesses added during the performance
+# wave. Each is gated behind its own env var because running it in CI would take
+# minutes to hours, needs a live engine, and writes a bound evidence receipt --
+# tracked files CI must not modify. They are measurement instruments, not
+# assertions about behaviour; the behaviour they measure is covered by ordinary
+# tests that do run. Delete a line here only when its measurement is folded into
+# a CI lane that always has the hardware and a writable evidence path.
+TestArrivalBatchingPerfSweep
+TestAuthorizeLatencyRemeasureAfterHierarchy
+TestAuthorizeTailCharacterize
+TestHotPathFreeAdmitProbe
+TestMercLatencyGapAccounting
+TestMercSegmentLatencyMeasure
+TestPrefixKVHitRateAgentRAGProductionClaim
+TestRealtimeAuthLatencyProbe
+#
+# Opt-in production-SQL selector scale curve (Step 20 digital twin harness).
+# Seeds up to 1M synthetic workers/offers and times ClaimTasksTx /
+# AuthorizeRealtimeContract / CreateServiceLease. Minutes-to-hours of wall clock
+# and multi-GB of disposable PostgreSQL; never part of make test / make ci.
+# Set MERC_SELECTOR_SCALE_CURVE=1 and use ops/scripts/with-isolated-test-db.sh.
+TestSelectorScaleCurve
+#
+# Opt-in heartbeat-ingest ceiling harness. Drives production
+# HeartbeatRealtimeOffer (baseline one-statement vs coalesced multi-row) against
+# a synthetic fleet and writes evidence/perf/heartbeat-ingest-ceiling.json.
+# Minutes of wall clock and multi-GB of disposable PostgreSQL; never part of
+# make test / make ci. Set MERC_HEARTBEAT_INGEST_BENCH=1 and use
+# ops/scripts/with-isolated-test-db.sh.
+TestHeartbeatIngestBench
+#
+# Opt-in in-process LiveDeviceIndex ceiling harness. Allocates up to 10M
+# synthetic slots and times Heartbeat / IsLive / LiveSlots / Tick plus
+# retained bytes/device. No PostgreSQL. Seconds-to-minutes of wall clock;
+# never part of make test / make ci. Set MERC_LIVENESS_INDEX_BENCH=1.
+TestLiveDeviceIndexBench
+#
+# Opt-in durable write-amplification harness for MERC_LIVENESS_INDEX_AUTHORITATIVE.
+# Seeds a synthetic fleet through HeartbeatRealtimeOffer, counts realtime_offer_samples
+# under the flag OFF vs ON, checks last_seen_at stays inside the 45s window, and
+# measures per-offer heap of offerSlotCache / offerPersistCache / slotOwner.
+# Minutes of wall clock and a live PostgreSQL; never part of make test / make ci.
+# Set MERC_WRITE_AMP_BENCH=1.
+TestLivenessWriteAmplificationBench
+#
+# Opt-in integrated control-plane hot-path profile at HEAD. Times
+# HeartbeatRealtimeOffer (both flag states), the live-index bridge,
+# AuthorizeRealtimeContract / eligible-book CTE, CreateServiceLease /
+# ServiceLeaseDataPlaneTarget, and src/pricing/ranking inputs; writes
+# evidence/perf/control-plane-hot-path-profile.json plus CPU/alloc pprof.
+# Minutes of wall clock and a live PostgreSQL; never part of make test / make ci.
+# Set MERC_CONTROL_PLANE_PROFILE=1.
+TestControlPlaneHotPathProfile
+#
+# Opt-in headless Cycles-CPU Blender render baseline. Builds a procedural
+# Suzanne scene, renders one frame and N independent border tiles, assembles
+# them, and records wall / peak RSS / output bytes / bit-identity. Needs the
+# local Blender.app binary and tens of seconds of wall clock; never part of
+# make test / make ci. Set MERC_BLENDER_RENDER_BENCH=1.
+TestBlenderRenderBaseline
+#
+# Opt-in hash-only / pipelined L1 verification bench. Renders a resident
+# Cycles-CPU multi-frame camera orbit, caches the decoded-pixel digest at
+# render time, and measures serial PNG-decode verify vs hash-only vs
+# pipelined overlap. Needs the local Blender.app binary and minutes of
+# wall clock at 1024²/512spp; never part of make test / make ci.
+# Set MERC_RENDER_VERIFY_PIPELINE=1.
+TestRenderVerifyPipelineBench
+#
+# Opt-in realtime selection cost decomposition. Seeds up to 100k offers and
+# times five statement variants (precount, full claim, no-book, top-N pick,
+# eligibility floor) under ROLLBACK to name the linear term. Minutes of wall
+# clock; never part of make test / make ci. Set MERC_REALTIME_DECOMP=1.
+TestRealtimeSelectionCostDecomposition
+#
+# Env-gated writer for the cell-economics census receipt. Arithmetic and the
+# still-tie prediction run unconditionally in TestCensusUnitsPerSecCancels and
+# TestCellEconomicsStillTiesWithoutBreakingCancellation; this test only emits
+# evidence/perf/selector/cell-economics-census.json when asked.
+TestWriteCellEconomicsCensusReceipt
+#
+# Env-gated writer for the governed Candle-vs-llama.cpp comparison and one
+# shadow selector decision. Ranking honesty and prior-claim falsification run
+# unconditionally in TestDecideMeasuredShadow* and
+# TestGovernedComparisonFalsifiesPriorThroughputClaim; this test only seals
+# evidence/perf/selector/governed-candle-vs-llama-shadow-decision.json when asked.
+TestWriteGovernedComparisonReceipt
+#
+# Live serving-matrix measurements against a real llama.cpp/Candle Metal server.
+# Require MERC_RUN_LIVE_SERVING_MATRIX=1 plus a local engine and a GGUF on disk;
+# CI has neither. These produce the bound engine-tournament receipts, so running
+# them here would also rewrite tracked evidence.
+TestLiveServingMatrixCandleVsLlamaCppMetal
+TestLiveServingMatrixLlamaCppMetal
+#
+# Emits the Phase 6 economics evidence payload; gated behind
+# MERC_PHASE6_ECONOMICS_WRITE=1 so a verification run cannot modify the tracked
+# receipt. The economics arithmetic itself is asserted by TestPhase6* tests that
+# always run.
+TestPhase6WriteEvidencePayload
+# Set MERC_RENDER_DEVICE_PLACEMENT=1.
+TestRenderDevicePlacementBench
+#
+# Opt-in realtime selection cost decomposition. Seeds up to 100k offers and
+# times five statement variants (precount, full claim, no-book, top-N pick,
+# eligibility floor) under ROLLBACK to name the linear term. Minutes of wall
+# clock; never part of make test / make ci. Set MERC_REALTIME_DECOMP=1.
+TestRealtimeSelectionCostDecomposition
+#
+# Opt-in L2 hold server. Listens until killed; setting MERC_L2_HOLD in CI
+# hangs the suite. The production webhook contract is TestL2StripeWebhookMatrix*
+# under make test-money-contract, which does run.
+TestL2HoldWebhookServer
+#
+# Env-gated writer for the economic selector proof receipt. Ranking honesty
+# runs unconditionally; this test only emits a tracked evidence file when asked.
+# Named harm if forced on: it rewrites a tracked receipt in a verification run.
+TestWriteEconomicSelectorProofReceipt
+#
+# Opt-in 100k-offer realtime candidate projection A/B. Minutes of wall clock
+# and a live PostgreSQL; never part of make ci. Set MERC_REALTIME_CANDIDATE_AB=1.
+TestRealtimeCandidateProjectionABOnOneDatabase
+#
+# Per-offer-grain sibling-rescue is a multi-profile property. Today one
+# runtime profile is advertised (1:1), so the skip is the product being
+# honest rather than a missing assertion. The single-profile shadow path
+# still runs. Named harm if deleted: CI goes red on a correct skip.
+TestShadowIndexPerOfferGrainNoSiblingRescue
+#
+# Peer-container restart/partition recovery lanes. They run from
+# ops/scripts/recovery-suite.sh with MERC_RECOVERY_SUITE=1 and named containers.
+# make ci has no peer containers to kill; in-process recovery lanes still run.
+# Named harm if forced on: docker kill of a live postgres/minio from the fast
+# suite. Named harm if the skip is unnamed: make ci stays red on a correct skip.
+TestRecoveryLanePostgresRestart
+TestRecoveryLaneObjectStoreRestart
+TestRecoveryLaneNetworkInterruption
+#
+# Observes a live backup status file. Skips when MERC_BACKUP_STATUS_FILE is
+# unset. The reader is asserted by TestReadBackupSignal (always runs) and
+# ops/scripts/test-backup-age-metric.sh (separate target that writes evidence).
+# Named harm if forced on: CI depends on a host path that is not the suite.
+TestBackupAgeMetricObservation
+#
+# Supervisor-only mutation database template stamp. Skips unless
+# MERC_MUTATION_TEMPLATE_DB=1. make ci already runs ops/scripts/test-schema-template.sh
+# and ops/scripts/test-with-isolated-test-db.sh for the template path. Named harm if
+# forced on: a verification run migrates a shared template database.
+TestMutationTemplateSchema
+

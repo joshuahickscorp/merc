@@ -25,25 +25,25 @@
           "id": "SEC-P1-STALE",
           "severity": "P1",
           "status": "FIXED",
-          "evidence": "control/verification_apply.go"
+          "evidence": "src/control/verification_apply.go"
         },
         {
           "id": "SEC-P1-ADMIN-AUDIT",
           "severity": "P1",
           "status": "FIXED",
-          "evidence": "control/admin_mutation_audit.go"
+          "evidence": "src/control/admin_mutation_audit.go"
         },
         {
           "id": "SEC-P1-DEADLINE",
           "severity": "P1",
           "status": "FIXED",
-          "evidence": "agent/src/deadline.rs"
+          "evidence": "src/agent/src/deadline.rs"
         },
         {
           "id": "SEC-P1-DISPUTE-RACE",
           "severity": "P1",
           "status": "FIXED",
-          "evidence": "control/dispute_payout_integration_test.go"
+          "evidence": "src/control/dispute_payout_integration_test.go"
         },
         {
           "id": "SEC-P2-EGRESS",
@@ -64,7 +64,7 @@
         "go test -race -count=1 ./... against PostgreSQL",
         "cargo clippy --all-targets --all-features -- -D warnings",
         "cargo test --all-targets --all-features (72/72)",
-        "python3 scripts/validate-authorization-matrix.py",
+        "python3 ops/scripts/validate-authorization-matrix.py",
         "full two-agent native proof for embed and batch_infer"
       ],
       "residual_risk": [
@@ -106,7 +106,7 @@
           "id": "PRIV-CONTROL-LOGS",
           "severity": "control",
           "status": "VERIFIED_LOCAL",
-          "evidence": "control/metrics.go"
+          "evidence": "src/control/metrics.go"
         }
       ],
       "repair": [
@@ -118,7 +118,7 @@
       ],
       "verification": [
         "evidence/autonomous/technical-exercises.json",
-        "python3 scripts/validate-governance.py",
+        "python3 ops/scripts/validate-governance.py",
         "ops/governance-approval-bundle.schema.json",
         "make release-doctor CHECK=governance"
       ],
@@ -168,7 +168,7 @@
         "defined exact approval-bundle input"
       ],
       "verification": [
-        "python3 scripts/validate-governance.py",
+        "python3 ops/scripts/validate-governance.py",
         "Stripe live key is classified live_refused by release doctor"
       ],
       "residual_risk": [
@@ -195,7 +195,7 @@
           "id": "LIC-PINNING",
           "severity": "P1",
           "status": "FIXED",
-          "evidence": "control/runtime-authority.json"
+          "evidence": "src/control/runtime-authority.json"
         },
         {
           "id": "LIC-P1-NOTICES",
@@ -218,7 +218,7 @@
       ],
       "verification": [
         "cargo tests cover wrong revision, size, and hash",
-        "python3 scripts/validate-governance.py",
+        "python3 ops/scripts/validate-governance.py",
         "ops/model-provenance.json",
         "ops/asset-provenance.json"
       ],
@@ -248,7 +248,7 @@
           "id": "TRUST-CONTROLS",
           "severity": "P1",
           "status": "FIXED_LOCAL",
-          "evidence": "control/api.go"
+          "evidence": "src/control/api.go"
         },
         {
           "id": "TRUST-P1-OPS",
@@ -294,7 +294,7 @@
           "id": "ECON-CANONICAL",
           "severity": "P1",
           "status": "FIXED",
-          "evidence": "control/economic_plan.go"
+          "evidence": "src/control/economic_plan.go"
         },
         {
           "id": "ECON-P1-SAMPLE",
@@ -325,7 +325,7 @@
       "outcome": "PASS_LOCAL_NO_GO_EXTERNAL_FLEET",
       "scope": [
         "model/tokenizer identity",
-        "agent/source/build/hardware identity",
+        "src/agent/source/build/hardware identity",
         "output shape and artifact integrity",
         "restart, downgrade, revocation, and inconsistent-result behavior"
       ],
@@ -340,7 +340,7 @@
           "id": "SUPPLY-PIN",
           "severity": "P1",
           "status": "FIXED",
-          "evidence": "control/runtime-authority.json"
+          "evidence": "src/control/runtime-authority.json"
         },
         {
           "id": "SUPPLY-P2-ATTEST",
@@ -373,7 +373,7 @@
       "scope": [
         "load percentiles and resource envelope",
         "24-hour soak",
-        "control/data-store/agent restart storm",
+        "src/control/data-store/agent restart storm",
         "rollback and forward recovery"
       ],
       "threat_or_failure_model": [
@@ -401,7 +401,7 @@
         "defined strict scenario and agent restart adapter protocols"
       ],
       "verification": [
-        "scripts/validate-go-closure-scaffold.sh",
+        "ops/scripts/validate-go-closure-scaffold.sh",
         "evidence/autonomous/local-rollback.json",
         "evidence/autonomous/local-restart-storm.json",
         "Docker Compose placeholder expansion: 9 services and 9 immutable images",
@@ -433,7 +433,7 @@
           "id": "OBS-COVERAGE",
           "severity": "P1",
           "status": "FIXED",
-          "evidence": "scripts/validate-observability.mjs"
+          "evidence": "ops/scripts/validate-observability.mjs"
         },
         {
           "id": "OBS-PIPELINE-SIMULATION",
@@ -457,8 +457,8 @@
       "verification": [
         "evidence/autonomous/alert-pipeline-simulation.json",
         "evidence/autonomous/alert-page-simulation.json",
-        "node scripts/validate-observability.mjs",
-        "control/metrics_observability_test.go"
+        "node ops/scripts/validate-observability.mjs",
+        "src/control/metrics_observability_test.go"
       ],
       "residual_risk": [
         "real receiver routing and human acknowledgement are untested",
@@ -507,7 +507,7 @@
       ],
       "verification": [
         "evidence/autonomous/technical-exercises.json",
-        "python3 scripts/validate-governance.py",
+        "python3 ops/scripts/validate-governance.py",
         "operational control integration tests"
       ],
       "residual_risk": [
@@ -586,7 +586,7 @@
           "id": "DEP-PINS",
           "severity": "P1",
           "status": "FIXED",
-          "evidence": "control/runtime-authority.json"
+          "evidence": "src/control/runtime-authority.json"
         },
         {
           "id": "DEP-P2-PASTE",
@@ -635,7 +635,7 @@
           "id": "UX-ADMIN-CONTROLS",
           "severity": "P1",
           "status": "FIXED",
-          "evidence": "web/admin.html"
+          "evidence": "clients/web/admin.html"
         },
         {
           "id": "UX-CONTRAST",
@@ -650,7 +650,7 @@
         "preserved mobile layout and focus behavior"
       ],
       "verification": [
-        "node scripts/site-build.mjs",
+        "node ops/scripts/site-build.mjs",
         "in-app desktop and mobile DOM/browser inspection"
       ],
       "residual_risk": [
@@ -680,7 +680,7 @@
           "id": "OPS-HARNESS",
           "severity": "P1",
           "status": "FIXED",
-          "evidence": "scripts/validate-go-closure-scaffold.sh"
+          "evidence": "ops/scripts/validate-go-closure-scaffold.sh"
         },
         {
           "id": "OPS-P1-EXTERNAL",
@@ -702,11 +702,11 @@
         "made Stripe test-only and payout-export fail closed"
       ],
       "verification": [
-        "scripts/test-backup-envelope.sh",
-        "scripts/local-independent-restore.sh",
+        "ops/scripts/test-backup-envelope.sh",
+        "ops/scripts/local-independent-restore.sh",
         "evidence/autonomous/local-rollback.json",
         "evidence/autonomous/local-restart-storm.json",
-        "scripts/validate-go-closure-scaffold.sh",
+        "ops/scripts/validate-go-closure-scaffold.sh",
         "make release-doctor",
         "external execute modes remain blocked"
       ],

@@ -1,7 +1,7 @@
 # Offsite backup and independent restore
 
 Repeatable live-droplet command: `make offsite-droplet-restore`
-(`scripts/offsite-independent-restore.sh --execute --source droplet`).
+(`ops/scripts/offsite-independent-restore.sh --execute --source droplet`).
 Preflight: `make offsite-droplet-restore-check`.
 
 The isolated-seed rehearsal (`make offsite-independent-restore`) is still the

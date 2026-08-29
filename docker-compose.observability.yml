@@ -15,7 +15,7 @@
 # Optional immutable image overrides (digest form preferred):
 #   CX_PROMETHEUS_IMAGE CX_ALERTMANAGER_IMAGE CX_GRAFANA_IMAGE CX_NODE_EXPORTER_IMAGE
 #
-# See ops/monitoring/README.md and scripts/test-alert-delivery.sh.
+# See ops/monitoring/README.md and ops/scripts/test-alert-delivery.sh.
 
 x-logging: &logs
   driver: json-file
@@ -136,7 +136,7 @@ secrets:
   # Compose refuses to start when this path is unset or the file is missing.
   # Contents: a single webhook URL, no trailing commentary.
   alert_receiver_url:
-    # MERC_ first, CX_ as the pre-cutover fallback. scripts/bootstrap-prod.sh and
+    # MERC_ first, CX_ as the pre-cutover fallback. ops/scripts/bootstrap-prod.sh and
     # ops/monitoring/README.md both use MERC_, and this file required CX_ only --
     # so a production deploy that followed its own bootstrap script failed at
     # compose up. Accepting both is also what the env-var cutover needs: the

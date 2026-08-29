@@ -16,11 +16,11 @@ buyer / supplier clients
       agent (Rust) -> bounded execution -> receipts
 ```
 
-- `control/` owns authentication, capability admission, quotes, job state,
+- `src/control/` owns authentication, capability admission, quotes, job state,
   verification, accounting, settlement, and the public HTTP contract.
-- `agent/` owns the worker-side execution boundary and reports receipts; it
+- `src/agent/` owns the worker-side execution boundary and reports receipts; it
   does not decide prices or move money.
-- `clients/`, `web/`, `pricing/`, `deploy/`, and `scripts/` are entry points,
+- `clients/`, `clients/web/`, `src/pricing/`, `ops/deploy/`, and `ops/scripts/` are entry points,
   policy tooling, or operational wrappers. They do not replace control-plane
   authorities.
 
@@ -51,13 +51,13 @@ claim to staging, private canary, or public production proof.
 
 ## Active technical contracts
 
-- `control/schema.sql` is the durable storage contract; migrations and ledger
+- `src/control/schema.sql` is the durable storage contract; migrations and ledger
   invariants are reviewed as accounting changes.
-- `control/pricing.go` is the pricing authority and keeps historical replay
+- `src/control/pricing.go` is the pricing authority and keeps historical replay
   separate from current catalogue state.
-- `control/verification.go` and `control/verification_artifact.go` own the
+- `src/control/verification.go` and `src/control/verification_artifact.go` own the
   verification and bounded-artifact policies.
-- `scripts/secret-exposure-audit.py`, the claim-surface validator, and the
+- `ops/scripts/secret-exposure-audit.py`, the claim-surface validator, and the
   governance validators are read-only gates over the release surface.
 
 ## Media contracts

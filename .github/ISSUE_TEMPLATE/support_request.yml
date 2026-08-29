@@ -10,9 +10,9 @@ body:
 
         - Runbook contacts: `docs/SUPPORT_AND_INCIDENT_RUNBOOK.md` → still
           `[CONTACT REQUIRED]` / `[CHANNEL REQUIRED]`
-        - Public security.txt: `web/.well-known/security.txt` → still
+        - Public security.txt: `clients/web/.well-known/security.txt` → still
           `security-contact@example.invalid`
-        - Readiness keeps the gap open: `scripts/lib/go-closure-common.sh`
+        - Readiness keeps the gap open: `ops/scripts/lib/go-closure-common.sh`
           (`gc_require_value` fails on `example.invalid` / `REPLACE`)
 
         Use this form only for the private canary. Include a job ID when

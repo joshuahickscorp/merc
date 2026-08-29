@@ -56,7 +56,7 @@
       "minimum_scope": "A/AAAA/CNAME and ACME issuance for the private-canary object endpoint",
       "secret": false,
       "used_by": "artifact upload/download through persistent TLS staging",
-      "verification": "scripts/go-closure-deploy.sh --target ssh --activate candidate --check",
+      "verification": "ops/scripts/go-closure-deploy.sh --target ssh --activate candidate --check",
       "unblocks": ["persistent_staging", "artifact_delivery"]
     },
     {
@@ -65,7 +65,7 @@
       "minimum_scope": "bind only the TLS ingress interface governed by the project firewall, VPN, or identity-aware proxy",
       "secret": false,
       "used_by": "private staging ingress",
-      "verification": "scripts/go-closure-deploy.sh --target ssh --activate candidate --check",
+      "verification": "ops/scripts/go-closure-deploy.sh --target ssh --activate candidate --check",
       "unblocks": ["persistent_staging", "private_access"]
     },
     {
@@ -74,7 +74,7 @@
       "minimum_scope": "staging certificate issuance only",
       "secret": false,
       "used_by": "persistent TLS staging",
-      "verification": "scripts/go-closure-deploy.sh --target ssh --activate candidate --check",
+      "verification": "ops/scripts/go-closure-deploy.sh --target ssh --activate candidate --check",
       "unblocks": ["persistent_staging"]
     },
     {
@@ -83,7 +83,7 @@
       "minimum_scope": "cx database in the isolated staging stack only",
       "secret": true,
       "used_by": "persistent staging database",
-      "verification": "scripts/go-closure-deploy.sh --target ssh --activate candidate --check",
+      "verification": "ops/scripts/go-closure-deploy.sh --target ssh --activate candidate --check",
       "unblocks": ["persistent_staging", "rollback"]
     },
     {
@@ -92,7 +92,7 @@
       "minimum_scope": "isolated staging object store only",
       "secret": true,
       "used_by": "persistent staging object storage",
-      "verification": "scripts/go-closure-deploy.sh --target ssh --activate candidate --check",
+      "verification": "ops/scripts/go-closure-deploy.sh --target ssh --activate candidate --check",
       "unblocks": ["persistent_staging", "artifact_delivery"]
     },
     {
@@ -101,7 +101,7 @@
       "minimum_scope": "isolated staging object store only",
       "secret": true,
       "used_by": "persistent staging object storage",
-      "verification": "scripts/go-closure-deploy.sh --target ssh --activate candidate --check",
+      "verification": "ops/scripts/go-closure-deploy.sh --target ssh --activate candidate --check",
       "unblocks": ["persistent_staging", "artifact_delivery"]
     },
     {
@@ -110,7 +110,7 @@
       "minimum_scope": "loopback-bound staging Grafana only",
       "secret": true,
       "used_by": "persistent staging dashboards",
-      "verification": "scripts/go-closure-deploy.sh --target ssh --activate candidate --check",
+      "verification": "ops/scripts/go-closure-deploy.sh --target ssh --activate candidate --check",
       "unblocks": ["persistent_staging", "observability"]
     },
     {
@@ -119,7 +119,7 @@
       "minimum_scope": "encrypt staging OAuth and webhook-secret state only",
       "secret": true,
       "used_by": "hardened staging control plane",
-      "verification": "scripts/go-closure-deploy.sh --target ssh --activate candidate --check",
+      "verification": "ops/scripts/go-closure-deploy.sh --target ssh --activate candidate --check",
       "unblocks": ["persistent_staging", "stripe_matrix"]
     },
     {
@@ -128,7 +128,7 @@
       "minimum_scope": "staging verification sampling only",
       "secret": true,
       "used_by": "hardened staging control plane",
-      "verification": "scripts/go-closure-deploy.sh --target ssh --activate candidate --check",
+      "verification": "ops/scripts/go-closure-deploy.sh --target ssh --activate candidate --check",
       "unblocks": ["persistent_staging", "canary_rehearsal"]
     },
     {
@@ -137,7 +137,7 @@
       "minimum_scope": "operator-reviewed catalogue publication for this candidate",
       "secret": false,
       "used_by": "atomic USD-reference to CAD-settlement catalogue schedule",
-      "verification": "scripts/go-closure-deploy.sh --target ssh --activate candidate --check",
+      "verification": "ops/scripts/go-closure-deploy.sh --target ssh --activate candidate --check",
       "unblocks": ["persistent_staging", "stripe_matrix", "canary_rehearsal"]
     },
     {
@@ -146,7 +146,7 @@
       "minimum_scope": "audit the exact FX authority used by this candidate's catalogue",
       "secret": false,
       "used_by": "atomic USD-reference to CAD-settlement catalogue schedule",
-      "verification": "scripts/go-closure-deploy.sh --target ssh --activate candidate --check",
+      "verification": "ops/scripts/go-closure-deploy.sh --target ssh --activate candidate --check",
       "unblocks": ["persistent_staging", "stripe_matrix", "canary_rehearsal"]
     },
     {
@@ -155,7 +155,7 @@
       "minimum_scope": "pull access to the retained signed candidate image",
       "secret": false,
       "used_by": "candidate deployment and forward recovery",
-      "verification": "scripts/go-closure-deploy.sh --target ssh --activate candidate --check",
+      "verification": "ops/scripts/go-closure-deploy.sh --target ssh --activate candidate --check",
       "unblocks": ["persistent_staging", "forward_recovery", "soak"]
     },
     {
@@ -164,7 +164,7 @@
       "minimum_scope": "exact release-source identity",
       "secret": false,
       "used_by": "candidate source-identity probe",
-      "verification": "scripts/go-closure-deploy.sh --target ssh --activate candidate --check",
+      "verification": "ops/scripts/go-closure-deploy.sh --target ssh --activate candidate --check",
       "unblocks": ["persistent_staging", "forward_recovery", "soak"]
     },
     {
@@ -173,7 +173,7 @@
       "minimum_scope": "pull access and retention through completion of the rollback gate",
       "secret": false,
       "used_by": "prior-image rollback",
-      "verification": "scripts/go-closure-deploy.sh --target ssh --activate prior --check",
+      "verification": "ops/scripts/go-closure-deploy.sh --target ssh --activate prior --check",
       "unblocks": ["rollback"]
     },
     {
@@ -182,7 +182,7 @@
       "minimum_scope": "exact rollback source identity",
       "secret": false,
       "used_by": "prior-image source-identity probe",
-      "verification": "scripts/go-closure-deploy.sh --target ssh --activate prior --check",
+      "verification": "ops/scripts/go-closure-deploy.sh --target ssh --activate prior --check",
       "unblocks": ["rollback"]
     },
     {
@@ -191,7 +191,7 @@
       "minimum_scope": "pull access and retention for the canary observation window",
       "secret": false,
       "used_by": "persistent staging metrics",
-      "verification": "scripts/go-closure-deploy.sh --target ssh --activate candidate --check",
+      "verification": "ops/scripts/go-closure-deploy.sh --target ssh --activate candidate --check",
       "unblocks": ["observability", "soak"]
     },
     {
@@ -200,7 +200,7 @@
       "minimum_scope": "pull access and retention for the canary observation window",
       "secret": false,
       "used_by": "persistent staging alerts",
-      "verification": "scripts/go-closure-deploy.sh --target ssh --activate candidate --check",
+      "verification": "ops/scripts/go-closure-deploy.sh --target ssh --activate candidate --check",
       "unblocks": ["observability", "real_alert_receiver"]
     },
     {
@@ -209,7 +209,7 @@
       "minimum_scope": "pull access and retention for the canary observation window",
       "secret": false,
       "used_by": "persistent staging dashboards",
-      "verification": "scripts/go-closure-deploy.sh --target ssh --activate candidate --check",
+      "verification": "ops/scripts/go-closure-deploy.sh --target ssh --activate candidate --check",
       "unblocks": ["observability", "soak"]
     },
     {
@@ -218,7 +218,7 @@
       "minimum_scope": "pull access and retention for the canary observation window",
       "secret": false,
       "used_by": "persistent staging host metrics",
-      "verification": "scripts/go-closure-deploy.sh --target ssh --activate candidate --check",
+      "verification": "ops/scripts/go-closure-deploy.sh --target ssh --activate candidate --check",
       "unblocks": ["observability", "soak"]
     },
     {
@@ -353,16 +353,16 @@
       "minimum_scope": "admit only release-reviewed agent binaries during the private canary",
       "secret": false,
       "used_by": "private-canary worker admission policy and rehearsal",
-      "verification": "scripts/go-closure-deploy.sh --target ssh --activate candidate --check",
+      "verification": "ops/scripts/go-closure-deploy.sh --target ssh --activate candidate --check",
       "unblocks": ["approved_agent_artifacts", "canary_rehearsal"]
     },
     {
       "name": "MERC_CANARY_APPROVED_BUILD_HASHES",
-      "accepted_form": "one to four distinct comma-separated lowercase 16-hex build hashes reported by reviewed Metal agent/runtime classes",
+      "accepted_form": "one to four distinct comma-separated lowercase 16-hex build hashes reported by reviewed Metal src/agent/runtime classes",
       "minimum_scope": "admit only reviewed runtime-authority, model, tuning, and hardware-class combinations",
       "secret": false,
       "used_by": "private-canary worker admission policy and rehearsal",
-      "verification": "scripts/go-closure-deploy.sh --target ssh --activate candidate --check",
+      "verification": "ops/scripts/go-closure-deploy.sh --target ssh --activate candidate --check",
       "unblocks": ["approved_agent_artifacts", "canary_rehearsal"]
     },
     {
@@ -371,7 +371,7 @@
       "minimum_scope": "exercise only synthetic approved participants and Stripe test-mode fixtures; bind the exported run/candidate/image/driver digest and emit only the closed observation sources that Merc independently corroborates",
       "secret": false,
       "used_by": "counted canary workload, backup/restore, Stripe, alert, and invariant rehearsals",
-      "verification": "scripts/go-closure-canary-rehearsal.sh --target ssh --check",
+      "verification": "ops/scripts/go-closure-canary-rehearsal.sh --target ssh --check",
       "unblocks": ["canary_rehearsal", "stripe_matrix", "independent_restore", "real_alert_receiver"]
     },
     {
@@ -380,7 +380,7 @@
       "minimum_scope": "freeze the exact reviewed adapter implementation allowed to emit scenario observations",
       "secret": false,
       "used_by": "private-canary scenario-driver admission and final receipt binding",
-      "verification": "scripts/go-closure-canary-rehearsal.sh --target ssh --check",
+      "verification": "ops/scripts/go-closure-canary-rehearsal.sh --target ssh --check",
       "unblocks": ["canary_rehearsal"]
     },
     {
@@ -389,7 +389,7 @@
       "minimum_scope": "request supervisor restarts for exactly the two approved staging Metal agents; the adapter receipt is not restart proof",
       "secret": false,
       "used_by": "restart storm",
-      "verification": "scripts/go-closure-restart-storm.sh --target ssh --check",
+      "verification": "ops/scripts/go-closure-restart-storm.sh --target ssh --check",
       "unblocks": ["restart_storm", "agent_recovery"]
     },
     {
@@ -398,7 +398,7 @@
       "minimum_scope": "freeze the exact reviewed supervisor adapter allowed to request the two agent restarts",
       "secret": false,
       "used_by": "restart-storm driver admission and final receipt binding",
-      "verification": "scripts/go-closure-restart-storm.sh --target ssh --check",
+      "verification": "ops/scripts/go-closure-restart-storm.sh --target ssh --check",
       "unblocks": ["restart_storm"]
     },
     {
@@ -498,9 +498,9 @@
     "purpose": "Checklist of operator-supplied inputs the live-money transition requires. This object never contains values and is not an activation, approval, or HMAC.",
     "schema": "ops/live-payment-activation.schema.json",
     "checklist": "docs/LIVE_MONEY_TRANSITION.md",
-    "validator": "python3 scripts/validate-live-activation.py",
-    "self_test": "python3 scripts/validate-live-activation.py --self-test",
-    "signer": "scripts/cx release payment-activation-sign — not this lane; do not run it from this checklist",
+    "validator": "python3 ops/scripts/validate-live-activation.py",
+    "self_test": "python3 ops/scripts/validate-live-activation.py --self-test",
+    "signer": "ops/scripts/cx release payment-activation-sign — not this lane; do not run it from this checklist",
     "policy": {
       "create_activation_record": "forbidden_here",
       "compute_real_hmac": "forbidden_here",
@@ -513,7 +513,7 @@
         "minimum_scope": "bind the activation envelope to the running candidate",
         "secret": false,
         "used_by": "live payment activation candidate binding",
-        "verification": "python3 scripts/validate-live-activation.py --activation <file> --hmac-key-file <key> --commit $(git rev-parse HEAD)",
+        "verification": "python3 ops/scripts/validate-live-activation.py --activation <file> --hmac-key-file <key> --commit $(git rev-parse HEAD)",
         "unblocks": ["live_money_transition"]
       },
       {
@@ -531,7 +531,7 @@
         "minimum_scope": "exact currency of every live charge, payout, refund, and reversal",
         "secret": false,
         "used_by": "live payment activation currency binding",
-        "verification": "python3 scripts/validate-live-activation.py --settlement-currency <code>",
+        "verification": "python3 ops/scripts/validate-live-activation.py --settlement-currency <code>",
         "unblocks": ["live_money_transition"]
       },
       {
@@ -603,7 +603,7 @@
         "minimum_scope": "deliver every handled live cash event",
         "secret": false,
         "used_by": "live billing webhook subscription",
-        "verification": "compiled event set in docs/LIVE_MONEY_TRANSITION.md; scripts/validate-stripe-endpoint-subscriptions.py refuses a live key and does not clear this row",
+        "verification": "compiled event set in docs/LIVE_MONEY_TRANSITION.md; ops/scripts/validate-stripe-endpoint-subscriptions.py refuses a live key and does not clear this row",
         "unblocks": ["live_money_transition"]
       },
       {
@@ -621,7 +621,7 @@
         "minimum_scope": "Connect return on the live origin",
         "secret": false,
         "used_by": "live Connect onboarding",
-        "verification": "scripts/bootstrap-prod.sh requires the SITE_HOST HTTPS origin",
+        "verification": "ops/scripts/bootstrap-prod.sh requires the SITE_HOST HTTPS origin",
         "unblocks": ["live_money_transition"]
       },
       {
@@ -630,16 +630,16 @@
         "minimum_scope": "Connect refresh on the live origin",
         "secret": false,
         "used_by": "live Connect onboarding",
-        "verification": "scripts/bootstrap-prod.sh requires the SITE_HOST HTTPS origin",
+        "verification": "ops/scripts/bootstrap-prod.sh requires the SITE_HOST HTTPS origin",
         "unblocks": ["live_money_transition"]
       },
       {
         "name": "MERC_LIVE_PAYMENT_ACTIVATION_HMAC_KEY_SOURCE",
         "accepted_form": "absolute regular file, mode bits 027 clear, 32..4096 bytes; never inline MERC_LIVE_PAYMENT_ACTIVATION_HMAC_KEY",
-        "minimum_scope": "verify the activation HMAC; the example key in scripts/validate-live-activation.py must never be installed",
+        "minimum_scope": "verify the activation HMAC; the example key in ops/scripts/validate-live-activation.py must never be installed",
         "secret": true,
         "used_by": "live payment activation HMAC",
-        "verification": "python3 scripts/validate-live-activation.py --activation <file> --hmac-key-file <key>",
+        "verification": "python3 ops/scripts/validate-live-activation.py --activation <file> --hmac-key-file <key>",
         "unblocks": ["live_money_transition"]
       },
       {
@@ -648,7 +648,7 @@
         "minimum_scope": "authorize a short live value-movement window; this checklist does not create that file",
         "secret": false,
         "used_by": "LIVE payment activation",
-        "verification": "python3 scripts/validate-live-activation.py --activation <file> --hmac-key-file <key> --commit $(git rev-parse HEAD)",
+        "verification": "python3 ops/scripts/validate-live-activation.py --activation <file> --hmac-key-file <key> --commit $(git rev-parse HEAD)",
         "unblocks": ["live_money_transition"]
       },
       {

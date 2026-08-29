@@ -2,8 +2,8 @@
   "schema_version": 1,
   "kind": "rename_residue_audit",
   "counts": {
-    "FROZEN": 332,
-    "BLOCKED": 480,
+    "FROZEN": 426,
+    "BLOCKED": 479,
     "RESIDUE": 0
   },
   "blocked_by_prerequisite": {
@@ -12,7 +12,7 @@
     "object storage bucket name in a running deployment": 44,
     "droplet .env, GitHub Actions secrets and systemd units supply these; CX_TOKEN_KEY must be copied byte-identically or every sealed secret in Postgres becomes undecryptable": 30,
     "published image tag": 21,
-    "alert names ship in the label set Alertmanager fingerprints": 19,
+    "alert names ship in the label set Alertmanager fingerprints": 18,
     "real directory on the droplet": 6,
     "bind-mount path in a running deployment": 6,
     "Prometheus job label fingerprinted by Alertmanager": 6,
@@ -25,14 +25,14 @@
     "generated asset filename; the ignore pattern must keep matching what the builders emit": 2,
     "external asset pack name; the comment must keep matching it": 2,
     "generated asset filename": 2,
-    "real directory on supplier machines (two-e spelling)": 1,
-    "version field inside the sha256'd vLLM runtime profile": 1,
     "Prometheus external_labels.service; Alertmanager fingerprints the label set and the receiver filters on it": 1,
-    "real S3 prefix holding staging backups; renaming orphans them": 1,
     "prove-local artifact namespace recorded in evidence": 1,
     "restore-drill container name": 1,
     "soak run directory name; an in-flight 24h soak writes there": 1,
-    "label on Stripe webhook endpoints that already exist; part of the Stripe-label cutover": 1
+    "label on Stripe webhook endpoints that already exist; part of the Stripe-label cutover": 1,
+    "real S3 prefix holding staging backups; renaming orphans them": 1,
+    "real directory on supplier machines (two-e spelling)": 1,
+    "version field inside the sha256'd vLLM runtime profile": 1
   },
   "residue": [],
   "residue_total": 0,

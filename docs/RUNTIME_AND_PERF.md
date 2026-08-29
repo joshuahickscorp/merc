@@ -32,10 +32,10 @@ unattributed savings, and no capacity estimate bypasses a durable recheck.
 From the repository root, use the read-only or local checks below:
 
 ```bash
-python3 scripts/secret-exposure-audit.py
-python3 scripts/validate-readiness.py
-python3 scripts/validate-claim-surfaces.py
-cd control && go test ./... -run '^$' && go vet ./...
+python3 ops/scripts/secret-exposure-audit.py
+python3 ops/scripts/validate-readiness.py
+python3 ops/scripts/validate-claim-surfaces.py
+cd src/control && go test ./... -run '^$' && go vet ./...
 ```
 
 Database-backed financial tests require an explicitly supplied test database;

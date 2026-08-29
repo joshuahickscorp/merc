@@ -8,7 +8,7 @@ This repository is licensed component-by-component, not as a whole.
 Components located in a directory that contains its own LICENSE file are
 licensed under the terms stated in that file. As of this writing those are:
 
-    agent/          Apache License 2.0   supplier agent (distributed to suppliers)
+    src/agent/          Apache License 2.0   supplier agent (distributed to suppliers)
     clients/sdk/python/     Apache License 2.0   buyer client library
     clients/cli/     Apache License 2.0   buyer command-line client
     clients/proto/   Apache License 2.0   wire schemas and runtime matrix

@@ -12,11 +12,11 @@
 ;; "host must be * or localhost in network address"). Therefore this profile
 ;; allows only DNS + loopback + unix-socket. Remote HTTPS is reached through
 ;; a local allowlisted CONNECT proxy that the agent spawns *outside* the
-;; sandbox before re-exec (see agent/src/sandbox_egress.rs). The proxy is the
+;; sandbox before re-exec (see src/agent/src/sandbox_egress.rs). The proxy is the
 ;; host allowlist; seatbelt ensures buyer payload can only talk to that
 ;; localhost proxy (or local control plane), not to an arbitrary remote.
 ;;
-;; Params expected from the re-exec wrapper (agent/src/main.rs):
+;; Params expected from the re-exec wrapper (src/agent/src/main.rs):
 ;;   HOME, MODELCACHE, DATADIR, TMPDIR, BINDIR
 ;;
 ;; What this profile cannot confine on macOS (stated, not papered over):
@@ -81,7 +81,7 @@
 (deny sysctl-write)
 
 ;; ── file read ──────────────────────────────────────────────────────────────
-;; System frameworks and the agent/model trees must be readable. Sensitive
+;; System frameworks and the src/agent/model trees must be readable. Sensitive
 ;; operator secrets under $HOME are still denied below.
 (allow file-read-metadata)
 (allow file-read*

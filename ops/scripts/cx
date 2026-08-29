@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+ROOT="$(cd "$SCRIPT_DIR/../.." && pwd -P)"
+
+if [ "${1:-}" = release ]; then
+  shift
+  # shellcheck source=ops/scripts/lib/go-closure-common.sh
+  . "$ROOT/ops/scripts/lib/go-closure-common.sh"
+  gc_reject_live_stripe_environment
+  case "${1:-help}" in
+    stripe-simulate) shift; (cd "$ROOT/src/control" && exec go run . release stripe-simulate "$@") ;;
+    stripe-check) shift; exec bash "$ROOT/ops/scripts/stripe-sandbox.sh" check "$@" ;;
+    stripe-matrix) shift; exec bash "$ROOT/ops/scripts/stripe-sandbox.sh" matrix "$@" ;;
+    render-staging) shift; exec bash "$ROOT/ops/scripts/release-staging.sh" render "$@" ;;
+    validate-staging) shift; exec bash "$ROOT/ops/scripts/release-staging.sh" validate "$@" ;;
+    alert-check)
+      shift
+      exec python3 "$ROOT/ops/scripts/alert-pipeline-simulation.py" --profile check \
+        --out "$ROOT/evidence/autonomous/alert-pipeline-simulation.json" "$@"
+      ;;
+    alert-page)
+      shift
+      exec python3 "$ROOT/ops/scripts/alert-pipeline-simulation.py" --profile page \
+        --out "$ROOT/evidence/autonomous/alert-page-simulation.json" "$@"
+      ;;
+    approvals-check) shift; (cd "$ROOT/src/control" && exec go run . release approvals-check "$@") ;;
+    payment-activation-sign) shift; (cd "$ROOT/src/control" && exec go run . release payment-activation-sign "$@") ;;
+    *)
+      cat <<'EOF'
+cx release commands:
+  stripe-simulate [--sequences N]  deterministic internal provider model (SIMULATED)
+  stripe-check                     validate Stripe sandbox configuration safely
+  stripe-matrix                    run the external Stripe sandbox matrix
+  render-staging                   render a secret-free deployment summary
+  validate-staging                 validate the one supported staging manifest
+  alert-check                      exercise the local alert delivery pipeline
+  alert-page [--real-receiver-env MERC_ALERT_RECEIVER_NAME]
+                                   exercise local delivery; optionally page an approved HTTPS receiver
+  approvals-check [--bundle PATH]  validate commit-bound governance receipts
+  payment-activation-sign          sign a candidate-bound LIVE activation without provider network access
+EOF
+      ;;
+  esac
+  exit
+fi
+
+if [ -d /opt/computexchange ] && [ "$ROOT" != /opt/computexchange ]; then
+  ROOT=/opt/computexchange
+fi
+cd "$ROOT"
+C=(docker compose -f docker-compose.prod.yml)
+case "${1:-help}" in
+  ps|status) "${C[@]}" ps ;;
+  up)        "${C[@]}" up -d ;;
+  rebuild)   "${C[@]}" up -d --build ;;
+  restart)   "${C[@]}" restart "${2:-}" ;;
+  reload)    "${C[@]}" up -d --force-recreate --no-deps control ;;
+  down)      "${C[@]}" down ;;
+  logs)      "${C[@]}" logs -f --tail=100 "${2:-control}" ;;
+  psql)
+    PW="$(sed -n 's/^POSTGRES_PASSWORD=//p' .env | head -n 1)"
+    "${C[@]}" exec -e PGPASSWORD="$PW" postgres psql -U cx -d cx
+    ;;
+  env)       "${EDITOR:-nano}" .env && echo "now run: cx reload" ;;
+  backup)    bash ops/scripts/backup.sh && echo "backup written to backups/" ;;
+  health)    curl -s -o /dev/null -w "control HTTP %{http_code} (404=up)\n" http://127.0.0.1:8080/ ;;
+  *)
+    cat <<'EOF'
+cx - manage merc
+  cx ps | up | down | reload | rebuild
+  cx logs [service] | restart [service]
+  cx psql | env | backup | health
+  cx release help
+EOF
+    ;;
+esac

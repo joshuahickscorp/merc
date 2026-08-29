@@ -14,8 +14,8 @@ the transition. Filling a row does not authorize live money.
 Machine check (schema + running candidate; no live money):
 
 ```
-python3 scripts/validate-live-activation.py --self-test
-python3 scripts/validate-live-activation.py \
+python3 ops/scripts/validate-live-activation.py --self-test
+python3 ops/scripts/validate-live-activation.py \
   --activation /absolute/private/candidate.json \
   --hmac-key-file /absolute/private/hmac-key \
   --commit "$(git rev-parse HEAD)" \
@@ -23,10 +23,10 @@ python3 scripts/validate-live-activation.py \
 ```
 
 Schema: `ops/live-payment-activation.schema.json`.
-Signer (not this document): `scripts/cx release payment-activation-sign`.
+Signer (not this document): `ops/scripts/cx release payment-activation-sign`.
 Deploy pin: `ops/go-closure-inputs.json` → `live_money_transition`.
 
-Constants the checker and the binary share (`control/payment_authority.go`):
+Constants the checker and the binary share (`src/control/payment_authority.go`):
 
 | Bound | Value |
 |---|---|
@@ -82,7 +82,7 @@ Nobody on this machine can complete these. Test-mode Connect on
 `acct_1TxbzMCwPLrR4vaY` does not satisfy them.
 
 The whole test-mode Connect remainder is now proven, and none of it clears this
-row. `scripts/stripe-sandbox-connect.sh` creates a Canadian connected account,
+row. `ops/scripts/stripe-sandbox-connect.sh` creates a Canadian connected account,
 transfers CAD to it, holds, manually releases, fails and reverses payouts, and
 exercises restriction and capability events against a Connect-scoped webhook
 endpoint — all on the sandbox platform, all recorded in
@@ -127,7 +127,7 @@ Compiled Connect handlers:
 - `account.updated`
 
 A live endpoint that omits a handled cash event will never deliver it.
-`scripts/validate-stripe-endpoint-subscriptions.py` checks the compiled
+`ops/scripts/validate-stripe-endpoint-subscriptions.py` checks the compiled
 set against test-mode endpoints and **refuses a live key**; it does not
 clear this row.
 
@@ -150,7 +150,7 @@ clear this row.
 | `MERC_LIVE_PAYMENT_ACTIVATION_HMAC_KEY_FILE` | container path mounted from the source (`/run/secrets/merc-live-payment-activation-hmac-key`) |
 
 The key is never printed. The example key inside
-`scripts/validate-live-activation.py` is not this input and must never be
+`ops/scripts/validate-live-activation.py` is not this input and must never be
 installed.
 
 ### 8. Activation envelope
@@ -181,7 +181,7 @@ No extra keys. Unsigned input to the signer must have empty
 | `MERC_LIVE_PAYMENT_ACTIVATION_FILE` | container path mounted from the source |
 
 HMAC body field order is the Go struct order in
-`control/payment_authority.go`: `schema_version`, then `activation` with
+`src/control/payment_authority.go`: `schema_version`, then `activation` with
 `activation_id`, `candidate_commit`, `environment`, `currency`,
 `valid_from`, `expires_at`, `recovery_expires_at`,
 `max_single_charge_minor`, `max_single_payout_minor`,
@@ -218,7 +218,7 @@ and is not performed by this checklist.
 ## Example (not an authorization)
 
 The only signed example this repository produces is generated in memory
-by `python3 scripts/validate-live-activation.py --self-test`. It uses
+by `python3 ops/scripts/validate-live-activation.py --self-test`. It uses
 `EXAMPLE-NOT-AN-AUTHORIZATION-*` identifiers, `example.invalid`
 approvers, and an example HMAC key that must never be installed. A
 self-test PASS is not an activation.
@@ -260,7 +260,7 @@ example key.
 
 ## What the checker refuses
 
-`scripts/validate-live-activation.py` accepts a well-formed example and
+`ops/scripts/validate-live-activation.py` accepts a well-formed example and
 refuses at least:
 
 - wrong `candidate_commit` (not the running candidate)

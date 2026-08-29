@@ -43,10 +43,10 @@ prices, and FX authority atomically. These settings do not authorize live value.
 Validate the non-secret scaffold before use:
 
 ```sh
-scripts/validate-go-closure-scaffold.sh
-scripts/go-closure-deploy.sh --target ssh --activate candidate --check
-scripts/go-closure-restart-storm.sh --target ssh --check
-scripts/go-closure-canary-rehearsal.sh --target ssh --check
+ops/scripts/validate-go-closure-scaffold.sh
+ops/scripts/go-closure-deploy.sh --target ssh --activate candidate --check
+ops/scripts/go-closure-restart-storm.sh --target ssh --check
+ops/scripts/go-closure-canary-rehearsal.sh --target ssh --check
 ```
 
 The guarded `merc release launch` flow first runs
@@ -61,11 +61,11 @@ a new approval before retrying.
 Mutating operations require the literal `--execute` flag:
 
 ```sh
-scripts/go-closure-deploy.sh --target ssh --activate candidate --execute
-scripts/go-closure-rollback-rehearsal.sh --target ssh --execute
-scripts/go-closure-restart-storm.sh --target ssh --execute
-scripts/go-closure-canary-rehearsal.sh --target ssh --execute
-scripts/go-closure-soak.sh --target ssh --duration 86400 --execute
+ops/scripts/go-closure-deploy.sh --target ssh --activate candidate --execute
+ops/scripts/go-closure-rollback-rehearsal.sh --target ssh --execute
+ops/scripts/go-closure-restart-storm.sh --target ssh --execute
+ops/scripts/go-closure-canary-rehearsal.sh --target ssh --execute
+ops/scripts/go-closure-soak.sh --target ssh --duration 86400 --execute
 ```
 
 For the production-shaped local topology, `make soak-15m` and `make soak-2h`
@@ -137,7 +137,7 @@ agents `merc_postgres.workers`, completed/cancelled workloads
 `merc_postgres.jobs`, retries/recovery `merc_postgres.job_events`, buyer
 webhooks `merc_postgres.webhooks`, stale-commit HTTP observations
 `merc_control.http`, and external exercises their named provider source in
-`scripts/validate-canary-scenario-receipt.py`. Merc independently queries
+`ops/scripts/validate-canary-scenario-receipt.py`. Merc independently queries
 PostgreSQL for the buyer, worker, workload, retry, recovery, and webhook
 subjects after structural validation. Completed workloads must belong to the
 approved buyers, and every task must run on an approved worker plus reviewed
@@ -222,7 +222,7 @@ bundle must contain no secrets). Select every receipt by its exact filename,
 never by `latest` or a glob, and run the final chain validator:
 
 ```sh
-python3 scripts/validate-go-closure-evidence-chain.py \
+python3 ops/scripts/validate-go-closure-evidence-chain.py \
   --root "$STAGING_DEPLOYMENT_ROOT" \
   --commit "$MERC_CANDIDATE_COMMIT" \
   --image "$MERC_CANDIDATE_CONTROL_IMAGE" \

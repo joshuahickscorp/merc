@@ -587,22 +587,22 @@
         {
           "mechanism": "pgxpool MaxConnLifetime",
           "seconds": 1800,
-          "source": "control/main.go"
+          "source": "src/control/main.go"
         },
         {
           "mechanism": "pgxpool MaxConnIdleTime",
           "seconds": 300,
-          "source": "control/main.go"
+          "source": "src/control/main.go"
         },
         {
           "mechanism": "verificationLeaseDurationDefault",
           "seconds": 300,
-          "source": "control/verification_processor.go"
+          "source": "src/control/verification_processor.go"
         },
         {
           "mechanism": "inflightLeaseTTL",
           "seconds": 30,
-          "source": "control/inflight_coalescing.go"
+          "source": "src/control/inflight_coalescing.go"
         },
         {
           "mechanism": "worker last_seen liveness windows",

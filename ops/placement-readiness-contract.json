@@ -57,58 +57,58 @@
     "verification": "cosine",
     "mean_threshold": 0.999,
     "row_threshold": 0.999,
-    "source": "control/embedding_comparator.go (embeddingMeanCosineThreshold, embeddingRowCosineThreshold)"
+    "source": "src/control/embedding_comparator.go (embeddingMeanCosineThreshold, embeddingRowCosineThreshold)"
   },
   "cuda_image_pin": {
     "image": "vllm/vllm-openai@sha256:3a1e7f5904e1a1192a02aa0086ceaffc33985d7044c7bb25b3a43d61bdbe3ac0",
     "container_digest": "sha256:3a1e7f5904e1a1192a02aa0086ceaffc33985d7044c7bb25b3a43d61bdbe3ac0",
-    "source": "control/runtime-profiles/vllm-llama-3.2-1b-instruct-bf16.json",
-    "note": "Immutable OCI digest only. Mutable tags are why evidence/runpod/spend-rr7b6uwmivaolh.json is WITHDRAWN and citable by nothing. scripts/runpod-vllm.sh refuses any image without @sha256:."
+    "source": "src/control/runtime-profiles/vllm-llama-3.2-1b-instruct-bf16.json",
+    "note": "Immutable OCI digest only. Mutable tags are why evidence/runpod/spend-rr7b6uwmivaolh.json is WITHDRAWN and citable by nothing. ops/scripts/runpod-vllm.sh refuses any image without @sha256:."
   },
   "money_bounds": {
     "cost_cap_env": "MERC_RUNPOD_CAP_USD",
     "default_cap_usd": 2.0,
     "min_cap_usd": 0.25,
-    "min_cap_source": "scripts/runpod-spend-guard.py:MIN_CAP_USD",
+    "min_cap_source": "ops/scripts/runpod-spend-guard.py:MIN_CAP_USD",
     "lifetime_share_of_cap": 0.8,
-    "lifetime_source": "scripts/runpod-spend-guard.py:LIFETIME_SHARE_OF_CAP and budget_seconds(); scripts/runpod-vllm.sh experiment enforces BUDGET_SECS"
+    "lifetime_source": "ops/scripts/runpod-spend-guard.py:LIFETIME_SHARE_OF_CAP and budget_seconds(); ops/scripts/runpod-vllm.sh experiment enforces BUDGET_SECS"
   },
   "deadlines": {
     "startup": {
       "description": "vLLM readiness poll: 90 attempts x 6s sleep, curl --max-time 10 per attempt; failure tears down via exit trap",
-      "source": "scripts/runpod-vllm.sh (READY loop around seq 1 90)"
+      "source": "ops/scripts/runpod-vllm.sh (READY loop around seq 1 90)"
     },
     "idle_or_lifetime": {
       "description": "Governed experiment lifetime bound is budget_seconds(cost_per_hr, cap_usd); experiment command is killed when elapsed >= BUDGET_SECS. Non-experiment hold is MERC_RUNPOD_HOLD_SECS (default 60).",
-      "source": "scripts/runpod-vllm.sh experiment + scripts/runpod-spend-guard.py budget"
+      "source": "ops/scripts/runpod-vllm.sh experiment + ops/scripts/runpod-spend-guard.py budget"
     }
   },
   "teardown_and_orphan": {
-    "teardown_path": "scripts/runpod-vllm.sh (terminate + trap sweep_all on experiment EXIT/INT/TERM; teardown_verified requires pod_exists=no)",
-    "orphan_reconcile_path": "scripts/runpod-spend-guard.py reconcile (+ scripts/runpod-vllm.sh entry_reconcile_or_refuse)",
+    "teardown_path": "ops/scripts/runpod-vllm.sh (terminate + trap sweep_all on experiment EXIT/INT/TERM; teardown_verified requires pod_exists=no)",
+    "orphan_reconcile_path": "ops/scripts/runpod-spend-guard.py reconcile (+ ops/scripts/runpod-vllm.sh entry_reconcile_or_refuse)",
     "exercised_offline": [
-      "scripts/runpod-spend-guard.py --self-test",
-      "scripts/test-runpod-orphan-reconcile.py",
+      "ops/scripts/runpod-spend-guard.py --self-test",
+      "ops/scripts/test-runpod-orphan-reconcile.py",
       "make ci runs both"
     ]
   },
   "spend_receipt_writer": {
-    "path": "scripts/runpod-spend-guard.py receipt (invoked by scripts/runpod-vllm.sh emit_receipt)",
-    "producer_identity_requirement": "BOUND producer_identity via the eight-field programme bar (scripts/lib/evidence_binding.py emit_bound_json → write_bound_evidence)",
+    "path": "ops/scripts/runpod-spend-guard.py receipt (invoked by ops/scripts/runpod-vllm.sh emit_receipt)",
+    "producer_identity_requirement": "BOUND producer_identity via the eight-field programme bar (ops/scripts/lib/evidence_binding.py emit_bound_json → write_bound_evidence)",
     "note": "Fresh receipts written with --out bind producer_identity and lift the immutable image @sha256 into image_digest. Historical spend-rr7b6uwmivaolh.json remains WITHDRAWN for mutable tag and is not restamped."
   },
   "selector_consumer": {
     "paths": [
-      "control/runtime_shadow_selection.go",
-      "control/runtime_governed_comparison.go",
-      "control/runtime_cell_cost.go (reads runtime_shadow_selections)"
+      "src/control/runtime_shadow_selection.go",
+      "src/control/runtime_governed_comparison.go",
+      "src/control/runtime_cell_cost.go (reads runtime_shadow_selections)"
     ],
     "note": "Shadow/governed comparison structure exists and records CUDA embed exclusion until a matched paid arm is eligible. It does not promote."
   },
   "cross_hardware_cost_authority": {
     "status": "EXPLICIT_REFUSAL",
-    "path": "control/runtime_cell_cost.go:comparableHardwareFor",
-    "test": "control/runtime_cell_cost_test.go:TestComparableHardwareRefusesToMixMachines",
+    "path": "src/control/runtime_cell_cost.go:comparableHardwareFor",
+    "test": "src/control/runtime_cell_cost_test.go:TestComparableHardwareRefusesToMixMachines",
     "note": "Cost may never be compared across hardware classes; the difference would be the machine, not the placement. Heterogeneous placement must not invent a cross-hardware USD authority."
   },
   "cell_surface_policy": {
@@ -137,7 +137,7 @@
   },
   "promotion_blockers": {
     "touches": [
-      "promotionMatchedPairAuthorityRefusal (control/runtime_cell_promotion.go:78 refuse at :321) — no durable matched incumbent/challenger execution pair",
+      "promotionMatchedPairAuthorityRefusal (src/control/runtime_cell_promotion.go:78 refuse at :321) — no durable matched incumbent/challenger execution pair",
       "activation_policy.go:1326-1333 — evidence covers one exact scope while cell lifecycle is global"
     ],
     "does_not_close": "Closing one refusal does not close the other. G024 does not force promotion; gate remains the product.",

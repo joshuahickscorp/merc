@@ -1,6 +1,6 @@
 """Tests that are deliberately run against an installed SDK wheel.
 
-``scripts/verify-python-sdk-package.sh`` creates a fresh virtual environment,
+``ops/scripts/verify-python-sdk-package.sh`` creates a fresh virtual environment,
 installs ``clients/sdk/python``, moves outside the repository, and then discovers this
 file. That makes these tests catch missing package metadata and accidental
 source-tree imports rather than merely proving that ``PYTHONPATH`` works.

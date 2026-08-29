@@ -6,8 +6,8 @@
 >
 > **DRAFT — PENDING PRIVACY COUNSEL REVIEW — DO NOT PUBLISH**
 >
-> Field list derived from `control/schema.sql`, `control/alpha_request.go`,
-> `control/accounts.go`, and `control/data_governance.go`. It is not a
+> Field list derived from `src/control/schema.sql`, `src/control/alpha_request.go`,
+> `src/control/accounts.go`, and `src/control/data_governance.go`. It is not a
 > completed privacy notice. Writing it does not make the system compliant.
 
 - Version: `draft-0.2-backend-alpha`

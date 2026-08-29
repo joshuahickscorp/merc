@@ -26,7 +26,7 @@ never dissolve one.
 
 Machine authority: `ops/readiness.json` (level + claims),
 `ops/backend-alpha-gates.json` (classification of every gate),
-`ops/go-no-go.json` (decisions), `scripts/validate-readiness.py`
+`ops/go-no-go.json` (decisions), `ops/scripts/validate-readiness.py`
 (derivation). This prose is the citable meaning of those records.
 
 ---
@@ -178,7 +178,7 @@ location-verified — not "the operator typed both parts."
 
 This claim is `NO_GO` until
 `evidence/external/external-alpha-participants.json` passes the
-checker in `scripts/validate-readiness.py`. That checker makes it
+checker in `ops/scripts/validate-readiness.py`. That checker makes it
 structurally impossible to count a synthetic, disposable, harness,
 operator-owned, or operator-controlled identity as an independent
 external participant. Completing `P1-CANARY-REHEARSAL` (two
@@ -237,7 +237,7 @@ Examined against the running control plane:
 | Inflight coalescing lease (`inflightLeaseTTL`) | 30 s | No. Tests expire the row. Live process: minutes. |
 | Worker liveness (`last_seen_at` 45–90 s windows) | ≤ 90 s | No. Canary scenario `stale_lease_recovery` plus a short live soak. |
 | Verification lease (`verificationLeaseDurationDefault`) | 5 min | No. Tests exist. Live process: one renewal cycle. |
-| pgx pool `MaxConnLifetime` | **30 min** (`control/main.go`) | **Yes, in the live process.** Unit tests do not recycle the production pool. |
+| pgx pool `MaxConnLifetime` | **30 min** (`src/control/main.go`) | **Yes, in the live process.** Unit tests do not recycle the production pool. |
 | pgx pool `MaxConnIdleTime` | 5 min | Same class as above; shorter. |
 | Charge collect tick | 60 s | No. Many ticks in a one-hour soak. |
 | Charge retry step / cap | 30 min / 6 h | Observable by inserting aged attempts; not a general soak. |
@@ -245,7 +245,7 @@ Examined against the running control plane:
 | `executionEnvelopeMaxTTL` | 24 h **maximum**; minimum 30 s | No. Expiry is observable at the 30 s floor. |
 | `minimumPayoutHold` | 24 h | Live payouts are prohibited. The floor is unit-tested. Stripe test-mode hold/release is the `P1-STRIPE-TEST` matrix. |
 | `sessionTTL` | 30 days | Not 24 h. |
-| `merc-backup.timer` `OnCalendar=03:15` | ≤ 24 h to the next fire | No. `systemctl start merc-backup.service` / `scripts/backup.sh` fires it. |
+| `merc-backup.timer` `OnCalendar=03:15` | ≤ 24 h to the next fire | No. `systemctl start merc-backup.service` / `ops/scripts/backup.sh` fires it. |
 | ACME certificate refresh | ~60 days | Not 24 h. Not required (no website). |
 | Token / key purge | 30 days | Not 24 h. |
 | Log rotation | no 24 h-only control found | — |
@@ -305,7 +305,7 @@ alpha can reach it.
 - Level B remains the private canary, scored on the **full
   100-point bar**. Missing `evidence/external/*` receipts still
   cost the same 16 points. All eight P1s still block Level B.
-  `python3 scripts/validate-readiness.py` must still print that
+  `python3 ops/scripts/validate-readiness.py` must still print that
   84/100 number.
 - Level C remains `NO_GO_PROHIBITED`. Live money and public access
   stay false.

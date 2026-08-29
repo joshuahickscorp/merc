@@ -3,7 +3,7 @@
   "status": "BLOCKED_LICENSE_AND_FINAL_CANDIDATE_BINDING",
   "review_basis_commit": "533788d69c0fa06863d8fbcf5b2fd793955c3bbd",
   "candidate_commit": null,
-  "runtime_authority_path": "control/runtime-authority.json",
+  "runtime_authority_path": "src/control/runtime-authority.json",
   "models": [
     {
       "catalog_id": "all-minilm-l6-v2",
@@ -108,7 +108,7 @@
         "runtime_profile_id": "candle_metal",
         "profile_revision": "r9",
         "model_artifact_digest": "3f5a22426976ab26cfe84dba63c1d08391717abb1af893e10f1b2968d862dcc1",
-        "authority": "control/pricing.go var repricingBenchmarks (sole entry at HEAD 9e31c65b)",
+        "authority": "src/control/pricing.go var repricingBenchmarks (sole entry at HEAD 9e31c65b)",
         "withdraw_for_backend_alpha": "NOT required to keep readiness Level B / backend-alpha scores. REQUIRED before make license-register can pass without this row being genuinely cleared. Unpricing while still serving the GGUF does not discharge Llama 3.2 Community License section 1.b.i. This file cannot change pricing.go.",
         "register_label": "Llama 3.2 1B Instruct GGUF"
       },
@@ -119,7 +119,7 @@
         "Section 1.b.iii requires the specified attribution sentence in a Notice file distributed as part of every copy. Agent download to the supplier Hugging Face cache is distribution of the Unsloth Q4_K_M derivative; no per-copy Notice is shipped with that GGUF.",
         "Section 1.b.iv incorporates the AUP (aup_file_sha256). The AUP prohibits using or allowing others to use Llama 3.2 for listed categories. docs/ACCEPTABLE_USE_AND_ABUSE_RESPONSE.md is DRAFT_PENDING_COUNSEL_AND_TRUST_SAFETY.",
         "acceptance_receipt is null. Official meta-llama/Llama-3.2-1B-Instruct is gated; unsloth/Llama-3.2-1B-Instruct-GGUF is ungated and contains no LICENSE file. Using or distributing any portion binds the licensee (Agreement preamble); this repository records no named-entity acceptance.",
-        "ops/legal-review.json approvals.license is PENDING; reviewer and approved_at remain null. scripts/validate-governance.py requires this review_status to stay BLOCKED until that approval exists."
+        "ops/legal-review.json approvals.license is PENDING; reviewer and approved_at remain null. ops/scripts/validate-governance.py requires this review_status to stay BLOCKED until that approval exists."
       ]
     }
   ],

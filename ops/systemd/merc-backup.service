@@ -11,7 +11,7 @@ Type=oneshot
 # CX_BACKUP_STATUS_FILE (must match the path mounted into control), compose paths.
 EnvironmentFile=-/etc/computexchange/backup.env
 WorkingDirectory=/opt/computexchange
-ExecStart=/opt/computexchange/scripts/backup.sh
+ExecStart=/opt/computexchange/ops/scripts/backup.sh
 Nice=10
 IOSchedulingClass=best-effort
 IOSchedulingPriority=7

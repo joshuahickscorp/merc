@@ -1,0 +1,110 @@
+import fs from 'node:fs';
+import path from 'node:path';
+
+const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '../..');
+const read = name => fs.readFileSync(path.join(root, name), 'utf8');
+
+const metrics = read('src/control/metrics.go');
+for (const name of [
+  'merc_queue_age_seconds',
+  'merc_db_pool_utilization_ratio',
+  'merc_db_pool_connections',
+  'merc_webhook_backlog',
+  'merc_webhook_oldest_pending_age_seconds',
+  'merc_release_info',
+  'merc_backup_signal_configured',
+  'merc_backup_signal_valid',
+  'merc_backup_age_seconds',
+  'merc_object_storage_up',
+  'merc_ticker_interval_seconds',
+]) {
+  if (!metrics.includes(name)) throw new Error(`src/control/metrics.go: required bounded metric missing: ${name}`);
+}
+if (!metrics.includes('context.WithTimeout(ctx, 2*time.Second)')) {
+  throw new Error('src/control/metrics.go: object-storage active probe must have a two-second bound');
+}
+if (!metrics.includes('io.LimitReader(f, 129)')) {
+  throw new Error('src/control/metrics.go: backup health input must remain size-bounded');
+}
+
+const alerts = read('ops/monitoring/alerts.yml');
+const requiredAlerts = [
+  'MercControlUnavailable',
+  'MercQueueAgeHigh',
+  'MercQueueWithoutWorkers',
+  'MercBackgroundLoopStale',
+  'MercDatabasePoolSaturated',
+  'MercObjectStorageUnavailable',
+  'MercBackupSignalInvalid',
+  'MercBackupStale',
+  'MercWebhookDeadLetter',
+  'MercDiskPressure',
+  'MercModelCacheTelemetryMissing',
+  'MercLedgerOrProviderDrift',
+  'MercAlertmanagerUnavailable',
+];
+for (const name of requiredAlerts) {
+  if (!alerts.includes(`- alert: ${name}`)) throw new Error(`ops/monitoring/alerts.yml: missing ${name}`);
+}
+if (!alerts.includes('4 * merc_ticker_interval_seconds') || /merc_ticker_seconds_since_success\s*>\s*3600/.test(alerts)) {
+  throw new Error('ops/monitoring/alerts.yml: ticker alert must derive from each loop interval');
+}
+const alertMatches = [...alerts.matchAll(/^\s+- alert: (\S+)/gm)];
+for (let index = 0; index < alertMatches.length; index += 1) {
+  const start = alertMatches[index].index;
+  const end = alertMatches[index + 1]?.index ?? alerts.length;
+  const block = alerts.slice(start, end);
+  if (!/runbook:\s+docs\/RUNBOOKS\.md#[a-z0-9-]+/.test(block)) {
+    throw new Error(`ops/monitoring/alerts.yml: ${alertMatches[index][1]} has no source runbook link`);
+  }
+}
+
+const prometheus = read('ops/monitoring/prometheus.yml');
+for (const token of ['computexchange-control', 'control:8080', 'node-exporter:9100', 'alertmanager:9093', '/etc/prometheus/alerts.yml']) {
+  if (!prometheus.includes(token)) throw new Error(`ops/monitoring/prometheus.yml: missing ${token}`);
+}
+
+const alertmanager = read('ops/monitoring/alertmanager.yml');
+for (const token of ['url_file: /run/secrets/cx_alert_receiver_url', 'send_resolved: true', 'group_by: [alertname, severity]']) {
+  if (!alertmanager.includes(token)) throw new Error(`ops/monitoring/alertmanager.yml: missing ${token}`);
+}
+if (/https?:\/\//.test(alertmanager)) {
+  throw new Error('ops/monitoring/alertmanager.yml: receiver URL must come from a secret file');
+}
+
+const dashboard = JSON.parse(read('ops/monitoring/grafana/dashboards/merc-canary.json'));
+if (dashboard.uid !== 'merc-canary' || dashboard.refresh !== '15s') {
+  throw new Error('Grafana dashboard: stable uid and 15s refresh are required');
+}
+const panelIDs = new Set();
+const expressions = [];
+for (const panel of dashboard.panels ?? []) {
+  if (panelIDs.has(panel.id)) throw new Error(`Grafana dashboard: duplicate panel id ${panel.id}`);
+  panelIDs.add(panel.id);
+  for (const target of panel.targets ?? []) expressions.push(target.expr ?? '');
+}
+for (const metric of [
+  'merc_release_info',
+  'merc_queue_depth',
+  'merc_queue_age_seconds',
+  'merc_active_workers',
+  'merc_task_failures_total',
+  'merc_verification_mismatch_total',
+  'merc_reconcile_drift_total',
+  'merc_object_storage_up',
+  'merc_backup_age_seconds',
+  'merc_webhook_backlog',
+  'merc_db_pool_utilization_ratio',
+  'node_filesystem_avail_bytes',
+]) {
+  if (!expressions.some(expression => expression.includes(metric))) {
+    throw new Error(`Grafana dashboard: no panel consumes ${metric}`);
+  }
+}
+
+const backup = read('ops/scripts/backup.sh');
+for (const token of ['MERC_BACKUP_STATUS_FILE', 'date -u +%s', 'mv -f -- "$status_tmp" "$MERC_BACKUP_STATUS_FILE"']) {
+  if (!backup.includes(token)) throw new Error(`ops/scripts/backup.sh: backup health signal missing ${token}`);
+}
+
+console.log(`observability: ${alertMatches.length} alerts, ${panelIDs.size} dashboard panels, bounded metrics and provision configs validated`);

@@ -1,0 +1,476 @@
+<!doctype html>
+<!-- merc · private test-canary page, not a launch or market attestation.
+     Current claim state comes from source-bound proof receipts. The responsive page
+     uses the retained Apple Silicon product still. Dash gate: no
+     U+2014, no U+2013 · separator is the middot.
+
+     DESIGN DIRECTION scaffold (DESIGN-DIRECTION.md) · "an instrument the size of a
+     room". Weighted monochrome procession · Owens' mass, Ando's void, the instrument
+     tradition's discipline. Primary voice is a neo-grotesque; mono is demoted to the
+     receipt/label voice (the machine speaking); the serif is gone. Layout hangs off a
+     61.8pct spine, flush-left, never centered except the one monument. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>merc</title>
+<meta name="description" content="private test canary for approved accounts · no real payments · Apple Metal suppliers · embed and batch_infer only">
+<meta name="theme-color" content="#050505">
+<link rel="icon" href="/favicon.ico" sizes="any">
+<meta property="og:title" content="merc">
+<meta property="og:description" content="private test canary · approved accounts only · no real payments · capacity and latency are limited">
+<meta property="og:image" content="https://mercmerc.net/assets/site/mac-studio@2x.png">
+<meta property="og:type" content="website">
+<link rel="preload" href="/assets/site/fonts/geist-mono.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/assets/site/mac-studio@1x.png" as="image" fetchpriority="high">
+<style>
+  /* Self-hosted, no CDN. Geist Mono (400 to 600) is the RECEIPT / LABEL voice only ·
+     "the machine speaking". The primary neo-grotesque voice (--sans / --breit) uses the
+     system grotesque for this scaffold (SF Pro / Helvetica Neue); the type-lock step
+     vendors Inter + Inter Display, or Klim Söhne + Söhne Breit, as self-hosted woff2 by
+     changing only these two vars. Cormorant Garamond is deleted (the serif is gone). */
+  @font-face{font-family:'Geist Mono';font-style:normal;font-weight:400 600;font-display:swap;
+    src:url(/assets/site/fonts/geist-mono.woff2) format('woff2')}
+</style>
+<style>
+  :root{
+    /* pure monochrome (owner: "all black") · no warm cast anywhere. Near-black ground,
+       neutral greys, off-white highlight · colour exists ONLY as the green fact. */
+    --bg:#050505;
+    --bg-lift:#0E0E0E;
+    --hair:rgba(255,255,255,.11);       /* rules, borders · visible but quiet */
+    --hair-2:rgba(255,255,255,.06);
+    --ash:#8C8C8C;      /* labels · 6.06:1 against --bg */
+    --mute:#A6A6A6;     /* body-adjacent, receipt values */
+    --bone:#C7C7C7;     /* primary text */
+    --bone-hi:#F2F2F0;  /* the monument + the single brightest highlight */
+    --green-core:#69c096;               /* fact only */
+    /* voices · three jobs, no overlap */
+    --sans:"Inter","Söhne","Helvetica Neue",system-ui,-apple-system,Arial,sans-serif;
+    --breit:"Inter Display","Söhne Breit","Inter","Helvetica Neue",system-ui,sans-serif;
+    --mono:"Geist Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+    --m:clamp(40px,8vw,168px);          /* monumental outer frame margin */
+    --dur:.18s; --dur-veil:420ms;
+    --ease-glide:cubic-bezier(0.22,1,0.36,1);
+    --ease-veil:cubic-bezier(0.40,0,0.20,1);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    background:var(--bg);
+    color:var(--bone);
+    -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
+    font:400 15.5px/1.65 var(--sans);
+    font-feature-settings:"kern" 1,"liga" 1;
+  }
+  /* flat black ground (owner call) · the light lives in the scene, not the page */
+  ::selection{background:var(--bone-hi);color:var(--bg)}
+  img{display:block}
+  button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;padding:0}
+  :where(a,button,input,select):focus-visible{outline:2px solid var(--green-core);outline-offset:4px}
+  .skip-link{position:fixed;left:16px;top:16px;z-index:20;transform:translateY(-160%);
+    padding:10px 14px;background:var(--bone-hi);color:var(--bg);font:600 12px/1 var(--mono);
+    text-transform:uppercase;text-decoration:none}
+  .skip-link:focus{transform:translateY(0)}
+
+  /* mono is the RECEIPT / LABEL voice · tabular, tracked small-caps for labels */
+  .label{font:500 10.5px/1.2 var(--mono);letter-spacing:.22em;text-transform:uppercase;color:var(--ash)}
+  .num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+
+  /* ── responsive site ──────────────────────────────────────────────────── */
+  .site{display:block;position:relative;overflow-x:clip}
+
+  /* the spine · one full-height hairline that says "there is a system here", plus a
+     faint tick-scale down the left frame rule (a chemin-de-fer, not a HUD). */
+  /* no spine rule, no graticule (owner: "remove the line · make it spacier") · the
+     asymmetric composition alone carries the system; the void does the work. */
+
+  /* masthead · brand flush-left, a signage label flush-right. Fixed chrome. */
+  .masthead{position:fixed;top:0;left:0;right:0;z-index:6;pointer-events:none;
+    display:flex;align-items:center;justify-content:space-between;
+    padding:26px var(--m) 0}
+  .mark{display:flex;align-items:center;gap:12px;color:var(--bone-hi)}
+  .mark img{width:24px;height:24px;opacity:.92}
+  .mark b{font-weight:500;font-size:14px;letter-spacing:.01em}
+  .masthead .label{color:var(--ash)}
+  .masthead nav{display:flex;gap:18px;pointer-events:auto}
+  .masthead nav a{color:var(--ash);font:500 10.5px/1.2 var(--mono);letter-spacing:.12em;
+    text-transform:uppercase;text-decoration:none}
+  .masthead nav a:hover{color:var(--bone-hi)}
+
+  /* the stage · the Apple Silicon device sits low and toward the frame edge. */
+  .stage{position:relative;height:76vh;min-height:520px;margin:0;overflow:hidden}
+  .hero-still{position:absolute;inset:0;display:flex;align-items:center;justify-content:flex-start;z-index:1;
+    padding-left:var(--m)}
+  /* Seat the retained still into the void so it reads as part of the room. */
+  .hero-still img{width:min(58vw,940px);height:auto;max-height:100%;object-fit:contain;object-position:left center;
+    filter:brightness(.88);
+    -webkit-mask-image:radial-gradient(60% 54% at 46% 50%,#000 50%,transparent 99%);
+            mask-image:radial-gradient(60% 54% at 46% 50%,#000 50%,transparent 99%)}
+  .canary-banner{margin:0 var(--m);padding:24px 0;border-top:1px solid var(--hair);
+    border-bottom:1px solid var(--hair)}
+  .canary-banner h1{color:var(--bone-hi);font:500 clamp(24px,3vw,42px)/1.15 var(--breit);
+    letter-spacing:-.01em;margin:12px 0 18px;max-width:24ch}
+  .canary-facts{display:flex;flex-wrap:wrap;gap:8px 22px;padding:0;margin:0;list-style:none;
+    color:var(--mute);font:500 11px/1.45 var(--mono);letter-spacing:.04em}
+  /* device specs folded into arrival as instrument lines (was a floating callout layer) */
+  .spec{color:var(--ash);margin:20px 0 0}
+  .spec+.spec{margin-top:6px}
+
+  /* ── the field · everything hangs off the spine, flush-left, ragged-right ── */
+  .beats{margin:0}
+  .beat{position:relative;padding:12vh 0}   /* tight · the sections sit close (owner call) */
+  /* BASE (fallback · no WebGL): copy hangs off the LEFT frame, flush-left. LIVE composes
+     each beat's field against that beat's camera (see .live). One measure: the reveal. */
+  .field{padding:0 var(--m);max-width:none}
+  .field>.reveal{max-width:42ch}
+
+  /* the display tier · every section headline gets the monument ideology (owner:
+     "use that same ideology" as the price) · huge, flush-left, no ornament. */
+  .display{font:600 clamp(52px,8.5vw,140px)/0.95 var(--breit);color:var(--bone-hi);
+    letter-spacing:-.02em;margin:0 0 18px;text-wrap:balance}
+  .display-max{font-size:clamp(80px,15vw,240px);margin-bottom:24px}  /* earn · maximalist */
+  .beat-index{color:var(--ash);margin:0 0 22px;display:block}
+  .beat-index b{color:var(--mute);font-weight:500}
+
+  /* at arrival the STACKED PAIR is the monument · the thesis is its caption, set in the
+     bottom-right corner · authored to three lines, never a rag */
+  .thesis{color:var(--bone-hi);font:500 clamp(34px,3.4vw,52px)/1.08 var(--breit);letter-spacing:-.015em;
+    margin:0 0 22px;max-width:11ch;text-wrap:balance}
+  .ash-line{color:var(--mute);font-size:14px;line-height:1.6;margin:0 0 14px;max-width:38ch}
+  .lede{color:var(--bone);font-size:18px;line-height:1.55;margin:0}
+
+  /* the how rows · a genuine instrument · 4 columns, flat lit lens, tabular state.
+     No glow, no breathe · a state change means a transition happened, never idle. */
+  .console{border-top:1px solid var(--hair);margin-top:8px}
+  .receipts-block{margin-top:22px}   /* the receipts · a second console group under the flow */
+  .row{display:grid;grid-template-columns:16px 88px 1fr auto;gap:24px;align-items:baseline;
+    padding:24px 0;border-bottom:1px solid var(--hair)}
+  .lens{width:8px;height:8px;align-self:center;background:var(--ash);border-radius:0}
+  .lens.green{background:var(--green-core)}
+  .row .k{color:var(--ash);font:500 10.5px/1 var(--mono);letter-spacing:.22em;text-transform:uppercase}
+  .row .stmt{color:var(--bone);font-size:15.5px;line-height:1.45}
+  .row .state{color:var(--mute);font:500 12px/1 var(--mono);letter-spacing:.04em;font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+  .receipts-line{margin-top:30px}
+  .receipts-btn{color:var(--mute);font:500 11px/1 var(--mono);letter-spacing:.2em;text-transform:uppercase;
+    padding:12px 0;transition:color var(--dur) var(--ease-glide)}
+  .receipts-btn::after{content:" ->";color:var(--ash)}
+  .receipts-btn:hover{color:var(--bone-hi)}
+
+  /* the monument · the one sanctioned break from the spine · flush-LEFT against the far
+     frame, bleeding off the right edge, on a plinth. Söhne Breit at extreme size. */
+  /* the monument · flush-left off the frame, bleeding off the RIGHT edge (clipped by the
+     page, not by the beat), on a plinth that spans exactly the figure. >=80vh of ma. */
+  .beat-price{padding:40vh 0 40vh var(--m);overflow:visible}
+  .monument{position:relative;width:max-content}
+  .monument .cap-top{margin:0 0 10px}
+  .monument .fig{font:600 clamp(120px,22vw,360px)/0.9 var(--breit);color:var(--bone-hi);
+    letter-spacing:-.02em;white-space:nowrap;margin:0}
+  .monument .fig .dollar{color:var(--mute);font-size:.32em;vertical-align:.66em;font-family:var(--mono);margin-right:.05em}
+  .monument .fig .price{color:var(--bone-hi)}   /* monochrome · the figure needs no colour */
+  .monument .plinth{height:1px;background:var(--hair);margin:16px 0 0;width:100%}
+  .monument .cap-bot{margin:14px 0 0}
+  .monument .cap-bot .proof{color:var(--green-core)}
+
+  /* earn · knob-instrument left of the field copy */
+  .earn{display:flex;align-items:flex-start;gap:34px}
+  .earn img{width:140px;height:140px;flex:none}
+  .earn p{margin:0}
+
+  /* download / release · the flag is a status, not a fact · mute, never the gold accent */
+  .flag{display:inline-block;color:var(--mute);margin:0 0 18px}
+  .download p{color:var(--bone);margin:0 0 12px;max-width:44ch}
+  .download .road{color:var(--ash);font-size:13px;line-height:1.55;max-width:46ch}
+  .alpha-form{display:grid;grid-template-columns:minmax(220px,1fr) minmax(170px,.6fr) auto;
+    gap:12px;align-items:end;margin-top:24px;max-width:760px}
+  .alpha-field{display:grid;gap:8px}
+  .alpha-field input,.alpha-field select{width:100%;min-width:0;background:transparent;
+    border:1px solid var(--mute);color:inherit;padding:12px;font:inherit}
+  .alpha-field option{background:var(--bg);color:var(--bone)}
+  .contract{margin:10vh var(--m) 0;padding:10vh 0;border-top:1px solid var(--hair)}
+  .contract h2{margin:0 0 34px;color:var(--bone-hi);font:600 clamp(38px,6vw,90px)/1 var(--breit)}
+  .contract-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1px;background:var(--hair)}
+  .contract article{background:var(--bg);padding:26px;min-height:190px}
+  .contract article h3{margin:0 0 12px;color:var(--bone-hi);font:500 13px/1.3 var(--mono);letter-spacing:.08em}
+  .contract article p{margin:0;color:var(--mute);font-size:13px;line-height:1.65}
+  .contract-links{display:flex;flex-wrap:wrap;gap:12px;margin-top:28px}
+  .contract-links a{border:1px solid var(--hair);padding:11px 14px;color:var(--bone);
+    font:500 11px/1 var(--mono);letter-spacing:.08em;text-decoration:none}
+
+  footer{display:flex;align-items:center;gap:12px;color:var(--ash);
+    padding:16vh 0 10vh;margin-left:var(--m)}
+  footer img{width:16px;height:16px;opacity:.7}
+  footer .label{color:var(--ash)}
+
+  /* the receipts ledger · the hero object · a printed audit artifact, not a modal.
+     The one framed object on the page; everything else is frameless. */
+  dialog{background:var(--bg-lift);color:var(--bone);border:1px solid var(--hair);border-radius:0;
+    max-width:820px;width:92vw;max-height:84vh;padding:0;font:inherit}
+  dialog::backdrop{background:rgba(6,6,6,.86)}
+  .ledger{padding:30px 34px 34px}
+  .ledger-head{display:flex;align-items:baseline;justify-content:space-between;
+    padding-bottom:14px;border-bottom:1px solid var(--hair)}
+  .ledger-head .title{color:var(--bone-hi);font:500 11px/1 var(--mono);letter-spacing:.24em;text-transform:uppercase}
+  .ledger-head .close{color:var(--mute);font:500 10.5px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase}
+  .ledger-head .close:hover{color:var(--bone-hi)}
+  .ledger-stat{display:flex;gap:26px;padding:14px 0;border-bottom:1px solid var(--hair);
+    font:400 12px/1 var(--mono);letter-spacing:.06em;color:var(--mute);font-variant-numeric:tabular-nums}
+  .ledger-stat b{color:var(--green-core);font-weight:500}
+  .ledger-stat .gen{margin-left:auto;color:var(--ash)}
+  .claim{display:grid;grid-template-columns:132px 1fr;gap:24px;align-items:baseline;
+    padding:14px 0;border-bottom:.5px solid var(--hair-2);font-size:12.5px;line-height:1.5}
+  .claim .k{color:var(--ash);font:500 10px/1.4 var(--mono);letter-spacing:.2em;text-transform:uppercase}
+  .claim .v{color:var(--mute)}
+  .claim .v b{color:var(--bone);font-weight:400}
+  .ledger-foot{color:var(--ash);font-size:11.5px;line-height:1.5;margin:18px 0 0}
+  .ledger-foot .path{color:var(--mute);font-family:var(--mono)}
+
+  .hand-key{display:block;width:100%;border:1px solid var(--hair);
+    padding:14px 20px;color:var(--bone);font:500 12px/1 var(--mono);letter-spacing:.16em;
+    text-transform:uppercase;text-align:center;text-decoration:none}
+  .hand-key:active{color:var(--bone-hi)}
+  @media (max-width:899px){
+    :root{--m:24px}
+    .masthead{position:static;padding:20px var(--m);border-bottom:1px solid var(--hair);pointer-events:auto}
+    .masthead>.label{max-width:18ch;text-align:right}
+    .stage{height:44vh;min-height:280px}
+    .hero-still{justify-content:center;padding:0 var(--m)}
+    .hero-still img{width:min(94vw,620px);object-position:center}
+    .canary-banner{padding:22px 0}
+    .beat{padding:9vh 0}
+    .field>.reveal{max-width:none}
+    .row{grid-template-columns:12px 64px 1fr;gap:12px;padding:18px 0}
+    .row .state{grid-column:3;text-align:left;white-space:normal}
+    .beat-price{padding:18vh 0 18vh var(--m)}
+    .monument .fig{font-size:clamp(78px,28vw,180px)}
+    .monument .cap-bot{display:block;max-width:76vw;line-height:1.5}
+    .earn{display:grid;gap:22px}
+    .earn img{width:104px;height:104px}
+    .alpha-form{grid-template-columns:1fr;align-items:stretch}
+    .contract-grid{grid-template-columns:1fr}
+    footer{margin-left:var(--m);margin-right:var(--m);padding:10vh 0 8vh;align-items:flex-start}
+    .ledger{padding:22px 20px 26px}
+    .ledger-head{gap:18px}
+    .ledger-stat{display:grid;gap:10px}
+    .ledger-stat .gen{margin-left:0}
+    .claim{grid-template-columns:1fr;gap:7px}
+  }
+  @media (prefers-reduced-motion:reduce){
+    *,*::before,*::after{scroll-behavior:auto!important;animation-duration:.01ms!important;
+      animation-iteration-count:1!important;transition-duration:.01ms!important}
+  }
+</style>
+</head>
+<body>
+
+<a class="skip-link" href="#main-content">skip to content</a>
+<div class="site">
+<header class="masthead">
+  <span class="mark"><img src="/assets/site/cx-mark-white.png" alt="merc" width="24" height="24"><b>merc</b></span>
+  <nav aria-label="site"><a href="/buyer">buyer</a><a href="/healthz">status</a></nav>
+</header>
+
+<div class="stage" id="stage">
+  <div class="hero-still">
+    <img src="/assets/site/mac-studio@1x.png"
+         srcset="/assets/site/mac-studio@1x.png 1x, /assets/site/mac-studio@2x.png 2x, /assets/site/mac-studio@3x.png 3x"
+         width="682" height="682" fetchpriority="high"
+         alt="A Mac Studio in studio light">
+  </div>
+</div>
+
+<main class="beats" id="main-content">
+<section class="canary-banner" aria-labelledby="canary-title">
+  <span class="label">private test canary</span>
+  <h1 id="canary-title">Approved accounts only. No real payments.</h1>
+  <ul class="canary-facts">
+    <li>Apple Metal suppliers only</li>
+    <li>embed and batch_infer only</li>
+    <li>capacity and latency are limited</li>
+  </ul>
+</section>
+  <!-- 01 · arrival · the stacked pair is the monument, the thesis its corner caption -->
+  <section class="beat beat-arrival" data-beat="0">
+    <div class="field"><div class="reveal">
+      <span class="beat-index label">01 <b>· arrival</b></span>
+      <p class="thesis">a development-stage exchange implementation</p>
+      <p class="ash-line">Current advertised runtime projection: Candle/Metal on Apple Silicon only · exact supported job/model cells come from the runtime matrix.</p>
+      <p class="ash-line">No live-money, market-liquidity, signed-distribution, or physical-fleet claim. Local validators are prerequisites, not product proof.</p>
+    </div></div>
+  </section>
+
+  <!-- 02 · the studio · its sections (the page opens on the Studio) -->
+  <section class="beat beat-studio" data-beat="1">
+    <div class="field"><div class="reveal">
+      <span class="beat-index label">02 <b>· the studio</b></span>
+      <h2 class="display">Studio</h2>
+      <p class="ash-line">apple silicon on metal · this is the only currently advertised production runtime projection; physical fleet and sustained-performance gates remain open</p>
+    </div></div>
+  </section>
+
+  <!-- 03 · how it works · the instrument -->
+  <section class="beat beat-how" data-beat="2">
+    <div class="field">
+      <span class="beat-index label reveal">03 <b>· how it works</b></span>
+      <div class="console">
+        <div class="row reveal"><span class="lens" aria-hidden="true"></span><span class="k">drop</span>
+          <span class="stmt">drop a workload · the pipeline is detected</span><span class="state">detected</span></div>
+        <div class="row reveal"><span class="lens" aria-hidden="true"></span><span class="k">cap</span>
+          <span class="stmt">priced before you spend · the cap you set binds at dispatch</span><span class="state">at dispatch</span></div>
+        <div class="row reveal"><span class="lens" aria-hidden="true"></span><span class="k">quote</span>
+          <span class="stmt">a quote before any spend at POST /v1/quote</span><span class="state">max_usd</span></div>
+        <div class="row reveal"><span class="lens" aria-hidden="true"></span><span class="k">audit</span>
+          <span class="stmt">honeypot known-answer tasks · N-way majority votes</span><span class="state">0.25 floor</span></div>
+        <div class="row reveal"><span class="lens" aria-hidden="true"></span><span class="k">payout</span>
+          <span class="stmt">Stripe Connect transfer code exists; a real charge, payout, fee, refund or reversal, and reconciliation remain unproven</span><span class="state">external gate</span></div>
+        <div class="row reveal"><span class="lens green" aria-hidden="true"></span><span class="k">proof</span>
+          <span class="stmt">source-bound local contracts cover narrow mechanisms; physical hardware, money, and market outcomes stay explicitly open</span><span class="state">see proof receipt</span></div>
+      </div>
+      <div class="console receipts-block">
+        <div class="row reveal"><span class="lens" aria-hidden="true"></span><span class="k">backends</span>
+          <span class="stmt">Candle on Metal for Apple Silicon is the advertised production runtime</span><span class="state">metal only</span></div>
+        <div class="row reveal"><span class="lens" aria-hidden="true"></span><span class="k">executors</span>
+          <span class="stmt">embeddings and batch inference use exact admitted workload and model cells</span><span class="state">two workloads</span></div>
+        <div class="row reveal"><span class="lens" aria-hidden="true"></span><span class="k">headroom</span>
+          <span class="stmt">memory floors and historical benchmark observations are development inputs; current physical apples-to-apples, thermal, and buyer-workload gates remain open</span><span class="state">evidence pending</span></div>
+      </div>
+      <div class="receipts-line reveal">
+        <button class="receipts-btn" id="open-receipts">the full ledger</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- 04 · the price monument · flush-left, bleeding off the right edge, on a plinth -->
+  <section class="beat beat-price" data-beat="3">
+    <div class="monument reveal">
+      <span class="cap-top label">catalogue</span>
+      <p class="fig"><span class="price"><a href="/prices">/prices</a></span></p>
+      <div class="plinth"></div>
+      <span class="cap-bot label">only bound priced cells are published · embeddings are measured and not yet priced · this page does not invent a unit price</span>
+    </div>
+  </section>
+
+  <!-- 05 · earn -->
+  <section class="beat beat-earn" data-beat="4">
+    <div class="field"><div class="reveal">
+      <span class="beat-index label">05 <b>· earn</b></span>
+      <h2 class="display display-max">earn</h2>
+      <div class="earn">
+        <img src="/assets/site/knob-off@3x.png" alt="" loading="lazy" width="104" height="104">
+        <p class="lede">the agent can contribute eligible work while enabled · real supplier earnings and net hourly value have not been demonstrated</p>
+      </div>
+      <p class="road">eligible work uses the same quote, task, verification, and settlement path as the native API</p>
+    </div></div>
+  </section>
+
+  <!-- 06 · release / download -->
+  <section class="beat beat-release download" data-beat="5">
+    <div class="field"><div class="reveal">
+      <span class="beat-index label">06 <b>· release</b></span>
+      <h2 class="display">download</h2>
+      <span class="flag label">closed alpha</span>
+      <p>There is no public download yet. The supplier agent installs with one command from the alpha build · the former macOS menu bar app is not present in this tree (only the seatbelt sandbox profile remains), and a notarized public release is not available.</p>
+      <form id="alpha-form" class="alpha-form">
+        <div class="alpha-field">
+          <label for="alpha-email" class="label">email for access request</label>
+          <input id="alpha-email" name="email" type="email" autocomplete="email" required placeholder="you@example.com" aria-describedby="alpha-status">
+        </div>
+        <div class="alpha-field">
+          <label for="alpha-role" class="label">participant role</label>
+          <select id="alpha-role" name="role">
+            <option value="buyer">buyer</option>
+            <option value="supplier">supplier</option>
+          </select>
+        </div>
+        <button type="submit" class="hand-key">request access</button>
+              <div class="alpha-field">
+          <label for="alpha-consent" class="label">
+            <input id="alpha-consent" name="consent" type="checkbox" required>
+            I consent to contact about alpha access
+          </label>
+        </div>
+</form>
+      <p id="alpha-status" class="road" aria-live="polite"></p>
+      <p class="road">the development catalogue is not public distribution</p>
+    </div></div>
+  </section>
+  <section class="contract" aria-labelledby="contract-title">
+    <span class="label">frozen production contract</span>
+    <h2 id="contract-title">What this canary does.</h2>
+    <div class="contract-grid">
+      <article><h3>Product and buyer flow</h3><p>Approved buyers authenticate, request a quote, provide bounded JSONL input, set a budget cap, submit through the native API, follow every job state, retrieve results, and optionally receive a signed webhook.</p></article>
+      <article><h3>Supplier flow</h3><p>An approved Apple Silicon supplier runs the sandboxed agent. Eligible work is admitted only through the pinned Candle runtime on Metal, with quiet-hours, memory, thermal, and operator controls enforced.</p></article>
+      <article><h3>Workloads</h3><p>Only <code>embed</code> with all-MiniLM-L6-v2 and <code>batch_infer</code> with the pinned Llama 3.2 1B revision are advertised. No other workload or model cell is promised.</p></article>
+      <article><h3>Verification</h3><p>Task receipts, attempt identity, model revision, known-answer sampling, redundancy, finalization, ledger entries, webhook events, and result retrieval form the trace. Conditions and failure records remain visible to the operator.</p></article>
+      <article><h3>Security and privacy</h3><p>Authenticated tenant checks, short-lived artifact access, revocable credentials, encrypted webhook secrets, attributed emergency actions, data export, deletion tombstones, and restore replay are technically exercised. Qualified review remains open.</p></article>
+      <article><h3>Measured performance</h3><p>Performance receipts are device, source, model, cache, load, and thermal specific. They describe one accessible Mac under measured conditions, not fleet capacity, a service-level objective, or guaranteed buyer latency.</p></article>
+      <article><h3>Limitations</h3><p>Private test canary only. No real payments, no public supplier fleet, no persistent external staging proof, no 24-hour qualifying soak yet, and no qualified legal, privacy, security, payments, operations, or release approval.</p></article>
+      <article><h3>Canary access</h3><p>Accounts and workers are allowlisted. Capacity, concurrency, budgets, held shadow payouts, and workload shapes are bounded. Operator kill switches can pause intake, dispatch, finalization, webhooks, or payment paths.</p></article>
+      <article><h3>Docs and status</h3><p>The source repository holds the API contract, runbooks, privacy drafts, canary terms, supply-chain policy, and exact evidence validators. Health is reported directly by the control plane.</p></article>
+    </div>
+    <div class="contract-links"><a href="/buyer">open buyer workspace</a><a href="/healthz">service status</a><a href="https://github.com/joshuahickscorp/merc/tree/release/rc1-go-closure/docs">read documentation</a></div>
+  </section>
+</main>
+
+<footer>
+  <img src="/assets/site/cx-mark-white.png" alt="" width="16" height="16">
+  <span class="label">merc · Joshua-Hicks Global Corp. · 2026</span>
+</footer>
+
+<dialog id="receipts" aria-label="the claims ledger">
+  <div class="ledger">
+    <div class="ledger-head">
+      <span class="title">merc · claims ledger</span>
+      <button class="close" id="close-receipts">close</button>
+    </div>
+    <div class="ledger-stat"><span><b>development</b> preview</span><span>no static proof counter</span><span class="gen">current state: source-bound receipt</span></div>
+    <div class="claim"><span class="k">proof</span><span class="v">Only a terminally passing ledger whose source fingerprint matches the current source may support a narrow local contract claim. Local tests do not establish market, live-money, physical-fleet, legal, or production-SLO outcomes.</span></div>
+    <div class="claim"><span class="k">queue</span><span class="v">the job queue is a plain Postgres table claimed with FOR UPDATE SKIP LOCKED · no Kafka, RabbitMQ, NATS, or Redis in the dependency tree</span></div>
+    <div class="claim"><span class="k">binaries</span><span class="v">two binaries at the core · a Rust supplier agent and a Go control plane · the buyer CLI is an optional layer; the former macOS menu bar app is not present in this tree</span></div>
+    <div class="claim"><span class="k">executors</span><span class="v">the current generated projection contains exact embed and batch inference cells on Candle/Metal for Apple Silicon</span></div>
+    <div class="claim"><span class="k">scheduler</span><span class="v">tasks are sized for a 45 second runtime target · five hard filters gate every claim · quiet hours are enforced by the agent on the device itself</span></div>
+    <div class="claim"><span class="k">verification</span><span class="v">honeypot known-answer tasks, within-class redundancy, N-way majority votes · a 0.25 audit floor, so even the most trusted supplier is spot-checked about one task in four · a failed honeypot docks reputation, claws back the credit, and quarantines the supplier</span></div>
+    <div class="claim"><span class="k">quote</span><span class="v">a quote before any spend at POST /v1/quote · the max_usd cap set at submission is enforced at dispatch, pausing the job before the cap is breached</span></div>
+    <div class="claim"><span class="k">payouts</span><span class="v">held-credit, transfer, and reconciliation code exists; no real charge, supplier payout, processor fee, refund or reversal has been accepted as evidence.</span></div>
+    <div class="claim"><span class="k">rails</span><span class="v">configured Stripe code is not proof that money moved. Production-money evidence remains an external gate.</span></div>
+    <div class="claim"><span class="k">identity</span><span class="v">buyer export, deletion, tombstone replay, and cross-tenant denial are technically exercised; authenticated delivery, subprocessors, qualified privacy review, and production operation remain open gates.</span></div>
+    <p class="ledger-foot">current claim state is established only by a terminal receipt from <span class="path">ops/scripts/prove-local.sh</span></p>
+  </div>
+</dialog>
+</div>
+
+<script>
+  var dlg = document.getElementById('receipts');
+  document.getElementById('open-receipts').addEventListener('click', function () { dlg.showModal(); });
+  document.getElementById('close-receipts').addEventListener('click', function () { dlg.close(); });
+  dlg.addEventListener('cancel', function (event) { event.preventDefault(); dlg.close(); });
+  dlg.addEventListener('click', function (e) { if (e.target === dlg) dlg.close(); });
+
+  var alphaForm = document.getElementById('alpha-form');
+  var alphaStatus = document.getElementById('alpha-status');
+  alphaForm.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var email = document.getElementById('alpha-email').value;
+    var role = document.getElementById('alpha-role').value;
+    alphaStatus.textContent = 'sending…';
+    var consent = document.getElementById('alpha-consent').checked;
+    if (!consent) {
+      alphaStatus.textContent = 'consent is required to request access';
+      return;
+    }
+    fetch('/v1/alpha-request', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: email, role: role, consent: true })
+    }).then(function (res) {
+      if (!res.ok) throw new Error('request failed');
+      alphaStatus.textContent = "you're on the list · we'll follow up at " + email;
+      alphaForm.reset();
+    }).catch(function () {
+      alphaStatus.textContent = "that didn't go through  -  try again in a moment";
+    });
+  });
+</script>
+
+</body>
+</html>

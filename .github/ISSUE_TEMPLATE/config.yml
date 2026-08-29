@@ -6,7 +6,7 @@ contact_links:
       Preferred path for security issues. The public security.txt Contact URI is
       still security-contact@example.invalid ([CONTACT REQUIRED]); do not assume
       a staffed mailbox until go-closure replaces that placeholder
-      (scripts/lib/go-closure-common.sh).
+      (ops/scripts/lib/go-closure-common.sh).
   - name: Support and incident runbook
     url: https://github.com/joshuahickscorp/merc/blob/main/docs/SUPPORT_AND_INCIDENT_RUNBOOK.md
     about: >

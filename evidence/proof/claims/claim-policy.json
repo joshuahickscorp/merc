@@ -24,9 +24,9 @@
     "docs/RUNBOOKS.md",
     "docs/RUNTIME_AND_PERF.md",
     "docs/SECURITY.md",
-    "scripts/install.sh",
-    "web/admin.html",
-    "web/index.html",
+    "ops/scripts/install.sh",
+    "clients/web/admin.html",
+    "clients/web/index.html",
     "RELEASE_READINESS.md"
   ],
   "capability_checks": {

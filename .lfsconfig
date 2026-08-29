@@ -8,5 +8,5 @@
 	# an explicit hydrate after checkout:
 	#   git lfs pull --exclude="" --include="evidence/perf/**"
 	# (--include alone does NOT override fetchexclude; only --exclude="" does.)
-	# See scripts/hydrate-release-lfs.sh (fail-closed on unresolved pointers).
+	# See ops/scripts/hydrate-release-lfs.sh (fail-closed on unresolved pointers).
 	fetchexclude = evidence/perf/**

@@ -5,7 +5,7 @@
 > Not reviewed by counsel. Does not constitute legal approval or compliance.
 
 - Status: **DRAFT / CONTROL DESIGN INCOMPLETE / NOT AN APPROVED SCHEDULE**
-- Review basis: `control/schema.sql` and the account / billing / DSAR code
+- Review basis: `src/control/schema.sql` and the account / billing / DSAR code
   at the commit that last regenerated this draft
 - Owner: **[PRIVACY OWNER REQUIRED]**
 - Surface: controlled backend alpha · named invitees · Stripe test-mode ·

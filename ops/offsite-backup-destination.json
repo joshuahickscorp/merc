@@ -4,7 +4,7 @@
   "status": "CONFIGURED",
   "provider": "cloudflare_r2",
   "endpoint_kind": "s3_compatible",
-  "credential_source": "gitignored .merc-secrets.env R2_* keys, mapped to MERC_BACKUP_* / AWS_* by scripts/offsite-independent-restore.sh",
+  "credential_source": "gitignored .merc-secrets.env R2_* keys, mapped to MERC_BACKUP_* / AWS_* by ops/scripts/offsite-independent-restore.sh",
   "prefix_policy": "s3://<R2_BUCKET>/offsite-alpha/<backup_id>",
   "independence_boundary": "cloudflare_r2_operator_controlled",
   "operator_controlled": true,

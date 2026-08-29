@@ -44,13 +44,13 @@ jobs:
           workspaces: agent
       - name: Build release agent (darwin/arm64, Metal)
         run: |
-          cd agent
+          cd src/agent
           cargo build --release
           test -x target/release/merc-agent
       - name: Package
         run: |
           if [[ "$GITHUB_REF" == refs/tags/agent-* ]]; then export MERC_AGENT_VERSION="${GITHUB_REF_NAME#agent-}"; fi
-          bash scripts/package-agent-binary.sh darwin arm64 agent/target/release/merc-agent
+          bash ops/scripts/package-agent-binary.sh darwin arm64 src/agent/target/release/merc-agent
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: agent-darwin-arm64-${{ env.CANDIDATE_SHA }}
@@ -70,14 +70,14 @@ jobs:
           workspaces: agent
       - name: Build release agent (linux/amd64, CPU Candle)
         run: |
-          cd agent
+          cd src/agent
           # Metal is Darwin-only; Linux suppliers get a CPU Candle binary.
           cargo build --release --no-default-features
           test -x target/release/merc-agent
       - name: Package
         run: |
           if [[ "$GITHUB_REF" == refs/tags/agent-* ]]; then export MERC_AGENT_VERSION="${GITHUB_REF_NAME#agent-}"; fi
-          bash scripts/package-agent-binary.sh linux amd64 agent/target/release/merc-agent
+          bash ops/scripts/package-agent-binary.sh linux amd64 src/agent/target/release/merc-agent
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: agent-linux-amd64-${{ env.CANDIDATE_SHA }}
@@ -103,12 +103,12 @@ jobs:
           Push-Location agent
           cargo build --release --no-default-features
           Pop-Location
-          if (-not (Test-Path agent/target/release/merc-agent.exe)) { throw "merc-agent.exe missing" }
+          if (-not (Test-Path src/agent/target/release/merc-agent.exe)) { throw "merc-agent.exe missing" }
           $version = if ($env:GITHUB_REF -like "refs/tags/agent-*") { $env:GITHUB_REF_NAME.Substring(6) } else { "sha-$($env:GITHUB_SHA.Substring(0,12))" }
           $name = "merc-agent_${version}_windows_amd64"
           New-Item -ItemType Directory -Force ".artifacts/agent-release/$name" | Out-Null
-          Copy-Item agent/target/release/merc-agent.exe ".artifacts/agent-release/$name/merc-agent.exe"
-          @("merc-agent $version", "commit $env:GITHUB_SHA", "target windows/amd64", "Install with scripts/install.ps1.") |
+          Copy-Item src/agent/target/release/merc-agent.exe ".artifacts/agent-release/$name/merc-agent.exe"
+          @("merc-agent $version", "commit $env:GITHUB_SHA", "target windows/amd64", "Install with ops/scripts/install.ps1.") |
             Set-Content ".artifacts/agent-release/$name/README.txt" -Encoding utf8NoBOM
           Compress-Archive -Path ".artifacts/agent-release/$name" -DestinationPath ".artifacts/agent-release/$name.zip"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

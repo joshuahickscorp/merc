@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "project": "merc",
+  "policy": {
+    "qualification_is_required_before_normal": true,
+    "integration_results_are_never_synthesized": true,
+    "unavailable_dependencies_are_reported_or_fail_closed": true,
+    "certification_uses_the_ci_surface": true
+  },
+  "tiers": [
+    {
+      "id": 0,
+      "name": "qualification",
+      "command": "make test-qualification",
+      "scope": "Deterministic money, admission, identity, evidence, pricing, and workload invariants",
+      "expected_duration": "seconds",
+      "external_dependencies": []
+    },
+    {
+      "id": 1,
+      "name": "normal",
+      "command": "make test-normal",
+      "scope": "Short Go, Rust, and SDK package suites",
+      "expected_duration": "minutes",
+      "external_dependencies": [],
+      "skip_policy": "Database cases may explicitly skip without a local database; no pass is synthesized."
+    },
+    {
+      "id": 2,
+      "name": "integration",
+      "command": "make test-expensive",
+      "scope": "Isolated PostgreSQL, object storage, provider agent, and cross-process public API loop",
+      "expected_duration": "long",
+      "external_dependencies": ["PostgreSQL", "S3-compatible object storage", "Rust provider agent build"],
+      "skip_policy": "Unavailable services remain unavailable and cause the dependent gate to fail or report its explicit skip."
+    },
+    {
+      "id": 3,
+      "name": "certification",
+      "command": "make test-certification",
+      "scope": "Full CI, security, portability, evidence, mutation, release-image, and governance gates",
+      "expected_duration": "longest",
+      "external_dependencies": ["CI toolchain", "service fixtures where required", "container runtime where available"],
+      "skip_policy": "Only repository allowlisted opt-in skips are acceptable; missing required dependencies are not a pass."
+    }
+  ]
+}

@@ -10,7 +10,7 @@
     "rule": "Every reviewer must record the same exact clean commit. Any reviewed-content change invalidates every signature."
   },
   "approval_bundle_schema": "ops/governance-approval-bundle.schema.json",
-  "verification_command": "scripts/cx release approvals-check --bundle <secure-bundle-path>",
+  "verification_command": "ops/scripts/cx release approvals-check --bundle <secure-bundle-path>",
   "packets": [
     {
       "domain": "security",

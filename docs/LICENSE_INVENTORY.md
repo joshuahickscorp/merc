@@ -4,7 +4,7 @@
 >
 > Not reviewed by counsel. Does not constitute legal approval or compliance.
 >
-> **GENERATED** from the real dependency graph by `scripts/generate-license-inventory.py`. Do not hand-edit. Regenerate with that script. This is not a license clearance.
+> **GENERATED** from the real dependency graph by `ops/scripts/generate-license-inventory.py`. Do not hand-edit. Regenerate with that script. This is not a license clearance.
 
 - Generated at: `2026-08-29T03:35:22Z`
 - Source commit: `10a469da946a3f4498200f8db8b9da343e20a463`
@@ -14,20 +14,20 @@
 
 | Manifest | SHA-256 |
 |---|---|
-| `control/go.mod` | `6641c5a1082f921e394a03fd1e767d0533c0a78eb6241d81bdda654c0207631e` |
-| `control/go.sum` | `549318fdf613e18bd4f06b7efc145e0fed5513aeb133878dc1f426b504354f84` |
-| `agent/Cargo.lock` | `9fdebba0ef3baf28189837b429a079b2881bec452f24bde3d5d6f4fbb0cd0f7b` |
-| `agent/Cargo.toml` | `66ad8c64ec83d2eeab6732d56c10271e0a7a309dfcc2f6e8646bfb9175ee5df9` |
+| `src/control/go.mod` | `6641c5a1082f921e394a03fd1e767d0533c0a78eb6241d81bdda654c0207631e` |
+| `src/control/go.sum` | `549318fdf613e18bd4f06b7efc145e0fed5513aeb133878dc1f426b504354f84` |
+| `src/agent/Cargo.lock` | `9fdebba0ef3baf28189837b429a079b2881bec452f24bde3d5d6f4fbb0cd0f7b` |
+| `src/agent/Cargo.toml` | `66ad8c64ec83d2eeab6732d56c10271e0a7a309dfcc2f6e8646bfb9175ee5df9` |
 | `clients/sdk/python/pyproject.toml` | `f6724cb1af5cc59632741e7804f083cd51df6da3e70e9c2e4c89adf1af9ef01a` |
 | `clients/sdk/typescript/package.json` | `fa3a73b1dc6fa6564b3d6665b1ee2d258d7c7f05548a979b1b91d6d60eae4593` |
 | `clients/sdk/typescript/package-lock.json` | `87ed05eea37a6bbe4d82fa5ce0d0737a610c7f570d9ed35d6c88b9737d26db52` |
 
 ## Counts
 
-- Go modules in `control/go.mod`: 25
+- Go modules in `src/control/go.mod`: 25
 - Go `go.sum` module versions (including test-only checksums): 33
 - `go.sum` versions not listed in `go.mod`: 8
-- Cargo packages in `agent/Cargo.lock`: 403
+- Cargo packages in `src/agent/Cargo.lock`: 403
 - Python packages: 1 (first-party SDK, zero runtime deps)
 - npm packages in the TypeScript lock: 2
 - Incompatible copyleft in this software graph: 0
@@ -40,7 +40,7 @@ Model weights (Llama 3.2, MiniLM), Geist fonts, and visual assets are
 ## How Merc is distributed at backend alpha
 
 - Control plane: proprietary. Not published as source. Not a public download.
-- Agent (`agent/`): Apache-2.0. May be given to operator-known suppliers.
+- Agent (`src/agent/`): Apache-2.0. May be given to operator-known suppliers.
 - Python / TypeScript SDKs: Apache-2.0. Not required to run the backend alpha.
 - No public website, no public package registry publish, no live-money binary.
 

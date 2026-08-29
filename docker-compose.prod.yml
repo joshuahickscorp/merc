@@ -177,7 +177,7 @@ services:
     environment: *control-env
     expose: ["8080"]
     volumes:
-      # Host path written by scripts/backup.sh (and the systemd timer). Mounted
+      # Host path written by ops/scripts/backup.sh (and the systemd timer). Mounted
       # read-only so the metrics endpoint can export merc_backup_age_seconds.
       - ${MERC_BACKUP_HEALTH_DIR:-./.artifacts/backup-health}:/run/cx-health:ro
       # LIVE mode replaces /dev/null with a candidate-bound activation file.

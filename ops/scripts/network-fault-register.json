@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "kind": "network_fault_register",
+  "why": "Step 22 completes as '100% of faults REGISTERED AGAINST LIVE TARGETS caught for the intended reason, with deferred faults explicitly listed' — not as 100% of the Bible's network-fault list. Without this file the second half is unwritten, and a catalogue that silently omits the faults it cannot attack reads exactly like one that covers them.",
+  "registered": [
+    {"fault": "Reverse supplier ranking", "mutation_ids": [113], "target": "src/control/realtime_clearing.go"},
+    {"fault": "Hide provider failure / drop reliability penalty", "mutation_ids": [114, 115], "target": "src/control/realtime_clearing.go"},
+    {"fault": "Dishonest market-decision reason under contention", "mutation_ids": [110, 111, 112], "target": "src/control/realtime_store.go"},
+    {"fault": "Corrupt locality / accept unknown freshness", "mutation_ids": [116], "target": "src/control/worker_placement.go"},
+    {"fault": "Shadow selection promoted to accept/routing/money authority", "mutation_ids": [117, 118], "target": "src/control/runtime_decision.go"},
+    {"fault": "WAN-tight topology claimed without measurement; stale fabric treated as fresh", "mutation_ids": [119, 120], "target": "src/control/topology_decision.go"},
+    {"fault": "Evidence envelope ABSENT/PENDING semantics forged", "mutation_ids": [121, 122], "target": "src/control/evidence_envelope.go"},
+    {"fault": "Claim narrowing ladder allows surviving counts to increase", "mutation_ids": [123], "target": "src/control/claim_narrowing.go"},
+    {"fault": "Remove deadline / accept impossible deadline", "mutation_ids": [124], "target": "src/control/admission.go"},
+    {"fault": "Erase region restriction (claim-time data residency)", "mutation_ids": [125], "target": "src/control/scheduler.go"},
+    {"fault": "Forge warm-cache state (TTL arm only)", "mutation_ids": [41], "target": "src/control/prefix_routing.go", "partial": "Covers the TTL arm. Self-declared realtime warmth and host cache lies are separate paths with no mutant; they are listed under deferred_partial rather than counted here."},
+    {"fault": "Change currency", "mutation_ids": [20, 23, 94, 95, 96, 97, 98, 99, 103, 104], "target": "various", "note": "Dense pre-existing coverage. Listed for completeness and explicitly NOT counted as new network-decision coverage — the plan forbids re-badging it as such."}
+  ],
+  "deferred_absent_authority": [
+    {
+      "fault": "Make failed region healthy",
+      "waits_on": "a region-health / failed-region authority",
+      "verified_absent": "no source file in src/control/ matches region_health|failed_region|region_status|RegionHealth",
+      "why_not_stubbed": "A mutant here would have to invent the authority it attacks, and a catalogue entry for an invented authority is worse than an empty one: it reports coverage of a system that does not exist."
+    },
+    {
+      "fault": "Coherent-epoch corruption, candidate-index poisoning, twin-only faults",
+      "waits_on": "the Step 18 epoch/candidate-index product",
+      "verified_absent": "no source file in src/control/ matches coherent_epoch|CoherentEpoch|candidate_index",
+      "why_not_stubbed": "Step 18 honestly refused to fabricate a hierarchical coherent-epoch index without parity proof. Registering faults against it would re-introduce by the back door exactly what that step refused."
+    },
+    {
+      "fault": "Duplicate supplier identity",
+      "waits_on": "a canonical considered-supplier uniqueness invariant",
+      "verified_absent": "the only duplicate-supplier guard in production is runtime_cell_cost.go:181, which refuses a routed cell with duplicate contract rows for liability scoping — not duplicate identity in a considered set",
+      "open_question": "Whether a duplicate considered-supplier identity changes economics or evidence has NOT been determined. Determine that before writing either the invariant or the mutant; if it is harmless, the honest outcome is an exact refusal, not a mutant."
+    }
+  ],
+  "deferred_partial": [
+    {"fault": "Forge warm-cache state beyond TTL", "waits_on": "nothing — this is authorable now", "gap": "self-declared realtime warmth and host cache claims have no mutant"},
+    {"fault": "Drop cheapest eligible worker", "waits_on": "nothing — this is authorable now", "gap": "the claim ORDER BY cheapest-sufficient-class / ask rank (src/control/scheduler.go) has no mutant; only 'claim ignores frozen runtime candidates' exists on that file"},
+    {"fault": "Inflate throughput / stale benchmark as current authority", "waits_on": "nothing — this is authorable now", "gap": "stale-benchmark refusal exists as tests; no manifest mutant makes a stale benchmark the current ranking authority"}
+  ]
+}

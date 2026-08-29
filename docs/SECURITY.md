@@ -69,13 +69,13 @@ fenced by the retry-attempt epoch.
 - Job cancellation, task lease recovery, retry exhaustion, and result commit are
   transactional. Duplicate commits and duplicate money effects are rejected.
 - On macOS the shipped supplier profile denies inbound networking, listening
-  sockets, arbitrary outbound ports, writes outside agent/cache/temp paths, and
+  sockets, arbitrary outbound ports, writes outside src/agent/cache/temp paths, and
   reads of common credential and personal-data locations. The agent can be
   configured to fail closed if sandbox re-exec is unavailable.
 
 ## Public hostname rehearsal
 
-`scripts/alpha-security-suite.py --surface external` drives the authorization
+`ops/scripts/alpha-security-suite.py --surface external` drives the authorization
 matrix as an internet client against `https://mercmerc.net`. It is a different
 surface from the local `Server.Routes()` rehearsal (`--surface local`, the
 `make alpha-security` default). The receipt at
@@ -109,7 +109,7 @@ canary-gated, so this process did not mint a live buyer or worker credential.
 Wrong-authority webhooks used the live distinct endpoint secrets and were
 rejected as invalid signatures. The matching-authority cash path was not sent.
 
-`scripts/validate-readiness.py:external_staging_attack_proven` accepts this
+`ops/scripts/validate-readiness.py:external_staging_attack_proven` accepts this
 receipt on the executed public-surface evidence: 265 attacks, per-class
 results, `qualification=EXTERNAL`, hostname `mercmerc.net`. It does not
 require a named human reviewer. `reviewer.name` and `reviewer.organization`
@@ -144,5 +144,5 @@ Before release, run `make ci`, `make prove-local`, and the macOS sandbox profile
 test. Review dependency updates, census output, schema apply-twice evidence, live
 two-agent receipts, money invariants, and the exact source fingerprint. Treat
 skipped physical execution as a skip, never as a pass. Drive the public
-hostname with `python3 scripts/alpha-security-suite.py --surface external`
+hostname with `python3 ops/scripts/alpha-security-suite.py --surface external`
 rather than relabeling a local `Server.Routes()` receipt.

@@ -9,7 +9,7 @@
 export const VERSION = "0.1.0";
 
 /** 4-byte header on binary embedding payloads. Shared with the Go control
- *  plane and the Python SDK -- see control/api.go and agent/src/executor.rs.
+ *  plane and the Python SDK -- see src/control/api.go and src/agent/src/executor.rs.
  *  It is a stored-artifact header, so it is frozen and must not be renamed. */
 const EMBED_MAGIC = new Uint8Array([0x43, 0x58, 0x45, 0x4d]); // "CXEM"
 
@@ -243,7 +243,7 @@ export class Client {
     return this.#request("GET", "/v1/models");
   }
   estimate(model: string, units: number, tier: Tier = "batch"): Promise<unknown> {
-    // Registered as GET /v1/price-estimate in control/api.go (Python SDK already
+    // Registered as GET /v1/price-estimate in src/control/api.go (Python SDK already
     // used the correct path; /v1/estimate was a client-only drift that 404'd).
     return this.#request("GET", "/v1/price-estimate", undefined, { model, units, tier });
   }

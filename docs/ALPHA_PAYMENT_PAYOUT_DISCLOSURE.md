@@ -26,7 +26,7 @@ ledger is not cash.
 
 ## What the software actually does today
 
-From `control/payment_authority.go`, `control/schema.sql`, and the
+From `src/control/payment_authority.go`, `src/control/schema.sql`, and the
 billing tables:
 
 1. The process classifies the Stripe secret. `sk_test_` / `rk_test_` is

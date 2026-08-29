@@ -19,7 +19,7 @@ while read -r _local_ref local_sha _remote_ref remote_sha; do
   esac
   if ! (cd "$root/control" && go run . dev checkpoint-verify --commit "$local_sha"); then
     echo "pre-push: refusing to push $local_sha without a checkpoint receipt." >&2
-    echo "          cd control && go run . dev checkpoint" >&2
+    echo "          cd src/control && go run . dev checkpoint" >&2
     status=1
   fi
   : "$remote_sha"

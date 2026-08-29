@@ -1,0 +1,1800 @@
+package main
+
+import (
+	"bufio"
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/binary"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"hash"
+	"io"
+	"log"
+	"net"
+	"net/http"
+	"net/http/httptrace"
+	"net/url"
+	"os"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/google/uuid"
+)
+
+const (
+	maxRealtimeRequestBytes  = 4 << 20
+	maxRealtimeResponseBytes = 16 << 20
+	maxSSELineBytes          = 1 << 20
+	maxSSEEventBytes         = 2 << 20
+	defaultRealtimeTimeout   = 2 * time.Minute
+
+	// bytesPerTokenEstimate converts a UTF-8 byte count into an optimistic token
+	// count for the admission check.  Four is the usual English average; this
+	// value only ever makes admission MORE permissive, and a request admitted
+	// here but genuinely over-long is rejected cleanly by the engine.
+	bytesPerTokenEstimate = 4
+)
+
+type openAIErrorEnvelope struct {
+	Error struct {
+		Message string `json:"message"`
+		Type    string `json:"type"`
+		Param   any    `json:"param"`
+		Code    string `json:"code"`
+	} `json:"error"`
+}
+
+func writeOpenAIError(w http.ResponseWriter, status int, message, errorType, code string) {
+	var envelope openAIErrorEnvelope
+	envelope.Error.Message = message
+	envelope.Error.Type = errorType
+	envelope.Error.Param = nil
+	envelope.Error.Code = code
+	writeJSON(w, status, envelope)
+}
+
+func realtimeAllowedOrigins() map[string]bool {
+	allowed := make(map[string]bool)
+	for _, raw := range strings.Split(os.Getenv("MERC_VLLM_ALLOWED_ORIGINS"), ",") {
+		if origin := strings.TrimRight(strings.TrimSpace(raw), "/"); origin != "" {
+			allowed[origin] = true
+		}
+	}
+	return allowed
+}
+
+func parsedRemoteIP(remoteAddr string) net.IP {
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		host = remoteAddr
+	}
+	return net.ParseIP(strings.Trim(host, "[]"))
+}
+
+func validateRealtimeUpstreamURL(raw, remoteAddr string, allowed map[string]bool) (string, error) {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+		return "", errors.New("upstream_base_url must be an absolute URL without credentials, query, or fragment")
+	}
+	if u.Path == "" || u.Path == "/" {
+		u.Path = "/v1"
+	}
+	if u.Path != "/v1" {
+		return "", errors.New("upstream_base_url path must be /v1")
+	}
+	u.RawPath = ""
+	origin := strings.TrimRight(u.Scheme+"://"+u.Host, "/")
+	requestIP := parsedRemoteIP(remoteAddr)
+	upstreamIP := net.ParseIP(u.Hostname())
+	if u.Scheme == "http" && (requestIP == nil || upstreamIP == nil ||
+		!requestIP.IsLoopback() || !upstreamIP.IsLoopback()) {
+		return "", errors.New("non-loopback upstreams must use https")
+	}
+	if allowed[origin] {
+		if u.Scheme != "https" && u.Scheme != "http" {
+			return "", errors.New("upstream_base_url must use http or https")
+		}
+		return strings.TrimRight(u.String(), "/"), nil
+	}
+
+	if requestIP == nil || upstreamIP == nil || !requestIP.Equal(upstreamIP) {
+		return "", errors.New("upstream origin is not operator-allowlisted and does not match the authenticated worker source IP")
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return "", errors.New("upstream_base_url must use http or https")
+	}
+	return strings.TrimRight(u.String(), "/"), nil
+}
+
+func validateRealtimeOfferRegistration(reg *RealtimeOfferRegistration, remoteAddr string) (VLLMRuntimeProfile, error) {
+	profile, ok := vllmProfileByID(strings.TrimSpace(reg.RuntimeProfileID))
+	if !ok {
+		return VLLMRuntimeProfile{}, errors.New("unknown runtime_profile_id")
+	}
+	if reg.RuntimeProfileSHA256 != profile.ProfileSHA256 {
+		return VLLMRuntimeProfile{}, errors.New("runtime profile digest does not match control-plane authority")
+	}
+	if !strings.HasPrefix(reg.UpstreamToken, "cx_vllm_") || len(reg.UpstreamToken) < 24 || len(reg.UpstreamToken) > 256 {
+		return VLLMRuntimeProfile{}, errors.New("upstream_token must be a generated cx_vllm_ credential")
+	}
+	baseURL, err := validateRealtimeUpstreamURL(reg.UpstreamBaseURL, remoteAddr, realtimeAllowedOrigins())
+	if err != nil {
+		return VLLMRuntimeProfile{}, err
+	}
+	reg.UpstreamBaseURL = baseURL
+	switch reg.Warmth {
+	case "HOT", "WARM", "CACHED", "COLD":
+	default:
+		return VLLMRuntimeProfile{}, errors.New("warmth must be HOT, WARM, CACHED, or COLD")
+	}
+	if reg.MaxActiveSequences < 1 || reg.MaxActiveSequences > 100000 ||
+		reg.AvailableSequences < 0 || reg.AvailableSequences > reg.MaxActiveSequences {
+		return VLLMRuntimeProfile{}, errors.New("invalid active sequence capacity")
+	}
+	if err := validateRealtimeOfferRates(profile, *reg); err != nil {
+		return VLLMRuntimeProfile{}, err
+	}
+	if _, err := newRealtimePlacementPlan(profile, *reg); err != nil {
+		return VLLMRuntimeProfile{}, fmt.Errorf("placement refused: %w", err)
+	}
+	return profile, nil
+}
+
+func validateRealtimeOfferRates(profile VLLMRuntimeProfile, reg RealtimeOfferRegistration) error {
+	buyerInput, err := nanoRatePerMillionFromFloat(profile.BuyerInputUSDPerMillionTokens)
+	if err != nil || buyerInput <= 0 {
+		return errors.New("buyer input token rate lacks exact positive authority")
+	}
+	buyerOutput, err := nanoRatePerMillionFromFloat(profile.BuyerOutputUSDPerMillionTokens)
+	if err != nil || buyerOutput <= 0 {
+		return errors.New("buyer output token rate lacks exact positive authority")
+	}
+	supplierInput, err := nanoRatePerMillionFromFloat(reg.SupplierInputUSDPerMillionTokens)
+	if err != nil || supplierInput <= 0 {
+		return errors.New("supplier input token rate must be finite and positive")
+	}
+	supplierOutput, err := nanoRatePerMillionFromFloat(reg.SupplierOutputUSDPerMillionTokens)
+	if err != nil || supplierOutput <= 0 {
+		return errors.New("supplier output token rate must be finite and positive")
+	}
+	// With buyer products rounded down and supplier products rounded up, a rate
+	// delta of one divisor can still collapse to zero on a single token when the
+	// supplier product has a fractional nano. Two divisors guarantee at least one
+	// exact nano of gross spread for every positive count in either class.
+	const minimumRealtimeRateSpreadNanos = 2 * 1_000_000
+	if int64(buyerInput-supplierInput) < minimumRealtimeRateSpreadNanos ||
+		int64(buyerOutput-supplierOutput) < minimumRealtimeRateSpreadNanos {
+		return errors.New("supplier token rates do not leave one exact nano of gross Merc contribution for every positive token class")
+	}
+	return nil
+}
+
+func (s *Server) handleRealtimeWorkerRegister(w http.ResponseWriter, r *http.Request) {
+	auth := r.Context().Value(ctxWorker).(*WorkerAuth)
+	raw, err := io.ReadAll(io.LimitReader(r.Body, 64<<10+1))
+	if err != nil || len(raw) > 64<<10 {
+		writeErr(w, http.StatusBadRequest, "invalid realtime offer json")
+		return
+	}
+	var registration RealtimeOfferRegistration
+	if err := decodeStrictJSONObject(raw, &registration); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid realtime offer json: "+err.Error())
+		return
+	}
+	profile, err := validateRealtimeOfferRegistration(&registration, r.RemoteAddr)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "realtime offer rejected: "+err.Error())
+		return
+	}
+	if err := s.store.UpsertRealtimeOffer(r.Context(), *auth, registration); err != nil {
+		writeErr(w, http.StatusInternalServerError, "realtime offer registration failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status":                 "ACTIVE",
+		"runtime_profile_id":     profile.RuntimeProfileID,
+		"runtime_profile_sha256": profile.ProfileSHA256,
+		"tensor_parallel_size":   profile.TensorParallelSize,
+		"model":                  profile.ModelAlias,
+	})
+}
+
+func (s *Server) handleRealtimeWorkerHeartbeat(w http.ResponseWriter, r *http.Request) {
+	// authWorker middleware has already verified X-Worker-Token into ctxWorker.
+	// There is no unauthenticated path onto HeartbeatRealtimeOffer from HTTP.
+	auth := r.Context().Value(ctxWorker).(*WorkerAuth)
+	var hb RealtimeOfferHeartbeat
+	raw, err := io.ReadAll(io.LimitReader(r.Body, 32<<10+1))
+	if err != nil || len(raw) > 32<<10 || decodeStrictJSONObject(raw, &hb) != nil {
+		writeErr(w, http.StatusBadRequest, "invalid realtime heartbeat json")
+		return
+	}
+	if _, ok := vllmProfileByID(hb.RuntimeProfileID); !ok {
+		writeErr(w, http.StatusBadRequest, "unknown runtime_profile_id")
+		return
+	}
+	switch hb.Warmth {
+	case "HOT", "WARM", "CACHED", "COLD":
+	default:
+		writeErr(w, http.StatusBadRequest, "invalid warmth")
+		return
+	}
+	switch hb.Status {
+	case "ACTIVE", "DRAINING", "FAILED", "QUARANTINED":
+	default:
+		writeErr(w, http.StatusBadRequest, "invalid realtime worker status")
+		return
+	}
+	if hb.AvailableSequences < 0 {
+		writeErr(w, http.StatusBadRequest, "available_sequences must be non-negative")
+		return
+	}
+	if err := s.store.HeartbeatRealtimeOffer(r.Context(), *auth, hb); errors.Is(err, errNotFound) {
+		writeErr(w, http.StatusNotFound, "realtime offer not registered")
+		return
+	} else if errors.Is(err, errStaleHeartbeatObservation) {
+		writeErr(w, http.StatusBadRequest, "stale heartbeat observation")
+		return
+	} else if err != nil {
+		writeErr(w, http.StatusInternalServerError, "realtime heartbeat failed")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+type preparedRealtimeRequest struct {
+	Body                      []byte
+	Profile                   VLLMRuntimeProfile
+	FX                        RealtimeFXAuthority
+	Stream                    bool
+	InputCommitment           string
+	RequestSHA256             string
+	MaximumPriceUSD           float64
+	EstimatedPriceUSD         float64
+	MaxPriceCeiling           float64
+	MaximumPriceUSDNanos      int64
+	EstimatedPriceUSDNanos    int64
+	MaxPriceCeilingUSDNanos   int64
+	MaximumPromptTokens       int64
+	MaximumCompletionTokens   int64
+	EstimatedPromptTokens     int64
+	EstimatedCompletionTokens int64
+}
+
+func jsonInt(value any) (int64, bool) {
+	switch value := value.(type) {
+	case json.Number:
+		n, err := value.Int64()
+		return n, err == nil
+	case float64:
+		return int64(value), value == float64(int64(value))
+	case int:
+		return int64(value), true
+	default:
+		return 0, false
+	}
+}
+
+func prepareRealtimeRequest(raw []byte, headerCeiling string) (preparedRealtimeRequest, error) {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	var payload map[string]any
+	if err := decoder.Decode(&payload); err != nil {
+		return preparedRealtimeRequest{}, fmt.Errorf("invalid JSON: %w", err)
+	}
+	if decoder.Decode(&struct{}{}) != io.EOF {
+		return preparedRealtimeRequest{}, errors.New("request body must contain one JSON object")
+	}
+	model, ok := payload["model"].(string)
+	if !ok || strings.TrimSpace(model) == "" {
+		return preparedRealtimeRequest{}, errors.New("model is required")
+	}
+	profile, ok := vllmProfileForModel(model)
+	if !ok {
+		return preparedRealtimeRequest{}, fmt.Errorf("model %q is not available for realtime inference", model)
+	}
+	messages, ok := payload["messages"].([]any)
+	if !ok || len(messages) == 0 {
+		return preparedRealtimeRequest{}, errors.New("messages must be a non-empty array")
+	}
+	stream := false
+	if rawStream, exists := payload["stream"]; exists {
+		var valid bool
+		stream, valid = rawStream.(bool)
+		if !valid {
+			return preparedRealtimeRequest{}, errors.New("stream must be a boolean")
+		}
+	}
+	maxOutput := int64(profile.GenerationPolicy.MaximumOutputTokens)
+	if _, modern := payload["max_completion_tokens"]; modern {
+		if _, legacy := payload["max_tokens"]; legacy {
+			return preparedRealtimeRequest{}, errors.New("max_tokens and max_completion_tokens cannot both be set")
+		}
+	}
+	for _, field := range []string{"max_completion_tokens", "max_tokens"} {
+		if value, exists := payload[field]; exists {
+			n, valid := jsonInt(value)
+			if !valid || n < 1 || n > int64(profile.GenerationPolicy.MaximumOutputTokens) {
+				return preparedRealtimeRequest{}, fmt.Errorf("%s must be an integer between 1 and %d", field, profile.GenerationPolicy.MaximumOutputTokens)
+			}
+			maxOutput = n
+			break
+		}
+	}
+	if _, exists := payload["max_completion_tokens"]; !exists {
+		if _, legacy := payload["max_tokens"]; !legacy {
+			payload["max_completion_tokens"] = maxOutput
+		}
+	}
+	if _, exists := payload["temperature"]; !exists {
+		payload["temperature"] = profile.GenerationPolicy.Temperature
+	}
+	if _, exists := payload["top_p"]; !exists {
+		payload["top_p"] = profile.GenerationPolicy.TopP
+	}
+	if stream {
+		streamOptions, valid := payload["stream_options"].(map[string]any)
+		if _, exists := payload["stream_options"]; exists && !valid {
+			return preparedRealtimeRequest{}, errors.New("stream_options must be an object")
+		}
+		if streamOptions == nil {
+			streamOptions = make(map[string]any)
+		}
+		streamOptions["include_usage"] = true
+		payload["stream_options"] = streamOptions
+	}
+
+	var requestCeilingNanos int64
+	if rawCX, exists := payload["cx"]; exists {
+		cx, ok := rawCX.(map[string]any)
+		if !ok {
+			return preparedRealtimeRequest{}, errors.New("cx must be an object")
+		}
+		if value, exists := cx["maximum_price_usd"]; exists {
+			number, ok := value.(json.Number)
+			if !ok {
+				return preparedRealtimeRequest{}, errors.New("cx.maximum_price_usd must be positive")
+			}
+			var err error
+			requestCeilingNanos, err = parsePositiveUSDNanos(number.String())
+			if err != nil {
+				return preparedRealtimeRequest{}, errors.New("cx.maximum_price_usd must be a positive USD decimal with at most 9 fractional digits")
+			}
+		}
+		delete(payload, "cx")
+	}
+	if strings.TrimSpace(headerCeiling) != "" {
+		ceiling, err := parsePositiveUSDNanos(headerCeiling)
+		if err != nil {
+			return preparedRealtimeRequest{}, errors.New("X-Merc-Max-USD must be a positive USD decimal with at most 9 fractional digits")
+		}
+		if requestCeilingNanos == 0 || ceiling < requestCeilingNanos {
+			requestCeilingNanos = ceiling
+		}
+	}
+
+	upstreamBody, err := canonicalJSON(payload)
+	if err != nil {
+		return preparedRealtimeRequest{}, err
+	}
+	inputObject := map[string]any{
+		"route":                  "/v1/chat/completions",
+		"runtime_profile_id":     profile.RuntimeProfileID,
+		"runtime_profile_sha256": profile.ProfileSHA256,
+		"payload":                payload,
+	}
+	canonicalInput, err := canonicalJSON(inputObject)
+	if err != nil {
+		return preparedRealtimeRequest{}, err
+	}
+	inputDigest := sha256.Sum256(canonicalInput)
+	requestDigest := sha256.Sum256(raw)
+	// Two different bounds are needed here and they must point in opposite
+	// directions, which is why one number was previously doing both jobs badly.
+	//
+	// Every token is at least one byte, so the UTF-8 byte count is an UPPER bound
+	// on the token count. That is the right thing to reserve money against:
+	// over-reserving is safe, and actual usage is reconciled from the engine's
+	// own tokenizer at settlement.
+	//
+	// It is the wrong thing to admission-check against. Rejecting when
+	// bytes > context_budget rejects any request whose bytes exceed the budget
+	// even though its real token count is typically ~4x smaller -- so a profile
+	// advertising 32,768 tokens only accepted about 7,000 tokens' worth of text.
+	// Admission must use a LOWER bound on tokens and refuse only when even the
+	// optimistic estimate cannot fit; a request that slips through fails cleanly
+	// at the engine, which is far better than silently refusing three quarters of
+	// legitimate traffic.
+	maxInputTokens := int64(len(upstreamBody))
+	estimatedInputTokens := maxInputTokens / bytesPerTokenEstimate
+	if estimatedInputTokens < 1 {
+		estimatedInputTokens = 1
+	}
+	if contextBudget := int64(profile.MaxModelLength) - maxOutput; estimatedInputTokens > contextBudget {
+		return preparedRealtimeRequest{}, errors.New("request exceeds the runtime profile context bound")
+	}
+	maximumPriceExact, err := tokenChargeExact(maxInputTokens, maxOutput,
+		profile.BuyerInputUSDPerMillionTokens, profile.BuyerOutputUSDPerMillionTokens, false)
+	if err != nil {
+		return preparedRealtimeRequest{}, fmt.Errorf("derive maximum realtime price: %w", err)
+	}
+	estimatedPriceExact, err := tokenChargeExact(estimatedInputTokens, (maxOutput+1)/2,
+		profile.BuyerInputUSDPerMillionTokens, profile.BuyerOutputUSDPerMillionTokens, false)
+	if err != nil {
+		return preparedRealtimeRequest{}, fmt.Errorf("derive estimated realtime price: %w", err)
+	}
+	if estimatedPriceExact.Nanos > maximumPriceExact.Nanos {
+		estimatedPriceExact = maximumPriceExact
+	}
+	if requestCeilingNanos > 0 && maximumPriceExact.Nanos > requestCeilingNanos {
+		return preparedRealtimeRequest{}, fmt.Errorf(
+			"maximum quoted price %d nano-USD exceeds buyer ceiling %d nano-USD",
+			maximumPriceExact.Nanos, requestCeilingNanos)
+	}
+	maximumPrice, err := projectRealtimeNanosToMajor(maximumPriceExact)
+	if err != nil {
+		return preparedRealtimeRequest{}, err
+	}
+	estimatedPrice, err := projectRealtimeNanosToMajor(estimatedPriceExact)
+	if err != nil {
+		return preparedRealtimeRequest{}, err
+	}
+	settlement, err := SettlementCurrency()
+	if err != nil {
+		return preparedRealtimeRequest{}, err
+	}
+	fx, err := loadRealtimeFXAuthority(settlement)
+	if err != nil {
+		return preparedRealtimeRequest{}, err
+	}
+	return preparedRealtimeRequest{
+		Body: upstreamBody, Profile: profile, FX: fx, Stream: stream,
+		InputCommitment: hex.EncodeToString(inputDigest[:]),
+		RequestSHA256:   hex.EncodeToString(requestDigest[:]),
+		MaximumPriceUSD: maximumPrice, EstimatedPriceUSD: estimatedPrice,
+		MaxPriceCeiling:      float64(requestCeilingNanos) / float64(NanosPerMajorUnit),
+		MaximumPriceUSDNanos: maximumPriceExact.Nanos, EstimatedPriceUSDNanos: estimatedPriceExact.Nanos,
+		MaxPriceCeilingUSDNanos: requestCeilingNanos, MaximumPromptTokens: maxInputTokens,
+		MaximumCompletionTokens: maxOutput, EstimatedPromptTokens: estimatedInputTokens,
+		EstimatedCompletionTokens: (maxOutput + 1) / 2,
+	}, nil
+}
+
+// realtimeSamplingFingerprint extracts the decoding params that must match for
+// two realtime requests to share an arrival batch. Distinct from full request
+// identity: prompts differ inside a batch; sampling must not.
+func realtimeSamplingFingerprint(prepared preparedRealtimeRequest) string {
+	var payload map[string]any
+	if err := json.Unmarshal(prepared.Body, &payload); err != nil {
+		// Unparseable body is already rejected at prepare time; fall back to a
+		// unique fingerprint so this request never joins a foreign batch.
+		return "unparsed:" + prepared.RequestSHA256
+	}
+	temp := jsonFloat(payload["temperature"], 0)
+	topP := jsonFloat(payload["top_p"], 1)
+	var seed *int64
+	if raw, ok := payload["seed"]; ok {
+		if n, valid := jsonInt(raw); valid {
+			seed = &n
+		}
+	}
+	maxTokens := prepared.MaximumCompletionTokens
+	return SamplingFingerprint(temp, topP, seed, maxTokens)
+}
+
+// boundCompletionTokens refuses a bill the observed output cannot support.
+//
+// Token counts always arrive in the upstream's own usage message, and the
+// upstream is the supplier's runtime, so on their own they are the supplier
+// writing its own invoice. Generated bytes are the independent measure: the
+// control plane proxies and hashes the response itself.
+//
+// No tokenizer emits a token in under one byte, so bytes are a sound ceiling -
+// an honest response can never trip it. It is a ceiling and not a
+// reconciliation: roughly 4x inflation on ordinary English still passes. The
+// point is to make the fraudulent case impossible, not to price from bytes.
+func boundCompletionTokens(completionTokens, generatedBytes int64) error {
+	if completionTokens > generatedBytes {
+		return fmt.Errorf(
+			"upstream billed %d completion tokens against %d generated bytes observed in the response",
+			completionTokens, generatedBytes)
+	}
+	return nil
+}
+
+type streamEvidenceTracker struct {
+	previous         [32]byte
+	output           hash.Hash
+	events           int64
+	usageSeen        bool
+	promptTokens     int64
+	completionTokens int64
+	totalTokens      int64
+	// generatedBytes is the only independent measure of how much work the
+	// upstream actually did. Token counts arrive in the upstream's own final
+	// usage message, so on their own they are the supplier's assertion about
+	// the supplier's bill; this is counted from bytes the control plane saw.
+	generatedBytes int64
+	upstreamID     string
+	startedAt      time.Time
+	firstEventAt   time.Time
+}
+
+func newStreamEvidenceTracker(startedAt time.Time) *streamEvidenceTracker {
+	return &streamEvidenceTracker{output: sha256.New(), startedAt: startedAt}
+}
+
+func (t *streamEvidenceTracker) addEvent(event []byte) error {
+	if t.events == 0 {
+		t.firstEventAt = time.Now()
+	}
+	eventDigest := sha256.Sum256(event)
+	h := sha256.New()
+	_, _ = h.Write(t.previous[:])
+	var sequence [8]byte
+	binary.BigEndian.PutUint64(sequence[:], uint64(t.events))
+	_, _ = h.Write(sequence[:])
+	_, _ = h.Write(eventDigest[:])
+	copy(t.previous[:], h.Sum(nil))
+	t.events++
+
+	for _, line := range bytes.Split(event, []byte{'\n'}) {
+		if !bytes.HasPrefix(line, []byte("data:")) {
+			continue
+		}
+		data := bytes.TrimSpace(bytes.TrimPrefix(line, []byte("data:")))
+		if bytes.Equal(data, []byte("[DONE]")) || len(data) == 0 {
+			continue
+		}
+		var chunk struct {
+			ID string `json:"id"`
+			// Raw rather than typed: an upstream that returns content in a
+			// shape this struct does not expect would fail the whole unmarshal
+			// and turn an honest response into a rejection. Raw length
+			// over-counts by the surrounding quotes, which only loosens a
+			// ceiling that must never refuse real work.
+			Choices []struct {
+				Delta struct {
+					Content   json.RawMessage `json:"content"`
+					Reasoning json.RawMessage `json:"reasoning_content"`
+					ToolCalls []struct {
+						Function struct {
+							Name      json.RawMessage `json:"name"`
+							Arguments json.RawMessage `json:"arguments"`
+						} `json:"function"`
+					} `json:"tool_calls"`
+				} `json:"delta"`
+				Text json.RawMessage `json:"text"`
+			} `json:"choices"`
+			Usage *struct {
+				PromptTokens     int64 `json:"prompt_tokens"`
+				CompletionTokens int64 `json:"completion_tokens"`
+				TotalTokens      int64 `json:"total_tokens"`
+			} `json:"usage"`
+		}
+		if err := json.Unmarshal(data, &chunk); err != nil {
+			return fmt.Errorf("upstream emitted malformed SSE JSON: %w", err)
+		}
+		canonical, err := canonicalJSON(json.RawMessage(data))
+		if err != nil {
+			return err
+		}
+		_, _ = t.output.Write(canonical)
+		if chunk.ID != "" {
+			t.upstreamID = chunk.ID
+		}
+		// Every shape the upstream can bill for: chat deltas, legacy completion
+		// text, tool-call arguments, and reasoning traces that never reach the
+		// buyer as content but are still generated tokens.
+		for _, choice := range chunk.Choices {
+			t.generatedBytes += int64(len(choice.Delta.Content))
+			t.generatedBytes += int64(len(choice.Delta.Reasoning))
+			t.generatedBytes += int64(len(choice.Text))
+			for _, call := range choice.Delta.ToolCalls {
+				t.generatedBytes += int64(len(call.Function.Name))
+				t.generatedBytes += int64(len(call.Function.Arguments))
+			}
+		}
+		if chunk.Usage != nil {
+			t.usageSeen = true
+			t.promptTokens = chunk.Usage.PromptTokens
+			t.completionTokens = chunk.Usage.CompletionTokens
+			t.totalTokens = chunk.Usage.TotalTokens
+		}
+	}
+	return nil
+}
+
+func (t *streamEvidenceTracker) evidence(executionID uuid.UUID, status int, duration time.Duration) (RealtimeExecutionEvidence, error) {
+	if t.events == 0 || !t.usageSeen || t.promptTokens < 0 || t.completionTokens < 0 ||
+		t.totalTokens != t.promptTokens+t.completionTokens {
+		return RealtimeExecutionEvidence{}, errors.New("upstream stream did not include reconcilable final usage")
+	}
+	if err := boundCompletionTokens(t.completionTokens, t.generatedBytes); err != nil {
+		return RealtimeExecutionEvidence{}, err
+	}
+	ttfe := int64(0)
+	if !t.firstEventAt.IsZero() {
+		ttfe = t.firstEventAt.Sub(t.startedAt).Milliseconds()
+	}
+	return RealtimeExecutionEvidence{
+		ID: executionID, UpstreamRequestID: t.upstreamID, HTTPStatus: status,
+		StreamEventCount: t.events, StreamRootSHA256: hex.EncodeToString(t.previous[:]),
+		OutputCommitment: hex.EncodeToString(t.output.Sum(nil)), PromptTokens: t.promptTokens,
+		CompletionTokens: t.completionTokens, TotalTokens: t.totalTokens,
+		TimeToFirstEventMS: ttfe, DurationMS: duration.Milliseconds(),
+	}, nil
+}
+
+func proxySSE(w http.ResponseWriter, body io.Reader, tracker *streamEvidenceTracker) error {
+	return proxySSEWithHook(w, body, tracker, nil)
+}
+
+// proxySSEFirstHooks optional callbacks for path-timing residual close.
+// onUpstreamEvent fires once when the first complete SSE event has been
+// assembled from the upstream body (before buyer write) — waitForEvent is the
+// time spent blocked on the upstream after response headers.
+// onBuyerFlush fires once after that event has been written and flushed to the
+// buyer (first buyer byte on the wire).
+type proxySSEFirstHooks struct {
+	onUpstreamEvent func(waitForEvent time.Duration)
+	onBuyerFlush    func()
+}
+
+// proxySSEWithHook is proxySSE plus optional first-event hooks for path timing.
+func proxySSEWithHook(w http.ResponseWriter, body io.Reader, tracker *streamEvidenceTracker, hooks *proxySSEFirstHooks) error {
+	scanner := bufio.NewScanner(body)
+	scanner.Buffer(make([]byte, 64<<10), maxSSELineBytes)
+	var event bytes.Buffer
+	first := true
+	proxyStart := time.Now()
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if event.Len()+len(line)+1 > maxSSEEventBytes {
+			return errors.New("upstream SSE event exceeds the bounded event size")
+		}
+		event.Write(line)
+		event.WriteByte('\n')
+		if len(line) != 0 {
+			continue
+		}
+		payload := append([]byte(nil), event.Bytes()...)
+		if err := tracker.addEvent(payload); err != nil {
+			return err
+		}
+		if first && hooks != nil && hooks.onUpstreamEvent != nil {
+			hooks.onUpstreamEvent(time.Since(proxyStart))
+		}
+		if _, err := w.Write(payload); err != nil {
+			return err
+		}
+		if err := http.NewResponseController(w).Flush(); err != nil {
+			return err
+		}
+		if first {
+			first = false
+			if hooks != nil && hooks.onBuyerFlush != nil {
+				hooks.onBuyerFlush()
+			}
+		}
+		event.Reset()
+	}
+	if err := scanner.Err(); err != nil {
+		return err
+	}
+	if event.Len() != 0 {
+		return errors.New("upstream SSE stream ended inside an event")
+	}
+	return nil
+}
+
+func realtimeUpstreamURL(baseURL string) string {
+	return strings.TrimRight(baseURL, "/") + "/chat/completions"
+}
+
+// realtimeMaxIdleConnsPerHost is the idle keep-alive budget for one upstream
+// worker origin. It is the agent default for max_active_sequences (agent
+// vllm.example.toml and default_max_active_sequences in src/agent/src/vllm.rs):
+// that is how many concurrent streaming connections a single origin is
+// expected to sustain under admission. Above this value additional concurrent
+// streams still dial; idle keep-alives only amortize up to this many.
+//
+// Do not "clean up" this back to Go's default. DefaultMaxIdleConnsPerHost is 2,
+// which is correct for a browser talking to many hosts with few concurrent
+// connections each and wrong for a gateway that holds many concurrent
+// streaming connections to one worker origin. With the default, finished
+// streams leave only two idle connections; the next wave redials. Free at
+// c=1 (one connection reused); expensive at c=32 (≈30 cold dials per wave).
+// Measured in unbound evidence/perf/gateway-concurrency-sweep.json (stand-in
+// harness; not a bound engine receipt).
+const realtimeMaxIdleConnsPerHost = 128
+
+func newRealtimeHTTPClient() *http.Client {
+	// Dedicated transport: never share http.DefaultTransport. The defaults on
+	// DefaultTransport (MaxIdleConnsPerHost=2, MaxIdleConns=100) are the
+	// concurrency-scaling gateway tax on the upstream path; see constant above.
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.MaxIdleConnsPerHost = realtimeMaxIdleConnsPerHost
+	// Default MaxIdleConns is 100, which is below MaxIdleConnsPerHost and would
+	// silently re-impose a lower global idle cap across origins. Size for a
+	// handful of concurrent worker origins at full sequence depth.
+	transport.MaxIdleConns = realtimeMaxIdleConnsPerHost * 4
+	return &http.Client{
+		Transport: transport,
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			// A registered worker origin must not redirect the gateway (or its
+			// bearer credential) to an origin that did not pass registration.
+			return http.ErrUseLastResponse
+		},
+	}
+}
+
+func finalizeRealtimeFailure(store *Store, contractID, executionID uuid.UUID, status int, started time.Time, code string, err error, cancelled bool) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	detail := code
+	if err != nil {
+		detail = err.Error()
+	}
+	finalized, finalizeErr := store.FinalizeRealtimeFailure(ctx, contractID, executionID, status,
+		time.Since(started).Milliseconds(), code, detail, cancelled)
+	if finalizeErr != nil {
+		metrics.realtimeFinalizationErrors.Add(1)
+		return
+	}
+	if finalized {
+		if cancelled {
+			metrics.realtimeCancelled.Add(1)
+		} else {
+			metrics.realtimeFailed.Add(1)
+		}
+	}
+}
+
+// realtimeTTFTPhaseCapture is always-on wall-clock capture for the G021 TTFT
+// split. Unlike realtimePathTiming it is not gated by an env flag: every live
+// execution that reaches finalize writes what it observed.
+//
+// Boundaries (post-authorize):
+//
+//	queue_wait           started → dial start (arrival batch + pre_upstream)
+//	provider_startup     dial start → response headers (connect + engine accept)
+//	engine_to_first_event headers → first upstream SSE/event body
+//	prefill              NEVER populated — OpenAI-compatible streaming has no
+//	                     prefill/first-token boundary on the wire
+//
+// Unknown stays nil. A phase that did not happen is not recorded as zero.
+type realtimeTTFTPhaseCapture struct {
+	started       time.Time
+	dialStart     time.Time
+	headersAt     time.Time
+	firstEventAt  time.Time
+	dialSet       bool
+	headersSet    bool
+	firstEventSet bool
+}
+
+func newRealtimeTTFTPhaseCapture(started time.Time) *realtimeTTFTPhaseCapture {
+	return &realtimeTTFTPhaseCapture{started: started}
+}
+
+func (c *realtimeTTFTPhaseCapture) markDialStart() {
+	if c == nil || c.dialSet {
+		return
+	}
+	c.dialStart = time.Now()
+	c.dialSet = true
+}
+
+func (c *realtimeTTFTPhaseCapture) markHeaders() {
+	if c == nil || c.headersSet {
+		return
+	}
+	c.headersAt = time.Now()
+	c.headersSet = true
+}
+
+func (c *realtimeTTFTPhaseCapture) markFirstEvent() {
+	if c == nil || c.firstEventSet {
+		return
+	}
+	c.firstEventAt = time.Now()
+	c.firstEventSet = true
+}
+
+func msSince(from, to time.Time) int64 {
+	d := to.Sub(from)
+	if d < 0 {
+		return 0
+	}
+	return d.Milliseconds()
+}
+
+func int64ptr(v int64) *int64 { return &v }
+
+// apply writes observed phases onto evidence. Prefill is left nil on purpose.
+func (c *realtimeTTFTPhaseCapture) apply(ev *RealtimeExecutionEvidence) {
+	if c == nil || ev == nil {
+		return
+	}
+	if c.dialSet && !c.started.IsZero() {
+		ev.QueueWaitMS = int64ptr(msSince(c.started, c.dialStart))
+	}
+	if c.dialSet && c.headersSet {
+		ev.ProviderStartupMS = int64ptr(msSince(c.dialStart, c.headersAt))
+	}
+	if c.headersSet && c.firstEventSet {
+		ev.EngineToFirstEventMS = int64ptr(msSince(c.headersAt, c.firstEventAt))
+	}
+	// PrefillMS deliberately omitted: not observable on this protocol.
+}
+
+// realtimePathTiming is an opt-in stage clock for gateway overhead work.
+// Enabled with MERC_REALTIME_PATH_TIMING=1; emits one structured log line per
+// request. Never gates or alters the request path.
+//
+// Residual accounting: ttft_handler_ms is wall time from handler entry (t0) to
+// the first buyer SSE byte flush. marked_ttft_sum_ms is the sum of named stages
+// on that path (including upstream_ttfb). unmarked_residual_ms =
+// ttft_handler_ms − marked_ttft_sum_ms is work no stage mark covers — gaps
+// between marks, header assembly, and any unmarked interstitial. auth_lookup
+// is recorded when the buyer middleware timed it, but sits *before* t0 so it is
+// excluded from the residual equation (it is reported separately).
+type realtimePathTiming struct {
+	enabled       bool
+	t0            time.Time
+	marks         map[string]time.Duration
+	firstBuyerAt  time.Time
+	firstBuyerSet bool
+}
+
+// Stages that sit on the client-TTFT path after handler entry. upstream_ttfb and
+// upstream_first_sse are engine-facing (included so residual closes against the
+// handler wall to first buyer byte); merc-added sums that exclude engine time
+// drop them at the aggregation layer.
+var realtimeTTFTPathStages = []string{
+	"read_body", "prepare_json", "intake_control", "exact_reuse", "coalesce",
+	"authorize_contract", "admission_event", "arrival_batch", "pre_upstream",
+	"upstream_ttfb", "settlement_intent", "post_upstream", "upstream_first_sse",
+}
+
+func newRealtimePathTiming() *realtimePathTiming {
+	if os.Getenv("MERC_REALTIME_PATH_TIMING") != "1" {
+		return &realtimePathTiming{}
+	}
+	return &realtimePathTiming{enabled: true, t0: time.Now(), marks: make(map[string]time.Duration, 16)}
+}
+
+func (p *realtimePathTiming) mark(stage string, since time.Time) {
+	if p == nil || !p.enabled {
+		return
+	}
+	p.marks[stage] = time.Since(since)
+}
+
+// set records an already-measured duration (e.g. from httptrace connect).
+func (p *realtimePathTiming) set(stage string, d time.Duration) {
+	if p == nil || !p.enabled || d <= 0 {
+		return
+	}
+	p.marks[stage] = d
+}
+
+// markFirstBuyerByte records the first SSE payload flush to the buyer. Safe to
+// call multiple times; only the first call sticks.
+func (p *realtimePathTiming) markFirstBuyerByte() {
+	if p == nil || !p.enabled || p.firstBuyerSet {
+		return
+	}
+	p.firstBuyerAt = time.Now()
+	p.firstBuyerSet = true
+}
+
+func (p *realtimePathTiming) log(stream bool, contractID string) {
+	if p == nil || !p.enabled {
+		return
+	}
+	totalMS := float64(time.Since(p.t0).Microseconds()) / 1000.0
+	var ttftMS, markedSum, residual float64
+	ttftKnown := false
+	if p.firstBuyerSet {
+		ttftMS = float64(p.firstBuyerAt.Sub(p.t0).Microseconds()) / 1000.0
+		ttftKnown = true
+		for _, k := range realtimeTTFTPathStages {
+			if d, ok := p.marks[k]; ok {
+				markedSum += float64(d.Microseconds()) / 1000.0
+			}
+		}
+		residual = ttftMS - markedSum
+	}
+	if ttftKnown {
+		log.Printf("realtime_path_timing stream=%v contract=%s total_ms=%.3f ttft_handler_ms=%.3f marked_ttft_sum_ms=%.3f unmarked_residual_ms=%.3f stages_ms=%s",
+			stream, contractID, totalMS, ttftMS, markedSum, residual, formatRealtimePathMarks(p.marks))
+		return
+	}
+	log.Printf("realtime_path_timing stream=%v contract=%s total_ms=%.3f stages_ms=%s",
+		stream, contractID, totalMS, formatRealtimePathMarks(p.marks))
+}
+
+func formatRealtimePathMarks(marks map[string]time.Duration) string {
+	// Stable order so a human can scan logs without sorting in their head.
+	// admission_event and settlement_intent sit on the TTFT path and were
+	// previously invisible; a parity run without them cannot locate gateway
+	// overhead. coalesce and arrival_batch were marked but omitted from this
+	// list, so their cost never appeared in the structured log line.
+	// auth_lookup is middleware (before handler t0). pre_upstream / post_upstream
+	// close the construction and header-write gaps that residual previously
+	// swallowed unnamed.
+	order := []string{
+		"auth_lookup",
+		"read_body", "prepare_json", "intake_control", "exact_reuse", "coalesce",
+		"authorize_contract", "admission_event", "arrival_batch", "pre_upstream",
+		"upstream_connect", "upstream_ttfb", "settlement_intent", "post_upstream",
+		"upstream_first_sse",
+		"proxy_sse", "read_json_body", "usage_reconcile", "settlement",
+		"exact_cache_store",
+	}
+	parts := make([]string, 0, len(order))
+	for _, k := range order {
+		if d, ok := marks[k]; ok {
+			parts = append(parts, fmt.Sprintf("%s=%.3f", k, float64(d.Microseconds())/1000.0))
+		}
+	}
+	return strings.Join(parts, ",")
+}
+
+// ctxAuthLookupDuration carries the buyer auth middleware wall time into the
+// handler so path timing can name it. Absent when timing is off or the route
+// did not pass through authBuyer.
+type ctxAuthLookupDuration struct{}
+
+func setRealtimeMaximumUSDHeader(w http.ResponseWriter, contract RealtimeContract) {
+	maximumUSD, err := realtimeContractMaximumReferenceUSD(contract)
+	if err != nil || maximumUSD <= 0 {
+		// Historical non-USD v1 contracts never froze an FX authority. Omitting
+		// the USD header is the only truthful replay; emitting the legacy
+		// settlement-major number under a USD name would repeat the defect.
+		log.Printf("realtime contract %s has no truthful X-Merc-Max-USD projection: %v", contract.ID, err)
+		return
+	}
+	w.Header().Set("X-Merc-Max-USD", fmt.Sprintf("%.6f", maximumUSD))
+}
+
+func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
+	pathTiming := newRealtimePathTiming()
+	if d, ok := r.Context().Value(ctxAuthLookupDuration{}).(time.Duration); ok {
+		pathTiming.set("auth_lookup", d)
+	}
+	auth := r.Context().Value(ctxBuyer).(*AuthResult)
+	stage := time.Now()
+	raw, err := io.ReadAll(io.LimitReader(r.Body, maxRealtimeRequestBytes+1))
+	pathTiming.mark("read_body", stage)
+	if err != nil || len(raw) > maxRealtimeRequestBytes {
+		writeOpenAIError(w, http.StatusRequestEntityTooLarge, "request body exceeds the realtime limit", "invalid_request_error", "request_too_large")
+		return
+	}
+	stage = time.Now()
+	prepared, err := prepareRealtimeRequest(raw, r.Header.Get("X-Merc-Max-USD"))
+	pathTiming.mark("prepare_json", stage)
+	if err != nil {
+		writeOpenAIError(w, http.StatusBadRequest, err.Error(), "invalid_request_error", "invalid_request")
+		return
+	}
+	stage = time.Now()
+	paused, err := s.store.OperationalControlPaused(r.Context(), controlIntake)
+	pathTiming.mark("intake_control", stage)
+	if err != nil || paused {
+		writeOpenAIError(w, http.StatusServiceUnavailable, "realtime intake is unavailable", "server_error", "intake_unavailable")
+		return
+	}
+	idempotencyKey := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+	if idempotencyKey != "" && !idempotencyKeyPattern.MatchString(idempotencyKey) {
+		writeOpenAIError(w, http.StatusBadRequest, "Idempotency-Key must be 8-128 safe ASCII characters", "invalid_request_error", "invalid_idempotency_key")
+		return
+	}
+	requestID := w.Header().Get("X-Request-ID")
+	if requestID == "" {
+		requestID = "req_" + uuid.NewString()
+	}
+
+	// Exact deterministic reuse: when the request is cacheable and a prior
+	// result exists, bill the reuse class and serve without scheduling a
+	// supplier. Non-deterministic sampling is simply not eligible (miss).
+	//
+	// Stream requests skip this path entirely. The cache stores a non-stream
+	// JSON body; serving it for stream:true would break the OpenAI SSE
+	// contract the client asked for. Skipping also removes a DB round-trip
+	// from the TTFT-critical path of every streaming completion.
+	if !prepared.Stream {
+		stage = time.Now()
+		if reuseContract, reuseBody, reuseHit, err := s.tryRealtimeExactReuse(
+			r.Context(), auth.BuyerID, requestID, idempotencyKey, prepared); err != nil {
+			pathTiming.mark("exact_reuse", stage)
+			if errors.Is(err, errRealtimeInsufficientFunds) || errors.Is(err, errRealtimeTopupRequired) {
+				writeOpenAIError(w, http.StatusPaymentRequired, err.Error(), "insufficient_quota", "insufficient_quota")
+				return
+			}
+			// Cache/storage faults fall through to live execution rather than 5xx
+			// the buyer for an optimization path.
+			log.Printf("exact reuse lookup failed, executing live: %v", err)
+		} else if reuseHit {
+			pathTiming.mark("exact_reuse", stage)
+			receiptPath := "/v1/realtime/requests/" + reuseContract.ID.String() + "/receipt"
+			w.Header().Set("X-Merc-Contract-ID", reuseContract.ID.String())
+			w.Header().Set("X-Merc-Receipt", receiptPath)
+			setRealtimeMaximumUSDHeader(w, reuseContract)
+			w.Header().Set("X-Merc-Exact-Reuse", "1")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write(reuseBody)
+			metrics.realtimeReuseDeliveries.Add(1)
+			pathTiming.log(false, reuseContract.ID.String())
+			return
+		} else {
+			pathTiming.mark("exact_reuse", stage)
+		}
+	}
+
+	// The cache missed. That leaves the other way the work can already be
+	// happening: an identical request from this same tenant executing right now.
+	// The cache serves repeats over time; this serves arrivals that overlap,
+	// before there is anything to cache.
+	//
+	// Streaming is excluded for the same reason exact reuse is: a follower would
+	// receive a complete JSON body for a request that asked for SSE.
+	var coalesceLeaderRef string
+	if !prepared.Stream {
+		stage = time.Now()
+		identity, leaderRef, coalescedContract, coalescedBody, followed, coalesceErr :=
+			s.tryRealtimeCoalescedDelivery(r.Context(), auth.BuyerID, requestID, idempotencyKey, prepared)
+		pathTiming.mark("coalesce", stage)
+		switch {
+		case coalesceErr != nil:
+			if errors.Is(coalesceErr, errRealtimeInsufficientFunds) || errors.Is(coalesceErr, errRealtimeTopupRequired) {
+				writeOpenAIError(w, http.StatusPaymentRequired, coalesceErr.Error(), "insufficient_quota", "insufficient_quota")
+				return
+			}
+			log.Printf("coalesced delivery failed, executing live: %v", coalesceErr)
+		case followed:
+			receiptPath := "/v1/realtime/requests/" + coalescedContract.ID.String() + "/receipt"
+			w.Header().Set("X-Merc-Contract-ID", coalescedContract.ID.String())
+			w.Header().Set("X-Merc-Receipt", receiptPath)
+			setRealtimeMaximumUSDHeader(w, coalescedContract)
+			// A distinct header from X-Merc-Exact-Reuse. The buyer got the same
+			// discount and it came from a different mechanism; reporting them as
+			// one would make the two impossible to tell apart in the field.
+			w.Header().Set("X-Merc-Coalesced", "1")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write(coalescedBody)
+			metrics.realtimeCoalescedDeliveries.Add(1)
+			pathTiming.log(false, coalescedContract.ID.String())
+			return
+		default:
+			// This caller leads. It executes below and publishes to whoever
+			// joined behind it once its result is stored.
+			coalesceLeaderRef = leaderRef
+			if leaderRef != "" {
+				// Every path out of this handler that is not a successful
+				// publish must release the followers. There are a dozen such
+				// exits — every upstream error, every settlement failure, every
+				// early return — and one of them being forgotten leaves a set of
+				// callers waiting out the full lease for an answer that is never
+				// coming. A defer covers all of them at once, and it is inert
+				// after a successful publish because ResolveInflightFailure only
+				// matches a row still RUNNING under this leader.
+				defer func() {
+					releaseCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+					defer cancel()
+					if err := s.store.ResolveInflightFailure(releaseCtx, identity, leaderRef,
+						"leader returned without publishing a result"); err != nil {
+						log.Printf("inflight release: %v", err)
+					}
+				}()
+				// Renew the lease while the leader works.
+				//
+				// RenewInflightLease existed and had no caller, so the 30-second
+				// inflightLeaseTTL was a hard ceiling on any coalesced execution
+				// while the contract deadline is two minutes. A leader slower than
+				// the TTL was legitimately taken over by the next arrival, and the
+				// followers behind it were NOT re-collapsed onto the new leader:
+				// AwaitInflightResult returns no-result on lease expiry and sends
+				// every one of them off to execute alone. The failure mode was a
+				// fan-out, not a stall.
+				//
+				// TTL/3 so two consecutive renewals can be lost before the lease
+				// does. context.Background(), because the buyer's context ending is
+				// exactly when the release defer below needs the lease to still be
+				// ours. Registered AFTER that defer so LIFO stops the renewal first.
+				renewCtx, stopRenew := context.WithCancel(context.Background())
+				defer stopRenew()
+				go func() {
+					ticker := time.NewTicker(inflightLeaseTTL / 3)
+					defer ticker.Stop()
+					for {
+						select {
+						case <-renewCtx.Done():
+							return
+						case <-ticker.C:
+							// A renewal that lands after a successful publish finds
+							// the row COMPLETE rather than RUNNING and reports that
+							// it is no longer held. That is the normal end of a
+							// leader's life, not a fault, so it is not logged --
+							// otherwise every execution whose length lands near a
+							// multiple of TTL/3 logs an error on success.
+							if err := s.store.RenewInflightLease(
+								renewCtx, identity, leaderRef); err != nil &&
+								!errors.Is(err, context.Canceled) {
+								log.Printf("inflight renew (%s): %v", leaderRef, err)
+							}
+						}
+					}
+				}()
+			}
+		}
+	}
+
+	envelopeID, err := parseEnvelopeIDHeader(r)
+	if err != nil {
+		writeOpenAIError(w, http.StatusBadRequest, err.Error(), "invalid_request_error", "invalid_envelope")
+		return
+	}
+	stage = time.Now()
+	contract, replay, err := s.store.AuthorizeRealtimeContract(r.Context(), RealtimeContractAuthorization{
+		RequestID: requestID, BuyerID: auth.BuyerID, Profile: prepared.Profile,
+		FX:              prepared.FX,
+		InputCommitment: prepared.InputCommitment, RequestSHA256: prepared.RequestSHA256,
+		MaximumPriceUSD: prepared.MaximumPriceUSD, EstimatedPriceUSD: prepared.EstimatedPriceUSD,
+		MaximumPriceUSDNanos: prepared.MaximumPriceUSDNanos, EstimatedPriceUSDNanos: prepared.EstimatedPriceUSDNanos,
+		MaximumPromptTokens:          prepared.MaximumPromptTokens,
+		MaximumCompletionTokens:      prepared.MaximumCompletionTokens,
+		EstimatedPromptTokens:        prepared.EstimatedPromptTokens,
+		EstimatedCompletionTokens:    prepared.EstimatedCompletionTokens,
+		BuyerDeclaredCeilingUSD:      prepared.MaxPriceCeiling,
+		BuyerDeclaredCeilingUSDNanos: prepared.MaxPriceCeilingUSDNanos,
+		DeadlineAt:                   time.Now().Add(defaultRealtimeTimeout), IdempotencyKey: idempotencyKey,
+		EnvelopeID: envelopeID,
+	})
+	pathTiming.mark("authorize_contract", stage)
+	if errors.Is(err, errRealtimeIdempotencyConflict) || errors.Is(err, errEnvelopeIdempotencyConflict) {
+		writeOpenAIError(w, http.StatusConflict, err.Error(), "invalid_request_error", "idempotency_conflict")
+		return
+	}
+	if errors.Is(err, errRealtimeNoSupply) {
+		s.recordRealtimeAdmissionEvent(r.Context(), auth.BuyerID, prepared.Profile.RuntimeProfileID,
+			"", realtimeAdmissionNoCapacity, uuid.Nil)
+		writeOpenAIError(w, http.StatusServiceUnavailable, "no compatible realtime capacity is currently available", "server_error", "no_capacity")
+		return
+	}
+	if errors.Is(err, errRealtimeInsufficientFunds) || errors.Is(err, errRealtimeTopupRequired) ||
+		errors.Is(err, errEnvelopeInsufficient) || errors.Is(err, errEnvelopeExpired) ||
+		errors.Is(err, errEnvelopeCeilingExceeded) {
+		s.recordRealtimeAdmissionEvent(r.Context(), auth.BuyerID, prepared.Profile.RuntimeProfileID,
+			"", realtimeAdmissionInsufficient, uuid.Nil)
+		writeOpenAIError(w, http.StatusPaymentRequired, err.Error(), "insufficient_quota", "insufficient_quota")
+		return
+	}
+	if errors.Is(err, errEnvelopeScopeMismatch) || errors.Is(err, errEnvelopeNotFound) {
+		writeOpenAIError(w, http.StatusBadRequest, err.Error(), "invalid_request_error", "invalid_envelope")
+		return
+	}
+	if err != nil {
+		s.recordRealtimeAdmissionEvent(r.Context(), auth.BuyerID, prepared.Profile.RuntimeProfileID,
+			"", realtimeAdmissionAuthorization, uuid.Nil)
+		writeOpenAIError(w, http.StatusServiceUnavailable, "realtime contract authorization failed", "server_error", "authorization_failed")
+		return
+	}
+	receiptPath := "/v1/realtime/requests/" + contract.ID.String() + "/receipt"
+	w.Header().Set("X-Merc-Contract-ID", contract.ID.String())
+	w.Header().Set("X-Merc-Receipt", receiptPath)
+	setRealtimeMaximumUSDHeader(w, contract)
+	if replay {
+		writeOpenAIError(w, http.StatusConflict, "idempotent request already has a contract; inspect X-Merc-Receipt", "invalid_request_error", "idempotent_replay")
+		return
+	}
+	metrics.realtimeAuthorized.Add(1)
+	// Admission telemetry is observational: enqueue (or sync-fallback) and do
+	// not wait. See admission_telemetry.go for the loss bound.
+	stage = time.Now()
+	s.recordRealtimeAdmissionEvent(r.Context(), auth.BuyerID, prepared.Profile.RuntimeProfileID,
+		contract.PlacementPlan.HWClass, realtimeAdmissionAdmitted, contract.ID)
+	pathTiming.mark("admission_event", stage)
+
+	// Stream path: arm the durable settlement intent as early as possible so
+	// its Postgres write overlaps arrival-batch join, request construction,
+	// and the upstream dial. Invariant preserved: the intent is still durable
+	// before the first buyer byte (drainIntent waits before WriteHeader). It
+	// is not best-effort. FinalizeRealtimeFailure cancels a pending intent
+	// when delivery never happens, so an early insert on a failed attempt
+	// cannot become an unbilled-or-overbilled obligation.
+	started := time.Now()
+	ttftPhases := newRealtimeTTFTPhaseCapture(started)
+	executionID := uuid.New()
+	var (
+		intentErrCh  chan error
+		intentCancel context.CancelFunc
+	)
+	if prepared.Stream {
+		intentCtx, cancelIntent := context.WithTimeout(context.Background(), 5*time.Second)
+		intentCancel = cancelIntent
+		intentErrCh = make(chan error, 1)
+		go func() {
+			intentErrCh <- s.store.InsertRealtimeSettlementIntent(intentCtx, contract.ID, executionID)
+		}()
+	}
+	// drainIntent waits for an in-flight arm so finalize can cancel a
+	// successful insert, and so we never leak the goroutine. Residual wait
+	// just before the first client byte is what still sits on TTFT.
+	drainIntent := func() error {
+		if intentErrCh == nil {
+			return nil
+		}
+		waitStart := time.Now()
+		err := <-intentErrCh
+		if intentCancel != nil {
+			intentCancel()
+		}
+		pathTiming.mark("settlement_intent", waitStart)
+		intentErrCh = nil
+		return err
+	}
+
+	// Traffic class is a property of the product the buyer entered — realtime
+	// chat completions with a reserved contract — not a free caller label.
+	// Arrival batching joins compatible admits inside a deadline-safe window
+	// so the engine sees a coherent arrival. Each contract is still billed
+	// alone; the batcher only delays the forward.
+	trafficClass := TrafficClassForAdmittedWork(true, "", 0)
+	if trafficClass != TrafficClassForRealtime() {
+		// Defensive: realtime must never resolve to a throughput class.
+		trafficClass = TrafficClassForRealtime()
+	}
+	stage = time.Now()
+	if s.arrivalBatcher != nil {
+		// Sampling fingerprint from the prepared body so only compatible
+		// decoding params share a batch. WorkerID is in the lane key so we
+		// never re-route onto a different cost class after authorization.
+		laneKey := ArrivalLaneKey(
+			contract.ModelAlias,
+			contract.RuntimeProfileID,
+			contract.WorkerID.String(),
+			realtimeSamplingFingerprint(prepared),
+		)
+		ready := s.arrivalBatcher.Admit(r.Context(), ArrivalRequest{
+			ID:           contract.ID.String(),
+			LaneKey:      laneKey,
+			Class:        trafficClass,
+			Deadline:     contract.DeadlineAt,
+			PromptTokens: int(prepared.EstimatedPromptTokens),
+			OutputTokens: int(prepared.EstimatedCompletionTokens),
+		})
+		if !WaitArrival(r.Context(), ready) {
+			_ = drainIntent()
+			finalizeRealtimeFailure(s.store, contract.ID, executionID, 0, started, "client_cancelled",
+				errors.New("client cancelled during arrival batch join"), true)
+			return
+		}
+	}
+	pathTiming.mark("arrival_batch", stage)
+
+	// pre_upstream: construct the outbound request, attach headers, and select
+	// the pooled client — work that previously sat unmarked between
+	// arrival_batch and the dial clock.
+	stage = time.Now()
+	requestContext, cancel := context.WithDeadline(r.Context(), contract.DeadlineAt)
+	defer cancel()
+	upstreamRequest, err := http.NewRequestWithContext(requestContext, http.MethodPost,
+		realtimeUpstreamURL(contract.UpstreamBaseURL), bytes.NewReader(prepared.Body))
+	if err != nil {
+		pathTiming.mark("pre_upstream", stage)
+		_ = drainIntent()
+		finalizeRealtimeFailure(s.store, contract.ID, executionID, 0, started, "upstream_request_invalid", err, false)
+		writeOpenAIError(w, http.StatusInternalServerError, "could not construct the upstream request", "server_error", "upstream_request_invalid")
+		return
+	}
+	upstreamRequest.Header.Set("Authorization", "Bearer "+contract.UpstreamToken)
+	upstreamRequest.Header.Set("Content-Type", "application/json")
+	upstreamRequest.Header.Set("X-Request-ID", contract.RequestID)
+	// Parity harness capture: record the exact body bytes put on the wire to
+	// the engine so a dual-arm run can prove request identity rather than
+	// assert it. No-op unless MERC_PARITY_CAPTURE_UPSTREAM=1.
+	captureParityUpstreamBody(contract.RequestID, prepared.Body)
+	client := s.realtimeHTTPClient
+	if client == nil {
+		client = newRealtimeHTTPClient()
+	}
+	pathTiming.mark("pre_upstream", stage)
+
+	stage = time.Now()
+	var connectDur time.Duration
+	var connectOnce sync.Once
+	upstreamRequest = upstreamRequest.WithContext(httptrace.WithClientTrace(upstreamRequest.Context(), &httptrace.ClientTrace{
+		ConnectDone: func(_, _ string, err error) {
+			if err != nil {
+				return
+			}
+			connectOnce.Do(func() { connectDur = time.Since(stage) })
+		},
+	}))
+	ttftPhases.markDialStart()
+	response, err := client.Do(upstreamRequest)
+	pathTiming.mark("upstream_ttfb", stage)
+	pathTiming.set("upstream_connect", connectDur)
+	if err == nil {
+		ttftPhases.markHeaders()
+	}
+	if err != nil {
+		_ = drainIntent()
+		cancelled := errors.Is(requestContext.Err(), context.Canceled)
+		code := "upstream_unavailable"
+		if cancelled {
+			code = "client_cancelled"
+		}
+		finalizeRealtimeFailure(s.store, contract.ID, executionID, 0, started, code, err, cancelled)
+		if !cancelled {
+			writeOpenAIError(w, http.StatusBadGateway, "realtime worker is unavailable", "server_error", code)
+		}
+		return
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode > 299 {
+		_ = drainIntent()
+		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 64<<10))
+		finalizeRealtimeFailure(s.store, contract.ID, executionID, response.StatusCode, started, "upstream_rejected", errors.New(http.StatusText(response.StatusCode)), false)
+		writeOpenAIError(w, response.StatusCode, "realtime worker rejected the canonical request", "server_error", "upstream_rejected")
+		return
+	}
+
+	if prepared.Stream {
+		// post_upstream covers content-type check, intent drain residual, and
+		// response header assembly up to WriteHeader — everything between the
+		// upstream response arriving and the first buyer SSE write starting.
+		postStart := time.Now()
+		if !strings.HasPrefix(strings.ToLower(response.Header.Get("Content-Type")), "text/event-stream") {
+			pathTiming.mark("post_upstream", postStart)
+			_ = drainIntent()
+			finalizeRealtimeFailure(s.store, contract.ID, executionID, response.StatusCode, started, "invalid_upstream_content_type", errors.New("upstream did not return text/event-stream"), false)
+			writeOpenAIError(w, http.StatusBadGateway, "realtime worker returned an invalid stream", "server_error", "invalid_upstream_stream")
+			return
+		}
+		// Wait for the overlapped intent. Must complete before the first buyer
+		// byte so a post-stream finalize crash cannot void delivered work.
+		// drainIntent itself records settlement_intent; we still fold its wall
+		// into post_upstream so residual closes (settlement_intent is a nested
+		// mark inside this window — residual equation uses both, so we subtract
+		// the nested mark from post_upstream after drain to avoid double count).
+		intentWaitStart := time.Now()
+		if err := drainIntent(); err != nil {
+			pathTiming.mark("post_upstream", postStart)
+			finalizeRealtimeFailure(s.store, contract.ID, executionID, response.StatusCode, started, "settlement_intent_failed", err, false)
+			writeOpenAIError(w, http.StatusInternalServerError, "could not arm durable stream settlement", "server_error", "settlement_intent_failed")
+			return
+		}
+		intentWait := time.Since(intentWaitStart)
+		if sha := parityUpstreamBodySHA(contract.RequestID); sha != "" {
+			w.Header().Set("X-Merc-Upstream-Body-SHA256", sha)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		w.WriteHeader(http.StatusOK)
+		// post_upstream = wall from response-ready to WriteHeader, minus the
+		// settlement_intent residual already named. Avoids double-counting in
+		// marked_ttft_sum while still naming header assembly cost.
+		postWall := time.Since(postStart)
+		if postWall > intentWait {
+			pathTiming.set("post_upstream", postWall-intentWait)
+		} else {
+			pathTiming.set("post_upstream", time.Duration(1)*time.Microsecond)
+		}
+		tracker := newStreamEvidenceTracker(started)
+		stage = time.Now()
+		hooks := &proxySSEFirstHooks{
+			onUpstreamEvent: func(waitForEvent time.Duration) {
+				pathTiming.set("upstream_first_sse", waitForEvent)
+				ttftPhases.markFirstEvent()
+			},
+			onBuyerFlush: pathTiming.markFirstBuyerByte,
+		}
+		if err := proxySSEWithHook(w, response.Body, tracker, hooks); err != nil {
+			// If we never flushed a buyer byte, still log stages we have.
+			pathTiming.mark("proxy_sse", stage)
+			cancelled := errors.Is(requestContext.Err(), context.Canceled)
+			code := "stream_interrupted"
+			if cancelled {
+				code = "client_cancelled"
+			}
+			// Interrupted stream was not fully delivered — keep failure behaviour.
+			finalizeRealtimeFailure(s.store, contract.ID, executionID, response.StatusCode, started, code, err, cancelled)
+			pathTiming.log(true, contract.ID.String())
+			return
+		}
+		pathTiming.mark("proxy_sse", stage)
+		evidence, err := tracker.evidence(executionID, response.StatusCode, time.Since(started))
+		if err != nil {
+			// No reconcilable usage means the bill cannot be computed. That is not
+			// "delivered work" for settlement purposes — void like today (worker
+			// death after a partial stream without final usage).
+			finalizeRealtimeFailure(s.store, contract.ID, executionID, response.StatusCode, started, "usage_reconciliation_failed", err, false)
+			pathTiming.log(true, contract.ID.String())
+			return
+		}
+		ttftPhases.apply(&evidence)
+		settlementContext, settlementCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		stage = time.Now()
+		_, err = s.store.FinalizeRealtimeSuccess(settlementContext, contract.ID, evidence)
+		pathTiming.mark("settlement", stage)
+		settlementCancel()
+		if err != nil {
+			// Stream fully delivered with reconcilable usage: do not void. Keep
+			// the intent pending with evidence so the worker sweep settles it.
+			metrics.realtimeFinalizationErrors.Add(1)
+			_ = s.store.RecordRealtimeSettlementIntentFailure(context.Background(), contract.ID, executionID, evidence, err)
+		} else {
+			metrics.realtimeVerified.Add(1)
+			// G053 observation only — never gates settlement or selection.
+			if cerr := s.store.RecordRealtimePhaseCalibrations(context.Background(), evidence.ID); cerr != nil {
+				log.Printf("realtime phase calibrations for %s: %v (settlement unaffected)", evidence.ID, cerr)
+			}
+		}
+		pathTiming.log(true, contract.ID.String())
+		return
+	}
+
+	stage = time.Now()
+	body, err := io.ReadAll(io.LimitReader(response.Body, maxRealtimeResponseBytes+1))
+	pathTiming.mark("read_json_body", stage)
+	if err != nil || len(body) > maxRealtimeResponseBytes {
+		// Same cancellation determination as the upstream Do and stream-proxy
+		// sites: requestContext is derived from the buyer request, so a
+		// disconnect surfaces as context.Canceled. Hard-coding false here
+		// mis-records a buyer cancel as a worker/response failure.
+		cancelled := errors.Is(requestContext.Err(), context.Canceled)
+		code := "upstream_response_invalid"
+		detail := errors.New("upstream response exceeded the bounded JSON response size")
+		if cancelled {
+			code = "client_cancelled"
+			if err != nil {
+				detail = err
+			}
+		}
+		finalizeRealtimeFailure(s.store, contract.ID, executionID, response.StatusCode, started, code, detail, cancelled)
+		if !cancelled {
+			writeOpenAIError(w, http.StatusBadGateway, "realtime worker returned an invalid response", "server_error", "upstream_response_invalid")
+		}
+		return
+	}
+	stage = time.Now()
+	var completion struct {
+		ID string `json:"id"`
+		// Raw for the same reason as the streaming path: shape must not be
+		// able to turn an honest response into a rejection.
+		Choices []struct {
+			Message struct {
+				Content   json.RawMessage `json:"content"`
+				Reasoning json.RawMessage `json:"reasoning_content"`
+				ToolCalls []struct {
+					Function struct {
+						Name      json.RawMessage `json:"name"`
+						Arguments json.RawMessage `json:"arguments"`
+					} `json:"function"`
+				} `json:"tool_calls"`
+			} `json:"message"`
+			Text json.RawMessage `json:"text"`
+		} `json:"choices"`
+		Usage struct {
+			PromptTokens     int64 `json:"prompt_tokens"`
+			CompletionTokens int64 `json:"completion_tokens"`
+			TotalTokens      int64 `json:"total_tokens"`
+		} `json:"usage"`
+	}
+	if err := json.Unmarshal(body, &completion); err != nil || completion.Usage.TotalTokens != completion.Usage.PromptTokens+completion.Usage.CompletionTokens {
+		pathTiming.mark("usage_reconcile", stage)
+		finalizeRealtimeFailure(s.store, contract.ID, executionID, response.StatusCode, started, "usage_reconciliation_failed", errors.New("upstream JSON response did not include valid usage"), false)
+		writeOpenAIError(w, http.StatusBadGateway, "realtime worker returned unreconciled usage", "server_error", "usage_reconciliation_failed")
+		return
+	}
+	bodyDigest := sha256.Sum256(body)
+	// Same rule as the streaming path: the bill must be supported by output this
+	// process actually received. Here the whole body is in hand, so the measure
+	// is exact rather than accumulated.
+	var generatedBytes int64
+	for _, choice := range completion.Choices {
+		generatedBytes += int64(len(choice.Message.Content))
+		generatedBytes += int64(len(choice.Message.Reasoning))
+		generatedBytes += int64(len(choice.Text))
+		for _, call := range choice.Message.ToolCalls {
+			generatedBytes += int64(len(call.Function.Name))
+			generatedBytes += int64(len(call.Function.Arguments))
+		}
+	}
+	if err := boundCompletionTokens(completion.Usage.CompletionTokens, generatedBytes); err != nil {
+		pathTiming.mark("usage_reconcile", stage)
+		finalizeRealtimeFailure(s.store, contract.ID, executionID, response.StatusCode, started, "usage_reconciliation_failed", err, false)
+		writeOpenAIError(w, http.StatusBadGateway, "realtime worker returned unreconciled usage", "server_error", "usage_reconciliation_failed")
+		return
+	}
+
+	chainDigest := sha256.Sum256(append(make([]byte, 40), bodyDigest[:]...))
+	// Non-stream: the first "event" is the complete JSON body. markFirstEvent
+	// after the body is fully read; prefill remains unobservable.
+	ttftPhases.markFirstEvent()
+	evidence := RealtimeExecutionEvidence{
+		ID: executionID, UpstreamRequestID: completion.ID, HTTPStatus: response.StatusCode,
+		StreamEventCount: 1, StreamRootSHA256: hex.EncodeToString(chainDigest[:]),
+		OutputCommitment: hex.EncodeToString(bodyDigest[:]), PromptTokens: completion.Usage.PromptTokens,
+		CompletionTokens: completion.Usage.CompletionTokens, TotalTokens: completion.Usage.TotalTokens,
+		TimeToFirstEventMS: time.Since(started).Milliseconds(), DurationMS: time.Since(started).Milliseconds(),
+	}
+	ttftPhases.apply(&evidence)
+	pathTiming.mark("usage_reconcile", stage)
+	// Delivered non-stream work must settle even if the buyer hung up after
+	// the upstream body was fully received. Match the streaming path: detach
+	// from r.Context() so a disconnect cannot abandon the ledger write.
+	settlementContext, settlementCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	stage = time.Now()
+	_, err = s.store.FinalizeRealtimeSuccess(settlementContext, contract.ID, evidence)
+	pathTiming.mark("settlement", stage)
+	settlementCancel()
+	if err == nil {
+		if cerr := s.store.RecordRealtimePhaseCalibrations(context.Background(), evidence.ID); cerr != nil {
+			log.Printf("realtime phase calibrations for %s: %v (settlement unaffected)", evidence.ID, cerr)
+		}
+	}
+	if err != nil {
+		metrics.realtimeFinalizationErrors.Add(1)
+		// Pass cancellation truth for bookkeeping/metrics. Money on this path
+		// still voids (JSON path has no durable settlement intent); the
+		// detached context above is what prevents a pure disconnect from
+		// manufacturing a settlement_failed void of work already performed.
+		cancelled := errors.Is(requestContext.Err(), context.Canceled)
+		finalizeRealtimeFailure(s.store, contract.ID, executionID, response.StatusCode, started, "settlement_failed", err, cancelled)
+		if !cancelled {
+			writeOpenAIError(w, http.StatusBadGateway, "verified response could not be settled", "server_error", "settlement_failed")
+		}
+		pathTiming.log(false, contract.ID.String())
+		return
+	}
+	pathTiming.mark("settlement", stage)
+	metrics.realtimeVerified.Add(1)
+	// Deliver the settled response first. Cache population is best-effort and
+	// must never gate the buyer: it does object storage + a DB insert, which
+	// used to sit on the critical path and add avoidable wall time after
+	// settlement had already succeeded.
+	if sha := parityUpstreamBodySHA(contract.RequestID); sha != "" {
+		w.Header().Set("X-Merc-Upstream-Body-SHA256", sha)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(body)
+	// Populate the exact-result cache so a later identical deterministic
+	// request pays the reuse class instead of re-running the model. Use a
+	// detached timeout so a client disconnect after Write cannot cancel the
+	// cache write, and so a slow object store is bounded.
+	cacheCtx, cacheCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	stage = time.Now()
+	s.maybeStoreRealtimeExactResult(cacheCtx, auth.BuyerID, prepared, coalesceLeaderRef, contract.ID,
+		body, completion.Usage.CompletionTokens)
+	pathTiming.mark("exact_cache_store", stage)
+	cacheCancel()
+	pathTiming.log(false, contract.ID.String())
+}
+
+// recordRealtimeAdmissionEvent is observational. A telemetry database fault
+// must never turn an otherwise valid buyer request into a failed contract, nor
+// can it alter capacity selection, pricing, or settlement.
+//
+// When admissionTelemetry is configured (production Server via NewServer), the
+// write is enqueued and returns immediately so the first-token path does not
+// wait on two DB round-trips. Loss is impossible under load (sync fallback on
+// full queue) and bounded on crash (queueCap + workers). See admission_telemetry.go.
+// A nil recorder (hand-built Server in tests) keeps the historical synchronous
+// write so existing assertions remain exact.
+func (s *Server) recordRealtimeAdmissionEvent(
+	ctx context.Context, buyerID uuid.UUID, runtimeProfileID, hwClass, decision string, contractID uuid.UUID,
+) {
+	if s.admissionTelemetry != nil {
+		s.admissionTelemetry.record(buyerID, runtimeProfileID, hwClass, decision, contractID)
+		return
+	}
+	if err := s.store.RecordRealtimeAdmissionEvent(ctx, buyerID, runtimeProfileID, hwClass, decision, contractID); err != nil {
+		log.Printf("realtime liquidity telemetry: decision=%s profile=%s: %v", decision, runtimeProfileID, err)
+	}
+}
+
+// tryRealtimeExactReuse serves a prior identical deterministic response from
+// the exact-result cache. Returns reuseHit=false when the request is not
+// cacheable or the cache misses — the caller then runs live inference.
+func (s *Server) tryRealtimeExactReuse(
+	ctx context.Context,
+	buyerID uuid.UUID,
+	requestID, idempotencyKey string,
+	prepared preparedRealtimeRequest,
+) (RealtimeContract, []byte, bool, error) {
+	identity, err := realtimeIdentityFromPreparedBody(buyerID, prepared.Profile, prepared.Body)
+	if err != nil {
+		// Non-deterministic or incomplete identity: not eligible for reuse.
+		return RealtimeContract{}, nil, false, nil
+	}
+	hit, ok, err := s.store.LookupExactResult(ctx, identity)
+	if err != nil || !ok {
+		return RealtimeContract{}, nil, false, err
+	}
+	body, err := s.store.LoadExactResultBytes(ctx, s.storage, hit.ResultRef)
+	if err != nil {
+		return RealtimeContract{}, nil, false, err
+	}
+	// Delivered tokens for a pure result hit are the cached completion size.
+	// Physical is zero — PriceAccounting charges the reuse class only.
+	delivered := hit.OutputTokens
+	if delivered <= 0 {
+		delivered = 1
+	}
+	currency, err := SettlementCurrency()
+	if err != nil {
+		return RealtimeContract{}, nil, false, err
+	}
+	money, err := SettleRealtimeReuseHitMoneyWithFX(currency, prepared.FX, delivered,
+		prepared.Profile.BuyerInputUSDPerMillionTokens, prepared.Profile.BuyerOutputUSDPerMillionTokens)
+	if err != nil || !money.Conserved() || !money.ConservedExact() || money.SupplierLiabilityMicros != 0 {
+		return RealtimeContract{}, nil, false, fmt.Errorf("reuse money invariant broken: %+v", money)
+	}
+	sum := sha256.Sum256(body)
+	contract, _, err := s.store.SettleRealtimeExactReuse(ctx, RealtimeContractAuthorization{
+		RequestID: requestID, BuyerID: buyerID, Profile: prepared.Profile,
+		FX:              prepared.FX,
+		InputCommitment: prepared.InputCommitment, RequestSHA256: prepared.RequestSHA256,
+		BuyerDeclaredCeilingUSD: prepared.MaxPriceCeiling, ReuseClass: ClassExactResultReuse,
+		BuyerDeclaredCeilingUSDNanos: prepared.MaxPriceCeilingUSDNanos,
+		DeadlineAt:                   time.Now().Add(defaultRealtimeTimeout), IdempotencyKey: idempotencyKey,
+	}, hit, money, hex.EncodeToString(sum[:]))
+	if err != nil {
+		return RealtimeContract{}, nil, false, err
+	}
+	return contract, body, true, nil
+}
+
+// maybeStoreRealtimeExactResult caches a verified live response under its
+// request identity when sampling is deterministic, and publishes it to any
+// callers that coalesced onto this execution.
+//
+// Failures are logged only: a cache-write miss must not fail a successful buyer
+// response. A publish failure is different in kind — followers are waiting — so
+// it releases them explicitly rather than letting them time out on the lease.
+func (s *Server) maybeStoreRealtimeExactResult(
+	ctx context.Context, buyerID uuid.UUID, prepared preparedRealtimeRequest,
+	leaderRef string, leaderContractID uuid.UUID, body []byte, completionTokens int64,
+) {
+	identity, err := realtimeIdentityFromPreparedBody(buyerID, prepared.Profile, prepared.Body)
+	if err != nil {
+		return
+	}
+	ref, err := s.store.StoreExactResultBytes(ctx, s.storage, identity, body, completionTokens)
+	if err != nil {
+		log.Printf("exact reuse store failed: %v", err)
+		if leaderRef != "" {
+			// Followers cannot be served from a result that was never stored.
+			// Failing them now costs them a live execution each; leaving them to
+			// discover it via lease expiry costs them that AND the wait.
+			if err := s.store.ResolveInflightFailure(ctx, identity, leaderRef,
+				"leader could not store its result"); err != nil {
+				log.Printf("inflight failure publish: %v", err)
+			}
+		}
+		return
+	}
+	if leaderRef == "" {
+		return
+	}
+	sum := sha256.Sum256(body)
+	if err := s.store.ResolveInflightSuccess(
+		ctx, identity, leaderRef, ref, hex.EncodeToString(sum[:]), completionTokens, leaderContractID,
+	); err != nil {
+		log.Printf("inflight result publish: %v", err)
+	}
+}
+
+// tryRealtimeCoalescedDelivery collapses identical concurrent requests onto one
+// execution.
+//
+// Called only after the exact-result cache has missed, which is the window this
+// exists for: the cache serves requests that repeat over time, and this serves
+// requests that arrive together, before there is anything to cache.
+//
+// Returns leaderRef when this caller must execute. Returns a contract and body
+// when it rode someone else's execution instead.
+func (s *Server) tryRealtimeCoalescedDelivery(
+	ctx context.Context,
+	buyerID uuid.UUID,
+	requestID, idempotencyKey string,
+	prepared preparedRealtimeRequest,
+) (identity, leaderRef string, contract RealtimeContract, body []byte, followed bool, err error) {
+	identity, identityErr := realtimeIdentityFromPreparedBody(buyerID, prepared.Profile, prepared.Body)
+	if identityErr != nil {
+		// Non-deterministic sampling: two runs need not agree, so collapsing
+		// them would hand one buyer another's roll of the dice.
+		return "", "", RealtimeContract{}, nil, false, nil
+	}
+
+	role, err := s.store.ClaimInflightExecution(ctx, identity, buyerID, requestID)
+	if err != nil {
+		// Coalescing is an optimization. A fault in it means execute live, never
+		// fail the buyer.
+		log.Printf("inflight claim failed, executing live: %v", err)
+		return "", "", RealtimeContract{}, nil, false, nil
+	}
+	if role.Ineligible {
+		return "", "", RealtimeContract{}, nil, false, nil
+	}
+	if role.Leader {
+		return identity, requestID, RealtimeContract{}, nil, false, nil
+	}
+
+	result, ok, err := s.store.AwaitInflightResult(ctx, identity, buyerID)
+	if err != nil || !ok {
+		// The leader failed, the lease expired, or this caller's own context
+		// ended. In every case: execute live rather than fail.
+		return "", "", RealtimeContract{}, nil, false, nil
+	}
+	body, err = s.store.LoadExactResultBytes(ctx, s.storage, result.ResultRef)
+	if err != nil {
+		return "", "", RealtimeContract{}, nil, false, nil
+	}
+
+	delivered := result.Tokens
+	if delivered <= 0 {
+		delivered = 1
+	}
+	// The follower performed no physical work, so the supplier is owed nothing
+	// for it — the leader's own settlement is the one payable for the one
+	// execution. Same money shape as a cache hit; the classes differ because the
+	// stories differ, and the invariant checked here is the one that matters:
+	// this must not mint a second supplier liability.
+	currency, err := SettlementCurrency()
+	if err != nil {
+		return "", "", RealtimeContract{}, nil, false, err
+	}
+	money, err := SettleRealtimeReuseHitMoneyWithFX(currency, prepared.FX, delivered,
+		prepared.Profile.BuyerInputUSDPerMillionTokens, prepared.Profile.BuyerOutputUSDPerMillionTokens)
+	if err != nil || !money.Conserved() || !money.ConservedExact() || money.SupplierLiabilityMicros != 0 {
+		return "", "", RealtimeContract{}, nil, false,
+			fmt.Errorf("coalesced money invariant broken: %+v", money)
+	}
+	hit := ExactCacheHit{ResultRef: result.ResultRef, OutputTokens: delivered}
+	contract, _, err = s.store.SettleRealtimeExactReuse(ctx, RealtimeContractAuthorization{
+		RequestID: requestID, BuyerID: buyerID, Profile: prepared.Profile,
+		FX:              prepared.FX,
+		InputCommitment: prepared.InputCommitment, RequestSHA256: prepared.RequestSHA256,
+		BuyerDeclaredCeilingUSD: prepared.MaxPriceCeiling, ReuseClass: ClassCoalescedDelivery,
+		BuyerDeclaredCeilingUSDNanos: prepared.MaxPriceCeilingUSDNanos,
+		CoalescedLeaderContractID:    result.LeaderContractID,
+		DeadlineAt:                   time.Now().Add(defaultRealtimeTimeout), IdempotencyKey: idempotencyKey,
+	}, hit, money, result.ResultSHA256)
+	if err != nil {
+		return "", "", RealtimeContract{}, nil, false, err
+	}
+	return "", "", contract, body, true, nil
+}
+
+func (s *Server) handleRealtimeReceipt(w http.ResponseWriter, r *http.Request) {
+	auth := r.Context().Value(ctxBuyer).(*AuthResult)
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		writeOpenAIError(w, http.StatusBadRequest, "invalid contract id", "invalid_request_error", "invalid_contract_id")
+		return
+	}
+	receipt, err := s.store.RealtimeReceipt(r.Context(), auth.BuyerID, id)
+	if errors.Is(err, errNotFound) {
+		writeOpenAIError(w, http.StatusNotFound, "realtime receipt not found", "invalid_request_error", "not_found")
+		return
+	}
+	if err != nil {
+		writeOpenAIError(w, http.StatusInternalServerError, "realtime receipt is unavailable", "server_error", "receipt_unavailable")
+		return
+	}
+	writeJSON(w, http.StatusOK, receipt)
+}
