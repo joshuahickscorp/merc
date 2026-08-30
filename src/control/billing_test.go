@@ -28,6 +28,26 @@ func withStripeTestServer(t *testing.T, handler http.Handler) *httptest.Server {
 	return ts
 }
 
+func TestStripeHTTPClientIdlePoolCoversPaymentBurst(t *testing.T) {
+	client := newStripeHTTPClient()
+	if client.Transport == http.DefaultTransport {
+		t.Fatal("Stripe client shares http.DefaultTransport; payment bursts would inherit MaxIdleConnsPerHost=2")
+	}
+	transport, ok := client.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("Stripe client transport type %T, want *http.Transport", client.Transport)
+	}
+	if transport.DisableKeepAlives {
+		t.Fatal("Stripe client disabled keep-alives")
+	}
+	if transport.MaxIdleConnsPerHost != stripeMaxIdleConnsPerHost {
+		t.Fatalf("Stripe MaxIdleConnsPerHost=%d, want %d", transport.MaxIdleConnsPerHost, stripeMaxIdleConnsPerHost)
+	}
+	if transport.MaxIdleConns < transport.MaxIdleConnsPerHost {
+		t.Fatalf("Stripe MaxIdleConns=%d < MaxIdleConnsPerHost=%d", transport.MaxIdleConns, transport.MaxIdleConnsPerHost)
+	}
+}
+
 func TestChargePaymentIntentRequiresExactTerminalCashFact(t *testing.T) {
 	const good = `{"id":"pi_exact","latest_charge":{"id":"ch_exact"},"status":"succeeded","currency":"usd","amount":123,"amount_received":123}`
 	cases := []struct {

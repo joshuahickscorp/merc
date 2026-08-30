@@ -26,10 +26,22 @@ var errBillingUnconfigured = fmt.Errorf("billing is not configured (set STRIPE_S
 
 var (
 	stripeAPIBaseURL = "https://api.stripe.com/v1"
-	stripeHTTPClient = &http.Client{Timeout: 20 * time.Second}
+	stripeHTTPClient = newStripeHTTPClient()
 )
 
 const stripeAPIResponseMaxBytes int64 = 2 << 20
+
+const stripeMaxIdleConnsPerHost = 16
+
+func newStripeHTTPClient() *http.Client {
+	// Payment flows can issue a short burst of customer, setup-intent, payment,
+	// and refund calls. Keep enough authenticated HTTPS connections warm for
+	// that burst without changing the standard transport's proxy/TLS behavior.
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.MaxIdleConnsPerHost = stripeMaxIdleConnsPerHost
+	transport.MaxIdleConns = stripeMaxIdleConnsPerHost * 4
+	return &http.Client{Transport: transport, Timeout: 20 * time.Second}
+}
 
 var errRemoteResponseTooLarge = errors.New("remote response exceeds configured size limit")
 

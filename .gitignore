@@ -33,7 +33,6 @@ clients/sdk/python/*.egg-info/
 !ops/configs/env.example
 !.env.*.example
 .env.go-closure
-.env.local
 .secrets/
 # The agent's runtime config holds a worker token — commit agent.example.toml,
 # never the real one.
@@ -129,10 +128,6 @@ tmp/
 clients/sdk/typescript/dist/
 clients/sdk/typescript/node_modules/
 
-# Local canary credentials. Never commit.
-.merc-credentials.env
-.merc-runpod.env
-.merc-secrets.env
 # RunPod intent markers (create-before-bind trail) and other local pod state.
 # Not evidence: a crash mid-run must not leave a committed spend claim.
 .merc-runpod/

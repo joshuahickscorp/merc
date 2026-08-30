@@ -35,6 +35,12 @@ ledger writes, settlement, evidence, and the public HTTP contract. The Rust
 or authorize settlement. PostgreSQL stores durable state; MinIO provides local
 S3-compatible object storage.
 
+Payment requests use a bounded response reader and a bounded keep-alive pool
+for short Stripe call bursts; those transport optimizations do not bypass the
+payment authority, idempotency keys, exact-money checks, or settlement ledger.
+Performance receipts under `evidence/perf/` are measurements, not permission
+to enable live money.
+
 ## Repository map
 
 - `src/control/` — Go control plane, durable schema, accounting, verification,
