@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/sha256"
 	"sync"
 	"time"
 
@@ -52,15 +53,24 @@ type apiKeyCacheEntry struct {
 	expiresAt time.Time
 }
 
+// apiKeyCacheKey is the fixed SHA-256 identity of a presented API key. The
+// database stores its hexadecimal representation, but hot cache lookups do
+// not need to allocate that representation.
+type apiKeyCacheKey [sha256.Size]byte
+
+func apiKeyCacheKeyFor(raw string) apiKeyCacheKey {
+	return apiKeyCacheKey(sha256.Sum256([]byte(raw)))
+}
+
 // apiKeyCache is embedded on Store. Nil-safe: a zero Store has no cache.
 type apiKeyCache struct {
 	mu      sync.Mutex
-	entries map[string]apiKeyCacheEntry // key_hash -> entry
-	byID    map[uuid.UUID]string        // api_key id -> key_hash (for revoke)
-	byBuyer map[uuid.UUID]map[string]struct{}
+	entries map[apiKeyCacheKey]apiKeyCacheEntry
+	byID    map[uuid.UUID]apiKeyCacheKey
+	byBuyer map[uuid.UUID]map[apiKeyCacheKey]struct{}
 }
 
-func (c *apiKeyCache) get(keyHash string) (AuthResult, bool) {
+func (c *apiKeyCache) get(keyHash apiKeyCacheKey) (AuthResult, bool) {
 	if c == nil {
 		return AuthResult{}, false
 	}
@@ -80,7 +90,7 @@ func (c *apiKeyCache) get(keyHash string) (AuthResult, bool) {
 	return e.auth, true
 }
 
-func (c *apiKeyCache) put(keyHash string, auth AuthResult) {
+func (c *apiKeyCache) put(keyHash apiKeyCacheKey, auth AuthResult) {
 	if c == nil || auth.IsAdmin || auth.APIKeyID == uuid.Nil {
 		// Never cache break-glass admin credentials.
 		return
@@ -88,9 +98,9 @@ func (c *apiKeyCache) put(keyHash string, auth AuthResult) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.entries == nil {
-		c.entries = make(map[string]apiKeyCacheEntry)
-		c.byID = make(map[uuid.UUID]string)
-		c.byBuyer = make(map[uuid.UUID]map[string]struct{})
+		c.entries = make(map[apiKeyCacheKey]apiKeyCacheEntry)
+		c.byID = make(map[uuid.UUID]apiKeyCacheKey)
+		c.byBuyer = make(map[uuid.UUID]map[apiKeyCacheKey]struct{})
 	}
 	// Bound memory: drop an arbitrary entry when full (revokes are rare;
 	// a forced miss is correct, never a false positive).
@@ -108,7 +118,7 @@ func (c *apiKeyCache) put(keyHash string, auth AuthResult) {
 	c.byID[auth.APIKeyID] = keyHash
 	set := c.byBuyer[auth.BuyerID]
 	if set == nil {
-		set = make(map[string]struct{})
+		set = make(map[apiKeyCacheKey]struct{})
 		c.byBuyer[auth.BuyerID] = set
 	}
 	set[keyHash] = struct{}{}
@@ -142,7 +152,7 @@ func (c *apiKeyCache) invalidateBuyer(buyerID uuid.UUID) {
 	}
 }
 
-func (c *apiKeyCache) removeLocked(keyHash string) {
+func (c *apiKeyCache) removeLocked(keyHash apiKeyCacheKey) {
 	e, ok := c.entries[keyHash]
 	if !ok {
 		return

@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/sha256"
 	_ "embed"
 	"encoding/binary"
 	"encoding/hex"
@@ -320,8 +319,8 @@ func nullUUID(id uuid.UUID) any {
 }
 
 func hashKey(raw string) string {
-	sum := sha256.Sum256([]byte(raw))
-	return hex.EncodeToString(sum[:])
+	digest := apiKeyCacheKeyFor(raw)
+	return hex.EncodeToString(digest[:])
 }
 
 type AuthResult struct {
@@ -332,15 +331,16 @@ type AuthResult struct {
 }
 
 func (s *Store) LookupAPIKey(ctx context.Context, rawKey string) (AuthResult, error) {
-	keyHash := hashKey(rawKey)
-	if cached, ok := s.apiKeys.get(keyHash); ok {
+	keyDigest := apiKeyCacheKeyFor(rawKey)
+	if cached, ok := s.apiKeys.get(keyDigest); ok {
 		return cached, nil
 	}
+	keyHash := hex.EncodeToString(keyDigest[:])
 	// Coalesce concurrent cold misses for this hash. Double-check the cache
 	// inside the group so a leader that just filled it satisfies waiters
 	// without a second query.
 	v, err, _ := s.apiKeyLookups.Do(keyHash, func() (any, error) {
-		if cached, ok := s.apiKeys.get(keyHash); ok {
+		if cached, ok := s.apiKeys.get(keyDigest); ok {
 			return cached, nil
 		}
 		var r AuthResult
@@ -361,7 +361,7 @@ func (s *Store) LookupAPIKey(ctx context.Context, rawKey string) (AuthResult, er
 		if qerr != nil {
 			return AuthResult{}, qerr
 		}
-		s.apiKeys.put(keyHash, r)
+		s.apiKeys.put(keyDigest, r)
 		return r, nil
 	})
 	if err != nil {
