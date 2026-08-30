@@ -29,7 +29,7 @@
     "7_settlement_ledger": "evidence/canary/l11-p1-canary-rehearsal-settlement.json",
     "fail_closed": "evidence/canary/l11-p1-canary-rehearsal-fail-closed-controls.json",
     "summary": "evidence/canary/l11-p1-canary-rehearsal-summary.json",
-    "report": "docs/archive/staging/ALPHA_CANARY_REHEARSAL_L11.md"
+    "report": "docs/ALPHA_CANARY_REHEARSAL_L11.md"
   },
   "driver": "ops/scripts/alpha-e2e-rehearsal.py",
   "make_target": "alpha-e2e-rehearsal"

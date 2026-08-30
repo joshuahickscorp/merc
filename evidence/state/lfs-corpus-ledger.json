@@ -29,15 +29,15 @@
     }
   },
   "expected": {
-    "tracked_pointer_files": 98,
-    "unique_payload_oids": 96,
+    "tracked_pointer_files": 97,
+    "unique_payload_oids": 95,
     "missing_objects": 0,
     "corrupt_objects": 0,
     "resolved_payload_mismatches": 0
   },
   "dedup": {
     "duplicate_pointer_count": 2,
-    "note": "96 pointers map to 94 unique content OIDs; the 2 remaining extras are content-addressed aliases kept because both sides are referenced (droplet-device-ceiling.json is cited in docs/DROPLET_SCALING.md alongside heartbeat-ingest-ceiling.json; authorize-auth-tails-*174152Z/-baseline). The 14 timestamped/-after/-baseline duplicates a prior refactor dumped (0-cited exact-OID copies of cited -latest files) were removed. The verifier reports every shared oid and its alias set. The 96th pointer is .tools/runpodctl (unique OID)."
+    "note": "97 pointers map to 95 unique content OIDs; the two remaining duplicate pointers are content-addressed aliases retained because both sides are referenced (heartbeat-ingest-ceiling.json / droplet-device-ceiling.json and authorize-auth-tails-*174152Z/-baseline). Timestamped/-after/-baseline duplicates with zero references were removed. The architecture-specific RunPod CLI was removed from the source tree; provider control remains in the governed RunPod scripts and is supplied externally when needed."
   },
   "policy": {
     "authority": "sha256(resolved payload bytes) must equal the pointer oid; computed by scripts/verify-lfs-corpus.py and control/lfs_corpus_integrity_test.go. git lfs fsck is a supplementary cross-check only \u2014 it returned OK while two objects were corrupt on 2026-08-04 (see evidence/state/lfs-corruption-incident-20260804.json).",
@@ -73,7 +73,7 @@
       "at_commit": "compactness-dedup",
       "tracked_pointer_files": "103 -> 89",
       "unique_payload_oids": "87 -> 87",
-      "why": "Compactness (operator directive: strip the LFS a prior codex refactor dumped). Removed 14 timestamped/-after/-baseline evidence duplicates that were 0-cited exact-OID copies of a CITED -latest file, so no unique payload OID was lost (87 unchanged) and the content is fully preserved via the -latest. None were proof-bound: runtime-benchmarks/ (embedded in the control binary) untouched, droplet-device-ceiling.json (docs-referenced) kept, all 14 had zero code/test/docs references. duplicate_pointer_count 16 -> 2."
+      "why": "Compactness (operator directive: remove the LFS duplicates left by a prior refactor). Removed 14 timestamped/-after/-baseline evidence duplicates that were 0-cited exact-OID copies of a CITED -latest file, so no unique payload OID was lost (87 unchanged) and the content is fully preserved via the -latest. None were proof-bound: runtime-benchmarks/ (embedded in the control binary) untouched, droplet-device-ceiling.json (docs-referenced) kept, all 14 had zero code/test/docs references. duplicate_pointer_count 16 -> 2."
     },
     {
       "at_commit": "p0c-write-amplification",

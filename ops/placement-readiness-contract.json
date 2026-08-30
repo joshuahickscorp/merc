@@ -4,7 +4,6 @@
   "purpose": "Offline identity and gate pins for a valid Metal-vs-CUDA embed placement measurement. Ready means only authorized spend remains. This file does not authorize spend, advertise a cell, or promote anything.",
   "historical_lane_evidence": {
     "power_analysis": "evidence/perf/heterogeneous-placement-power-analysis-latest.json",
-    "source_branch": "grok/hetero-runtime-20260810-131127",
     "source_commit": "5e81181ab09d33ba40dee73dc3f4e9831a3daa41",
     "source_base": "bff5fd33",
     "not_restamped_on_head": true,

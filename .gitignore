@@ -96,6 +96,7 @@ ops/stripe-secret-exposure.??????
 # agent worktrees / local tooling
 .claude/
 .worktrees/
+ops/tooling/runpodctl
 clients/web/admin-demo.html
 
 # rust crate build dirs (spec-engine, token-spec-poc, renderer)

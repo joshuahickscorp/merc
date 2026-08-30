@@ -239,7 +239,7 @@ func TestCitedCanaryComposeOverlayIsTracked(t *testing.T) {
 	if strings.Contains(body, "sk_live_") || strings.Contains(body, "rk_live_") || strings.Contains(body, "pk_live_") {
 		t.Fatal("canary overlay must not contain live Stripe prefixes")
 	}
-	review, err := os.ReadFile(filepath.Join(root, "docs", "archive", "staging", "ALPHA_LAUNCH_READINESS.md"))
+	review, err := os.ReadFile(filepath.Join(root, "docs", "ALPHA_LAUNCH_READINESS.md"))
 	if err != nil {
 		t.Fatal(err)
 	}

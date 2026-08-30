@@ -29,7 +29,7 @@
 | 7. Payment / payout disclosure | `docs/ALPHA_PAYMENT_PAYOUT_DISCLOSURE.md` | **Created** |
 | 8. Data handling summary | `docs/PRIVACY_DATA_GOVERNANCE.md` | **Updated** — schema-derived table |
 | 9. Open-source license inventory | `docs/LICENSE_INVENTORY.md` + `docs/generated/license-inventory.json` | **Generated** from the lockfiles |
-| 10. Dependency / license report | `docs/DEPENDENCY_LICENSE_REPORT.md` | **Generated** from the same run |
+| 10. Dependency / license report | `docs/LICENSE_INVENTORY.md` + `docs/THIRD_PARTY_LICENSES.md` | **Generated/register-backed** from the same run |
 | DSAR runbook | `docs/DSAR_RUNBOOK.md` | **Updated** header and scope only |
 | Support / incident runbook | `docs/SUPPORT_AND_INCIDENT_RUNBOOK.md` | **Updated** header and scope only |
 | Third-party register | `docs/THIRD_PARTY_LICENSES.md` | **Updated** — points at the generated graph; model rows stay BLOCKED |
@@ -44,8 +44,8 @@ approval or compliance.
 
 ## Personal-data inventory found in the schema and code
 
-Sources: `control/schema.sql`, `control/alpha_request.go`,
-`control/accounts.go`, `control/data_governance.go`.
+Sources: `src/control/schema.sql`, `src/control/alpha_request.go`,
+`src/control/accounts.go`, `src/control/data_governance.go`.
 
 **Held by merc**
 
@@ -90,13 +90,13 @@ information.
 
 ## Generated license / dependency result
 
-Run: `python3 scripts/generate-license-inventory.py`
+Run: `python3 ops/scripts/generate-license-inventory.py`
 
 | Graph | Count | License source |
 |---|---|---|
-| `control/go.mod` modules | 25 | LICENSE file inside the exact `proxy.golang.org` module zip |
-| `control/go.sum` versions not in `go.mod` | 8 | listed, not licensed (checksum-only) |
-| `agent/Cargo.lock` packages | 403 | declared `license` in the matching crate `Cargo.toml` |
+| `src/control/go.mod` modules | 25 | LICENSE file inside the exact `proxy.golang.org` module zip |
+| `src/control/go.sum` versions not in `go.mod` | 8 | listed, not licensed (checksum-only) |
+| `src/agent/Cargo.lock` packages | 403 | declared `license` in the matching crate `Cargo.toml` |
 | Python SDK | 1 first-party, 0 runtime deps | `pyproject.toml` Apache-2.0 |
 | TypeScript SDK lock | 2 (root + `typescript` devDep) | lockfile Apache-2.0 |
 
@@ -111,7 +111,7 @@ reproduction still applies if the agent binary is given to a supplier.
 
 ## The three readiness receipts this lane does not mint
 
-`scripts/validate-readiness.py` will award a point for each of:
+`ops/scripts/validate-readiness.py` will award a point for each of:
 
 - `evidence/external/privacy-qualified-approval.json`
 - `evidence/external/licensing-provenance-approval.json`
@@ -169,7 +169,7 @@ What *does* attach, and is easy to over- or under-state:
 
 3. **License obligations on what actually ships.** Nothing ships
    publicly. The Apache-2.0 agent may be installed on operator-known
-   machines; that is limited distribution, and the `agent/LICENSE` /
+   machines; that is limited distribution, and the `src/agent/LICENSE` /
    `NOTICE` files already exist. Llama's AUP and "Built with Llama"
    apply if that model is actually run; they are already in `NOTICE`.
    Public-site font OFL obligations do not attach while there is no
@@ -192,7 +192,7 @@ Operator duties that are real and cheap, and are not "hire counsel":
 - do not flip live keys
 - give invitees the draft notice (these documents)
 - keep workload input synthetic
-- ship `agent/LICENSE` and `NOTICE` with any agent binary that leaves
+- ship `src/agent/LICENSE` and `NOTICE` with any agent binary that leaves
   the operator's hands
 - follow the Llama AUP if Llama is served
 - treat invitee emails as personal information

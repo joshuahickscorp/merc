@@ -57,9 +57,6 @@ KNOWN_DANGLING = frozenset({
     "docs/GPU_CAPABILITY.md",
     "docs/CREED_AND_PATH_TO_TEN.md",
     "docs/internal/CREED_AND_PATH_TO_TEN.md",
-    # FROZEN in docs/archive/engineering/RENAME_REGISTER.md: a dated finding, cited as a path
-    # predicate by ops/scripts/rename-residue-audit.py rather than as a live link.
-    "docs/archive/engineering/WEBSITE_3D_BLENDER_STATUS_2026-07-19.md",
 })
 
 

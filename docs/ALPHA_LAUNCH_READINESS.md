@@ -63,7 +63,7 @@ fabricated by the agent:
 2. Provide the canary artifact above (signed disable decision, or bounded-canary config + webhook
    secrets). Fix `MERC_SETTLEMENT_CURRENCY=cad` to match the Stripe account.
 3. `docker compose … up -d --no-deps caddy` — Caddy obtains the cert via HTTP-01 once DNS resolves.
-4. `scripts/alpha/probes.sh --execute` from a separate host; then `scripts/alpha/deploy.sh
+4. `ops/scripts/alpha/probes.sh --execute` from a separate host; then `ops/scripts/alpha/deploy.sh
    --record-pass`.
 5. Flip Stripe to live only as the final, separate launch action.
 
@@ -71,7 +71,7 @@ fabricated by the agent:
 
 | Gate | State |
 |---|---|
-| boot | DONE only when `evidence/state/alpha-boot-green.json` is BOUND PASS at the candidate HEAD (`scripts/alpha/lib.sh` refuses deploy otherwise) |
+| boot | DONE only when `evidence/state/alpha-boot-green.json` is BOUND PASS at the candidate HEAD (`ops/scripts/alpha/lib.sh` refuses deploy otherwise) |
 | P1-STAGING (deploy) | control serving in test mode at the launch line (this review). Public TLS pending the canary artifact. |
 | P1-STRIPE-TEST | pending; fix settlement currency + webhook secrets first |
 | P1-OFFSITE-RESTORE | pending (backup dump + cross-provider restore drill) |

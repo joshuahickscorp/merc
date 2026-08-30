@@ -84,5 +84,5 @@ remote Postgres connection requires TLS, and the server must actually present a 
 ## Detailed history
 
 The former long-form architecture and embedded decision records are preserved
-in [the engineering archive](archive/engineering/ARCHITECTURE_2026-08-28.md).
+in Git history and in the compact decision records under `docs/archive/`.
 They are provenance, not a competing active specification.

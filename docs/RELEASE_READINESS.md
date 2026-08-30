@@ -52,7 +52,7 @@ values.
 ## Historical material
 
 Completed planning, staging, closeout, and network-migration narratives are in
-`docs/archive/engineering/` and `docs/archive/staging/`. They are preserved as
+`docs/archive/engineering/` and the dated launch records under `docs/`. They are preserved as
 history and are not current launch instructions. The active documentation set
 is intentionally limited to architecture, security, operations, legal/privacy,
 distribution, the backend-alpha contract, and this status page.

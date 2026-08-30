@@ -20,7 +20,7 @@
     "notice": {"path":"NOTICE","version":"draft-0.1","sha256":null,"status":"INCOMPLETE_THIRD_PARTY_NOTICES"},
     "third_party_register": {"path":"docs/THIRD_PARTY_LICENSES.md","version":"draft-0.2-backend-alpha","sha256":null,"status":"BLOCKED"},
     "license_inventory": {"path":"docs/LICENSE_INVENTORY.md","version":"generated","sha256":null,"status":"GENERATED_DRAFT_NOT_APPROVAL"},
-    "governance_draft_report": {"path":"docs/archive/staging/ALPHA_GOVERNANCE_DRAFT_REPORT.md","version":"draft-0.2-backend-alpha","sha256":null,"status":"DRAFT_HUMAN_SIGNATURE_STILL_REQUIRED"}
+    "governance_draft_report": {"path":"docs/ALPHA_GOVERNANCE_DRAFT_REPORT.md","version":"draft-0.2-backend-alpha","sha256":null,"status":"DRAFT_HUMAN_SIGNATURE_STILL_REQUIRED"}
   },
   "data_governance": {
     "inventory_path": "docs/PRIVACY_DATA_GOVERNANCE.md",

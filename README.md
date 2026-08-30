@@ -41,12 +41,14 @@ S3-compatible object storage.
   runtime authorities, and the service entry point.
 - `src/agent/` — Rust provider agent and its sandboxed execution boundary.
 - `clients/` — protocol definitions, CLI, SDKs, desktop client, and web UI.
-- `ops/` — deployment/configuration, release gates, audits, benchmarks, and
-  operator scripts. Render helpers and the pinned RunPod CLI live here too.
+- `ops/` — the single deployment/configuration, release-gate, audit,
+  benchmark, and operator surface; its map is in [`ops/README.md`](ops/README.md).
+  Provider CLIs are intentionally external to this cross-platform source tree.
 - `docs/` — current architecture, security, operations, governance, and legal
   contracts; historical material is isolated under `docs/archive/`.
 - `evidence/` — retained receipts, manifests, measurements, and binding data;
-  it is not a local scratch directory.
+  it is not a local scratch directory and does not authorize a release by
+  itself.
 
 Root files are limited to standard build/deployment entry points and project
 metadata. Mutable credentials, model data, generated render output, local

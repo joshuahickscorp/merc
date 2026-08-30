@@ -56,7 +56,6 @@ FROZEN_PATHS = (
     ("ops/scripts/rename-residue-audit.py",
      "the audit must contain the patterns it searches for"),
     ("ops/rename-residue.json", "this audit's own output"),
-    ("docs/archive/engineering/WEBSITE_3D_BLENDER_STATUS_2026-07-19.md", "dated finding: was true on that date"),
     ("review/", "frozen review evidence"),
     ("realtime-lane-snapshot/", "checksummed snapshot, verified by manifest"),
     ("clients/macapp/ComputeExchangeAgent/",

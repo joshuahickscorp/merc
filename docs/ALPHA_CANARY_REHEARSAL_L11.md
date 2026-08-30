@@ -6,7 +6,7 @@ does **not** satisfy `EXTERNAL_ALPHA_PROVEN`. The five closeout
 receipts below are unbound rehearsal records of an attempt: the loop
 did not close, and they are not authority for a completed matrix.
 
-Driver: `python3 scripts/alpha-e2e-rehearsal.py run`  
+Driver: `python3 ops/scripts/alpha-e2e-rehearsal.py run`
 Make: `make alpha-e2e-rehearsal`
 
 ## Deployed plane

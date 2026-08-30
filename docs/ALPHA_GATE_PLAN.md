@@ -10,13 +10,13 @@ before any network call.
 
 Boot is owned by the power-authority lane (`VENDOR_WALL_UPPER_BOUND`).
 Assume that lane will write a green receipt. **No deploy or `--execute`
-path in `scripts/alpha/` runs until that receipt is `BOUND` + `PASS`.**
+path in `ops/scripts/alpha/` runs until that receipt is `BOUND` + `PASS`.**
 
 ---
 
 ## What's left to alpha
 
-One screen. Living copy: `scripts/alpha/status.sh`.
+One screen. Living copy: `ops/scripts/alpha/status.sh`.
 
 | Gate | State now | Who |
 |---|---|---|
@@ -31,7 +31,7 @@ One screen. Living copy: `scripts/alpha/status.sh`.
 | **P1-INDEPENDENT-APPROVAL** | `ops/go-no-go.json` | repository_owner (this plan does not decide) |
 
 `P1-INDEPENDENT-APPROVAL` is whatever `ops/go-no-go.json` records.
-`scripts/alpha/lib.sh` reads that ledger and does not independently drop
+`ops/scripts/alpha/lib.sh` reads that ledger and does not independently drop
 or pass the gate.
 
 ---
@@ -88,7 +88,7 @@ gates behind canary.
 
 ---
 
-## Fail-closed rules (every `scripts/alpha/*` `--execute`)
+## Fail-closed rules (every `ops/scripts/alpha/*` `--execute`)
 
 1. **Boot not green** — missing or non-`BOUND`/`PASS`
    `evidence/state/alpha-boot-green.json` (override path:
@@ -102,7 +102,7 @@ gates behind canary.
    classified `sk_live_` / `rk_live_` / `pk_live_`. Also
    `MERC_PAYMENT_MODE=live` and any `MERC_PAYOUT_EXPORT`.
 3. **Out of order** — `--execute` requires PASS receipts for the
-   prerequisites in `scripts/alpha/lib.sh`. Soak requires staging plus
+   prerequisites in `ops/scripts/alpha/lib.sh`. Soak requires staging plus
    the four Batch-2 operational gates.
 
 `--print-runbook` / `--print-start-command` never require boot. They are
@@ -113,7 +113,7 @@ would be refused.
 
 Progress receipts live under `.artifacts/alpha/` (gitignored). They are
 an operational ledger, not Level B authority. The existing
-`scripts/go-closure-*.sh` writers still produce the bound evidence
+   `ops/scripts/go-closure-*.sh` writers still produce the bound evidence
 under `evidence/go-closure/` when the supervisor runs those paths.
 
 ---
@@ -125,7 +125,7 @@ under `evidence/go-closure/` when the supervisor runs those paths.
 | Write boot-green receipt | power-authority lane | other worktree |
 | Build `Dockerfile.control` | SELF-CONTAINED (this Mac, OrbStack) | no ssh |
 | `docker save \| ssh load`, compose up control/caddy | **SUPERVISOR** | droplet root SSH |
-| External HTTPS probes | SELF-CONTAINED | `scripts/alpha/probes.sh --execute` |
+| External HTTPS probes | SELF-CONTAINED | `ops/scripts/alpha/probes.sh --execute` |
 | Stamp P1-STAGING | SUPERVISOR | after probes PASS |
 | Stripe TEST matrix | **SUPERVISOR** | provider I/O |
 | `backup.sh` dump+upload from the droplet | **SUPERVISOR** | data plane |
@@ -158,7 +158,7 @@ The power-authority lane writes:
 ```
 
 Default path: `evidence/state/alpha-boot-green.json`.
-`scripts/alpha/lib.sh` accepts `kind` `alpha_boot_green` or
+`ops/scripts/alpha/lib.sh` accepts `kind` `alpha_boot_green` or
 `release_image_boot`, but only with `binding_status=BOUND`,
 `status=PASS`, and `commit` equal to the candidate HEAD.
 
@@ -178,13 +178,13 @@ MinIO.
 
 **Scaffold:**
 
-- `scripts/alpha/deploy.sh --print-runbook` — exact ssh/docker steps
-- `scripts/alpha/deploy.sh --check` — local artifacts + boot + no live Stripe
-- `scripts/alpha/probes.sh --execute` — HTTPS checklist
-- `scripts/alpha/deploy.sh --record-pass` — after probes PASS
+- `ops/scripts/alpha/deploy.sh --print-runbook` — exact ssh/docker steps
+- `ops/scripts/alpha/deploy.sh --check` — local artifacts + boot + no live Stripe
+- `ops/scripts/alpha/probes.sh --execute` — HTTPS checklist
+- `ops/scripts/alpha/deploy.sh --record-pass` — after probes PASS
 
 `deploy.sh` never invokes `ssh` or `rsync`. Do **not** run
-`scripts/go-closure-deploy.sh --target ssh --execute` against this
+`ops/scripts/go-closure-deploy.sh --target ssh --execute` against this
 droplet: that compose starts its own postgres/minio and will fight
 `merc-postgres-1` / `merc-minio-1`.
 
@@ -208,7 +208,7 @@ droplet: that compose starts its own postgres/minio and will fight
 7. Probes from this Mac (see below).
 8. `--record-pass`.
 
-**Probes (`scripts/alpha/probes.sh`):**
+**Probes (`ops/scripts/alpha/probes.sh`):**
 
 | Probe | How |
 |---|---|
@@ -229,9 +229,9 @@ droplet: that compose starts its own postgres/minio and will fight
 
 **Exit criterion (quoted):** "Execute every scenario with sk_test/whsec test credentials and distinct endpoint secrets; preserve redacted provider IDs and reconciliation receipts."
 
-**Scaffold:** `scripts/alpha/stripe-test.sh` wraps
-`scripts/stripe-sandbox.sh` (and therefore
-`scripts/stripe-sandbox-scenarios.sh`). `--check` classifies keys
+**Scaffold:** `ops/scripts/alpha/stripe-test.sh` wraps
+`ops/scripts/stripe-sandbox.sh` (and therefore
+`ops/scripts/stripe-sandbox-scenarios.sh`). `--check` classifies keys
 locally and never opens `api.stripe.com`. `--execute` is supervisor.
 
 **Bind to the deployed candidate.** Webhook endpoints must already be
@@ -246,8 +246,8 @@ currency is `cad`. Distinct test Connect account with payouts enabled.
 **Supervisor:**
 
 ```bash
-scripts/alpha/stripe-test.sh --check
-scripts/alpha/stripe-test.sh --execute
+ops/scripts/alpha/stripe-test.sh --check
+ops/scripts/alpha/stripe-test.sh --execute
 # equivalent: make stripe-check && make stripe-matrix
 ```
 
@@ -259,8 +259,8 @@ scripts/alpha/stripe-test.sh --execute
 
 **Exit criterion (quoted):** "Upload only ciphertext, independently download/decrypt in isolation, restore database and objects, and match checksums plus application/ledger invariants."
 
-**Scaffold:** `scripts/offsite-independent-restore.sh` (`make offsite-independent-restore`).
-The older `scripts/alpha/offsite-restore.sh` runbook remains as a
+**Scaffold:** `ops/scripts/offsite-independent-restore.sh` (`make offsite-independent-restore`).
+The older `ops/scripts/alpha/offsite-restore.sh` runbook remains as a
 supervisor/self-contained split around `backup.sh` / `restore.sh`.
 
 Independent boundary: already-configured Cloudflare R2
@@ -282,9 +282,9 @@ downloads and restores into a new isolated pair. It never targets
 
 **Exit criterion (quoted):** "Preserve redacted external receiver delivery IDs and firing, acknowledgement, deduplication, and resolution timestamps."
 
-**Scaffold:** `scripts/alpha/alert-sink.sh`.
+**Scaffold:** `ops/scripts/alpha/alert-sink.sh`.
 
-`scripts/test-alert-delivery.sh` remains the *local* sink proof. It
+`ops/scripts/test-alert-delivery.sh` remains the *local* sink proof. It
 does not close this gate. The production wiring is already
 `ops/monitoring/alertmanager.yml` → `url_file` →
 `MERC_ALERT_RECEIVER_URL_FILE`. That file must contain one `https://`
@@ -319,15 +319,15 @@ Do not set `MERC_ALLOW_UNSANDBOXED`. Worker IDs must be real v4 UUIDs
 (version nibble 1–5). Demo `0000-…` IDs are refused.
 
 ```bash
-scripts/alpha/enrol-worker.sh --device studio --print-runbook
-scripts/alpha/enrol-worker.sh --device laptop --print-runbook
+ops/scripts/alpha/enrol-worker.sh --device studio --print-runbook
+ops/scripts/alpha/enrol-worker.sh --device laptop --print-runbook
 ```
 
-**Counted matrix** is still `scripts/canary-scenario-driver.sh` /
-`scripts/go-closure-canary-rehearsal.sh` (2 / 2 / 20 / 20 / 5 / 5 / 3 /
+**Counted matrix** is still `ops/scripts/canary-scenario-driver.sh` /
+`ops/scripts/go-closure-canary-rehearsal.sh` (2 / 2 / 20 / 20 / 5 / 5 / 3 /
 3 / 3 / 1 / 1 / 1 / 1 / 1).
 
-**Extra adapters** in `scripts/alpha/scenarios.sh` close the exit
+**Extra adapters** in `ops/scripts/alpha/scenarios.sh` close the exit
 criterion items the counted driver does not name:
 
 | Adapter | What it proves |
@@ -338,8 +338,8 @@ criterion items the counted driver does not name:
 | `no_payout_export` | `MERC_PAYOUT_EXPORT` unset and `/readyz` is test / no live value |
 
 ```bash
-scripts/alpha/canary-rehearsal.sh --check
-scripts/alpha/canary-rehearsal.sh --execute
+ops/scripts/alpha/canary-rehearsal.sh --check
+ops/scripts/alpha/canary-rehearsal.sh --execute
 ```
 
 `--execute` runs the extra adapters, then the counted matrix if
@@ -362,7 +362,7 @@ Inside this gate, in order:
    Postgres and MinIO stay up.
 2. **Restart-storm** (supervisor + both Metal devices): both
    `merc-agent` processes take a durable session transition.
-   `scripts/go-closure-restart-storm.sh` if the isolated stack is in
+   `ops/scripts/go-closure-restart-storm.sh` if the isolated stack is in
    use; otherwise `kill -TERM` each agent and confirm
    `agent_session_id` changed.
 3. **24h soak** against persistent staging, both devices heartbeating.
@@ -371,7 +371,7 @@ Inside this gate, in order:
 
 ```bash
 export MERC_ALPHA_SOAK_I_AM_THE_SUPERVISOR=1
-scripts/alpha/soak.sh --execute --duration 86400 --interval 60
+ops/scripts/alpha/soak.sh --execute --duration 86400 --interval 60
 ```
 
 `--execute` without that env var is refused. Duration `< 86400` cannot
@@ -380,13 +380,13 @@ interval) from this Mac; the laptop's job is to stay enrolled. Isolated
 alternative (not this droplet's existing data plane):
 
 ```bash
-scripts/go-closure-soak.sh --target ssh --duration 86400 --interval 60 --execute
+ops/scripts/go-closure-soak.sh --target ssh --duration 86400 --interval 60 --execute
 ```
 
 Print the command any time:
 
 ```bash
-scripts/alpha/soak.sh --print-start-command
+ops/scripts/alpha/soak.sh --print-start-command
 ```
 
 ---
@@ -412,7 +412,7 @@ the exact 40-hex candidate commit.
 
 ## P1-INDEPENDENT-APPROVAL
 
-Status is whatever `ops/go-no-go.json` records. `scripts/alpha/lib.sh`
+Status is whatever `ops/go-no-go.json` records. `ops/scripts/alpha/lib.sh`
 reads that file and does not independently drop or pass this gate. This
 plan does not decide it.
 
@@ -428,23 +428,23 @@ decision here or in lib.sh.
 
 | Script | Default | Mutates? |
 |---|---|---|
-| `scripts/alpha/status.sh` | one-screen checklist | no |
-| `scripts/alpha/validate-scaffold.sh` | syntax + contract | no |
-| `scripts/alpha/deploy.sh` | `--print-runbook` | no (never ssh) |
-| `scripts/alpha/probes.sh` | `--print-runbook` | `--execute` is HTTPS only |
-| `scripts/alpha/stripe-test.sh` | `--print-runbook` | `--execute` calls Stripe TEST |
-| `scripts/alpha/offsite-restore.sh` | `--print-runbook` | `--execute-restore` downloads |
-| `scripts/alpha/alert-sink.sh` | `--print-runbook` | `--execute` fires a page |
-| `scripts/alpha/enrol-worker.sh` | `--print-runbook` | no |
-| `scripts/alpha/canary-rehearsal.sh` | `--print-runbook` | `--execute` runs the matrix |
-| `scripts/alpha/scenarios.sh` | extra adapters | only when invoked |
-| `scripts/alpha/soak.sh` | `--print-start-command` | `--execute` is 24h and refused without the supervisor env |
-| `scripts/alpha/lib.sh` | sourced | no |
+| `ops/scripts/alpha/status.sh` | one-screen checklist | no |
+| `ops/scripts/alpha/validate-scaffold.sh` | syntax + contract | no |
+| `ops/scripts/alpha/deploy.sh` | `--print-runbook` | no (never ssh) |
+| `ops/scripts/alpha/probes.sh` | `--print-runbook` | `--execute` is HTTPS only |
+| `ops/scripts/alpha/stripe-test.sh` | `--print-runbook` | `--execute` calls Stripe TEST |
+| `ops/scripts/alpha/offsite-restore.sh` | `--print-runbook` | `--execute-restore` downloads |
+| `ops/scripts/alpha/alert-sink.sh` | `--print-runbook` | `--execute` fires a page |
+| `ops/scripts/alpha/enrol-worker.sh` | `--print-runbook` | no |
+| `ops/scripts/alpha/canary-rehearsal.sh` | `--print-runbook` | `--execute` runs the matrix |
+| `ops/scripts/alpha/scenarios.sh` | extra adapters | only when invoked |
+| `ops/scripts/alpha/soak.sh` | `--print-start-command` | `--execute` is 24h and refused without the supervisor env |
+| `ops/scripts/alpha/lib.sh` | sourced | no |
 
 Existing authority these wrap, not replace:
-`scripts/stripe-sandbox.sh`, `scripts/backup.sh`, `scripts/restore.sh`,
-`scripts/canary-scenario-driver.sh`, `scripts/go-closure-*.sh`,
-`scripts/test-alert-delivery.sh` (local only).
+`ops/scripts/stripe-sandbox.sh`, `ops/scripts/backup.sh`, `ops/scripts/restore.sh`,
+`ops/scripts/canary-scenario-driver.sh`, `ops/scripts/go-closure-*.sh`,
+`ops/scripts/test-alert-delivery.sh` (local only).
 
 ---
 
@@ -452,27 +452,27 @@ Existing authority these wrap, not replace:
 
 ```bash
 # 0. Watch boot
-scripts/alpha/status.sh
+ops/scripts/alpha/status.sh
 
 # 1. After boot-green
-scripts/alpha/deploy.sh --check
-scripts/alpha/deploy.sh --print-runbook    # then ssh as written
-scripts/alpha/probes.sh --execute
-scripts/alpha/deploy.sh --record-pass
+ops/scripts/alpha/deploy.sh --check
+ops/scripts/alpha/deploy.sh --print-runbook    # then ssh as written
+ops/scripts/alpha/probes.sh --execute
+ops/scripts/alpha/deploy.sh --record-pass
 
 # 2. Parallel
-scripts/alpha/stripe-test.sh --check && scripts/alpha/stripe-test.sh --execute
-scripts/alpha/offsite-restore.sh --check   # supervisor: backup.sh ; then:
-scripts/alpha/offsite-restore.sh --execute-restore
-scripts/alpha/offsite-restore.sh --record-pass
-scripts/alpha/alert-sink.sh --check && scripts/alpha/alert-sink.sh --execute
-scripts/alpha/enrol-worker.sh --device studio --print-runbook
-scripts/alpha/enrol-worker.sh --device laptop --print-runbook
-scripts/alpha/canary-rehearsal.sh --check && scripts/alpha/canary-rehearsal.sh --execute
+ops/scripts/alpha/stripe-test.sh --check && ops/scripts/alpha/stripe-test.sh --execute
+ops/scripts/alpha/offsite-restore.sh --check   # supervisor: backup.sh ; then:
+ops/scripts/alpha/offsite-restore.sh --execute-restore
+ops/scripts/alpha/offsite-restore.sh --record-pass
+ops/scripts/alpha/alert-sink.sh --check && ops/scripts/alpha/alert-sink.sh --execute
+ops/scripts/alpha/enrol-worker.sh --device studio --print-runbook
+ops/scripts/alpha/enrol-worker.sh --device laptop --print-runbook
+ops/scripts/alpha/canary-rehearsal.sh --check && ops/scripts/alpha/canary-rehearsal.sh --execute
 
 # 3. LAST
-scripts/alpha/soak.sh --print-start-command
+ops/scripts/alpha/soak.sh --print-start-command
 # only then:
 export MERC_ALPHA_SOAK_I_AM_THE_SUPERVISOR=1
-scripts/alpha/soak.sh --execute --duration 86400 --interval 60
+ops/scripts/alpha/soak.sh --execute --duration 86400 --interval 60
 ```
