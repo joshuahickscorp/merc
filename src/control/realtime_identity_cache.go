@@ -2,7 +2,6 @@ package main
 
 import (
 	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"sync"
@@ -28,22 +27,37 @@ type realtimeIdentityCacheEntry struct {
 	lastUsed  uint64
 }
 
+// realtimeIdentityCacheKey retains the complete semantic boundary without
+// allocating an encoded string for every cache lookup.
+type realtimeIdentityCacheKey struct {
+	buyerID                 uuid.UUID
+	runtimeProfileID        string
+	profileSHA256           string
+	modelRevision           string
+	generationPolicyVersion string
+	bodySHA256              [sha256.Size]byte
+}
+
 var realtimeIdentityCache = struct {
 	sync.Mutex
-	entries map[string]realtimeIdentityCacheEntry
+	entries map[realtimeIdentityCacheKey]realtimeIdentityCacheEntry
 	clock   uint64
 	hits    uint64
 	misses  uint64
-}{entries: make(map[string]realtimeIdentityCacheEntry)}
+}{entries: make(map[realtimeIdentityCacheKey]realtimeIdentityCacheEntry)}
 
-func realtimeIdentityCacheKey(buyerID uuid.UUID, profile VLLMRuntimeProfile, body []byte) string {
-	sum := sha256.Sum256(body)
+func newRealtimeIdentityCacheKey(buyerID uuid.UUID, profile VLLMRuntimeProfile, body []byte) realtimeIdentityCacheKey {
 	// Tenant, profile digest/revision, and generation-policy revision are part of
 	// the cache key. A buyer can therefore never observe another tenant's
 	// identity, and a runtime/policy update naturally invalidates old entries.
-	return buyerID.String() + "\x00" + profile.RuntimeProfileID + "\x00" +
-		profile.ProfileSHA256 + "\x00" + profile.ModelRevision + "\x00" +
-		profile.GenerationPolicy.Version + "\x00" + hex.EncodeToString(sum[:])
+	return realtimeIdentityCacheKey{
+		buyerID:                 buyerID,
+		runtimeProfileID:        profile.RuntimeProfileID,
+		profileSHA256:           profile.ProfileSHA256,
+		modelRevision:           profile.ModelRevision,
+		generationPolicyVersion: profile.GenerationPolicy.Version,
+		bodySHA256:              sha256.Sum256(body),
+	}
 }
 
 // realtimeIdentityFromPreparedBody is the production caller. `body` is the
@@ -57,7 +71,7 @@ func realtimeIdentityFromPreparedBody(
 	if buyerID == uuid.Nil || len(body) == 0 || len(body) > realtimeIdentityCacheMaxBody {
 		return "", errors.New("realtime identity body is outside bounded cache input")
 	}
-	key := realtimeIdentityCacheKey(buyerID, profile, body)
+	key := newRealtimeIdentityCacheKey(buyerID, profile, body)
 	now := time.Now().UTC()
 	realtimeIdentityCache.Lock()
 	if entry, ok := realtimeIdentityCache.entries[key]; ok {
@@ -86,14 +100,16 @@ func realtimeIdentityFromPreparedBody(
 	realtimeIdentityCache.Lock()
 	realtimeIdentityCache.clock++
 	if len(realtimeIdentityCache.entries) >= realtimeIdentityCacheMaxEntries {
-		var oldestKey string
+		var oldestKey realtimeIdentityCacheKey
 		var oldest uint64
+		foundOldest := false
 		for candidateKey, candidate := range realtimeIdentityCache.entries {
-			if oldestKey == "" || candidate.lastUsed < oldest {
+			if !foundOldest || candidate.lastUsed < oldest {
 				oldestKey, oldest = candidateKey, candidate.lastUsed
+				foundOldest = true
 			}
 		}
-		if oldestKey != "" {
+		if foundOldest {
 			delete(realtimeIdentityCache.entries, oldestKey)
 		}
 	}
@@ -120,7 +136,7 @@ func realtimeIdentityCacheStatsSnapshot() realtimeIdentityCacheStats {
 
 func resetRealtimeIdentityCacheForTest() {
 	realtimeIdentityCache.Lock()
-	realtimeIdentityCache.entries = make(map[string]realtimeIdentityCacheEntry)
+	realtimeIdentityCache.entries = make(map[realtimeIdentityCacheKey]realtimeIdentityCacheEntry)
 	realtimeIdentityCache.clock = 0
 	realtimeIdentityCache.hits = 0
 	realtimeIdentityCache.misses = 0

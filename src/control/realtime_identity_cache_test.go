@@ -54,6 +54,12 @@ func TestRealtimeIdentityCacheScopesSemanticRequestAndEvictsBoundedly(t *testing
 	if err != nil || changedRevision == first {
 		t.Fatalf("profile revision did not invalidate identity: changed=%q first=%q err=%v", changedRevision, first, err)
 	}
+	changedPolicy := profile
+	changedPolicy.GenerationPolicy.Version += "-cache-invalidation"
+	changedPolicyIdentity, err := realtimeIdentityFromPreparedBody(buyer, changedPolicy, body)
+	if err != nil || changedPolicyIdentity == first {
+		t.Fatalf("generation policy revision did not invalidate identity: changed=%q first=%q err=%v", changedPolicyIdentity, first, err)
+	}
 	oversized := make([]byte, realtimeIdentityCacheMaxBody+1)
 	if _, err := realtimeIdentityFromPreparedBody(buyer, profile, oversized); err == nil {
 		t.Fatal("oversized identity body entered cache")
