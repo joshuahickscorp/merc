@@ -1,5 +1,5 @@
 {
-  "authority_sha256": "c63a346d5d222f106918b1a08100092bba4e2ca706d24ce5739181ad51186658",
+  "authority_sha256": "d0161c04078e56fd8023c60b57b78a65f10d658a82348adbd8e98ffbe5795837",
   "dependencies": {
     "go_direct": 6,
     "cargo_direct": 30,
@@ -8,7 +8,7 @@
   },
   "files": {
     ".dockerignore": 41,
-    ".gitattributes": 4,
+    ".gitattributes": 3,
     ".githooks/pre-push": 27,
     ".github/CODEOWNERS": 34,
     ".github/ISSUE_TEMPLATE/bug_report.yml": 52,
@@ -17,12 +17,12 @@
     ".github/workflows/agent-release.yml": 242,
     ".github/workflows/ci.yml": 332,
     ".github/workflows/publish-candidate.yml": 194,
-    ".gitignore": 177,
+    ".gitignore": 178,
     ".lfsconfig": 12,
     "LICENSE": 47,
     "Makefile": 467,
     "NOTICE": 66,
-    "README.md": 81,
+    "README.md": 83,
     "clients/cli/LICENSE": 202,
     "clients/cli/README.md": 13,
     "clients/macapp/ComputeExchangeAgent/merc-agent.sb": 162,
@@ -65,12 +65,15 @@
     "clients/web/logo/cx-capsule-target.svg": 95,
     "clients/web/logo/cx-mark-white.png": 0,
     "clients/web/logo/cx_logo.png": 0,
-    "clients/web/online": 0,
     "clients/web/prices.html": 217,
     "clients/web/site.webmanifest": 11,
     "clients/web/supplier.html": 138,
     "docs/ACCEPTABLE_USE_AND_ABUSE_RESPONSE.md": 155,
     "docs/ALPHA_BUYER_ACKNOWLEDGEMENT.md": 111,
+    "docs/ALPHA_CANARY_REHEARSAL_L11.md": 154,
+    "docs/ALPHA_GATE_PLAN.md": 478,
+    "docs/ALPHA_GOVERNANCE_DRAFT_REPORT.md": 249,
+    "docs/ALPHA_LAUNCH_READINESS.md": 91,
     "docs/ALPHA_PAYMENT_PAYOUT_DISCLOSURE.md": 123,
     "docs/ALPHA_RISK_DISCLOSURE.md": 108,
     "docs/ALPHA_SUPPLIER_ACKNOWLEDGEMENT.md": 105,
@@ -92,23 +95,11 @@
     "docs/SUPPLY_CHAIN_POLICY.md": 29,
     "docs/SUPPORT_AND_INCIDENT_RUNBOOK.md": 138,
     "docs/THIRD_PARTY_LICENSES.md": 303,
-    "docs/archive/BUCKETS.md": 107,
-    "docs/archive/LEDGERS.md": 149,
-    "docs/archive/README.md": 19,
-    "docs/archive/TRUE_REDUCTION_SYNTHESIS.md": 145,
-    "docs/archive/engineering/ARCHITECTURE_2026-08-28.md": 1963,
-    "docs/archive/engineering/BACKEND_ALPHA_CLOSEOUT.md": 400,
-    "docs/archive/engineering/CLOSEOUT_AUDIT.md": 683,
-    "docs/archive/engineering/DROPLET_SCALING.md": 113,
-    "docs/archive/engineering/NETWORK_V2_AUTHORITY_MIGRATION_REGISTER.md": 660,
-    "docs/archive/engineering/NETWORK_V2_EXECUTION_PLAN.md": 2470,
-    "docs/archive/engineering/PROGRAMME.md": 3543,
-    "docs/archive/engineering/RENAME_REGISTER.md": 175,
-    "docs/archive/engineering/WEBSITE_3D_BLENDER_STATUS_2026-07-19.md": 150,
-    "docs/archive/staging/ALPHA_CANARY_REHEARSAL_L11.md": 154,
-    "docs/archive/staging/ALPHA_GATE_PLAN.md": 478,
-    "docs/archive/staging/ALPHA_GOVERNANCE_DRAFT_REPORT.md": 249,
-    "docs/archive/staging/ALPHA_LAUNCH_READINESS.md": 91,
+    "docs/archive/README.md": 18,
+    "docs/archive/engineering/NETWORK_V2_AUTHORITY_MIGRATION_REGISTER.md": 21,
+    "docs/archive/engineering/NETWORK_V2_EXECUTION_PLAN.md": 28,
+    "docs/archive/engineering/PROGRAMME.md": 45,
+    "docs/archive/engineering/RENAME_REGISTER.md": 20,
     "docs/generated/license-inventory.json": 7047,
     "docs/screenshots/site-1440.png": 0,
     "docs/screenshots/site-390.png": 0,
@@ -195,7 +186,7 @@
     "evidence/canary/sdk-conformance-real-engine.json": 48,
     "evidence/canary/stripe-cad-supplier-matrix-0a4b66cb.json": 97,
     "evidence/census/.gitignore": 4,
-    "evidence/census/CODEBASE_CENSUS.json": 1572,
+    "evidence/census/CODEBASE_CENSUS.json": 1557,
     "evidence/census/CODEBASE_CENSUS.md": 42,
     "evidence/chain/agent-build-receipt.json": 27,
     "evidence/chain/embed-candle_metal.json": 1,
@@ -380,6 +371,7 @@
     "evidence/state/release-image-boot.json": 33,
     "evidence/state/sbom.json": 9723,
     "evidence/workload-catalog/realtime-chat-v1.json": 11,
+    "ops/README.md": 42,
     "ops/agent-review-notes.json": 722,
     "ops/asset-provenance.json": 56,
     "ops/authorization-matrix.json": 257,
@@ -421,7 +413,7 @@
     "ops/monitoring/grafana/provisioning/datasources/prometheus.yml": 9,
     "ops/monitoring/prometheus.yml": 28,
     "ops/offsite-backup-destination.json": 17,
-    "ops/placement-readiness-contract.json": 149,
+    "ops/placement-readiness-contract.json": 148,
     "ops/programme-baseline.json": 6,
     "ops/readiness.json": 229,
     "ops/rename-residue.json": 41,
@@ -458,7 +450,6 @@
     "ops/scripts/bench-report.py": 165,
     "ops/scripts/blender-render-baseline.py": 280,
     "ops/scripts/bootstrap-prod.sh": 147,
-    "ops/scripts/bootstrap-runpodctl.sh": 73,
     "ops/scripts/branch-state-receipt.py": 613,
     "ops/scripts/build-cli-release.sh": 69,
     "ops/scripts/buyer-dashboard-live.mjs": 115,
@@ -495,7 +486,6 @@
     "ops/scripts/hydrate-release-lfs.sh": 62,
     "ops/scripts/install.ps1": 156,
     "ops/scripts/install.sh": 535,
-    "ops/scripts/lib/__init__.py": 0,
     "ops/scripts/lib/cloudflare-auth.sh": 57,
     "ops/scripts/lib/compose-prod.sh": 38,
     "ops/scripts/lib/device_placement.py": 581,
@@ -556,16 +546,14 @@
     "ops/scripts/recovery-suite.sh": 155,
     "ops/scripts/release-doctor.sh": 224,
     "ops/scripts/release-staging.sh": 94,
-    "ops/scripts/rename-residue-audit.py": 283,
+    "ops/scripts/rename-residue-audit.py": 282,
     "ops/scripts/render/device_placement_bench.py": 1216,
-    "ops/scripts/render/lib/__init__.py": 0,
     "ops/scripts/render/lib/pngutil.py": 261,
     "ops/scripts/render/lib/settings.py": 71,
     "ops/scripts/render/metal/__init__.py": 2,
     "ops/scripts/render/metal/blender_entry.py": 415,
     "ops/scripts/render/metal/device.py": 281,
     "ops/scripts/render/metal/scenes.py": 763,
-    "ops/scripts/render/verify/__init__.py": 0,
     "ops/scripts/render/verify/blender_service.py": 293,
     "ops/scripts/restore-drill.sh": 450,
     "ops/scripts/restore.sh": 125,
@@ -578,7 +566,6 @@
     "ops/scripts/runpod-power-drive.sh": 331,
     "ops/scripts/runpod-spend-guard.py": 1074,
     "ops/scripts/runpod-vllm.sh": 690,
-    "ops/scripts/runpodctl.sha256": 3,
     "ops/scripts/runtime-parity-sweep.py": 219,
     "ops/scripts/sdk-live-python.py": 29,
     "ops/scripts/sdk-live-typescript.mjs": 25,
@@ -593,7 +580,6 @@
     "ops/scripts/seed-batch-infer-honeypot.sh": 128,
     "ops/scripts/site-build.mjs": 170,
     "ops/scripts/soak/.gitignore": 2,
-    "ops/scripts/soak/.gitkeep": 0,
     "ops/scripts/soak/run/.gitignore": 2,
     "ops/scripts/soak/soak24.py": 871,
     "ops/scripts/soak/test_soak24.py": 183,
@@ -659,7 +645,7 @@
     "ops/scripts/validate-authorization-matrix.py": 98,
     "ops/scripts/validate-backup-verification-receipt.py": 242,
     "ops/scripts/validate-canary-scenario-receipt.py": 330,
-    "ops/scripts/validate-claim-surfaces.py": 220,
+    "ops/scripts/validate-claim-surfaces.py": 217,
     "ops/scripts/validate-evidence-binding.py": 587,
     "ops/scripts/validate-go-closure-evidence-chain.py": 1079,
     "ops/scripts/validate-go-closure-scaffold.sh": 261,
@@ -700,7 +686,6 @@
     "ops/systemd/merc-backup.service": 22,
     "ops/systemd/merc-backup.timer": 13,
     "ops/test-tiers.json": 47,
-    "ops/tooling/runpodctl": 0,
     "src/agent/Cargo.lock": 4086,
     "src/agent/Cargo.toml": 58,
     "src/agent/LICENSE": 202,
@@ -1358,19 +1343,19 @@
     },
     "config": {
       "files": 10,
-      "loc": 1017,
-      "code": 661,
+      "loc": 1018,
+      "code": 662,
       "blank": 137,
       "comment": 219,
-      "bytes": 46945
+      "bytes": 46967
     },
     "documentation": {
-      "files": 57,
-      "loc": 22043,
-      "code": 17775,
-      "blank": 4268,
+      "files": 50,
+      "loc": 11642,
+      "code": 9485,
+      "blank": 2157,
       "comment": 0,
-      "bytes": 1277808
+      "bytes": 658976
     },
     "go": {
       "files": 607,
@@ -1378,7 +1363,7 @@
       "code": 202297,
       "blank": 13449,
       "comment": 24920,
-      "bytes": 9634585
+      "bytes": 9634563
     },
     "javascript": {
       "files": 11,
@@ -1390,11 +1375,11 @@
     },
     "json": {
       "files": 294,
-      "loc": 778223,
-      "code": 778223,
+      "loc": 778207,
+      "code": 778207,
       "blank": 0,
       "comment": 0,
-      "bytes": 21867407
+      "bytes": 21866461
     },
     "lockfile": {
       "files": 2,
@@ -1405,20 +1390,20 @@
       "bytes": 107342
     },
     "other": {
-      "files": 31,
-      "loc": 1835,
-      "code": 1601,
+      "files": 27,
+      "loc": 1831,
+      "code": 1597,
       "blank": 234,
       "comment": 0,
-      "bytes": 13268599
+      "bytes": 93231
     },
     "python": {
-      "files": 111,
-      "loc": 45517,
-      "code": 39783,
+      "files": 108,
+      "loc": 45513,
+      "code": 39781,
       "blank": 4423,
-      "comment": 1311,
-      "bytes": 1775590
+      "comment": 1309,
+      "bytes": 1775195
     },
     "rust": {
       "files": 24,
@@ -1429,12 +1414,12 @@
       "bytes": 781547
     },
     "shell": {
-      "files": 131,
-      "loc": 27766,
-      "code": 22787,
-      "blank": 2173,
-      "comment": 2806,
-      "bytes": 1216923
+      "files": 130,
+      "loc": 27693,
+      "code": 22729,
+      "blank": 2163,
+      "comment": 2801,
+      "bytes": 1214671
     },
     "sql": {
       "files": 2,
@@ -1495,12 +1480,12 @@
       "bytes": 23190
     },
     "documentation": {
-      "files": 43,
-      "loc": 22261,
-      "code": 19242,
-      "blank": 3019,
+      "files": 35,
+      "loc": 11816,
+      "code": 10917,
+      "blank": 899,
       "comment": 0,
-      "bytes": 1654280
+      "bytes": 1033570
     },
     "interface": {
       "files": 2,
@@ -1511,20 +1496,20 @@
       "bytes": 17470
     },
     "ops": {
-      "files": 1277,
-      "loc": 1131561,
-      "code": 1075378,
-      "blank": 24060,
-      "comment": 32123,
-      "bytes": 53786666
+      "files": 1270,
+      "loc": 1131524,
+      "code": 1075349,
+      "blank": 24059,
+      "comment": 32116,
+      "bytes": 40610388
     },
     "proof": {
       "files": 4,
-      "loc": 1671,
-      "code": 1662,
+      "loc": 1656,
+      "code": 1647,
       "blank": 8,
       "comment": 1,
-      "bytes": 75272
+      "bytes": 74467
     },
     "sdk": {
       "files": 10,
@@ -1536,12 +1521,12 @@
     }
   },
   "ownership": {
-    "global_owned_loc": 1157701,
-    "non_design_production_core_loc": 1008341,
+    "global_owned_loc": 1147204,
+    "non_design_production_core_loc": 1008260,
     "test_loc": 120895,
-    "documentation_loc": 22043,
-    "python_loc": 45517,
-    "generated_loc": 6103,
+    "documentation_loc": 11642,
+    "python_loc": 45513,
+    "generated_loc": 6088,
     "vendored_upstream_loc": 0,
     "relocated_loc": 0,
     "first_party_patch_loc": 0
@@ -1565,8 +1550,8 @@
       "media_rendering"
     ]
   },
-  "tracked_bytes": 55610427,
-  "tracked_files": 1339,
+  "tracked_bytes": 41812634,
+  "tracked_files": 1324,
   "untracked_files": 0,
-  "walked_files": 1339
+  "walked_files": 1324
 }
