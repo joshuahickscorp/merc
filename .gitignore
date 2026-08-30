@@ -1,6 +1,5 @@
 # ── Build artifacts ──────────────────────────────────────────────────────────
-# Rust (src/agent/)
-src/agent/target/
+# Rust crate build output
 **/*.rs.bk
 # Go (src/control/) — compiled binaries and test/coverage output
 src/control/merc
@@ -24,7 +23,6 @@ clients/sdk/python/*.egg-info/
 # proof ledger under .artifacts/. Logs and pidfiles from any ad-hoc local runs.
 # Never commit these.
 .artifacts/
-ops/scripts/*.log
 *.log
 *.pid
 
@@ -99,12 +97,8 @@ ops/stripe-secret-exposure.??????
 ops/tooling/runpodctl
 clients/web/admin-demo.html
 
-# rust crate build dirs (spec-engine, token-spec-poc, renderer)
+# Rust crate build dirs (agent, spec-engine, token-spec-poc, renderer)
 target/
-
-# python bytecode
-__pycache__/
-*.pyc
 
 # regenerable render diagnostics (pixel artifacts; the builders + ledgers are the trail)
 diag_images/

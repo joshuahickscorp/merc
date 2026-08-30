@@ -472,7 +472,7 @@ var declaredMoneyAuthority = []string{
 	"clampSettlementToContributionFloorUSD",               // observed_output_settlement.go
 	"clawbackTaskCreditTx",                                // verification_apply.go
 	"cmdLaunchInputs",                                     // release_launch.go
-	"cmdProve",                                            // prove_registry.go
+	"cmdProve",                                            // prove.go
 	"cmdReleaseEvidence",                                  // release_launch.go
 	"cmdSourceID",                                         // prove.go
 	"cmdVerify",                                           // prove.go

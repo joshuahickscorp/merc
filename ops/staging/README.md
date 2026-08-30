@@ -78,6 +78,12 @@ state file's source fingerprint and start window, can close the 24-hour gate.
 Use `--target local` only for an isolated host rehearsal. It does not close the
 persistent external staging blocker.
 
+The public `:443` bind is an explicit operator action, not a repository script:
+set `CADDY_TLS_BIND` to the approved public interface and run the production,
+smallhost, and canary compose files together on the staging host. The default
+loopback compose remains the safe local rehearsal boundary; do not publish it
+from this checkout or infer publication from a dry run.
+
 ## Driver receipts
 
 The canary scenario driver is invoked as:

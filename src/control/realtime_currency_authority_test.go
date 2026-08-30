@@ -180,3 +180,9 @@ func TestRealtimeIngressRefusesDriftedFrozenFXAuthority(t *testing.T) {
 		t.Fatalf("drift refusal is not explicit: %v", err)
 	}
 }
+
+func installRealtimeCADFXForTest(t *testing.T) {
+	t.Helper()
+	t.Setenv(priceFXRateEnv, "1.37")
+	t.Setenv(priceFXRevisionEnv, "realtime-test-cad-usd-2026-08-09")
+}

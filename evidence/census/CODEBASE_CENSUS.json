@@ -1,5 +1,5 @@
 {
-  "authority_sha256": "d0161c04078e56fd8023c60b57b78a65f10d658a82348adbd8e98ffbe5795837",
+  "authority_sha256": "cc172c05547b72d8c8e083fc13868d9e99d37a31d0cec1ecb1e6bb694da317d0",
   "dependencies": {
     "go_direct": 6,
     "cargo_direct": 30,
@@ -17,7 +17,7 @@
     ".github/workflows/agent-release.yml": 242,
     ".github/workflows/ci.yml": 332,
     ".github/workflows/publish-candidate.yml": 194,
-    ".gitignore": 178,
+    ".gitignore": 172,
     ".lfsconfig": 12,
     "LICENSE": 47,
     "Makefile": 467,
@@ -186,7 +186,7 @@
     "evidence/canary/sdk-conformance-real-engine.json": 48,
     "evidence/canary/stripe-cad-supplier-matrix-0a4b66cb.json": 97,
     "evidence/census/.gitignore": 4,
-    "evidence/census/CODEBASE_CENSUS.json": 1557,
+    "evidence/census/CODEBASE_CENSUS.json": 1553,
     "evidence/census/CODEBASE_CENSUS.md": 42,
     "evidence/chain/agent-build-receipt.json": 27,
     "evidence/chain/embed-candle_metal.json": 1,
@@ -583,7 +583,6 @@
     "ops/scripts/soak/run/.gitignore": 2,
     "ops/scripts/soak/soak24.py": 871,
     "ops/scripts/soak/test_soak24.py": 183,
-    "ops/scripts/staging-alpha-tls-public.sh": 13,
     "ops/scripts/stamp-evidence-binding.py": 344,
     "ops/scripts/start-local-soak-24h.sh": 96,
     "ops/scripts/stripe-sandbox-connect.sh": 158,
@@ -674,7 +673,7 @@
     "ops/smallhost/postgresql.conf": 101,
     "ops/smallhost/prometheus.yml": 33,
     "ops/staging/Caddyfile.alpha": 73,
-    "ops/staging/README.md": 272,
+    "ops/staging/README.md": 278,
     "ops/staging/alpha-e2e-rehearsal.json": 36,
     "ops/staging/alpha-participants.json": 49,
     "ops/staging/compose.alpha.yml": 33,
@@ -759,7 +758,7 @@
     "src/control/benchmark_comparison_contract.go": 239,
     "src/control/benchmark_comparison_contract_test.go": 337,
     "src/control/benchmark_corroboration.go": 202,
-    "src/control/billing.go": 762,
+    "src/control/billing.go": 781,
     "src/control/billing_classes.go": 164,
     "src/control/billing_classes_test.go": 145,
     "src/control/billing_schema_integration_test.go": 69,
@@ -1063,8 +1062,7 @@
     "src/control/project_submit_test.go": 308,
     "src/control/project_topology.go": 77,
     "src/control/project_workload_graph_step16_test.go": 306,
-    "src/control/prove.go": 167,
-    "src/control/prove_registry.go": 48,
+    "src/control/prove.go": 208,
     "src/control/provider_cost_authority.go": 275,
     "src/control/provider_cost_authority_test.go": 67,
     "src/control/public_config.go": 89,
@@ -1087,9 +1085,8 @@
     "src/control/realtime_clearing.go": 274,
     "src/control/realtime_clearing_test.go": 628,
     "src/control/realtime_currency_authority.go": 255,
-    "src/control/realtime_currency_authority_test.go": 182,
+    "src/control/realtime_currency_authority_test.go": 188,
     "src/control/realtime_currency_integration_test.go": 269,
-    "src/control/realtime_currency_test_helpers_test.go": 9,
     "src/control/realtime_funding_hold_precision_test.go": 411,
     "src/control/realtime_funding_settlement_test.go": 676,
     "src/control/realtime_identity_cache.go": 135,
@@ -1132,7 +1129,6 @@
     "src/control/release_ui.go": 112,
     "src/control/release_ui_test.go": 41,
     "src/control/remainder_carry_wiring_test.go": 55,
-    "src/control/remote_response.go": 26,
     "src/control/render_assembly.go": 137,
     "src/control/render_assembly_receipts.go": 188,
     "src/control/render_contract.go": 115,
@@ -1343,27 +1339,27 @@
     },
     "config": {
       "files": 10,
-      "loc": 1018,
-      "code": 662,
-      "blank": 137,
-      "comment": 219,
-      "bytes": 46967
+      "loc": 1012,
+      "code": 658,
+      "blank": 136,
+      "comment": 218,
+      "bytes": 46906
     },
     "documentation": {
       "files": 50,
-      "loc": 11642,
-      "code": 9485,
-      "blank": 2157,
+      "loc": 11648,
+      "code": 9490,
+      "blank": 2158,
       "comment": 0,
-      "bytes": 658976
+      "bytes": 659347
     },
     "go": {
-      "files": 607,
-      "loc": 240666,
-      "code": 202297,
-      "blank": 13449,
+      "files": 604,
+      "loc": 240649,
+      "code": 202283,
+      "blank": 13446,
       "comment": 24920,
-      "bytes": 9634563
+      "bytes": 9634419
     },
     "javascript": {
       "files": 11,
@@ -1375,11 +1371,11 @@
     },
     "json": {
       "files": 294,
-      "loc": 778207,
-      "code": 778207,
+      "loc": 778203,
+      "code": 778203,
       "blank": 0,
       "comment": 0,
-      "bytes": 21866461
+      "bytes": 21866266
     },
     "lockfile": {
       "files": 2,
@@ -1414,12 +1410,12 @@
       "bytes": 781547
     },
     "shell": {
-      "files": 130,
-      "loc": 27693,
-      "code": 22729,
+      "files": 129,
+      "loc": 27680,
+      "code": 22726,
       "blank": 2163,
-      "comment": 2801,
-      "bytes": 1214671
+      "comment": 2791,
+      "bytes": 1214160
     },
     "sql": {
       "files": 2,
@@ -1496,20 +1492,20 @@
       "bytes": 17470
     },
     "ops": {
-      "files": 1270,
-      "loc": 1131524,
-      "code": 1075349,
-      "blank": 24059,
-      "comment": 32116,
-      "bytes": 40610388
+      "files": 1266,
+      "loc": 1131494,
+      "code": 1075333,
+      "blank": 24056,
+      "comment": 32105,
+      "bytes": 40610043
     },
     "proof": {
       "files": 4,
-      "loc": 1656,
-      "code": 1647,
+      "loc": 1652,
+      "code": 1643,
       "blank": 8,
       "comment": 1,
-      "bytes": 74467
+      "bytes": 74272
     },
     "sdk": {
       "files": 10,
@@ -1521,12 +1517,12 @@
     }
   },
   "ownership": {
-    "global_owned_loc": 1147204,
-    "non_design_production_core_loc": 1008260,
-    "test_loc": 120895,
-    "documentation_loc": 11642,
+    "global_owned_loc": 1147170,
+    "non_design_production_core_loc": 1008227,
+    "test_loc": 120892,
+    "documentation_loc": 11648,
     "python_loc": 45513,
-    "generated_loc": 6088,
+    "generated_loc": 6084,
     "vendored_upstream_loc": 0,
     "relocated_loc": 0,
     "first_party_patch_loc": 0
@@ -1550,8 +1546,8 @@
       "media_rendering"
     ]
   },
-  "tracked_bytes": 41812634,
-  "tracked_files": 1324,
+  "tracked_bytes": 41812094,
+  "tracked_files": 1320,
   "untracked_files": 0,
-  "walked_files": 1324
+  "walked_files": 1320
 }
