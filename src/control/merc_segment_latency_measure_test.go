@@ -748,6 +748,7 @@ func oneAuthorizeDecomposition(
 		candidateCount       int
 		selectedRank         int
 		selectedWarmth       string
+		offerLastSeen        time.Time
 		terminalAttempts     int
 		terminalFails        int
 		verifiedSettlements  int
@@ -759,7 +760,7 @@ func oneAuthorizeDecomposition(
 		profile.BuyerInputUSDPerMillionTokens, profile.BuyerOutputUSDPerMillionTokens,
 		minRealtimeOutcomeSamples).
 		Scan(&workerID, &supplierID, &baseURL, &sealed, &supplierInput, &supplierOutput,
-			&placementJSON, &placementSHA256, &selectedWarmth, &candidateCount, &selectedRank,
+			&placementJSON, &placementSHA256, &selectedWarmth, &offerLastSeen, &candidateCount, &selectedRank,
 			&terminalAttempts, &terminalFails, &verifiedSettlements, &refundCount,
 			&consideredJSON)
 	_ = consideredJSON

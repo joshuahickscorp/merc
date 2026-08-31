@@ -351,6 +351,20 @@ func TestRealtimeAuthorizeSQLUsesStatsJoin(t *testing.T) {
 	}
 }
 
+func TestRealtimeAuthorizeSQLReturnsSelectedOfferLastSeen(t *testing.T) {
+	for _, name := range []struct {
+		label string
+		sql   string
+	}{
+		{"blocking", realtimeAuthorizeSelectOfferSQLBlocking},
+		{"skip", realtimeAuthorizeSelectOfferSQLSkip},
+	} {
+		if !strings.Contains(name.sql, "o.last_seen_at") || !strings.Contains(name.sql, "u.last_seen_at") {
+			t.Fatalf("%s authorize SQL must return the selected offer last_seen_at from the claim", name.label)
+		}
+	}
+}
+
 func TestDiffRealtimeSupplierOutcomeStatsEmptyWhenEqual(t *testing.T) {
 	id := uuid.New()
 	a := []realtimeSupplierOutcomeStats{{

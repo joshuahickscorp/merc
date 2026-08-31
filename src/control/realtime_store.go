@@ -1074,6 +1074,7 @@ func (s *Store) AuthorizeRealtimeContract(ctx context.Context, auth RealtimeCont
 		candidateCount       int
 		selectedRank         int
 		selectedWarmth       string
+		offerLastSeen        time.Time
 		terminalAttempts     int
 		terminalFails        int
 		verifiedSettlements  int
@@ -1134,7 +1135,7 @@ func (s *Store) AuthorizeRealtimeContract(ctx context.Context, auth RealtimeCont
 			auth.Profile.BuyerInputUSDPerMillionTokens, auth.Profile.BuyerOutputUSDPerMillionTokens,
 			minRealtimeOutcomeSamples).
 			Scan(&workerID, &supplierID, &baseURL, &sealed, &supplierInput, &supplierOutput,
-				&placementJSON, &placementSHA256, &selectedWarmth, &candidateCount, &selectedRank,
+				&placementJSON, &placementSHA256, &selectedWarmth, &offerLastSeen, &candidateCount, &selectedRank,
 				&terminalAttempts, &terminalFails, &verifiedSettlements, &refundCount,
 				&consideredJSON)
 	}
@@ -1219,14 +1220,9 @@ func (s *Store) AuthorizeRealtimeContract(ctx context.Context, auth RealtimeCont
 	// Soft warmth belief: record offer last_seen_at when present so a warmth
 	// tiebreak is auditable. LocalityDroveSelection stays false unless a
 	// later step proves affinity moved the pick inside a cost class — the
-	// authorize SQL does not return peer cost equality.
-	var offerLastSeen time.Time
-	_ = tx.QueryRow(ctx, `
-		SELECT last_seen_at FROM realtime_worker_offers
-		 WHERE worker_id=$1 AND runtime_profile_id=$2 AND runtime_profile_sha256=$3
-		   AND status='ACTIVE'`,
-		workerID, auth.Profile.RuntimeProfileID, auth.Profile.ProfileSHA256,
-	).Scan(&offerLastSeen)
+	// authorize SQL returns the selected offer's liveness stamp while holding the
+	// same row lock used for the capacity decrement; no second read can observe
+	// a different offer state before this transaction commits.
 	workerPlacement, err := newRealtimeWorkerPlacement(
 		marketDecision, marketDigest, selectedWarmth, offerLastSeen, false)
 	if err != nil {

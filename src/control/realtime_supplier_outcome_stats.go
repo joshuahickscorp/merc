@@ -197,6 +197,7 @@ const realtimeAuthorizeSelectOfferSQLSkip = realtimeAuthorizeCandidatesCTE + `
 			           o.supplier_input_usd_per_million_tokens::float8,
 			           o.supplier_output_usd_per_million_tokens::float8,
 			           o.placement_plan,o.placement_plan_sha256,o.warmth,
+			           o.last_seen_at,
 			           c.candidate_count,c.selected_rank,
 			           c.terminal_attempts,c.terminal_fails,
 			           c.verified_settlements,c.refund_count
@@ -205,6 +206,7 @@ const realtimeAuthorizeSelectOfferSQLSkip = realtimeAuthorizeCandidatesCTE + `
 		       u.supplier_input_usd_per_million_tokens::float8,
 		       u.supplier_output_usd_per_million_tokens::float8,
 		       u.placement_plan,u.placement_plan_sha256,u.warmth,
+		       u.last_seen_at,
 		       u.candidate_count,u.selected_rank,
 		       u.terminal_attempts,u.terminal_fails,u.verified_settlements,u.refund_count,
 		       b.considered
@@ -238,6 +240,7 @@ const realtimeAuthorizeSelectOfferSQLBlocking = realtimeAuthorizeCandidatesCTE +
 			           o.supplier_input_usd_per_million_tokens::float8,
 			           o.supplier_output_usd_per_million_tokens::float8,
 			           o.placement_plan,o.placement_plan_sha256,o.warmth,
+			           o.last_seen_at,
 			           c.candidate_count,c.selected_rank,
 			           c.terminal_attempts,c.terminal_fails,
 			           c.verified_settlements,c.refund_count
@@ -246,6 +249,7 @@ const realtimeAuthorizeSelectOfferSQLBlocking = realtimeAuthorizeCandidatesCTE +
 		       u.supplier_input_usd_per_million_tokens::float8,
 		       u.supplier_output_usd_per_million_tokens::float8,
 		       u.placement_plan,u.placement_plan_sha256,u.warmth,
+		       u.last_seen_at,
 		       u.candidate_count,u.selected_rank,
 		       u.terminal_attempts,u.terminal_fails,u.verified_settlements,u.refund_count,
 		       b.considered

@@ -626,6 +626,7 @@ func measureHotPathAuthorize(
 		var inRate, outRate float64
 		var plan []byte
 		var planSHA *string
+		var offerLastSeen time.Time
 		var cand, rank, ta, tf, vs, rc int
 		var considered []byte
 		err = tx.QueryRow(context.Background(), realtimeAuthorizeSelectOfferSQLSkip,
@@ -633,7 +634,7 @@ func measureHotPathAuthorize(
 			profile.BuyerInputUSDPerMillionTokens, profile.BuyerOutputUSDPerMillionTokens,
 			minRealtimeOutcomeSamples).Scan(
 			&workerID, &supplierID, &url, &sealed, &inRate, &outRate, &plan, &planSHA, &warmth,
-			&cand, &rank, &ta, &tf, &vs, &rc, &considered)
+			&offerLastSeen, &cand, &rank, &ta, &tf, &vs, &rc, &considered)
 		_ = tx.Rollback(context.Background())
 		if err != nil {
 			return "EMPTY", err
