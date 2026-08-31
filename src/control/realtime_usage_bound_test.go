@@ -44,6 +44,14 @@ func TestUsageBeyondTheGeneratedStreamIsRefused(t *testing.T) {
 	}
 }
 
+func TestStreamLengthOnlyDecodeStillValidatesJSON(t *testing.T) {
+	tracker := newStreamEvidenceTracker(time.Now())
+	err := tracker.addEvent([]byte("data: {\"choices\":[{\"delta\":{\"content\":}}]}\n\n"))
+	if err == nil || !strings.Contains(err.Error(), "malformed SSE JSON") {
+		t.Fatalf("malformed JSON bypassed stream validation: %v", err)
+	}
+}
+
 func TestAnHonestResponseIsNeverRefused(t *testing.T) {
 	// Roughly four bytes per token is ordinary for English, so an honest
 	// response sits well inside the ceiling. This is the false-positive guard:

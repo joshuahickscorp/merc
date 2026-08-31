@@ -571,6 +571,17 @@ type streamEvidenceTracker struct {
 	firstEventAt   time.Time
 }
 
+// realtimeRawJSONLength preserves the existing generated-byte rule without
+// retaining a copy of JSON leaves that are only measured, never read. The
+// enclosing json.Unmarshal still validates the complete response before this
+// hook runs, so this is not a weaker parser.
+type realtimeRawJSONLength int
+
+func (r *realtimeRawJSONLength) UnmarshalJSON(data []byte) error {
+	*r = realtimeRawJSONLength(len(data))
+	return nil
+}
+
 func newStreamEvidenceTracker(startedAt time.Time) *streamEvidenceTracker {
 	return &streamEvidenceTracker{output: sha256.New(), startedAt: startedAt}
 }
@@ -656,23 +667,23 @@ func (t *streamEvidenceTracker) addEvent(event []byte) error {
 			}
 			var chunk struct {
 				ID string `json:"id"`
-				// Raw rather than typed: an upstream that returns content in a
+				// Length-only rather than typed: an upstream that returns content in a
 				// shape this struct does not expect would fail the whole unmarshal
 				// and turn an honest response into a rejection. Raw length
 				// over-counts by the surrounding quotes, which only loosens a
 				// ceiling that must never refuse real work.
 				Choices []struct {
 					Delta struct {
-						Content   json.RawMessage `json:"content"`
-						Reasoning json.RawMessage `json:"reasoning_content"`
+						Content   realtimeRawJSONLength `json:"content"`
+						Reasoning realtimeRawJSONLength `json:"reasoning_content"`
 						ToolCalls []struct {
 							Function struct {
-								Name      json.RawMessage `json:"name"`
-								Arguments json.RawMessage `json:"arguments"`
+								Name      realtimeRawJSONLength `json:"name"`
+								Arguments realtimeRawJSONLength `json:"arguments"`
 							} `json:"function"`
 						} `json:"tool_calls"`
 					} `json:"delta"`
-					Text json.RawMessage `json:"text"`
+					Text realtimeRawJSONLength `json:"text"`
 				} `json:"choices"`
 				Usage *struct {
 					PromptTokens     int64 `json:"prompt_tokens"`
@@ -695,12 +706,12 @@ func (t *streamEvidenceTracker) addEvent(event []byte) error {
 			// text, tool-call arguments, and reasoning traces that never reach the
 			// buyer as content but are still generated tokens.
 			for _, choice := range chunk.Choices {
-				t.generatedBytes += int64(len(choice.Delta.Content))
-				t.generatedBytes += int64(len(choice.Delta.Reasoning))
-				t.generatedBytes += int64(len(choice.Text))
+				t.generatedBytes += int64(choice.Delta.Content)
+				t.generatedBytes += int64(choice.Delta.Reasoning)
+				t.generatedBytes += int64(choice.Text)
 				for _, call := range choice.Delta.ToolCalls {
-					t.generatedBytes += int64(len(call.Function.Name))
-					t.generatedBytes += int64(len(call.Function.Arguments))
+					t.generatedBytes += int64(call.Function.Name)
+					t.generatedBytes += int64(call.Function.Arguments)
 				}
 			}
 			if chunk.Usage != nil {
@@ -1580,20 +1591,20 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	stage = time.Now()
 	var completion struct {
 		ID string `json:"id"`
-		// Raw for the same reason as the streaming path: shape must not be
+		// Length-only for the same reason as the streaming path: shape must not be
 		// able to turn an honest response into a rejection.
 		Choices []struct {
 			Message struct {
-				Content   json.RawMessage `json:"content"`
-				Reasoning json.RawMessage `json:"reasoning_content"`
+				Content   realtimeRawJSONLength `json:"content"`
+				Reasoning realtimeRawJSONLength `json:"reasoning_content"`
 				ToolCalls []struct {
 					Function struct {
-						Name      json.RawMessage `json:"name"`
-						Arguments json.RawMessage `json:"arguments"`
+						Name      realtimeRawJSONLength `json:"name"`
+						Arguments realtimeRawJSONLength `json:"arguments"`
 					} `json:"function"`
 				} `json:"tool_calls"`
 			} `json:"message"`
-			Text json.RawMessage `json:"text"`
+			Text realtimeRawJSONLength `json:"text"`
 		} `json:"choices"`
 		Usage struct {
 			PromptTokens     int64 `json:"prompt_tokens"`
@@ -1613,12 +1624,12 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	// is exact rather than accumulated.
 	var generatedBytes int64
 	for _, choice := range completion.Choices {
-		generatedBytes += int64(len(choice.Message.Content))
-		generatedBytes += int64(len(choice.Message.Reasoning))
-		generatedBytes += int64(len(choice.Text))
+		generatedBytes += int64(choice.Message.Content)
+		generatedBytes += int64(choice.Message.Reasoning)
+		generatedBytes += int64(choice.Text)
 		for _, call := range choice.Message.ToolCalls {
-			generatedBytes += int64(len(call.Function.Name))
-			generatedBytes += int64(len(call.Function.Arguments))
+			generatedBytes += int64(call.Function.Name)
+			generatedBytes += int64(call.Function.Arguments)
 		}
 	}
 	if err := boundCompletionTokens(completion.Usage.CompletionTokens, generatedBytes); err != nil {

@@ -106,10 +106,11 @@ boundary:
   reasoning, legacy-text, and multi-delta tests remain green.
 - SSE output commitments now return already-compact, HTML-safe JSON directly
   after the existing structural unmarshal and fall back to the canonical
-  encoder for whitespace or escape-sensitive payloads. The representative
-  tracker benchmark moved from 1.439 to 1.162 microseconds, 618 to 528 bytes,
-  and 14 to 12 allocations; a parity matrix covers compact, whitespace,
-  escaped, HTML-sensitive, Unicode-separator, and numeric payloads.
+  encoder for whitespace or escape-sensitive payloads. Length-only decoded
+  leaves keep the generated-byte bound without retaining copies; the current
+  tracker benchmark is about 1.1 microseconds, 472 bytes, and 11 allocations
+  per event. A parity matrix covers compact, whitespace, escaped, HTML-sensitive,
+  Unicode-separator, and numeric payloads.
 - Arrival compatibility keys now use direct string assembly, and sampling
   fingerprints use `strconv` byte encoding instead of reflective formatting.
   Representative construction moved from 86.4 to 34.6 nanoseconds for a lane
