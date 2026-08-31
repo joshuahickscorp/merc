@@ -152,6 +152,18 @@ func BenchmarkPrepareRealtimeRequest(b *testing.B) {
 	}
 }
 
+func BenchmarkStreamEvidenceTrackerAddEvent(b *testing.B) {
+	event := []byte("data: {\"id\":\"benchmark\",\"choices\":[{\"delta\":{\"content\":\"token\"}}]}\n\n")
+	tracker := newStreamEvidenceTracker(time.Now())
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if err := tracker.addEvent(event); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
 func TestPrepareRealtimeRequestKeepsUSDCeilingSeparateFromCADSettlement(t *testing.T) {
 	installSettlementCurrencyForTest(t, "cad")
 	installRealtimeCADFXForTest(t)

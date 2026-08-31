@@ -589,69 +589,85 @@ func (t *streamEvidenceTracker) addEvent(event []byte) error {
 	copy(t.previous[:], h.Sum(nil))
 	t.events++
 
-	for _, line := range bytes.Split(event, []byte{'\n'}) {
-		if !bytes.HasPrefix(line, []byte("data:")) {
-			continue
+	for offset := 0; offset <= len(event); {
+		end := bytes.IndexByte(event[offset:], '\n')
+		next := len(event) + 1
+		if end >= 0 {
+			end += offset
+			next = end + 1
+		} else {
+			end = len(event)
 		}
-		data := bytes.TrimSpace(bytes.TrimPrefix(line, []byte("data:")))
-		if bytes.Equal(data, []byte("[DONE]")) || len(data) == 0 {
-			continue
-		}
-		var chunk struct {
-			ID string `json:"id"`
-			// Raw rather than typed: an upstream that returns content in a
-			// shape this struct does not expect would fail the whole unmarshal
-			// and turn an honest response into a rejection. Raw length
-			// over-counts by the surrounding quotes, which only loosens a
-			// ceiling that must never refuse real work.
-			Choices []struct {
-				Delta struct {
-					Content   json.RawMessage `json:"content"`
-					Reasoning json.RawMessage `json:"reasoning_content"`
-					ToolCalls []struct {
-						Function struct {
-							Name      json.RawMessage `json:"name"`
-							Arguments json.RawMessage `json:"arguments"`
-						} `json:"function"`
-					} `json:"tool_calls"`
-				} `json:"delta"`
-				Text json.RawMessage `json:"text"`
-			} `json:"choices"`
-			Usage *struct {
-				PromptTokens     int64 `json:"prompt_tokens"`
-				CompletionTokens int64 `json:"completion_tokens"`
-				TotalTokens      int64 `json:"total_tokens"`
-			} `json:"usage"`
-		}
-		if err := json.Unmarshal(data, &chunk); err != nil {
-			return fmt.Errorf("upstream emitted malformed SSE JSON: %w", err)
-		}
-		canonical, err := canonicalJSON(json.RawMessage(data))
-		if err != nil {
-			return err
-		}
-		_, _ = t.output.Write(canonical)
-		if chunk.ID != "" {
-			t.upstreamID = chunk.ID
-		}
-		// Every shape the upstream can bill for: chat deltas, legacy completion
-		// text, tool-call arguments, and reasoning traces that never reach the
-		// buyer as content but are still generated tokens.
-		for _, choice := range chunk.Choices {
-			t.generatedBytes += int64(len(choice.Delta.Content))
-			t.generatedBytes += int64(len(choice.Delta.Reasoning))
-			t.generatedBytes += int64(len(choice.Text))
-			for _, call := range choice.Delta.ToolCalls {
-				t.generatedBytes += int64(len(call.Function.Name))
-				t.generatedBytes += int64(len(call.Function.Arguments))
+		line := event[offset:end]
+		if bytes.HasPrefix(line, []byte("data:")) {
+			data := bytes.TrimSpace(line[len("data:"):])
+			if bytes.Equal(data, []byte("[DONE]")) || len(data) == 0 {
+				if next > len(event) {
+					break
+				}
+				offset = next
+				continue
+			}
+			var chunk struct {
+				ID string `json:"id"`
+				// Raw rather than typed: an upstream that returns content in a
+				// shape this struct does not expect would fail the whole unmarshal
+				// and turn an honest response into a rejection. Raw length
+				// over-counts by the surrounding quotes, which only loosens a
+				// ceiling that must never refuse real work.
+				Choices []struct {
+					Delta struct {
+						Content   json.RawMessage `json:"content"`
+						Reasoning json.RawMessage `json:"reasoning_content"`
+						ToolCalls []struct {
+							Function struct {
+								Name      json.RawMessage `json:"name"`
+								Arguments json.RawMessage `json:"arguments"`
+							} `json:"function"`
+						} `json:"tool_calls"`
+					} `json:"delta"`
+					Text json.RawMessage `json:"text"`
+				} `json:"choices"`
+				Usage *struct {
+					PromptTokens     int64 `json:"prompt_tokens"`
+					CompletionTokens int64 `json:"completion_tokens"`
+					TotalTokens      int64 `json:"total_tokens"`
+				} `json:"usage"`
+			}
+			if err := json.Unmarshal(data, &chunk); err != nil {
+				return fmt.Errorf("upstream emitted malformed SSE JSON: %w", err)
+			}
+			canonical, err := canonicalJSON(json.RawMessage(data))
+			if err != nil {
+				return err
+			}
+			_, _ = t.output.Write(canonical)
+			if chunk.ID != "" {
+				t.upstreamID = chunk.ID
+			}
+			// Every shape the upstream can bill for: chat deltas, legacy completion
+			// text, tool-call arguments, and reasoning traces that never reach the
+			// buyer as content but are still generated tokens.
+			for _, choice := range chunk.Choices {
+				t.generatedBytes += int64(len(choice.Delta.Content))
+				t.generatedBytes += int64(len(choice.Delta.Reasoning))
+				t.generatedBytes += int64(len(choice.Text))
+				for _, call := range choice.Delta.ToolCalls {
+					t.generatedBytes += int64(len(call.Function.Name))
+					t.generatedBytes += int64(len(call.Function.Arguments))
+				}
+			}
+			if chunk.Usage != nil {
+				t.usageSeen = true
+				t.promptTokens = chunk.Usage.PromptTokens
+				t.completionTokens = chunk.Usage.CompletionTokens
+				t.totalTokens = chunk.Usage.TotalTokens
 			}
 		}
-		if chunk.Usage != nil {
-			t.usageSeen = true
-			t.promptTokens = chunk.Usage.PromptTokens
-			t.completionTokens = chunk.Usage.CompletionTokens
-			t.totalTokens = chunk.Usage.TotalTokens
+		if next > len(event) {
+			break
 		}
+		offset = next
 	}
 	return nil
 }
