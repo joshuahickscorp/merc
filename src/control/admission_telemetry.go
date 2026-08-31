@@ -66,19 +66,22 @@ func newAdmissionTelemetry(store *Store) *admissionTelemetry {
 	}
 	return &admissionTelemetry{
 		store:   store,
-		ch:      make(chan admissionTelemetryEvent, admissionTelemetryQueueCap),
 		stop:    make(chan struct{}),
 		done:    make(chan struct{}),
 		workers: admissionTelemetryWorkers,
 	}
 }
 
-// startLocked starts the workers once, while the caller holds mu. Most
+// startLocked initializes the queue and starts the workers once, while the caller holds mu. Most
 // NewServer values are short-lived handlers in tests and maintenance tools;
-// keeping their queues dormant avoids a worker pair (plus a waiter goroutine)
-// for a server that never records an admission. Close starts the workers too so
-// the no-event shutdown path has the same completion semantics as a used queue.
+// keeping their queue and worker pair (plus a waiter goroutine) dormant avoids
+// resource use for a server that never records an admission. Close initializes
+// and starts the workers too so the no-event shutdown path has the same
+// completion semantics as a used queue.
 func (t *admissionTelemetry) startLocked() {
+	if t.ch == nil {
+		t.ch = make(chan admissionTelemetryEvent, admissionTelemetryQueueCap)
+	}
 	if t.started || t.workers <= 0 {
 		return
 	}
@@ -185,13 +188,12 @@ func (t *admissionTelemetry) Close(timeout time.Duration) {
 		t.mu.Unlock()
 		return
 	}
+	t.startLocked()
 	if t.workers <= 0 {
 		if t.done == nil {
 			t.done = make(chan struct{})
 		}
 		close(t.done)
-	} else {
-		t.startLocked()
 	}
 	close(t.ch)
 	t.mu.Unlock()
@@ -218,6 +220,9 @@ func (t *admissionTelemetry) stats() (written, syncFallbacks, queued int64) {
 func (t *admissionTelemetry) queueCap() int {
 	if t == nil {
 		return 0
+	}
+	if t.ch == nil {
+		return admissionTelemetryQueueCap
 	}
 	return cap(t.ch)
 }
