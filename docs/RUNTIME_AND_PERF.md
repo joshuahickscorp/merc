@@ -40,6 +40,11 @@ boundary:
 - Identity-cache-miss construction moved from about 2.46 microseconds and
   1,506 bytes across 28 allocations to about 1.61 microseconds and 681 bytes
   across 24 allocations. A golden identity digest confirms byte compatibility.
+- The versioned `RequestIdentity` digest now streams the same JSON escaping
+  through one reusable encoder instead of allocating a marshaled blob for every
+  field. The representative benchmark moved from about 1.61 to 1.50
+  microseconds, 681 to 488 bytes, and 24 to 13 allocations; escaped-value
+  parity tests retain the prior digest contract.
 - Prepared realtime identity hits now reuse the canonical body digest computed
   during request preparation: the production-shaped hit measured about 151
   nanoseconds versus about 260 nanoseconds for the compatibility path that

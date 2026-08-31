@@ -1,6 +1,9 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -164,6 +167,53 @@ func TestRequestIdentityEncodingRemainsByteCompatible(t *testing.T) {
 	const want = "req_4ecef7ebbcb2b1dd966926804e420576a0b351b04f9e7aba805e184dfc93fc06"
 	if got != want {
 		t.Fatalf("request identity changed: got %q want %q", got, want)
+	}
+}
+
+func TestRequestIdentityStreamingEncodingMatchesMarshalForEscapedValues(t *testing.T) {
+	identity := detIdentity("quotes \" angle <tag> ampersand & line\u2028separator\u2029")
+	identity.ModelID = "model/<&>"
+	identity.ModelRevision = "revision\nwith\tescapes"
+	identity.ProfileSHA256 = "profile"
+	identity.Adapter = "adapter"
+	identity.Tools = "tools"
+	identity.Schema = "schema"
+	identity.Policy = "policy"
+	identity.TenantScope = "tenant/<&>"
+	got, err := identity.Compute()
+	must(t, err)
+
+	fields := [...]struct {
+		name  string
+		value any
+	}{
+		{name: "adapter", value: identity.Adapter},
+		{name: "input", value: identity.Input},
+		{name: "max_tokens", value: identity.MaxTokens},
+		{name: "model", value: identity.ModelID},
+		{name: "policy", value: identity.Policy},
+		{name: "profile_sha256", value: identity.ProfileSHA256},
+		{name: "revision", value: identity.ModelRevision},
+		{name: "schema", value: identity.Schema},
+		{name: "seed", value: identity.Seed},
+		{name: "temperature", value: identity.Temperature},
+		{name: "tenant", value: identity.TenantScope},
+		{name: "top_p", value: identity.TopP},
+		{name: "tools", value: identity.Tools},
+	}
+	h := sha256.New()
+	_, _ = h.Write([]byte(requestIdentityDomain + "\x00"))
+	for _, field := range fields {
+		_, _ = h.Write([]byte(field.name))
+		_, _ = h.Write([]byte{0})
+		blob, marshalErr := json.Marshal(field.value)
+		mustf(t, marshalErr, "marshal %s: %v", field.name)
+		_, _ = h.Write(blob)
+		_, _ = h.Write([]byte{0})
+	}
+	want := "req_" + hex.EncodeToString(h.Sum(nil))
+	if got != want {
+		t.Fatalf("streaming request identity changed escaped-value bytes: got %q want %q", got, want)
 	}
 }
 

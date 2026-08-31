@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash"
 	"regexp"
 	"strings"
 
@@ -27,6 +28,19 @@ import (
 // this.
 
 var requestIdentityPattern = regexp.MustCompile(`^req_[0-9a-f]{64}$`)
+
+type requestIdentityJSONWriter struct {
+	hash hash.Hash
+}
+
+func (w requestIdentityJSONWriter) Write(payload []byte) (int, error) {
+	length := len(payload)
+	if length > 0 && payload[length-1] == '\n' {
+		payload = payload[:length-1]
+	}
+	_, err := w.hash.Write(payload)
+	return length, err
+}
 
 // RequestIdentity is every input that can change the output, plus the tenant it
 // belongs to.
@@ -142,18 +156,18 @@ func (r RequestIdentity) computeRequestIdentityWithDomain(domain string) (string
 	}
 
 	h := sha256.New()
+	encoder := json.NewEncoder(requestIdentityJSONWriter{hash: h})
 	// Domain separator is versioned: every prior version's rows miss rather than
 	// resolve under a changed field set. A miss costs work; a stale hit under a
 	// changed identity definition would be wrong.
-	h.Write([]byte(domain + "\x00"))
+	h.Write([]byte(domain))
+	h.Write([]byte{0})
 	for _, field := range fields {
-		blob, err := json.Marshal(field.value)
-		if err != nil {
-			return "", err
-		}
 		h.Write([]byte(field.name))
 		h.Write([]byte{0})
-		h.Write(blob)
+		if err := encoder.Encode(field.value); err != nil {
+			return "", err
+		}
 		h.Write([]byte{0})
 	}
 	return "req_" + hex.EncodeToString(h.Sum(nil)), nil
