@@ -73,6 +73,10 @@ boundary:
   cleanup rechecks under the write lock. The parallel cache benchmark moved
   from about 240 to 219 nanoseconds per lookup with zero allocations; same-
   process revocation and the 250 ms cross-instance TTL bound are unchanged.
+- Stripe payout idempotency-key construction now reserves its bounded output
+  once instead of concatenating intermediate strings. The representative local
+  setup benchmark moved from about 118 to 84 nanoseconds, 181 to 149 bytes,
+  and 4 to 3 allocations; the exact key-format tests remain unchanged.
 - The flag-on liveness shadow fingerprint now uses the same FNV-1a bytes through
   a direct loop: about 18 nanoseconds became about 12 nanoseconds per lookup,
   with zero allocations and a compatibility test against the standard

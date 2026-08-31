@@ -368,11 +368,20 @@ func (p StripePayout) Send(ctx context.Context, supplierID uuid.UUID, cents int6
 }
 
 func stripeIdempotencyKey(supplierID uuid.UUID, cents int64, payoutKey string) string {
-	key := "cx-" + supplierID.String() + "-" + strconv.FormatInt(cents, 10)
+	var key strings.Builder
+	// UUID + signed int64 + the operation key are bounded inputs. Reserve the
+	// common prefix and fixed-width portions once so payout retries do not build
+	// the idempotency key through several intermediate strings.
+	key.Grow(3 + 36 + 1 + 20 + 1 + len(payoutKey))
+	key.WriteString("cx-")
+	key.WriteString(supplierID.String())
+	key.WriteByte('-')
+	key.WriteString(strconv.FormatInt(cents, 10))
 	if payoutKey != "" {
-		key += "-" + payoutKey
+		key.WriteByte('-')
+		key.WriteString(payoutKey)
 	}
-	return key
+	return key.String()
 }
 
 func stripeReversalIdempotencyKey(reverseKey string) string {
