@@ -48,6 +48,23 @@ func TestStripeHTTPClientIdlePoolCoversPaymentBurst(t *testing.T) {
 	}
 }
 
+func TestStripePayoutUsesBoundedIdlePool(t *testing.T) {
+	client := newStripePayout(nil, "test-secret").http
+	transport, ok := client.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("Stripe payout transport type %T, want *http.Transport", client.Transport)
+	}
+	if transport.MaxIdleConnsPerHost != stripeMaxIdleConnsPerHost {
+		t.Fatalf("Stripe payout MaxIdleConnsPerHost=%d, want %d", transport.MaxIdleConnsPerHost, stripeMaxIdleConnsPerHost)
+	}
+	if transport.MaxIdleConns < transport.MaxIdleConnsPerHost {
+		t.Fatalf("Stripe payout MaxIdleConns=%d < MaxIdleConnsPerHost=%d", transport.MaxIdleConns, transport.MaxIdleConnsPerHost)
+	}
+	if client.Timeout != 20*time.Second {
+		t.Fatalf("Stripe payout timeout=%s, want 20s", client.Timeout)
+	}
+}
+
 func TestChargePaymentIntentRequiresExactTerminalCashFact(t *testing.T) {
 	const good = `{"id":"pi_exact","latest_charge":{"id":"ch_exact"},"status":"succeeded","currency":"usd","amount":123,"amount_received":123}`
 	cases := []struct {

@@ -285,7 +285,7 @@ type StripePayout struct {
 }
 
 func newStripePayout(store *Store, secret string) StripePayout {
-	return StripePayout{store: store, secret: secret, http: &http.Client{Timeout: 20 * time.Second}}
+	return StripePayout{store: store, secret: secret, http: newStripeHTTPClient()}
 }
 
 func readStripePayoutResponseBody(r io.Reader) ([]byte, error) {

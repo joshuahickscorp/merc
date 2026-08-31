@@ -89,6 +89,10 @@ boundary:
   once instead of concatenating intermediate strings. The representative local
   setup benchmark moved from about 118 to 84 nanoseconds, 181 to 149 bytes,
   and 4 to 3 allocations; the exact key-format tests remain unchanged.
+- Stripe payouts now use the same bounded keep-alive transport as customer,
+  charge, and refund calls. This keeps short provider bursts on reusable
+  connections without changing the payment authority or outcome classification;
+  transport wiring is pinned by a focused test.
 - The flag-on liveness shadow fingerprint now uses the same FNV-1a bytes through
   a direct loop: about 18 nanoseconds became about 12 nanoseconds per lookup,
   with zero allocations and a compatibility test against the standard
