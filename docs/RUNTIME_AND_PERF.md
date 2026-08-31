@@ -69,6 +69,10 @@ boundary:
 - Existing API-key and realtime-identity cache-hit paths remain allocation-free.
   Database ranking and settlement were not loosened or bypassed because they
   are durable authority paths.
+- Positive API-key cache hits now take a shared read lock, while expired-entry
+  cleanup rechecks under the write lock. The parallel cache benchmark moved
+  from about 240 to 219 nanoseconds per lookup with zero allocations; same-
+  process revocation and the 250 ms cross-instance TTL bound are unchanged.
 - The flag-on liveness shadow fingerprint now uses the same FNV-1a bytes through
   a direct loop: about 18 nanoseconds became about 12 nanoseconds per lookup,
   with zero allocations and a compatibility test against the standard

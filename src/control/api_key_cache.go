@@ -64,7 +64,7 @@ func apiKeyCacheKeyFor(raw string) apiKeyCacheKey {
 
 // apiKeyCache is embedded on Store. Nil-safe: a zero Store has no cache.
 type apiKeyCache struct {
-	mu      sync.Mutex
+	mu      sync.RWMutex
 	entries map[apiKeyCacheKey]apiKeyCacheEntry
 	byID    map[uuid.UUID]apiKeyCacheKey
 	byBuyer map[uuid.UUID]map[apiKeyCacheKey]struct{}
@@ -74,12 +74,31 @@ func (c *apiKeyCache) get(keyHash apiKeyCacheKey) (AuthResult, bool) {
 	if c == nil {
 		return AuthResult{}, false
 	}
+	c.mu.RLock()
+	if c.entries == nil {
+		c.mu.RUnlock()
+		return AuthResult{}, false
+	}
+	e, ok := c.entries[keyHash]
+	if !ok {
+		c.mu.RUnlock()
+		return AuthResult{}, false
+	}
+	if !time.Now().After(e.expiresAt) {
+		c.mu.RUnlock()
+		return e.auth, true
+	}
+	c.mu.RUnlock()
+
+	// An expired hit is uncommon and needs a write lock to remove the entry.
+	// Recheck after acquiring it because another goroutine may have refreshed or
+	// removed the same key while this reader was waiting.
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.entries == nil {
 		return AuthResult{}, false
 	}
-	e, ok := c.entries[keyHash]
+	e, ok = c.entries[keyHash]
 	if !ok {
 		return AuthResult{}, false
 	}
