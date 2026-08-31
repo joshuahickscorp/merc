@@ -208,15 +208,21 @@ func (b *ArrivalBatcher) Admit(ctx context.Context, req ArrivalRequest) <-chan s
 	b.mu.Unlock()
 
 	// Cancellation: remove from lane if still pending.
+	// Background/TODO contexts have no cancellation channel. Avoid a watcher
+	// goroutine for them; Close, the timer, or a budget/deadline flush already
+	// releases the waiter. Cancellable request contexts still remove themselves
+	// from the lane when their Done channel closes.
 	if ctx != nil {
-		go func() {
-			select {
-			case <-ready:
-				return
-			case <-ctx.Done():
-				b.cancel(w)
-			}
-		}()
+		if done := ctx.Done(); done != nil {
+			go func() {
+				select {
+				case <-ready:
+					return
+				case <-done:
+					b.cancel(w)
+				}
+			}()
+		}
 	}
 	return ready
 }
