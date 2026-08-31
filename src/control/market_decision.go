@@ -283,7 +283,18 @@ func marketDecisionDigest(md MarketDecision) (string, error) {
 	if err := ValidateMarketDecision(md); err != nil {
 		return "", err
 	}
-	return canonicalDigest("market decision", md)
+	blob, err := json.Marshal(md)
+	if err != nil {
+		return "", fmt.Errorf("marshal market decision: %w", err)
+	}
+	return canonicalDigestBytes(blob), nil
+}
+
+func marketDecisionDigestFromJSON(md MarketDecision, blob []byte) (string, error) {
+	if err := ValidateMarketDecision(md); err != nil {
+		return "", err
+	}
+	return canonicalDigestBytes(blob), nil
 }
 
 // projectRealtimeMarketClearingReceipt projects the legacy realtime receipt

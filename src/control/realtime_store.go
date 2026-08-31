@@ -1185,7 +1185,7 @@ func (s *Store) AuthorizeRealtimeContract(ctx context.Context, auth RealtimeCont
 	if err != nil {
 		return RealtimeContract{}, false, err
 	}
-	pricingSHA256, err := pricingDecisionDigest(pricing)
+	pricingSHA256, err := pricingDecisionDigestFromJSON(pricing, pricingJSON)
 	if err != nil {
 		return RealtimeContract{}, false, err
 	}
@@ -1213,7 +1213,11 @@ func (s *Store) AuthorizeRealtimeContract(ctx context.Context, auth RealtimeCont
 	if err != nil {
 		return RealtimeContract{}, false, err
 	}
-	marketDigest, err := marketDecisionDigest(marketDecision)
+	marketJSON, err := json.Marshal(marketDecision)
+	if err != nil {
+		return RealtimeContract{}, false, err
+	}
+	marketDigest, err := marketDecisionDigestFromJSON(marketDecision, marketJSON)
 	if err != nil {
 		return RealtimeContract{}, false, err
 	}
@@ -1229,10 +1233,6 @@ func (s *Store) AuthorizeRealtimeContract(ctx context.Context, auth RealtimeCont
 		return RealtimeContract{}, false, fmt.Errorf("bind realtime WorkerPlacement: %w", err)
 	}
 	// Persist the canonical MarketDecision; attach projects the legacy receipt.
-	marketJSON, err := json.Marshal(marketDecision)
-	if err != nil {
-		return RealtimeContract{}, false, err
-	}
 	expectedProjection, maximumProjection, err := realtimePricingLegacyProjection(pricing)
 	if err != nil || expectedProjection != settlementExpectedProjection ||
 		maximumProjection != settlementMaximumProjection {

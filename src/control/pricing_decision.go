@@ -581,8 +581,12 @@ func canonicalDigest(label string, value any) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("marshal %s: %w", label, err)
 	}
+	return canonicalDigestBytes(blob), nil
+}
+
+func canonicalDigestBytes(blob []byte) string {
 	sum := sha256.Sum256(blob)
-	return hex.EncodeToString(sum[:]), nil
+	return hex.EncodeToString(sum[:])
 }
 
 func placementRequirementDigest(p PlacementRequirement) (string, error) {
@@ -611,7 +615,18 @@ func pricingDecisionDigest(p PricingDecision) (string, error) {
 	if p.Version != pricingDecisionVersion {
 		return "", fmt.Errorf("unsupported pricing decision version %d", p.Version)
 	}
-	return canonicalDigest("pricing decision", p)
+	blob, err := json.Marshal(p)
+	if err != nil {
+		return "", fmt.Errorf("marshal pricing decision: %w", err)
+	}
+	return canonicalDigestBytes(blob), nil
+}
+
+func pricingDecisionDigestFromJSON(p PricingDecision, blob []byte) (string, error) {
+	if p.Version != pricingDecisionVersion {
+		return "", fmt.Errorf("unsupported pricing decision version %d", p.Version)
+	}
+	return canonicalDigestBytes(blob), nil
 }
 
 func validateCataloguePriceAuthority(a CataloguePriceAuthority) error {
