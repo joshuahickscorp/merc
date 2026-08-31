@@ -286,6 +286,31 @@ func jsonInt(value any) (int64, bool) {
 	}
 }
 
+func realtimeInputDigest(body []byte, profile VLLMRuntimeProfile) ([sha256.Size]byte, error) {
+	// canonicalJSON(payload) is already the exact bytes required for the
+	// payload member. Hash the enclosing commitment around those bytes instead
+	// of asking encoding/json to walk the complete payload a second time.
+	profileID, err := json.Marshal(profile.RuntimeProfileID)
+	if err != nil {
+		return [sha256.Size]byte{}, err
+	}
+	profileSHA256, err := json.Marshal(profile.ProfileSHA256)
+	if err != nil {
+		return [sha256.Size]byte{}, err
+	}
+	h := sha256.New()
+	_, _ = h.Write([]byte(`{"payload":`))
+	_, _ = h.Write(body)
+	_, _ = h.Write([]byte(`,"route":"/v1/chat/completions","runtime_profile_id":`))
+	_, _ = h.Write(profileID)
+	_, _ = h.Write([]byte(`,"runtime_profile_sha256":`))
+	_, _ = h.Write(profileSHA256)
+	_, _ = h.Write([]byte(`}`))
+	var digest [sha256.Size]byte
+	h.Sum(digest[:0])
+	return digest, nil
+}
+
 func prepareRealtimeRequest(raw []byte, headerCeiling string) (preparedRealtimeRequest, error) {
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.UseNumber()
@@ -401,17 +426,10 @@ func prepareRealtimeRequest(raw []byte, headerCeiling string) (preparedRealtimeR
 		return preparedRealtimeRequest{}, err
 	}
 	bodySHA256 := sha256.Sum256(upstreamBody)
-	inputObject := map[string]any{
-		"route":                  "/v1/chat/completions",
-		"runtime_profile_id":     profile.RuntimeProfileID,
-		"runtime_profile_sha256": profile.ProfileSHA256,
-		"payload":                payload,
-	}
-	canonicalInput, err := canonicalJSON(inputObject)
+	inputDigest, err := realtimeInputDigest(upstreamBody, profile)
 	if err != nil {
 		return preparedRealtimeRequest{}, err
 	}
-	inputDigest := sha256.Sum256(canonicalInput)
 	requestDigest := sha256.Sum256(raw)
 	// Two different bounds are needed here and they must point in opposite
 	// directions, which is why one number was previously doing both jobs badly.

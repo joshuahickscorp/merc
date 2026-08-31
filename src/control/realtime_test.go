@@ -72,6 +72,74 @@ func TestPrepareRealtimeRequestCanonicalizesDefaultsAndPriceCeiling(t *testing.T
 	}
 }
 
+func TestRealtimeInputDigestMatchesCanonicalJSONMap(t *testing.T) {
+	payload := map[string]any{
+		"messages": []any{
+			map[string]any{"content": "<tag> & \u2028 \u2029", "role": "user"},
+		},
+		"model": "cx-chat-1b",
+		"seed":  9007199254740993,
+	}
+	body, err := canonicalJSON(payload)
+	must(t, err)
+	profile := sortedVLLMProfiles()[0]
+	profile.RuntimeProfileID = "profile/<tag>"
+	profile.ProfileSHA256 = "digest/\u2028"
+	inputObject := map[string]any{
+		"route":                  "/v1/chat/completions",
+		"runtime_profile_id":     profile.RuntimeProfileID,
+		"runtime_profile_sha256": profile.ProfileSHA256,
+		"payload":                payload,
+	}
+	canonicalInput, err := canonicalJSON(inputObject)
+	must(t, err)
+	want := sha256.Sum256(canonicalInput)
+	got, err := realtimeInputDigest(body, profile)
+	must(t, err)
+	if got != want {
+		t.Fatalf("streamed realtime input digest changed: got %x want %x", got, want)
+	}
+}
+
+func BenchmarkRealtimeInputDigest(b *testing.B) {
+	payload := map[string]any{
+		"messages": []any{
+			map[string]any{"content": strings.Repeat("benchmark ", 64), "role": "user"},
+		},
+		"model": "cx-chat-1b",
+		"seed":  42,
+	}
+	body, err := canonicalJSON(payload)
+	if err != nil {
+		b.Fatal(err)
+	}
+	profile := sortedVLLMProfiles()[0]
+	inputObject := map[string]any{
+		"route":                  "/v1/chat/completions",
+		"runtime_profile_id":     profile.RuntimeProfileID,
+		"runtime_profile_sha256": profile.ProfileSHA256,
+		"payload":                payload,
+	}
+	b.Run("streaming", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			if _, err := realtimeInputDigest(body, profile); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+	b.Run("marshal", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			canonicalInput, err := canonicalJSON(inputObject)
+			if err != nil {
+				b.Fatal(err)
+			}
+			_ = sha256.Sum256(canonicalInput)
+		}
+	})
+}
+
 func TestPrepareRealtimeRequestKeepsUSDCeilingSeparateFromCADSettlement(t *testing.T) {
 	installSettlementCurrencyForTest(t, "cad")
 	installRealtimeCADFXForTest(t)

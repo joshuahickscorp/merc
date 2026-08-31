@@ -44,6 +44,12 @@ boundary:
   during request preparation: the production-shaped hit measured about 151
   nanoseconds versus about 260 nanoseconds for the compatibility path that
   hashes the body on access, with zero allocations in both paths.
+- Realtime `InputCommitment` now streams the already-canonical upstream body
+  into the enclosing commitment hash instead of serializing the payload a
+  second time. On the representative local payload, that path measured about
+  0.62 microseconds, 160 bytes, and 4 allocations versus about 2.2 microseconds,
+  1,683 bytes, and 22 allocations for the prior full-map marshal; a parity test
+  covers escaped strings and large integers.
 - Existing API-key and realtime-identity cache-hit paths remain allocation-free.
   Database ranking and settlement were not loosened or bypassed because they
   are durable authority paths.
