@@ -460,13 +460,20 @@ func prepareRealtimeRequest(raw []byte, headerCeiling string) (preparedRealtimeR
 	if contextBudget := int64(profile.MaxModelLength) - maxOutput; estimatedInputTokens > contextBudget {
 		return preparedRealtimeRequest{}, errors.New("request exceeds the runtime profile context bound")
 	}
-	maximumPriceExact, err := tokenChargeExact(maxInputTokens, maxOutput,
-		profile.BuyerInputUSDPerMillionTokens, profile.BuyerOutputUSDPerMillionTokens, false)
+	inputRate, err := nanoRatePerMillionFromFloat(profile.BuyerInputUSDPerMillionTokens)
 	if err != nil {
 		return preparedRealtimeRequest{}, fmt.Errorf("derive maximum realtime price: %w", err)
 	}
-	estimatedPriceExact, err := tokenChargeExact(estimatedInputTokens, (maxOutput+1)/2,
-		profile.BuyerInputUSDPerMillionTokens, profile.BuyerOutputUSDPerMillionTokens, false)
+	outputRate, err := nanoRatePerMillionFromFloat(profile.BuyerOutputUSDPerMillionTokens)
+	if err != nil {
+		return preparedRealtimeRequest{}, fmt.Errorf("derive maximum realtime price: %w", err)
+	}
+	currency := MustParseCurrency(realtimeReferenceCurrency)
+	maximumPriceExact, err := BuyerRealtimeTokenChargeNanos(currency, maxInputTokens, maxOutput, inputRate, outputRate)
+	if err != nil {
+		return preparedRealtimeRequest{}, fmt.Errorf("derive maximum realtime price: %w", err)
+	}
+	estimatedPriceExact, err := BuyerRealtimeTokenChargeNanos(currency, estimatedInputTokens, (maxOutput+1)/2, inputRate, outputRate)
 	if err != nil {
 		return preparedRealtimeRequest{}, fmt.Errorf("derive estimated realtime price: %w", err)
 	}
