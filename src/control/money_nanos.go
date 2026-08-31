@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+	"math/bits"
 )
 
 // Exact economic value, in integer nano-major-units, bound to a currency.
@@ -204,6 +205,27 @@ func (m MoneyNanos) AtMost(ceiling MoneyNanos) (bool, error) {
 func mulDiv(a, b, d int64, up bool) (int64, error) {
 	if d == 0 {
 		return 0, errors.New("exact money arithmetic divided by zero")
+	}
+	// Most economic quantities are non-negative and use a positive fixed
+	// denominator. Keep the product wide without allocating; bits.Div64 is only
+	// called after hi < d, which is its documented no-overflow precondition.
+	// Signed inputs and unusual denominators stay on the arbitrary-precision path
+	// below, so this shortcut cannot change the established rounding semantics.
+	if a >= 0 && b >= 0 && d > 0 {
+		hi, lo := bits.Mul64(uint64(a), uint64(b))
+		denominator := uint64(d)
+		if hi >= denominator {
+			return 0, errMoneyOverflow
+		}
+		quotient, remainder := bits.Div64(hi, lo, denominator)
+		if quotient > uint64(math.MaxInt64) ||
+			(up && remainder != 0 && quotient == uint64(math.MaxInt64)) {
+			return 0, errMoneyOverflow
+		}
+		if up && remainder != 0 {
+			quotient++
+		}
+		return int64(quotient), nil
 	}
 	product := new(big.Int).Mul(big.NewInt(a), big.NewInt(b))
 	divisor := big.NewInt(d)

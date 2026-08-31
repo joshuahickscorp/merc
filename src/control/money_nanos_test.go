@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"math"
+	"math/big"
 	"testing"
 )
 
@@ -442,4 +443,43 @@ func TestRealtimeTokenMoneyRejectsInvalidShape(t *testing.T) {
 	if _, err := BuyerRealtimeTokenChargeNanos(cad(t), -1, 0, 1, 1); err == nil {
 		t.Fatal("negative token count passed")
 	}
+}
+
+func TestMulDivMatchesArbitraryPrecisionAcrossFastPathBoundaries(t *testing.T) {
+	values := []int64{
+		0, 1, 2, 3, 7, 1_000_000, 1_000_000_000,
+		math.MaxInt64 / 2, math.MaxInt64 - 1, math.MaxInt64,
+		-1, -2, math.MinInt64 + 1,
+	}
+	for _, a := range values {
+		for _, b := range values {
+			for _, d := range []int64{1, 2, 3, 7, 1_000_000, math.MaxInt64, -1, -3} {
+				for _, up := range []bool{false, true} {
+					got, gotErr := mulDiv(a, b, d, up)
+					want, wantErr := referenceMulDiv(a, b, d, up)
+					if (gotErr == nil) != (wantErr == nil) ||
+						(gotErr == nil && got != want) {
+						t.Fatalf("mulDiv(%d,%d,%d,%v)=(%d,%v), want (%d,%v)",
+							a, b, d, up, got, gotErr, want, wantErr)
+					}
+				}
+			}
+		}
+	}
+}
+
+func referenceMulDiv(a, b, d int64, up bool) (int64, error) {
+	if d == 0 {
+		return 0, errors.New("exact money arithmetic divided by zero")
+	}
+	product := new(big.Int).Mul(big.NewInt(a), big.NewInt(b))
+	divisor := big.NewInt(d)
+	quotient, remainder := new(big.Int).QuoRem(product, divisor, new(big.Int))
+	if remainder.Sign() != 0 && up == (product.Sign() == divisor.Sign()) {
+		quotient.Add(quotient, big.NewInt(1))
+	}
+	if !quotient.IsInt64() {
+		return 0, errMoneyOverflow
+	}
+	return quotient.Int64(), nil
 }
