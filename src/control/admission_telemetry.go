@@ -42,6 +42,8 @@ type admissionTelemetry struct {
 	written atomic.Int64
 	syncFB  atomic.Int64 // sync fallback count (queue full or post-close)
 	workers int
+	started bool
+	wg      sync.WaitGroup
 }
 
 type admissionTelemetryEvent struct {
@@ -62,18 +64,32 @@ func newAdmissionTelemetry(store *Store) *admissionTelemetry {
 	if store == nil {
 		return nil
 	}
-	t := &admissionTelemetry{
+	return &admissionTelemetry{
 		store:   store,
 		ch:      make(chan admissionTelemetryEvent, admissionTelemetryQueueCap),
 		stop:    make(chan struct{}),
 		done:    make(chan struct{}),
 		workers: admissionTelemetryWorkers,
 	}
-	var wg sync.WaitGroup
+}
+
+// startLocked starts the workers once, while the caller holds mu. Most
+// NewServer values are short-lived handlers in tests and maintenance tools;
+// keeping their queues dormant avoids a worker pair (plus a waiter goroutine)
+// for a server that never records an admission. Close starts the workers too so
+// the no-event shutdown path has the same completion semantics as a used queue.
+func (t *admissionTelemetry) startLocked() {
+	if t.started || t.workers <= 0 {
+		return
+	}
+	if t.done == nil {
+		t.done = make(chan struct{})
+	}
+	t.started = true
 	for i := 0; i < t.workers; i++ {
-		wg.Add(1)
+		t.wg.Add(1)
 		go func() {
-			defer wg.Done()
+			defer t.wg.Done()
 			for ev := range t.ch {
 				t.write(ev)
 				t.queued.Add(-1)
@@ -81,10 +97,9 @@ func newAdmissionTelemetry(store *Store) *admissionTelemetry {
 		}()
 	}
 	go func() {
-		wg.Wait()
+		t.wg.Wait()
 		close(t.done)
 	}()
-	return t
 }
 
 // record enqueues the event or writes it synchronously when the queue is
@@ -106,6 +121,7 @@ func (t *admissionTelemetry) record(
 		t.write(ev)
 		return
 	}
+	t.startLocked()
 	select {
 	case t.ch <- ev:
 		t.queued.Add(1)
@@ -168,6 +184,14 @@ func (t *admissionTelemetry) Close(timeout time.Duration) {
 	if t.closed.Swap(true) {
 		t.mu.Unlock()
 		return
+	}
+	if t.workers <= 0 {
+		if t.done == nil {
+			t.done = make(chan struct{})
+		}
+		close(t.done)
+	} else {
+		t.startLocked()
 	}
 	close(t.ch)
 	t.mu.Unlock()
