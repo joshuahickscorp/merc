@@ -45,6 +45,13 @@ boundary:
   field. The representative benchmark moved from about 1.61 to 1.50
   microseconds, 681 to 488 bytes, and 24 to 13 allocations; escaped-value
   parity tests retain the prior digest contract.
+- Request-identity digest finalization now writes SHA-256 output into fixed-size
+  stack buffers before constructing the returned `req_` string. The same
+  representative benchmark moved from about 1.50 to 1.35 microseconds, 488 to
+  328 bytes, and 13 to 10 allocations; the byte-compatible golden digest tests
+  remain green. The same finalization reduction also brings the raw-top-level
+  realtime identity miss to about 5.1 microseconds, 1,956 bytes, and 47
+  allocations.
 - Prepared realtime identity hits now reuse the canonical body digest computed
   during request preparation: the production-shaped hit measured about 151
   nanoseconds versus about 260 nanoseconds for the compatibility path that

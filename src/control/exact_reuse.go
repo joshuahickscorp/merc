@@ -170,7 +170,11 @@ func (r RequestIdentity) computeRequestIdentityWithDomain(domain string) (string
 		}
 		h.Write([]byte{0})
 	}
-	return "req_" + hex.EncodeToString(h.Sum(nil)), nil
+	var sum [sha256.Size]byte
+	h.Sum(sum[:0])
+	var encoded [sha256.Size * 2]byte
+	hex.Encode(encoded[:], sum[:])
+	return "req_" + string(encoded[:]), nil
 }
 
 // ValidRequestIdentity checks shape before it reaches SQL.
