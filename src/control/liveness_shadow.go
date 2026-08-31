@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"hash/fnv"
 	"math"
 	"os"
 	"strconv"
@@ -166,10 +165,24 @@ const (
 // live — the same class of bug this table exists to stop — so the bound is
 // documented, not ignored. Hashes that land on a reserved value are remapped.
 func offerFingerprint(workerID uuid.UUID, profileID string) uint64 {
-	h := fnv.New64a()
-	_, _ = h.Write(workerID[:])
-	_, _ = h.Write([]byte(profileID))
-	return foldOfferFingerprint(h.Sum64())
+	// Keep this on the flag-ON lookup path allocation-free without routing a
+	// fixed two-part input through hash.Hash's interface methods. The constants
+	// and byte order are the standard FNV-1a-64 definition; the compatibility
+	// test keeps this representation change from changing slot ownership.
+	const (
+		offset = uint64(14695981039346656037)
+		prime  = uint64(1099511628211)
+	)
+	sum := offset
+	for _, b := range workerID {
+		sum ^= uint64(b)
+		sum *= prime
+	}
+	for i := 0; i < len(profileID); i++ {
+		sum ^= uint64(profileID[i])
+		sum *= prime
+	}
+	return foldOfferFingerprint(sum)
 }
 
 func foldOfferFingerprint(sum uint64) uint64 {

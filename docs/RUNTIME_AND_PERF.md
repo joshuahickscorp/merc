@@ -43,6 +43,10 @@ boundary:
 - Existing API-key and realtime-identity cache-hit paths remain allocation-free.
   Database ranking and settlement were not loosened or bypassed because they
   are durable authority paths.
+- The flag-on liveness shadow fingerprint now uses the same FNV-1a bytes through
+  a direct loop: about 18 nanoseconds became about 12 nanoseconds per lookup,
+  with zero allocations and a compatibility test against the standard
+  implementation.
 
 These are local Go microbenchmarks, not end-to-end time-to-first-token or
 payment-latency promises. The local pass did not have the external database,

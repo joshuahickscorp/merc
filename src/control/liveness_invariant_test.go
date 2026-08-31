@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"hash/fnv"
 	"net/http"
 	"strings"
 	"sync"
@@ -13,6 +14,28 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+func TestOfferFingerprintRemainsFNV1aCompatible(t *testing.T) {
+	worker := uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+	profile := "llama_cpp_metal"
+	h := fnv.New64a()
+	_, _ = h.Write(worker[:])
+	_, _ = h.Write([]byte(profile))
+	want := foldOfferFingerprint(h.Sum64())
+	if got := offerFingerprint(worker, profile); got != want {
+		t.Fatalf("offer fingerprint changed: got %d want %d", got, want)
+	}
+}
+
+func BenchmarkOfferFingerprint(b *testing.B) {
+	worker := uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+	profile := "llama_cpp_metal"
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = offerFingerprint(worker, profile)
+	}
+}
 
 // TestOfferIndexLiveCorruptMappingToLiveSlotIsIneligible plants a wrong-but-in-range
 // offer→slot mapping for a stale offer A that points at the slot of a live offer B,
