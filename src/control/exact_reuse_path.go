@@ -75,6 +75,19 @@ func payloadExactReuseEligible(payload map[string]any) error {
 	return nil
 }
 
+func rawPayloadExactReuseEligible(payload map[string]json.RawMessage) error {
+	for k := range payload {
+		if _, ok := exactReuseIdentityPayloadKeys[k]; ok {
+			continue
+		}
+		if _, ok := exactReuseNonSemanticPayloadKeys[k]; ok {
+			continue
+		}
+		return fmt.Errorf("%w: %q", errNotExactCacheable, k)
+	}
+	return nil
+}
+
 // realtimeIdentityFromPayload builds a cache key from the canonical upstream
 // payload prepareRealtimeRequest already produced.
 func realtimeIdentityFromPayload(
@@ -133,6 +146,90 @@ func realtimeIdentityFromPayload(
 	return id.Compute()
 }
 
+// realtimeIdentityFromCanonicalBody derives the same identity directly from
+// the top-level members of the canonical prepared body. RawMessage keeps the
+// nested prompt/tool/schema bytes intact instead of recursively decoding and
+// marshaling them a second time on an identity-cache miss.
+func realtimeIdentityFromCanonicalBody(
+	buyerID uuid.UUID, profile VLLMRuntimeProfile, body []byte,
+) (string, error) {
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return "", err
+	}
+	if err := rawPayloadExactReuseEligible(payload); err != nil {
+		return "", err
+	}
+
+	model := ""
+	if raw, ok := payload["model"]; ok {
+		_ = json.Unmarshal(raw, &model)
+	}
+	inputBlob := []byte("null")
+	if raw, ok := payload["messages"]; ok {
+		inputBlob = raw
+	}
+	toolsBlob := ""
+	if raw, ok := payload["tools"]; ok {
+		toolsBlob = string(raw)
+	}
+	schemaBlob := ""
+	if raw, ok := payload["response_format"]; ok {
+		schemaBlob = string(raw)
+	}
+	temp := profile.GenerationPolicy.Temperature
+	if raw, ok := payload["temperature"]; ok {
+		temp = jsonFloat(realtimeRawScalar(raw), temp)
+	}
+	topP := profile.GenerationPolicy.TopP
+	if raw, ok := payload["top_p"]; ok {
+		topP = jsonFloat(realtimeRawScalar(raw), topP)
+	}
+	seed := int64(0)
+	if raw, ok := payload["seed"]; ok {
+		seed = jsonInt64(realtimeRawScalar(raw), 0)
+	}
+	maxTokens := int(profile.GenerationPolicy.MaximumOutputTokens)
+	if raw, exists := payload["max_completion_tokens"]; exists {
+		if n, ok := jsonInt(realtimeRawScalar(raw)); ok {
+			maxTokens = int(n)
+		} else if legacy, exists := payload["max_tokens"]; exists {
+			if n, ok := jsonInt(realtimeRawScalar(legacy)); ok {
+				maxTokens = int(n)
+			}
+		}
+	} else if raw, exists := payload["max_tokens"]; exists {
+		if n, ok := jsonInt(realtimeRawScalar(raw)); ok {
+			maxTokens = int(n)
+		}
+	}
+	id := RequestIdentity{
+		TenantScope:   buyerID.String(),
+		ModelID:       model,
+		ModelRevision: profile.ModelRevision,
+		ProfileSHA256: profile.ProfileSHA256,
+		Input:         string(inputBlob),
+		Tools:         toolsBlob,
+		Schema:        schemaBlob,
+		Temperature:   temp,
+		TopP:          topP,
+		Seed:          seed,
+		MaxTokens:     maxTokens,
+		Policy:        profile.GenerationPolicy.Version,
+	}
+	return id.Compute()
+}
+
+func realtimeRawScalar(raw json.RawMessage) any {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	var value any
+	if err := decoder.Decode(&value); err != nil {
+		return nil
+	}
+	return value
+}
+
 func jsonFloat(v any, fallback float64) float64 {
 	switch n := v.(type) {
 	case json.Number:
@@ -162,21 +259,6 @@ func jsonInt64(v any, fallback int64) int64 {
 		return n
 	}
 	return fallback
-}
-
-// decodeRealtimePayload re-parses the prepared upstream body for identity
-// derivation. Body is already canonical JSON from prepareRealtimeRequest.
-// Use bytes.NewReader so we do not allocate a second full copy of the body as
-// a string just to re-parse it (the previous strings.NewReader(string(body))
-// path did exactly that on every cache lookup and every cache store).
-func decodeRealtimePayload(body []byte) (map[string]any, error) {
-	dec := json.NewDecoder(bytes.NewReader(body))
-	dec.UseNumber()
-	var payload map[string]any
-	if err := dec.Decode(&payload); err != nil {
-		return nil, err
-	}
-	return payload, nil
 }
 
 // fullPricePer1KFromRealtime converts per-million token rates into the per-1k

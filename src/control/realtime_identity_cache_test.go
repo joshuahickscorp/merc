@@ -1,14 +1,16 @@
 package main
 
 import (
+	"bytes"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"testing"
 
 	"github.com/google/uuid"
 )
 
-func canonicalRealtimeCacheBody(t *testing.T, schema any, seed int) []byte {
+func canonicalRealtimeCacheBody(t testing.TB, schema any, seed int) []byte {
 	t.Helper()
 	payload := map[string]any{
 		"model":       "cx-chat-1b",
@@ -135,4 +137,86 @@ func BenchmarkRealtimeIdentityCacheHitPrepared(b *testing.B) {
 			b.Fatal(err)
 		}
 	}
+}
+
+func TestRealtimeIdentityCanonicalProjectionMatchesNestedDecoder(t *testing.T) {
+	profile := sortedVLLMProfiles()[0]
+	buyer := uuid.New()
+	cases := []map[string]any{
+		{
+			"model": "cx-chat-1b",
+			"messages": []any{map[string]any{
+				"role": "user", "content": "escaped <tag> \u2028 \u2029",
+			}},
+			"tools": []any{map[string]any{
+				"type": "function", "function": map[string]any{
+					"name": "weather", "parameters": map[string]any{
+						"type": "object", "properties": map[string]any{
+							"city": map[string]any{"type": "string"},
+						},
+					},
+				},
+			}},
+			"response_format": map[string]any{
+				"type": "json_schema", "json_schema": map[string]any{"name": "answer"},
+			},
+			"temperature": 0.0, "top_p": 1.0,
+			"seed": 9007199254740993, "max_tokens": 8,
+		},
+		{
+			"model":       "cx-chat-1b",
+			"messages":    []any{map[string]any{"role": "user", "content": "plain"}},
+			"temperature": 0, "top_p": 1, "max_completion_tokens": 16,
+			"stream": false, "stream_options": map[string]any{"include_usage": true},
+			"user": "buyer-tag",
+		},
+		{
+			"model":                 "cx-chat-1b",
+			"messages":              []any{map[string]any{"role": "user", "content": "legacy fallback"}},
+			"max_completion_tokens": "not-an-integer", "max_tokens": 7,
+		},
+	}
+	for index, payload := range cases {
+		body, err := canonicalJSON(payload)
+		mustf(t, err, "case %d: canonical body: %v", index)
+		decoder := json.NewDecoder(bytes.NewReader(body))
+		decoder.UseNumber()
+		var nested map[string]any
+		mustf(t, decoder.Decode(&nested), "case %d: nested decode: %v", index)
+		want, wantErr := realtimeIdentityFromPayload(buyer, profile, nested)
+		got, gotErr := realtimeIdentityFromCanonicalBody(buyer, profile, body)
+		if (wantErr == nil) != (gotErr == nil) || want != got {
+			t.Fatalf("case %d: raw identity=%q err=%v nested identity=%q err=%v", index, got, gotErr, want, wantErr)
+		}
+	}
+}
+
+func BenchmarkRealtimeIdentityDerivation(b *testing.B) {
+	profile := sortedVLLMProfiles()[0]
+	body := canonicalRealtimeCacheBody(b, map[string]any{
+		"type": "json_schema", "json_schema": map[string]any{"name": "answer"},
+	}, 42)
+	buyer := uuid.New()
+	b.Run("raw_top_level", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			if _, err := realtimeIdentityFromCanonicalBody(buyer, profile, body); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+	b.Run("nested_decode", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			decoder := json.NewDecoder(bytes.NewReader(body))
+			decoder.UseNumber()
+			var payload map[string]any
+			if err := decoder.Decode(&payload); err != nil {
+				b.Fatal(err)
+			}
+			if _, err := realtimeIdentityFromPayload(buyer, profile, payload); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
 }

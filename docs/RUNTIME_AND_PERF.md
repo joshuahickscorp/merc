@@ -50,6 +50,12 @@ boundary:
   0.62 microseconds, 160 bytes, and 4 allocations versus about 2.2 microseconds,
   1,683 bytes, and 22 allocations for the prior full-map marshal; a parity test
   covers escaped strings and large integers.
+- Identity-cache misses now project top-level members from the canonical
+  prepared body as `json.RawMessage`, keeping nested prompt/tool/schema bytes
+  intact instead of recursively decoding and re-marshaling them. Representative
+  derivation moved from about 9.3 to 7.4 microseconds and from 148 to 73
+  allocations, with compatibility coverage for numeric precision, legacy token
+  fallback, ignored transport tags, and refusal of out-of-set fields.
 - Existing API-key and realtime-identity cache-hit paths remain allocation-free.
   Database ranking and settlement were not loosened or bypassed because they
   are durable authority paths.

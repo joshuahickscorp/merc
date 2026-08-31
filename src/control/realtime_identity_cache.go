@@ -110,11 +110,7 @@ func realtimeIdentityFromBodyDigest(
 	realtimeIdentityCache.misses++
 	realtimeIdentityCache.Unlock()
 
-	payload, err := decodeRealtimePayload(body)
-	if err != nil {
-		return "", err
-	}
-	identity, err := realtimeIdentityFromPayload(buyerID, profile, payload)
+	identity, err := realtimeIdentityFromCanonicalBody(buyerID, profile, body)
 	if err != nil {
 		return "", err
 	}
