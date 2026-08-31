@@ -27,6 +27,27 @@ The hot path must preserve the free-admit and verification invariants: no
 unverified work is admitted to settlement, no warm-prefix shortcut creates
 unattributed savings, and no capacity estimate bypasses a durable recheck.
 
+## Latest bounded pass
+
+The 2026-08-31 local pass reduced repeated representation work without
+changing the request-identity encoding, payment authority, or settlement
+boundary:
+
+- Realtime sampling-fingerprint lookup moved from reparsing the prepared JSON
+  body on every access (about 2.9 microseconds, 1,715 bytes, 53 allocations)
+  to the preparation result (about 13 nanoseconds, zero bytes, zero
+  allocations).
+- Identity-cache-miss construction moved from about 2.46 microseconds and
+  1,506 bytes across 28 allocations to about 1.61 microseconds and 681 bytes
+  across 24 allocations. A golden identity digest confirms byte compatibility.
+- Existing API-key and realtime-identity cache-hit paths remain allocation-free.
+  Database ranking and settlement were not loosened or bypassed because they
+  are durable authority paths.
+
+These are local Go microbenchmarks, not end-to-end time-to-first-token or
+payment-latency promises. The local pass did not have the external database,
+provider engine, or live payment environment available.
+
 ## Safe checks
 
 From the repository root, use the read-only or local checks below:
@@ -45,6 +66,6 @@ staging, Stripe, provider, and soak evidence stays under their own gates.
 ## Historical measurements
 
 The detailed benchmark ledger, runtime census, and superseded decision records
-Historical measurements remain under `evidence/perf/`; this page is the
-canonical runtime and performance index.
+remain under `evidence/perf/`; this page is the canonical runtime and
+performance index.
 The archived material is useful for provenance and comparison only.

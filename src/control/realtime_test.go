@@ -43,6 +43,17 @@ func TestPrepareRealtimeRequestCanonicalizesDefaultsAndPriceCeiling(t *testing.T
 	if !first.Stream || first.MaximumPriceUSD <= 0 || first.EstimatedPriceUSD <= 0 || first.EstimatedPriceUSD > first.MaximumPriceUSD {
 		t.Fatalf("invalid prepared economics: %+v", first)
 	}
+	if got, want := first.SamplingFingerprint, SamplingFingerprint(
+		first.Profile.GenerationPolicy.Temperature,
+		first.Profile.GenerationPolicy.TopP,
+		nil,
+		8,
+	); got != want {
+		t.Fatalf("prepared sampling fingerprint=%q, want %q", got, want)
+	}
+	if got := realtimeSamplingFingerprint(first); got != first.SamplingFingerprint {
+		t.Fatalf("sampling fingerprint accessor=%q, prepared=%q", got, first.SamplingFingerprint)
+	}
 	var upstream map[string]any
 	must(t, json.Unmarshal(first.Body, &upstream))
 	if upstream["temperature"] == nil || upstream["top_p"] == nil {
@@ -110,6 +121,35 @@ func TestPrepareRealtimeRequestPreservesLargeIntegerFields(t *testing.T) {
 	must(t, err)
 	if !bytes.Contains(prepared.Body, []byte(`"seed":`+seed)) {
 		t.Fatalf("large integer lost precision in canonical request: %s", prepared.Body)
+	}
+}
+
+func TestPrepareRealtimeRequestBindsSeedToSamplingFingerprint(t *testing.T) {
+	prepared, err := prepareRealtimeRequest(
+		[]byte(`{"model":"cx-chat-1b","messages":[{"role":"user","content":"hello"}],"stream":true,"temperature":0.2,"top_p":0.8,"seed":9007199254740993,"max_tokens":8}`),
+		"",
+	)
+	must(t, err)
+	seed := int64(9007199254740993)
+	want := SamplingFingerprint(0.2, 0.8, &seed, 8)
+	if prepared.SamplingFingerprint != want {
+		t.Fatalf("sampling fingerprint=%q, want %q", prepared.SamplingFingerprint, want)
+	}
+}
+
+func BenchmarkRealtimeSamplingFingerprint(b *testing.B) {
+	prepared, err := prepareRealtimeRequest(
+		[]byte(`{"model":"cx-chat-1b","messages":[{"role":"user","content":"benchmark"}],"stream":true,"seed":42}`),
+		"",
+	)
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if got := realtimeSamplingFingerprint(prepared); got == "" {
+			b.Fatal("empty sampling fingerprint")
+		}
 	}
 }
 

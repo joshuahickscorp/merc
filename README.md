@@ -41,6 +41,17 @@ payment authority, idempotency keys, exact-money checks, or settlement ledger.
 Performance receipts under `evidence/perf/` are measurements, not permission
 to enable live money.
 
+## Performance posture
+
+The current hot paths are measured locally and optimized only where the
+payment, identity, and evidence contracts remain byte-compatible. Realtime
+sampling fingerprints are derived during request preparation; API-key and
+realtime identity cache hits avoid per-hit encoding allocations; identity
+cache misses use a fixed canonical field order. Database market selection and
+settlement remain durable, locked authority paths. See
+[runtime and performance](docs/RUNTIME_AND_PERF.md) for the measurement
+boundary and bounded results.
+
 ## Repository map
 
 - `src/control/` — Go control plane, durable schema, accounting, verification,

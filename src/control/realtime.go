@@ -247,10 +247,14 @@ func (s *Server) handleRealtimeWorkerHeartbeat(w http.ResponseWriter, r *http.Re
 }
 
 type preparedRealtimeRequest struct {
-	Body                      []byte
-	Profile                   VLLMRuntimeProfile
-	FX                        RealtimeFXAuthority
-	Stream                    bool
+	Body    []byte
+	Profile VLLMRuntimeProfile
+	FX      RealtimeFXAuthority
+	Stream  bool
+	// SamplingFingerprint is derived while the prepared payload is already in
+	// memory. Arrival batching needs only these decoding parameters; retaining
+	// the value avoids reparsing the canonical body on the streaming path.
+	SamplingFingerprint       string
 	InputCommitment           string
 	RequestSHA256             string
 	MaximumPriceUSD           float64
@@ -376,6 +380,18 @@ func prepareRealtimeRequest(raw []byte, headerCeiling string) (preparedRealtimeR
 			requestCeilingNanos = ceiling
 		}
 	}
+	var seed *int64
+	if rawSeed, exists := payload["seed"]; exists {
+		if parsed, valid := jsonInt(rawSeed); valid {
+			seed = &parsed
+		}
+	}
+	samplingFingerprint := SamplingFingerprint(
+		jsonFloat(payload["temperature"], 0),
+		jsonFloat(payload["top_p"], 1),
+		seed,
+		maxOutput,
+	)
 
 	upstreamBody, err := canonicalJSON(payload)
 	if err != nil {
@@ -453,9 +469,10 @@ func prepareRealtimeRequest(raw []byte, headerCeiling string) (preparedRealtimeR
 	}
 	return preparedRealtimeRequest{
 		Body: upstreamBody, Profile: profile, FX: fx, Stream: stream,
-		InputCommitment: hex.EncodeToString(inputDigest[:]),
-		RequestSHA256:   hex.EncodeToString(requestDigest[:]),
-		MaximumPriceUSD: maximumPrice, EstimatedPriceUSD: estimatedPrice,
+		SamplingFingerprint: samplingFingerprint,
+		InputCommitment:     hex.EncodeToString(inputDigest[:]),
+		RequestSHA256:       hex.EncodeToString(requestDigest[:]),
+		MaximumPriceUSD:     maximumPrice, EstimatedPriceUSD: estimatedPrice,
 		MaxPriceCeiling:      float64(requestCeilingNanos) / float64(NanosPerMajorUnit),
 		MaximumPriceUSDNanos: maximumPriceExact.Nanos, EstimatedPriceUSDNanos: estimatedPriceExact.Nanos,
 		MaxPriceCeilingUSDNanos: requestCeilingNanos, MaximumPromptTokens: maxInputTokens,
@@ -468,6 +485,9 @@ func prepareRealtimeRequest(raw []byte, headerCeiling string) (preparedRealtimeR
 // two realtime requests to share an arrival batch. Distinct from full request
 // identity: prompts differ inside a batch; sampling must not.
 func realtimeSamplingFingerprint(prepared preparedRealtimeRequest) string {
+	if prepared.SamplingFingerprint != "" {
+		return prepared.SamplingFingerprint
+	}
 	var payload map[string]any
 	if err := json.Unmarshal(prepared.Body, &payload); err != nil {
 		// Unparseable body is already rejected at prepare time; fall back to a

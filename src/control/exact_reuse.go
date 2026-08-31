@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
-	"sort"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -120,31 +119,39 @@ func (r RequestIdentity) computeRequestIdentityWithDomain(domain string) (string
 	if strings.TrimSpace(r.TenantScope) == "" {
 		return "", fmt.Errorf("request identity requires a tenant scope")
 	}
-	fields := map[string]any{
-		"tenant": r.TenantScope,
-		"model":  r.ModelID, "revision": r.ModelRevision, "adapter": r.Adapter,
-		"profile_sha256": r.ProfileSHA256,
-		"input":          r.Input, "tools": r.Tools, "schema": r.Schema,
-		"temperature": r.Temperature, "top_p": r.TopP, "seed": r.Seed,
-		"max_tokens": r.MaxTokens, "policy": r.Policy,
+	// This order is the lexicographic order of the field names above. Keep it
+	// explicit: the set is part of the versioned identity contract, and sorting
+	// a new map on every cache miss adds work without adding determinism.
+	fields := [...]struct {
+		name  string
+		value any
+	}{
+		{name: "adapter", value: r.Adapter},
+		{name: "input", value: r.Input},
+		{name: "max_tokens", value: r.MaxTokens},
+		{name: "model", value: r.ModelID},
+		{name: "policy", value: r.Policy},
+		{name: "profile_sha256", value: r.ProfileSHA256},
+		{name: "revision", value: r.ModelRevision},
+		{name: "schema", value: r.Schema},
+		{name: "seed", value: r.Seed},
+		{name: "temperature", value: r.Temperature},
+		{name: "tenant", value: r.TenantScope},
+		{name: "top_p", value: r.TopP},
+		{name: "tools", value: r.Tools},
 	}
-	keys := make([]string, 0, len(fields))
-	for k := range fields {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
 
 	h := sha256.New()
 	// Domain separator is versioned: every prior version's rows miss rather than
 	// resolve under a changed field set. A miss costs work; a stale hit under a
 	// changed identity definition would be wrong.
 	h.Write([]byte(domain + "\x00"))
-	for _, k := range keys {
-		blob, err := json.Marshal(fields[k])
+	for _, field := range fields {
+		blob, err := json.Marshal(field.value)
 		if err != nil {
 			return "", err
 		}
-		h.Write([]byte(k))
+		h.Write([]byte(field.name))
 		h.Write([]byte{0})
 		h.Write(blob)
 		h.Write([]byte{0})

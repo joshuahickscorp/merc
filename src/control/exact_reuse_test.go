@@ -154,3 +154,28 @@ func TestExactCacheRefusesTenantScopedReferences(t *testing.T) {
 		t.Fatalf("content-addressed round trip failed: %+v ok=%v err=%v", hit, ok, err)
 	}
 }
+
+func TestRequestIdentityEncodingRemainsByteCompatible(t *testing.T) {
+	identity := detIdentity("identity-compute-benchmark")
+	identity.Tools = `[{"type":"function","function":{"name":"weather"}}]`
+	identity.Schema = `{"type":"json_schema","json_schema":{"name":"answer"}}`
+	got, err := identity.Compute()
+	must(t, err)
+	const want = "req_4ecef7ebbcb2b1dd966926804e420576a0b351b04f9e7aba805e184dfc93fc06"
+	if got != want {
+		t.Fatalf("request identity changed: got %q want %q", got, want)
+	}
+}
+
+func BenchmarkRequestIdentityCompute(b *testing.B) {
+	identity := detIdentity("identity-compute-benchmark")
+	identity.Tools = `[{"type":"function","function":{"name":"weather"}}]`
+	identity.Schema = `{"type":"json_schema","json_schema":{"name":"answer"}}`
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := identity.Compute(); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
