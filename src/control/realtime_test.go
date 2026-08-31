@@ -140,6 +140,18 @@ func BenchmarkRealtimeInputDigest(b *testing.B) {
 	})
 }
 
+func BenchmarkPrepareRealtimeRequest(b *testing.B) {
+	installSettlementCurrencyForTest(b, "usd")
+	raw := []byte(`{"model":"cx-chat-1b","messages":[{"role":"user","content":"benchmark request"}],"stream":true,"temperature":0,"top_p":1,"seed":42,"max_tokens":64}`)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := prepareRealtimeRequest(raw, ""); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
 func TestPrepareRealtimeRequestKeepsUSDCeilingSeparateFromCADSettlement(t *testing.T) {
 	installSettlementCurrencyForTest(t, "cad")
 	installRealtimeCADFXForTest(t)

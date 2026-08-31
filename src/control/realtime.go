@@ -272,6 +272,17 @@ type preparedRealtimeRequest struct {
 	EstimatedCompletionTokens int64
 }
 
+var realtimeJSONEncodedStrings sync.Map
+
+func realtimeJSONEncodedString(value string) []byte {
+	if encoded, ok := realtimeJSONEncodedStrings.Load(value); ok {
+		return encoded.([]byte)
+	}
+	encoded, _ := json.Marshal(value)
+	actual, _ := realtimeJSONEncodedStrings.LoadOrStore(value, encoded)
+	return actual.([]byte)
+}
+
 func jsonInt(value any) (int64, bool) {
 	switch value := value.(type) {
 	case json.Number:
@@ -290,14 +301,8 @@ func realtimeInputDigest(body []byte, profile VLLMRuntimeProfile) ([sha256.Size]
 	// canonicalJSON(payload) is already the exact bytes required for the
 	// payload member. Hash the enclosing commitment around those bytes instead
 	// of asking encoding/json to walk the complete payload a second time.
-	profileID, err := json.Marshal(profile.RuntimeProfileID)
-	if err != nil {
-		return [sha256.Size]byte{}, err
-	}
-	profileSHA256, err := json.Marshal(profile.ProfileSHA256)
-	if err != nil {
-		return [sha256.Size]byte{}, err
-	}
+	profileID := realtimeJSONEncodedString(profile.RuntimeProfileID)
+	profileSHA256 := realtimeJSONEncodedString(profile.ProfileSHA256)
 	h := sha256.New()
 	_, _ = h.Write([]byte(`{"payload":`))
 	_, _ = h.Write(body)

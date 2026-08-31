@@ -62,6 +62,11 @@ boundary:
   0.62 microseconds, 160 bytes, and 4 allocations versus about 2.2 microseconds,
   1,683 bytes, and 22 allocations for the prior full-map marshal; a parity test
   covers escaped strings and large integers.
+- The same commitment path now reuses the JSON-escaped strings for the finite
+  runtime-profile catalog instead of marshaling those two immutable values on
+  every request. The helper moved from about 0.64 microseconds, 160 bytes, and
+  4 allocations to about 0.43 microseconds with zero bytes and allocations;
+  representative full request preparation also drops from 94 to 90 allocations.
 - Identity-cache misses now project top-level members from the canonical
   prepared body as `json.RawMessage`, keeping nested prompt/tool/schema bytes
   intact instead of recursively decoding and re-marshaling them. Representative
