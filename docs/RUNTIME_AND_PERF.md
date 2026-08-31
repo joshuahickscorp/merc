@@ -61,6 +61,11 @@ boundary:
   derivation moved from about 9.3 to 7.4 microseconds and from 148 to 73
   allocations, with compatibility coverage for numeric precision, legacy token
   fallback, ignored transport tags, and refusal of out-of-set fields.
+- Canonical-body identity misses now parse scalar numbers directly from their
+  bounded raw JSON instead of creating a decoder and interface value for each
+  scalar. The representative raw-top-level derivation moved from about 6.7 to
+  5.3 microseconds and from 7,024 to 2,116 bytes across 62 to 50 allocations;
+  nested-decoder parity remains covered.
 - Existing API-key and realtime-identity cache-hit paths remain allocation-free.
   Database ranking and settlement were not loosened or bypassed because they
   are durable authority paths.

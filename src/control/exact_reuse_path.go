@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -179,27 +178,29 @@ func realtimeIdentityFromCanonicalBody(
 	}
 	temp := profile.GenerationPolicy.Temperature
 	if raw, ok := payload["temperature"]; ok {
-		temp = jsonFloat(realtimeRawScalar(raw), temp)
+		temp = realtimeRawFloat(raw, temp)
 	}
 	topP := profile.GenerationPolicy.TopP
 	if raw, ok := payload["top_p"]; ok {
-		topP = jsonFloat(realtimeRawScalar(raw), topP)
+		topP = realtimeRawFloat(raw, topP)
 	}
 	seed := int64(0)
 	if raw, ok := payload["seed"]; ok {
-		seed = jsonInt64(realtimeRawScalar(raw), 0)
+		if n, ok := realtimeRawInt(raw); ok {
+			seed = n
+		}
 	}
 	maxTokens := int(profile.GenerationPolicy.MaximumOutputTokens)
 	if raw, exists := payload["max_completion_tokens"]; exists {
-		if n, ok := jsonInt(realtimeRawScalar(raw)); ok {
+		if n, ok := realtimeRawInt(raw); ok {
 			maxTokens = int(n)
 		} else if legacy, exists := payload["max_tokens"]; exists {
-			if n, ok := jsonInt(realtimeRawScalar(legacy)); ok {
+			if n, ok := realtimeRawInt(legacy); ok {
 				maxTokens = int(n)
 			}
 		}
 	} else if raw, exists := payload["max_tokens"]; exists {
-		if n, ok := jsonInt(realtimeRawScalar(raw)); ok {
+		if n, ok := realtimeRawInt(raw); ok {
 			maxTokens = int(n)
 		}
 	}
@@ -220,14 +221,61 @@ func realtimeIdentityFromCanonicalBody(
 	return id.Compute()
 }
 
-func realtimeRawScalar(raw json.RawMessage) any {
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.UseNumber()
-	var value any
-	if err := decoder.Decode(&value); err != nil {
-		return nil
+func realtimeRawFloat(raw json.RawMessage, fallback float64) float64 {
+	raw = bytesTrimSpace(raw)
+	if len(raw) == 0 {
+		return fallback
 	}
-	return value
+	if raw[0] == '"' {
+		var text string
+		if err := json.Unmarshal(raw, &text); err != nil {
+			return fallback
+		}
+		value, err := strconv.ParseFloat(text, 64)
+		if err == nil {
+			return value
+		}
+		return fallback
+	}
+	value, err := strconv.ParseFloat(string(raw), 64)
+	if err == nil {
+		return value
+	}
+	return fallback
+}
+
+func realtimeRawInt(raw json.RawMessage) (int64, bool) {
+	raw = bytesTrimSpace(raw)
+	if len(raw) == 0 {
+		return 0, false
+	}
+	value, err := strconv.ParseInt(string(raw), 10, 64)
+	return value, err == nil
+}
+
+func bytesTrimSpace(raw []byte) []byte {
+	start := 0
+	for start < len(raw) {
+		switch raw[start] {
+		case ' ', '\t', '\n', '\r':
+			start++
+		default:
+			goto trimEnd
+		}
+	}
+	return raw[start:]
+
+trimEnd:
+	end := len(raw)
+	for end > start {
+		switch raw[end-1] {
+		case ' ', '\t', '\n', '\r':
+			end--
+		default:
+			return raw[start:end]
+		}
+	}
+	return raw[start:end]
 }
 
 func jsonFloat(v any, fallback float64) float64 {
