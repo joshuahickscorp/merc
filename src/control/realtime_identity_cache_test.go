@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"testing"
 
@@ -35,6 +36,14 @@ func TestRealtimeIdentityCacheScopesSemanticRequestAndEvictsBoundedly(t *testing
 	body := canonicalRealtimeCacheBody(t, map[string]any{"type": "json_schema", "json_schema": map[string]any{"name": "answer"}}, 1)
 	first, err := realtimeIdentityFromPreparedBody(buyer, profile, body)
 	must(t, err)
+	prepared := preparedRealtimeRequest{
+		Body: body, Profile: profile, bodySHA256: sha256.Sum256(body),
+	}
+	preparedIdentity, err := realtimeIdentityFromPreparedBody(buyer, profile, body, prepared.bodySHA256)
+	must(t, err)
+	if preparedIdentity != first {
+		t.Fatalf("prepared identity=%q differs from body identity=%q", preparedIdentity, first)
+	}
 	second, err := realtimeIdentityFromPreparedBody(buyer, profile, body)
 	if err != nil || second != first {
 		t.Fatalf("cache hit identity=%q first=%q err=%v", second, first, err)
@@ -95,6 +104,34 @@ func BenchmarkRealtimeIdentityCacheHit(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		if _, err := realtimeIdentityFromPreparedBody(buyer, profile, body); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkRealtimeIdentityCacheHitPrepared(b *testing.B) {
+	resetRealtimeIdentityCacheForTest()
+	defer resetRealtimeIdentityCacheForTest()
+	profile := sortedVLLMProfiles()[0]
+	body, err := canonicalJSON(map[string]any{
+		"model": "cx-chat-1b", "temperature": 0.0, "top_p": 1.0,
+		"messages":        []any{map[string]any{"role": "user", "content": "benchmark-prepared"}},
+		"tools":           []any{map[string]any{"type": "function", "function": map[string]any{"name": "weather"}}},
+		"response_format": map[string]any{"type": "json_object"},
+	})
+	if err != nil {
+		b.Fatal(err)
+	}
+	prepared := preparedRealtimeRequest{
+		Body: body, Profile: profile, bodySHA256: sha256.Sum256(body),
+	}
+	buyer := uuid.New()
+	if _, err := realtimeIdentityFromPreparedBody(buyer, profile, body, prepared.bodySHA256); err != nil {
+		b.Fatal(err)
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := realtimeIdentityFromPreparedBody(buyer, profile, body, prepared.bodySHA256); err != nil {
 			b.Fatal(err)
 		}
 	}

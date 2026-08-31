@@ -251,6 +251,9 @@ type preparedRealtimeRequest struct {
 	Profile VLLMRuntimeProfile
 	FX      RealtimeFXAuthority
 	Stream  bool
+	// Body is immutable after preparation. Keeping its digest here avoids
+	// hashing the same canonical request once for each exact/coalesced lane.
+	bodySHA256 [sha256.Size]byte
 	// SamplingFingerprint is derived while the prepared payload is already in
 	// memory. Arrival batching needs only these decoding parameters; retaining
 	// the value avoids reparsing the canonical body on the streaming path.
@@ -397,6 +400,7 @@ func prepareRealtimeRequest(raw []byte, headerCeiling string) (preparedRealtimeR
 	if err != nil {
 		return preparedRealtimeRequest{}, err
 	}
+	bodySHA256 := sha256.Sum256(upstreamBody)
 	inputObject := map[string]any{
 		"route":                  "/v1/chat/completions",
 		"runtime_profile_id":     profile.RuntimeProfileID,
@@ -468,7 +472,7 @@ func prepareRealtimeRequest(raw []byte, headerCeiling string) (preparedRealtimeR
 		return preparedRealtimeRequest{}, err
 	}
 	return preparedRealtimeRequest{
-		Body: upstreamBody, Profile: profile, FX: fx, Stream: stream,
+		Body: upstreamBody, Profile: profile, FX: fx, Stream: stream, bodySHA256: bodySHA256,
 		SamplingFingerprint: samplingFingerprint,
 		InputCommitment:     hex.EncodeToString(inputDigest[:]),
 		RequestSHA256:       hex.EncodeToString(requestDigest[:]),
@@ -1635,7 +1639,7 @@ func (s *Server) tryRealtimeExactReuse(
 	requestID, idempotencyKey string,
 	prepared preparedRealtimeRequest,
 ) (RealtimeContract, []byte, bool, error) {
-	identity, err := realtimeIdentityFromPreparedBody(buyerID, prepared.Profile, prepared.Body)
+	identity, err := realtimeIdentityFromPreparedBody(buyerID, prepared.Profile, prepared.Body, prepared.bodySHA256)
 	if err != nil {
 		// Non-deterministic or incomplete identity: not eligible for reuse.
 		return RealtimeContract{}, nil, false, nil
@@ -1689,7 +1693,7 @@ func (s *Server) maybeStoreRealtimeExactResult(
 	ctx context.Context, buyerID uuid.UUID, prepared preparedRealtimeRequest,
 	leaderRef string, leaderContractID uuid.UUID, body []byte, completionTokens int64,
 ) {
-	identity, err := realtimeIdentityFromPreparedBody(buyerID, prepared.Profile, prepared.Body)
+	identity, err := realtimeIdentityFromPreparedBody(buyerID, prepared.Profile, prepared.Body, prepared.bodySHA256)
 	if err != nil {
 		return
 	}
@@ -1733,7 +1737,7 @@ func (s *Server) tryRealtimeCoalescedDelivery(
 	requestID, idempotencyKey string,
 	prepared preparedRealtimeRequest,
 ) (identity, leaderRef string, contract RealtimeContract, body []byte, followed bool, err error) {
-	identity, identityErr := realtimeIdentityFromPreparedBody(buyerID, prepared.Profile, prepared.Body)
+	identity, identityErr := realtimeIdentityFromPreparedBody(buyerID, prepared.Profile, prepared.Body, prepared.bodySHA256)
 	if identityErr != nil {
 		// Non-deterministic sampling: two runs need not agree, so collapsing
 		// them would hand one buyer another's roll of the dice.

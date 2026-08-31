@@ -47,6 +47,12 @@ var realtimeIdentityCache = struct {
 }{entries: make(map[realtimeIdentityCacheKey]realtimeIdentityCacheEntry)}
 
 func newRealtimeIdentityCacheKey(buyerID uuid.UUID, profile VLLMRuntimeProfile, body []byte) realtimeIdentityCacheKey {
+	return newRealtimeIdentityCacheKeyWithDigest(buyerID, profile, sha256.Sum256(body))
+}
+
+func newRealtimeIdentityCacheKeyWithDigest(
+	buyerID uuid.UUID, profile VLLMRuntimeProfile, bodySHA256 [sha256.Size]byte,
+) realtimeIdentityCacheKey {
 	// Tenant, profile digest/revision, and generation-policy revision are part of
 	// the cache key. A buyer can therefore never observe another tenant's
 	// identity, and a runtime/policy update naturally invalidates old entries.
@@ -56,7 +62,7 @@ func newRealtimeIdentityCacheKey(buyerID uuid.UUID, profile VLLMRuntimeProfile, 
 		profileSHA256:           profile.ProfileSHA256,
 		modelRevision:           profile.ModelRevision,
 		generationPolicyVersion: profile.GenerationPolicy.Version,
-		bodySHA256:              sha256.Sum256(body),
+		bodySHA256:              bodySHA256,
 	}
 }
 
@@ -67,11 +73,27 @@ func newRealtimeIdentityCacheKey(buyerID uuid.UUID, profile VLLMRuntimeProfile, 
 // exactly as realtimeIdentityFromPayload does.
 func realtimeIdentityFromPreparedBody(
 	buyerID uuid.UUID, profile VLLMRuntimeProfile, body []byte,
+	cachedBodySHA256 ...[sha256.Size]byte,
 ) (string, error) {
 	if buyerID == uuid.Nil || len(body) == 0 || len(body) > realtimeIdentityCacheMaxBody {
 		return "", errors.New("realtime identity body is outside bounded cache input")
 	}
-	key := newRealtimeIdentityCacheKey(buyerID, profile, body)
+	bodySHA256 := [sha256.Size]byte{}
+	if len(cachedBodySHA256) > 0 {
+		bodySHA256 = cachedBodySHA256[0]
+	}
+	if bodySHA256 == ([sha256.Size]byte{}) {
+		// Keep hand-built test values and zero-value callers fail-safe. Requests
+		// returned by prepareRealtimeRequest take the one-hash path.
+		bodySHA256 = sha256.Sum256(body)
+	}
+	return realtimeIdentityFromBodyDigest(buyerID, profile, body, bodySHA256)
+}
+
+func realtimeIdentityFromBodyDigest(
+	buyerID uuid.UUID, profile VLLMRuntimeProfile, body []byte, bodySHA256 [sha256.Size]byte,
+) (string, error) {
+	key := newRealtimeIdentityCacheKeyWithDigest(buyerID, profile, bodySHA256)
 	now := time.Now().UTC()
 	realtimeIdentityCache.Lock()
 	if entry, ok := realtimeIdentityCache.entries[key]; ok {

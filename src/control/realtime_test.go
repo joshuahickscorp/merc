@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"io"
 	"math"
@@ -39,6 +40,9 @@ func TestPrepareRealtimeRequestCanonicalizesDefaultsAndPriceCeiling(t *testing.T
 	must(t, err)
 	if first.InputCommitment != second.InputCommitment || first.RequestSHA256 != second.RequestSHA256 {
 		t.Fatal("canonical request commitments are not retry-stable")
+	}
+	if first.bodySHA256 != sha256.Sum256(first.Body) {
+		t.Fatal("prepared request body digest does not cover the canonical body")
 	}
 	if !first.Stream || first.MaximumPriceUSD <= 0 || first.EstimatedPriceUSD <= 0 || first.EstimatedPriceUSD > first.MaximumPriceUSD {
 		t.Fatalf("invalid prepared economics: %+v", first)

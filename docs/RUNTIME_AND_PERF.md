@@ -40,6 +40,10 @@ boundary:
 - Identity-cache-miss construction moved from about 2.46 microseconds and
   1,506 bytes across 28 allocations to about 1.61 microseconds and 681 bytes
   across 24 allocations. A golden identity digest confirms byte compatibility.
+- Prepared realtime identity hits now reuse the canonical body digest computed
+  during request preparation: the production-shaped hit measured about 151
+  nanoseconds versus about 260 nanoseconds for the compatibility path that
+  hashes the body on access, with zero allocations in both paths.
 - Existing API-key and realtime-identity cache-hit paths remain allocation-free.
   Database ranking and settlement were not loosened or bypassed because they
   are durable authority paths.
