@@ -95,10 +95,11 @@ boundary:
   implementation.
 - Realtime SSE evidence tracking now walks newline boundaries in-place instead
   of allocating a `bytes.Split` line slice for every upstream event. The
-  representative tracker benchmark moved from about 1.45–1.53 microseconds,
-  730 bytes, and 16 allocations to about 1.42–1.49 microseconds, 650 bytes,
-  and 15 allocations; the usage-bound, tool-call, reasoning, legacy-text, and
-  multi-delta tests remain green.
+  fixed chain tuple also hashes through a stack buffer rather than a fresh
+  hash object. The representative tracker benchmark moved from about
+  1.45–1.53 microseconds, 730 bytes, and 16 allocations to about 1.43–1.45
+  microseconds, 618 bytes, and 14 allocations; the usage-bound, tool-call,
+  reasoning, legacy-text, and multi-delta tests remain green.
 
 These are local Go microbenchmarks, not end-to-end time-to-first-token or
 payment-latency promises. The local pass did not have the external database,

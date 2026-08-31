@@ -580,13 +580,11 @@ func (t *streamEvidenceTracker) addEvent(event []byte) error {
 		t.firstEventAt = time.Now()
 	}
 	eventDigest := sha256.Sum256(event)
-	h := sha256.New()
-	_, _ = h.Write(t.previous[:])
-	var sequence [8]byte
-	binary.BigEndian.PutUint64(sequence[:], uint64(t.events))
-	_, _ = h.Write(sequence[:])
-	_, _ = h.Write(eventDigest[:])
-	copy(t.previous[:], h.Sum(nil))
+	var chainInput [sha256.Size + 8 + sha256.Size]byte
+	copy(chainInput[:sha256.Size], t.previous[:])
+	binary.BigEndian.PutUint64(chainInput[sha256.Size:sha256.Size+8], uint64(t.events))
+	copy(chainInput[sha256.Size+8:], eventDigest[:])
+	t.previous = sha256.Sum256(chainInput[:])
 	t.events++
 
 	for offset := 0; offset <= len(event); {
