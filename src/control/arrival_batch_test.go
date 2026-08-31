@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"fmt"
+	"math"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -235,6 +237,48 @@ func TestArrivalLaneKeyIncludesWorker(t *testing.T) {
 	}
 	if ArrivalLaneKey("m", "cell", "w", "t=0") == ArrivalLaneKey("m", "cell", "w", "t=1") {
 		t.Fatal("lane key must include sampling fingerprint")
+	}
+}
+
+func BenchmarkArrivalLaneKey(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		_ = ArrivalLaneKey("cx-chat-1b", "candle-metal-llama1-infer", "worker-1", "t=0.2|p=0.8|s=42|m=256")
+	}
+}
+
+func BenchmarkSamplingFingerprint(b *testing.B) {
+	seed := int64(42)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = SamplingFingerprint(0.2, 0.8, &seed, 256)
+	}
+}
+
+func TestSamplingFingerprintPreservesFormattingContract(t *testing.T) {
+	seed := int64(-9007199254740993)
+	cases := []struct {
+		name        string
+		temperature float64
+		topP        float64
+		seed        *int64
+		maxTokens   int64
+	}{
+		{name: "ordinary", temperature: 0.2, topP: 0.8, seed: &seed, maxTokens: 256},
+		{name: "none", temperature: 0, topP: 1, maxTokens: 0},
+		{name: "edge floats", temperature: math.Copysign(0, -1), topP: math.Inf(1), seed: &seed, maxTokens: -1},
+		{name: "small float", temperature: math.SmallestNonzeroFloat64, topP: math.MaxFloat64, seed: &seed, maxTokens: 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			seedText := "none"
+			if tc.seed != nil {
+				seedText = fmt.Sprintf("%d", *tc.seed)
+			}
+			want := fmt.Sprintf("t=%g|p=%g|s=%s|m=%d", tc.temperature, tc.topP, seedText, tc.maxTokens)
+			if got := SamplingFingerprint(tc.temperature, tc.topP, tc.seed, tc.maxTokens); got != want {
+				t.Fatalf("fingerprint=%q, want %q", got, want)
+			}
+		})
 	}
 }
 

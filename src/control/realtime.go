@@ -575,6 +575,54 @@ func newStreamEvidenceTracker(startedAt time.Time) *streamEvidenceTracker {
 	return &streamEvidenceTracker{output: sha256.New(), startedAt: startedAt}
 }
 
+// canonicalSSEJSON returns data in the same form as
+// json.Marshal(json.RawMessage(data)). Upstream OpenAI-compatible servers
+// normally emit compact JSON, so avoid a second encoder pass when the bytes
+// already have the encoder's canonical surface. The preceding Unmarshal in
+// addEvent remains the validity check; this helper only decides whether the
+// valid bytes need compaction or HTML-sensitive escaping.
+func canonicalSSEJSON(data []byte) ([]byte, error) {
+	if realtimeSSEJSONAlreadyCanonical(data) {
+		return data, nil
+	}
+	return canonicalJSON(json.RawMessage(data))
+}
+
+func realtimeSSEJSONAlreadyCanonical(data []byte) bool {
+	if len(data) == 0 {
+		return false
+	}
+	inString, escaped := false, false
+	for i, b := range data {
+		if inString {
+			if escaped {
+				escaped = false
+				continue
+			}
+			switch b {
+			case '\\':
+				escaped = true
+			case '"':
+				inString = false
+			case '<', '>', '&':
+				return false
+			case 0xe2:
+				if i+2 < len(data) && data[i+1] == 0x80 && (data[i+2] == 0xa8 || data[i+2] == 0xa9) {
+					return false
+				}
+			}
+			continue
+		}
+		switch b {
+		case '"':
+			inString = true
+		case ' ', '\t', '\n', '\r':
+			return false
+		}
+	}
+	return !inString && !escaped
+}
+
 func (t *streamEvidenceTracker) addEvent(event []byte) error {
 	if t.events == 0 {
 		t.firstEventAt = time.Now()
@@ -635,7 +683,7 @@ func (t *streamEvidenceTracker) addEvent(event []byte) error {
 			if err := json.Unmarshal(data, &chunk); err != nil {
 				return fmt.Errorf("upstream emitted malformed SSE JSON: %w", err)
 			}
-			canonical, err := canonicalJSON(json.RawMessage(data))
+			canonical, err := canonicalSSEJSON(data)
 			if err != nil {
 				return err
 			}

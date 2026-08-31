@@ -2,7 +2,8 @@ package main
 
 import (
 	"context"
-	"fmt"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -450,7 +451,16 @@ func latencyClassForTraffic(class TrafficClass) LatencyClass {
 // the worker was already chosen by AuthorizeRealtimeContract under the
 // scheduler's cost-class discipline.
 func ArrivalLaneKey(model, runtimeCell, workerID, samplingFingerprint string) string {
-	return fmt.Sprintf("%s|%s|%s|%s", model, runtimeCell, workerID, samplingFingerprint)
+	var key strings.Builder
+	key.Grow(len(model) + len(runtimeCell) + len(workerID) + len(samplingFingerprint) + 3)
+	key.WriteString(model)
+	key.WriteByte('|')
+	key.WriteString(runtimeCell)
+	key.WriteByte('|')
+	key.WriteString(workerID)
+	key.WriteByte('|')
+	key.WriteString(samplingFingerprint)
+	return key.String()
 }
 
 // SamplingFingerprint extracts the sampling params that must match for two
@@ -458,11 +468,20 @@ func ArrivalLaneKey(model, runtimeCell, workerID, samplingFingerprint string) st
 // identity: prompts differ inside a batch; temperature/top_p/seed/max_tokens
 // must not, or the engine's batch is heterogeneous for no gain.
 func SamplingFingerprint(temperature, topP float64, seed *int64, maxTokens int64) string {
-	seedPart := "none"
-	if seed != nil {
-		seedPart = fmt.Sprintf("%d", *seed)
+	var storage [96]byte
+	encoded := append(storage[:0], "t="...)
+	encoded = strconv.AppendFloat(encoded, temperature, 'g', -1, 64)
+	encoded = append(encoded, "|p="...)
+	encoded = strconv.AppendFloat(encoded, topP, 'g', -1, 64)
+	encoded = append(encoded, "|s="...)
+	if seed == nil {
+		encoded = append(encoded, "none"...)
+	} else {
+		encoded = strconv.AppendInt(encoded, *seed, 10)
 	}
-	return fmt.Sprintf("t=%g|p=%g|s=%s|m=%d", temperature, topP, seedPart, maxTokens)
+	encoded = append(encoded, "|m="...)
+	encoded = strconv.AppendInt(encoded, maxTokens, 10)
+	return string(encoded)
 }
 
 // WaitArrival blocks until the batcher releases the request or ctx ends.

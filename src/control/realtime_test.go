@@ -429,6 +429,35 @@ func TestProxySSEBuildsUsageBoundHashChain(t *testing.T) {
 	}
 }
 
+func TestCanonicalSSEJSONMatchesCanonicalEncoder(t *testing.T) {
+	cases := []struct {
+		name       string
+		raw        string
+		fastPathOK bool
+	}{
+		{name: "compact", raw: `{"id":"x","choices":[]}`, fastPathOK: true},
+		{name: "whitespace", raw: `{ "id": "x", "choices": [] }`},
+		{name: "html-sensitive", raw: `{"text":"<>&"}`},
+		{name: "line-separators", raw: "{\"text\":\"\u2028\u2029\"}"},
+		{name: "escaped-html", raw: `{"text":"\u003c\u003e\u0026"}`, fastPathOK: true},
+		{name: "number", raw: `123`, fastPathOK: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			want, err := canonicalJSON(json.RawMessage(tc.raw))
+			must(t, err)
+			got, err := canonicalSSEJSON([]byte(tc.raw))
+			must(t, err)
+			if string(got) != string(want) {
+				t.Fatalf("canonical bytes differ\\nwant: %q\\n got: %q", want, got)
+			}
+			if realtimeSSEJSONAlreadyCanonical([]byte(tc.raw)) != tc.fastPathOK {
+				t.Fatalf("unexpected fast-path decision for %q", tc.raw)
+			}
+		})
+	}
+}
+
 func TestProxySSERejectsWorkerDeathInsideEvent(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	tracker := newStreamEvidenceTracker(time.Now())

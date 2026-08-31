@@ -47,9 +47,11 @@ The current hot paths are measured locally and optimized only where the
 payment, identity, and evidence contracts remain byte-compatible. Realtime
 sampling fingerprints are derived during request preparation; streamed
 evidence accounting scans event bytes without a per-event line-slice
-allocation; API-key and realtime identity cache hits avoid per-hit encoding
-allocations; identity cache misses use a fixed canonical field order. Database
-market selection and settlement remain durable, locked authority paths. See
+allocation and reuses already-canonical SSE JSON; arrival keys and sampling
+fingerprints use bounded direct encoders; API-key and realtime identity cache
+hits avoid per-hit encoding allocations; identity cache misses use a fixed
+canonical field order. Database market selection and settlement remain
+durable, locked authority paths. See
 [runtime and performance](docs/RUNTIME_AND_PERF.md) for the measurement
 boundary and bounded results.
 

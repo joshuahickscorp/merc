@@ -100,6 +100,18 @@ boundary:
   1.45–1.53 microseconds, 730 bytes, and 16 allocations to about 1.43–1.45
   microseconds, 618 bytes, and 14 allocations; the usage-bound, tool-call,
   reasoning, legacy-text, and multi-delta tests remain green.
+- SSE output commitments now return already-compact, HTML-safe JSON directly
+  after the existing structural unmarshal and fall back to the canonical
+  encoder for whitespace or escape-sensitive payloads. The representative
+  tracker benchmark moved from 1.439 to 1.162 microseconds, 618 to 528 bytes,
+  and 14 to 12 allocations; a parity matrix covers compact, whitespace,
+  escaped, HTML-sensitive, Unicode-separator, and numeric payloads.
+- Arrival compatibility keys now use direct string assembly, and sampling
+  fingerprints use `strconv` byte encoding instead of reflective formatting.
+  Representative construction moved from 86.4 to 34.6 nanoseconds for a lane
+  key and from 232.9 to 63.7 nanoseconds, 72 to 24 bytes, and 6 to 1
+  allocations for a sampling fingerprint; formatting edge cases remain pinned
+  against the prior `%g`/`%d` contract.
 
 These are local Go microbenchmarks, not end-to-end time-to-first-token or
 payment-latency promises. The local pass did not have the external database,
