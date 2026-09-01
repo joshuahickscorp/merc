@@ -344,6 +344,57 @@ func (s *Store) stripeTransfersCapabilityStatus(ctx context.Context, accountID s
 	return status, true, nil
 }
 
+// stripePayoutDestination reads the supplier's immutable Stripe destination and
+// the newest durable transfers-capability observation in one round trip. The
+// lateral lookup is deliberately scoped to that exact account and capability;
+// a missing observation stays unknown, while a present row with no status is
+// still rejected as malformed just like stripeTransfersCapabilityStatus.
+func (s *Store) stripePayoutDestination(ctx context.Context, supplierID uuid.UUID) (accountID, status string, observed bool, err error) {
+	var rawAccountID *string
+	var capabilityEventID *string
+	var rawCapabilityStatus *string
+	err = s.pool.QueryRow(ctx, `
+		SELECT btrim(s.stripe_acct),cap.event_id,cap.capability_status
+		  FROM suppliers s
+		  LEFT JOIN LATERAL (
+			SELECT event_id,capability_status
+			  FROM stripe_connect_webhook_events
+			 WHERE account_id=btrim(s.stripe_acct)
+			   AND event_type=$2 AND object_id='transfers'
+			 ORDER BY event_created DESC,event_id DESC
+			 LIMIT 1
+		  ) cap ON TRUE
+		 WHERE s.id=$1`, supplierID, stripeConnectEventCapabilityUpdated).
+		Scan(&rawAccountID, &capabilityEventID, &rawCapabilityStatus)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", "", false, errNotFound
+	}
+	if err != nil {
+		return "", "", false, err
+	}
+	if rawAccountID == nil {
+		return "", "", false, nil
+	}
+	accountID = strings.TrimSpace(*rawAccountID)
+	if accountID == "" {
+		return "", "", false, nil
+	}
+	if !validStripeObjectID(accountID, "acct_") {
+		return "", "", false, errors.New("stored Stripe connected account id is not an acct_* identifier")
+	}
+	if capabilityEventID == nil {
+		return accountID, "", false, nil
+	}
+	if rawCapabilityStatus == nil {
+		return "", "", true, errors.New("durable Stripe transfers capability observation has no status")
+	}
+	status = strings.TrimSpace(*rawCapabilityStatus)
+	if !isStripeCapabilityStatus(status) {
+		return "", "", true, fmt.Errorf("durable Stripe transfers capability observation has invalid status %q", status)
+	}
+	return accountID, status, true, nil
+}
+
 func validStripeCapabilityID(value string) bool {
 	value = strings.TrimSpace(value)
 	if value == "" || len(value) > 100 {

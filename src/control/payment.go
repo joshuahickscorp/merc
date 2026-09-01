@@ -519,7 +519,7 @@ func (p StripePayout) Send(ctx context.Context, supplierID uuid.UUID, cents int6
 	); err != nil {
 		return PayoutResult{}, payoutDefinitelyNotSent(err)
 	}
-	acct, err := p.store.SupplierStripeAcct(ctx, supplierID)
+	acct, capabilityStatus, observed, err := p.store.stripePayoutDestination(ctx, supplierID)
 	if err != nil {
 		return PayoutResult{}, payoutDefinitelyNotSent(fmt.Errorf("looking up supplier stripe account: %w", err))
 	}
@@ -532,10 +532,6 @@ func (p StripePayout) Send(ctx context.Context, supplierID uuid.UUID, cents int6
 	}
 	if err := RequireSettlementCurrency(currency); err != nil {
 		return PayoutResult{}, payoutDefinitelyNotSent(fmt.Errorf("payout currency refused before Stripe call: %w", err))
-	}
-	capabilityStatus, observed, err := p.store.stripeTransfersCapabilityStatus(ctx, acct)
-	if err != nil {
-		return PayoutResult{}, payoutDefinitelyNotSent(fmt.Errorf("reading Stripe transfers capability: %w", err))
 	}
 	if observed && capabilityStatus != "active" {
 		return PayoutResult{}, payoutDefinitelyNotSent(fmt.Errorf(
