@@ -158,7 +158,7 @@ func TestStripeChargeRefundHTTPShape(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"object": "refund", "id": "re_sim_1", "amount": 50, "currency": "usd",
-			"payment_intent": "pi_sim",
+			"payment_intent": "pi_sim", "status": "succeeded",
 		})
 	}))
 	defer srv.Close()
@@ -254,7 +254,7 @@ func TestStripeProviderRecoveryBindsRelatedObjects(t *testing.T) {
 		},
 		{
 			name: "refund PaymentIntent",
-			body: `{"object":"refund","id":"re_bind_1","amount":50,"currency":"usd","payment_intent":"pi_bind_1"}`,
+			body: `{"object":"refund","id":"re_bind_1","amount":50,"currency":"usd","payment_intent":"pi_bind_1","status":"succeeded"}`,
 			parse: func(body []byte) error {
 				_, err := parseStripeRefundObject(body, 50, "usd", "pi_bind_1")
 				return err
@@ -262,7 +262,7 @@ func TestStripeProviderRecoveryBindsRelatedObjects(t *testing.T) {
 		},
 		{
 			name: "expanded refund PaymentIntent",
-			body: `{"object":"refund","id":"re_bind_2","amount":50,"currency":"usd","payment_intent":{"object":"payment_intent","id":"pi_bind_2"}}`,
+			body: `{"object":"refund","id":"re_bind_2","amount":50,"currency":"usd","payment_intent":{"object":"payment_intent","id":"pi_bind_2"},"status":"succeeded"}`,
 			parse: func(body []byte) error {
 				_, err := parseStripeRefundObject(body, 50, "usd", "pi_bind_2")
 				return err
@@ -315,7 +315,7 @@ func TestStripeProviderRecoveryBindsRelatedObjects(t *testing.T) {
 		},
 		{
 			name: "wrong refund PaymentIntent",
-			body: `{"object":"refund","id":"re_bind_bad_pi","amount":50,"currency":"usd","payment_intent":"pi_other"}`,
+			body: `{"object":"refund","id":"re_bind_bad_pi","amount":50,"currency":"usd","payment_intent":"pi_other","status":"succeeded"}`,
 			parse: func(body []byte) error {
 				_, err := parseStripeRefundObject(body, 50, "usd", "pi_bind_expected")
 				return err
@@ -323,7 +323,7 @@ func TestStripeProviderRecoveryBindsRelatedObjects(t *testing.T) {
 		},
 		{
 			name: "missing refund PaymentIntent",
-			body: `{"object":"refund","id":"re_bind_missing_pi","amount":50,"currency":"usd"}`,
+			body: `{"object":"refund","id":"re_bind_missing_pi","amount":50,"currency":"usd","status":"succeeded"}`,
 			parse: func(body []byte) error {
 				_, err := parseStripeRefundObject(body, 50, "usd", "pi_bind_expected")
 				return err
@@ -335,6 +335,23 @@ func TestStripeProviderRecoveryBindsRelatedObjects(t *testing.T) {
 				t.Fatal("unbound provider response was accepted")
 			}
 		})
+	}
+}
+
+func TestStripeRefundRecoveryRequiresCompletedStatus(t *testing.T) {
+	for _, status := range []string{"pending", "requires_action", "failed", "canceled", ""} {
+		t.Run(status, func(t *testing.T) {
+			body := []byte(`{"object":"refund","id":"re_status","amount":50,"currency":"usd","payment_intent":"pi_status","status":"` + status + `"}`)
+			if _, err := parseStripeRefundObject(body, 50, "usd", "pi_status"); err == nil {
+				t.Fatalf("accepted incomplete refund status %q", status)
+			}
+		})
+	}
+	if _, err := parseStripeRefundObject(
+		[]byte(`{"object":"refund","id":"re_status_ok","amount":50,"currency":"usd","payment_intent":"pi_status","status":"succeeded"}`),
+		50, "usd", "pi_status",
+	); err != nil {
+		t.Fatalf("rejected completed refund: %v", err)
 	}
 }
 

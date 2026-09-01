@@ -451,9 +451,13 @@ func parseStripeRefundObject(body []byte, cents int64, currency, expectedPayment
 	}
 	var raw struct {
 		PaymentIntent json.RawMessage `json:"payment_intent"`
+		Status        string          `json:"status"`
 	}
 	if err := json.Unmarshal(body, &raw); err != nil {
 		return stripeMoneyObject{}, fmt.Errorf("stripe refund %s has an unreadable PaymentIntent: %w", out.ID, err)
+	}
+	if strings.TrimSpace(raw.Status) != "succeeded" {
+		return stripeMoneyObject{}, fmt.Errorf("stripe refund %s is not complete (status %q)", out.ID, strings.TrimSpace(raw.Status))
 	}
 	expectedPaymentIntent = strings.TrimSpace(expectedPaymentIntent)
 	paymentIntent, err := stripeExpandableID(raw.PaymentIntent, "payment_intent")
