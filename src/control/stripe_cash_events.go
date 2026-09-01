@@ -248,6 +248,60 @@ func lockStripeCashBinding(ctx context.Context, tx pgx.Tx, chargeID string) erro
 	return err
 }
 
+// bindStripeCashStateToCollection closes the provider-before-canonical-row
+// ordering gap. Stripe can deliver a refund or dispute without a
+// PaymentIntent reference before the synchronous charge reconciliation creates
+// buyer_cash_collections. Once that collection exists, every cash-state row
+// for its charge must be bound before any payout-funding code can inspect the
+// collection. The identity checks deliberately match recordBuyerCashCollection
+// so the top-up path cannot become a weaker cash authority.
+func bindStripeCashStateToCollection(
+	ctx context.Context,
+	tx pgx.Tx,
+	chargeID, paymentIntent string,
+	received int64,
+	currency string,
+) error {
+	chargeID = strings.TrimSpace(chargeID)
+	paymentIntent = strings.TrimSpace(paymentIntent)
+	currency = strings.ToLower(strings.TrimSpace(currency))
+	if chargeID == "" || paymentIntent == "" || received <= 0 || currency == "" {
+		return errors.New("Stripe cash collection binding is incomplete")
+	}
+	var conflictingState bool
+	if err := tx.QueryRow(ctx, `
+		SELECT EXISTS(
+		  SELECT 1 FROM stripe_charge_cash_state
+		   WHERE charge_id=$1 AND (
+		     (payment_intent IS NOT NULL AND payment_intent<>$2)
+		     OR amount_cents<>$3 OR currency<>$4)
+		  UNION ALL
+		  SELECT 1 FROM stripe_dispute_cash_state
+		   WHERE charge_id=$1 AND (
+		     (payment_intent IS NOT NULL AND payment_intent<>$2)
+		     OR amount_cents>$3 OR currency<>$4)
+		  UNION ALL
+		  SELECT 1 FROM stripe_risk_events
+		   WHERE charge_id=$1 AND payment_intent IS NOT NULL AND payment_intent<>$2
+		)`, chargeID, paymentIntent, received, currency).Scan(&conflictingState); err != nil {
+		return err
+	}
+	if conflictingState {
+		return fmt.Errorf("charge %s webhook state is bound to a different PaymentIntent", chargeID)
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE stripe_charge_cash_state SET payment_intent=$2,updated_at=now()
+		 WHERE charge_id=$1 AND payment_intent IS NULL`, chargeID, paymentIntent); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE stripe_dispute_cash_state SET payment_intent=$2,updated_at=now()
+		 WHERE charge_id=$1 AND payment_intent IS NULL`, chargeID, paymentIntent); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (s *Store) ApplyPaymentEventTx(ctx context.Context, event stripeCashEvent) (stripeCashEventResult, error) {
 	var result stripeCashEventResult
 	if err := validateStripeCashEvent(event); err != nil {

@@ -148,6 +148,55 @@ func TestCreditPrepaidTopupRejectsConflictingCashCollectionBinding(t *testing.T)
 	}
 }
 
+func TestCreditPrepaidTopupBindsOutOfOrderStripeCashState(t *testing.T) {
+	store, pool, ctx := prepaidTestStore(t)
+	buyerID := insertTestBuyer(t, pool, ctx)
+	suffix := uuid.NewString()
+	opKey := "topup-out-of-order-" + suffix
+	paymentIntent := "pi_out_of_order_" + suffix
+	chargeID := "ch_out_of_order_" + suffix
+	currency := SettlementCurrencyCode()
+	amount := int64(2500)
+
+	// The charge webhook arrives first and omits the optional PaymentIntent
+	// reference. The cash state is durable, but intentionally unowned until the
+	// canonical top-up collection arrives.
+	object := []byte(fmt.Sprintf(
+		`{"object":"charge","id":%q,"amount":%d,"amount_refunded":%d,"currency":%q}`,
+		chargeID, amount, int64(500), currency,
+	))
+	event, err := parseStripeCashEvent(
+		"evt_out_of_order_"+suffix, stripeEventChargeRefunded, 1_700_001_000,
+		object, []byte(fmt.Sprintf(`{"event":"out-of-order","id":%q}`, suffix)),
+	)
+	mustf(t, err, "parse out-of-order refund: %v")
+	result, err := store.ApplyPaymentEventTx(ctx, event)
+	mustf(t, err, "apply out-of-order refund: %v")
+	if result.LinkedCollection {
+		t.Fatal("out-of-order refund unexpectedly linked before the top-up collection")
+	}
+
+	charge := ChargeResult{
+		PaymentIntentID: paymentIntent,
+		ChargeID:        chargeID,
+		RequestedCents:  amount,
+		ReceivedCents:   amount,
+		Currency:        currency,
+	}
+	mustf(t, store.CreditPrepaidTopup(ctx, opKey, buyerID, charge),
+		"credit top-up after refund webhook: %v")
+
+	var boundPI string
+	var refunded int64
+	mustf(t, pool.QueryRow(ctx, `
+		SELECT COALESCE(payment_intent,''),refunded_cents
+		  FROM stripe_charge_cash_state WHERE charge_id=$1`, chargeID).
+		Scan(&boundPI, &refunded), "read bound cash state: %v")
+	if boundPI != paymentIntent || refunded != 500 {
+		t.Fatalf("bound cash state=%q/%d, want %q/500", boundPI, refunded, paymentIntent)
+	}
+}
+
 func TestReconcileBuyerChargeOperationAcceptsCompletedPrepaidWebhook(t *testing.T) {
 	store, _, ctx := prepaidTestStore(t)
 	buyerID := insertTestBuyer(t, store.pool, ctx)

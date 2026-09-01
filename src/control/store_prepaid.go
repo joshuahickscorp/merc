@@ -193,6 +193,14 @@ func (s *Store) CreditPrepaidTopup(ctx context.Context, operationKey string, buy
 		return fmt.Errorf("top-up %s has a conflicting completed provider identity", operationKey)
 	}
 	if status == "succeeded" {
+		// A webhook can replay a completed top-up after an earlier cash event
+		// was retained without its optional PaymentIntent reference. Repair the
+		// binding on this idempotent path too; otherwise a legacy completed row
+		// could keep refunded/disputed cash invisible to funding checks forever.
+		if err := bindStripeCashStateToCollection(ctx, tx, charge.ChargeID,
+			charge.PaymentIntentID, charge.ReceivedCents, settlement.Code()); err != nil {
+			return fmt.Errorf("top-up %s cannot bind prior Stripe cash state: %w", operationKey, err)
+		}
 		return tx.Commit(ctx)
 	}
 	if status != "pending" {
@@ -230,6 +238,10 @@ func (s *Store) CreditPrepaidTopup(ctx context.Context, operationKey string, buy
 		collectionCurrency != settlement.Code() {
 		return fmt.Errorf("top-up %s PaymentIntent %s conflicts with its durable cash collection binding",
 			operationKey, charge.PaymentIntentID)
+	}
+	if err := bindStripeCashStateToCollection(ctx, tx, charge.ChargeID,
+		charge.PaymentIntentID, charge.ReceivedCents, settlement.Code()); err != nil {
+		return fmt.Errorf("top-up %s cannot bind prior Stripe cash state: %w", operationKey, err)
 	}
 	micros, err := settlement.MinorToMicros(charge.ReceivedCents)
 	if err != nil {

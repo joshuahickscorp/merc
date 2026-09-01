@@ -135,35 +135,8 @@ func recordBuyerCashCollection(
 	if err != nil {
 		return fmt.Errorf("recording canonical buyer cash %s: %w", charge.PaymentIntentID, err)
 	}
-	var conflictingState bool
-	if err := tx.QueryRow(ctx, `
-		SELECT EXISTS(
-		  SELECT 1 FROM stripe_charge_cash_state
-		   WHERE charge_id=$1 AND (
-		     (payment_intent IS NOT NULL AND payment_intent<>$2)
-		     OR amount_cents<>$3 OR currency<>$4)
-		  UNION ALL
-		  SELECT 1 FROM stripe_dispute_cash_state
-		   WHERE charge_id=$1 AND (
-		     (payment_intent IS NOT NULL AND payment_intent<>$2)
-		     OR amount_cents>$3 OR currency<>$4)
-		  UNION ALL
-		  SELECT 1 FROM stripe_risk_events
-		   WHERE charge_id=$1 AND payment_intent IS NOT NULL AND payment_intent<>$2
-		)`, charge.ChargeID, charge.PaymentIntentID, charge.ReceivedCents, charge.Currency).Scan(&conflictingState); err != nil {
-		return err
-	}
-	if conflictingState {
-		return fmt.Errorf("charge %s webhook state is bound to a different PaymentIntent", charge.ChargeID)
-	}
-	if _, err := tx.Exec(ctx, `
-		UPDATE stripe_charge_cash_state SET payment_intent=$2,updated_at=now()
-		 WHERE charge_id=$1 AND payment_intent IS NULL`, charge.ChargeID, charge.PaymentIntentID); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(ctx, `
-		UPDATE stripe_dispute_cash_state SET payment_intent=$2,updated_at=now()
-		 WHERE charge_id=$1 AND payment_intent IS NULL`, charge.ChargeID, charge.PaymentIntentID); err != nil {
+	if err := bindStripeCashStateToCollection(ctx, tx, charge.ChargeID,
+		charge.PaymentIntentID, charge.ReceivedCents, charge.Currency); err != nil {
 		return err
 	}
 	return nil
