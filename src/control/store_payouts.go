@@ -528,6 +528,36 @@ func reservePayoutFunding(
 	currency string,
 	serviceLeaseIDs ...uuid.UUID,
 ) (uuid.UUID, bool, error) {
+	return reservePayoutFundingWithJobSnapshot(
+		ctx, tx, entryID, taskID, requestedCents, currency, nil, serviceLeaseIDs...)
+}
+
+// payoutJobFundingSnapshot is read while ClaimPayout holds the job lock. Carry
+// it into funding reservation so the same transaction does not immediately
+// re-read an already-locked job row.
+type payoutJobFundingSnapshot struct {
+	taskID          *uuid.UUID
+	jobID           uuid.UUID
+	buyerID         uuid.UUID
+	chargeStatus    string
+	batchID         *uuid.UUID
+	paymentIntent   string
+	cashRequested   int64
+	cashReceived    int64
+	cashCurrency    string
+	prepaidRequired bool
+}
+
+func reservePayoutFundingWithJobSnapshot(
+	ctx context.Context,
+	tx pgx.Tx,
+	entryID uuid.UUID,
+	taskID *uuid.UUID,
+	requestedCents int64,
+	currency string,
+	jobSnapshot *payoutJobFundingSnapshot,
+	serviceLeaseIDs ...uuid.UUID,
+) (uuid.UUID, bool, error) {
 	if len(serviceLeaseIDs) > 1 {
 		return uuid.Nil, false, errors.New("payout funding received multiple service lease identities")
 	}
@@ -604,14 +634,27 @@ func reservePayoutFunding(
 		cashRequested, cashReceived               int64
 		prepaidRequired                           bool
 	)
-	if err := tx.QueryRow(ctx, `
-		SELECT j.id,j.buyer_id,j.charge_status,j.charge_batch_id,
-		       COALESCE(j.stripe_pi,''),COALESCE(j.charge_requested_cents,0),
-		       COALESCE(j.charge_received_cents,0),COALESCE(j.charge_currency,''),
-		       COALESCE(j.prepaid_required,false)
-		  FROM tasks t JOIN jobs j ON j.id=t.job_id
-		 WHERE t.id=$1
-		 FOR UPDATE OF j`, *taskID,
+	if jobSnapshot != nil {
+		if jobSnapshot.taskID == nil || *jobSnapshot.taskID != *taskID {
+			return uuid.Nil, false, errors.New("payout job funding snapshot does not match task")
+		}
+		jobID = jobSnapshot.jobID
+		buyerID = jobSnapshot.buyerID
+		chargeStatus = jobSnapshot.chargeStatus
+		batchID = jobSnapshot.batchID
+		paymentIntent = jobSnapshot.paymentIntent
+		cashRequested = jobSnapshot.cashRequested
+		cashReceived = jobSnapshot.cashReceived
+		cashCurrency = jobSnapshot.cashCurrency
+		prepaidRequired = jobSnapshot.prepaidRequired
+	} else if err := tx.QueryRow(ctx, `
+			SELECT j.id,j.buyer_id,j.charge_status,j.charge_batch_id,
+			       COALESCE(j.stripe_pi,''),COALESCE(j.charge_requested_cents,0),
+			       COALESCE(j.charge_received_cents,0),COALESCE(j.charge_currency,''),
+			       COALESCE(j.prepaid_required,false)
+			  FROM tasks t JOIN jobs j ON j.id=t.job_id
+			 WHERE t.id=$1
+			 FOR UPDATE OF j`, *taskID,
 	).Scan(&jobID, &buyerID, &chargeStatus, &batchID, &paymentIntent,
 		&cashRequested, &cashReceived, &cashCurrency, &prepaidRequired); err != nil {
 		return uuid.Nil, false, err
@@ -923,14 +966,22 @@ func (s *Store) ClaimPayout(ctx context.Context, entryID uuid.UUID) (DueHeldEntr
 	// before either path locks a liability.  Whichever transaction wins that
 	// lock establishes the ordering; a claim that runs second observes the
 	// active dispute and cannot advance the credit to sending.
-	var jobID uuid.UUID
+	var jobSnapshot payoutJobFundingSnapshot
 	err = tx.QueryRow(ctx, `
-		SELECT j.id
+		SELECT le.task_id,j.id,j.buyer_id,j.charge_status,j.charge_batch_id,
+		       COALESCE(j.stripe_pi,''),COALESCE(j.charge_requested_cents,0),
+		       COALESCE(j.charge_received_cents,0),COALESCE(j.charge_currency,''),
+		       COALESCE(j.prepaid_required,false)
 		  FROM ledger_entries le
 		  JOIN tasks t ON t.id=le.task_id
 		  JOIN jobs j ON j.id=t.job_id
 		 WHERE le.id=$1 AND le.kind='supplier_credit'
-		 FOR UPDATE OF j`, entryID).Scan(&jobID)
+		 FOR UPDATE OF j`, entryID).Scan(
+		&jobSnapshot.taskID, &jobSnapshot.jobID, &jobSnapshot.buyerID,
+		&jobSnapshot.chargeStatus, &jobSnapshot.batchID,
+		&jobSnapshot.paymentIntent, &jobSnapshot.cashRequested,
+		&jobSnapshot.cashReceived, &jobSnapshot.cashCurrency,
+		&jobSnapshot.prepaidRequired)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return out, false, err
 	}
@@ -939,7 +990,7 @@ func (s *Store) ClaimPayout(ctx context.Context, entryID uuid.UUID) (DueHeldEntr
 		if err := tx.QueryRow(ctx, `
 			SELECT EXISTS(SELECT 1 FROM disputes
 			 WHERE job_id=$1 AND status IN ('open','no_peer','reverifying','unresolvable'))`,
-			jobID).Scan(&disputed); err != nil {
+			jobSnapshot.jobID).Scan(&disputed); err != nil {
 			return out, false, err
 		}
 		if disputed {
@@ -1033,12 +1084,16 @@ func (s *Store) ClaimPayout(ctx context.Context, entryID uuid.UUID) (DueHeldEntr
 	}
 	var fundingID uuid.UUID
 	var funded bool
+	var fundingJobSnapshot *payoutJobFundingSnapshot
+	if jobSnapshot.taskID != nil && taskID != nil && *jobSnapshot.taskID == *taskID {
+		fundingJobSnapshot = &jobSnapshot
+	}
 	if len(serviceLeaseArgs) == 1 {
 		fundingID, funded, err = reservePayoutFunding(
 			ctx, tx, entryID, taskID, out.RequestedCents, out.Currency, serviceLeaseArgs[0])
 	} else {
-		fundingID, funded, err = reservePayoutFunding(
-			ctx, tx, entryID, taskID, out.RequestedCents, out.Currency)
+		fundingID, funded, err = reservePayoutFundingWithJobSnapshot(
+			ctx, tx, entryID, taskID, out.RequestedCents, out.Currency, fundingJobSnapshot)
 	}
 	if err != nil {
 		return out, false, err

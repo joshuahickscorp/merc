@@ -93,6 +93,16 @@ boundary:
   charge, and refund calls. This keeps short provider bursts on reusable
   connections without changing the payment authority or outcome classification;
   transport wiring is pinned by a focused test.
+- Task-backed payout claims now carry the already-locked job snapshot into
+  funding reservation instead of re-reading that job row, and the job lookup
+  and dispute-serialization lock are one query. The claim still takes the job
+  lock before the later dispute snapshot and retains every funding and ledger
+  boundary.
+- Stripe payout admission now reads the supplier's exact Connect destination
+  and newest durable `transfers` capability observation in one query. Missing,
+  inactive, malformed, and account-mismatched observations retain their
+  existing fail-closed behavior; this removes a database round trip, not the
+  provider transfer request.
 - The flag-on liveness shadow fingerprint now uses the same FNV-1a bytes through
   a direct loop: about 18 nanoseconds became about 12 nanoseconds per lookup,
   with zero allocations and a compatibility test against the standard

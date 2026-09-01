@@ -578,6 +578,7 @@ var declaredMoneyAuthority = []string{
 	"reserveBuyerTopupPayoutFunding",                      // store_payouts.go
 	"reserveEnvelopeSpendTx",                              // execution_envelope.go
 	"reservePayoutFunding",                                // store_payouts.go
+	"reservePayoutFundingWithJobSnapshot",                 // store_payouts.go
 	"reservePrepaidForJobTx",                              // store_prepaid.go
 	"reservePrepaidForServiceLeaseTx",                     // store_prepaid.go
 	"reserveServiceLeasePayoutFunding",                    // store_payouts.go
