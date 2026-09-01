@@ -103,6 +103,10 @@ boundary:
   inactive, malformed, and account-mismatched observations retain their
   existing fail-closed behavior; this removes a database round trip, not the
   provider transfer request.
+- Stale payout recovery now applies a selected sweep batch's operation and
+  ledger transitions in one PostgreSQL CTE. The lock selection, fail-closed
+  outcome-unknown state, and transaction boundary are unchanged; a batch no
+  longer incurs two client/server round trips per payout.
 - The flag-on liveness shadow fingerprint now uses the same FNV-1a bytes through
   a direct loop: about 18 nanoseconds became about 12 nanoseconds per lookup,
   with zero allocations and a compatibility test against the standard

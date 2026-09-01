@@ -1183,18 +1183,25 @@ func (s *Store) RecoverStalePayoutOperations(ctx context.Context, lease time.Dur
 	if err := rows.Err(); err != nil {
 		return 0, err
 	}
-	for _, id := range ids {
+	if len(ids) > 0 {
+		// The selection already locks both rows. Update the operation and its
+		// ledger entry in one statement so a sweep batch does not pay 2N
+		// client/server round trips for the same state transition.
 		if _, err := tx.Exec(ctx, `
-			UPDATE supplier_payout_operations
-			   SET status='outcome_unknown',outcome_unknown=true,
-			       last_error='sending lease expired; provider outcome unknown'
-			 WHERE ledger_entry_id=$1 AND status='sending'
-			   AND NOT cash_moved AND transfer_ref IS NULL`, id); err != nil {
-			return 0, err
-		}
-		if _, err := tx.Exec(ctx, `
-			UPDATE ledger_entries SET payout_status='outcome_unknown'
-			 WHERE id=$1 AND payout_status='sending'`, id); err != nil {
+			WITH expired AS (
+				UPDATE supplier_payout_operations
+				   SET status='outcome_unknown',outcome_unknown=true,
+				       last_error='sending lease expired; provider outcome unknown'
+				 WHERE ledger_entry_id = ANY($1::uuid[])
+				   AND status='sending'
+				   AND NOT cash_moved AND transfer_ref IS NULL
+				 RETURNING ledger_entry_id
+			)
+			UPDATE ledger_entries le
+			   SET payout_status='outcome_unknown'
+			  FROM expired
+			 WHERE le.id=expired.ledger_entry_id
+			   AND le.payout_status='sending'`, ids); err != nil {
 			return 0, err
 		}
 	}
