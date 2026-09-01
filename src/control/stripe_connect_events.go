@@ -310,6 +310,40 @@ func (s *Store) ApplyConnectWebhookEvent(ctx context.Context, event stripeConnec
 	return result, nil
 }
 
+// stripeTransfersCapabilityStatus returns the newest durable provider
+// observation for the exact connected account. Stripe requires the transfers
+// capability to be active before a platform can create a transfer. A missing
+// observation is deliberately reported as unknown: older accounts may have
+// been enrolled before capability.updated was retained, and Send still
+// performs the provider-side transfer binding and reconciliation checks.
+func (s *Store) stripeTransfersCapabilityStatus(ctx context.Context, accountID string) (status string, observed bool, err error) {
+	accountID = strings.TrimSpace(accountID)
+	if !validStripeObjectID(accountID, "acct_") {
+		return "", false, errors.New("stored Stripe connected account id is not an acct_* identifier")
+	}
+	var raw *string
+	err = s.pool.QueryRow(ctx, `
+		SELECT capability_status
+		  FROM stripe_connect_webhook_events
+		 WHERE account_id=$1 AND event_type=$2 AND object_id='transfers'
+		 ORDER BY event_created DESC,event_id DESC
+		 LIMIT 1`, accountID, stripeConnectEventCapabilityUpdated).Scan(&raw)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	if raw == nil {
+		return "", true, errors.New("durable Stripe transfers capability observation has no status")
+	}
+	status = strings.TrimSpace(*raw)
+	if !isStripeCapabilityStatus(status) {
+		return "", true, fmt.Errorf("durable Stripe transfers capability observation has invalid status %q", status)
+	}
+	return status, true, nil
+}
+
 func validStripeCapabilityID(value string) bool {
 	value = strings.TrimSpace(value)
 	if value == "" || len(value) > 100 {

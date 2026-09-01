@@ -533,6 +533,14 @@ func (p StripePayout) Send(ctx context.Context, supplierID uuid.UUID, cents int6
 	if err := RequireSettlementCurrency(currency); err != nil {
 		return PayoutResult{}, payoutDefinitelyNotSent(fmt.Errorf("payout currency refused before Stripe call: %w", err))
 	}
+	capabilityStatus, observed, err := p.store.stripeTransfersCapabilityStatus(ctx, acct)
+	if err != nil {
+		return PayoutResult{}, payoutDefinitelyNotSent(fmt.Errorf("reading Stripe transfers capability: %w", err))
+	}
+	if observed && capabilityStatus != "active" {
+		return PayoutResult{}, payoutDefinitelyNotSent(fmt.Errorf(
+			"Stripe transfers capability for %s is %s", acct, capabilityStatus))
+	}
 	form := url.Values{}
 	form.Set("amount", strconv.FormatInt(cents, 10))
 	form.Set("currency", currency)

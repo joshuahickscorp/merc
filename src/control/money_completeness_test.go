@@ -590,6 +590,41 @@ func TestStripePayoutRequiresDurableKeyBeforeProvider(t *testing.T) {
 	}
 }
 
+func TestStripePayoutRefusesObservedInactiveTransfersCapabilityBeforeHTTP(t *testing.T) {
+	configureStripeHTTPShapeAuthority(t, "sk_test_capability_guard")
+	ctx, store, pool := openIsolatedTestStore(t)
+	supplierID := uuid.New()
+	acct := "acct_capability_guard_" + supplierID.String()[:8]
+	_, err := pool.Exec(ctx, `
+		INSERT INTO suppliers (id,email,stripe_acct,status)
+		VALUES ($1,$2,$3,'active')`, supplierID, supplierID.String()+"@capability-guard.invalid", acct)
+	mustf(t, err, "insert capability-guard supplier: %v")
+	event, err := parseStripeConnectEvent(
+		"evt_capability_guard", stripeConnectEventCapabilityUpdated, acct, 1_700_000_200,
+		map[string]any{"object": "capability", "id": "transfers", "account": acct, "status": "inactive"},
+		[]byte(`{"type":"capability.updated","status":"inactive"}`))
+	mustf(t, err, "parse inactive capability: %v")
+	_, err = store.ApplyConnectWebhookEvent(ctx, event)
+	mustf(t, err, "apply inactive capability: %v")
+
+	calls := 0
+	p := StripePayout{
+		store:  store,
+		secret: "sk_test_capability_guard",
+		http: &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			calls++
+			return nil, errors.New("provider must not be reached")
+		})},
+	}
+	_, err = p.Send(ctx, supplierID, 50, "usd", "capability-guard-payout")
+	if !errors.Is(err, errPayoutDefinitelyNotSent) || !strings.Contains(err.Error(), "inactive") {
+		t.Fatalf("inactive transfers capability error=%v, want definite refusal mentioning inactive", err)
+	}
+	if calls != 0 {
+		t.Fatalf("provider calls = %d, want 0", calls)
+	}
+}
+
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }

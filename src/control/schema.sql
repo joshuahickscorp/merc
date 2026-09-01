@@ -2417,6 +2417,9 @@ ALTER TABLE stripe_connect_webhook_events ADD CONSTRAINT stripe_connect_webhook_
            ('active','inactive','pending','unrequested'));
 CREATE INDEX IF NOT EXISTS stripe_connect_webhook_events_account_idx
     ON stripe_connect_webhook_events (account_id,event_created DESC);
+CREATE INDEX IF NOT EXISTS stripe_connect_webhook_events_transfers_capability_idx
+    ON stripe_connect_webhook_events (account_id,event_created DESC,event_id DESC)
+    WHERE event_type = 'capability.updated' AND object_id = 'transfers';
 
 -- Saved payment methods are provider identity facts, not just a mutable
 -- customer projection. Retain every accepted delivery so old-event ordering

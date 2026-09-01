@@ -551,3 +551,38 @@ func TestStripeConnectEventsAreDurableMonotonicAndSeparateFromMercPayouts(t *tes
 		t.Fatal("supplier status accepted a malformed stored Stripe account")
 	}
 }
+
+func TestStripeTransfersCapabilityStatusUsesNewestObservation(t *testing.T) {
+	ctx, store, pool := openIsolatedTestStore(t)
+	supplierID := uuid.New()
+	acct := "acct_capability_order_" + supplierID.String()[:8]
+	_, err := pool.Exec(ctx, `
+		INSERT INTO suppliers (id,email,stripe_acct,status)
+		VALUES ($1,$2,$3,'active')`, supplierID, supplierID.String()+"@capability-order.invalid", acct)
+	mustf(t, err, "insert capability supplier: %v")
+
+	for _, event := range []struct {
+		id      string
+		created int64
+		status  string
+	}{
+		{id: "evt_capability_old", created: 1_700_000_100, status: "inactive"},
+		{id: "evt_capability_new", created: 1_700_000_101, status: "active"},
+	} {
+		parsed, err := parseStripeConnectEvent(event.id, stripeConnectEventCapabilityUpdated, acct, event.created,
+			map[string]any{"object": "capability", "id": "transfers", "account": acct, "status": event.status},
+			[]byte(`{"type":"capability.updated"}`+event.id))
+		mustf(t, err, "parse capability %s: %v", event.id)
+		result, err := store.ApplyConnectWebhookEvent(ctx, parsed)
+		mustf(t, err, "apply capability %s: %v", event.id)
+		if !result.Applied || result.Duplicate || result.Stale {
+			t.Fatalf("capability %s result=%+v, want applied", event.id, result)
+		}
+	}
+
+	status, observed, err := store.stripeTransfersCapabilityStatus(ctx, acct)
+	mustf(t, err, "read newest transfers capability: %v")
+	if !observed || status != "active" {
+		t.Fatalf("transfers capability=(%q,%v), want (active,true)", status, observed)
+	}
+}

@@ -398,6 +398,7 @@ var declaredMoneyAuthority = []string{
 	"StripePayout.ReverseTransfer",                        // payment.go
 	"StripePayout.Send",                                   // payment.go
 	"StripePayout.accountCountry",                         // stripe_settlement.go
+	"StripePayout.retrieveStripeRefund",                   // payment.go
 	"StripePayout.settlementCurrencies",                   // stripe_settlement.go
 	"StripePayout.verifySettlementCurrency",               // stripe_settlement.go
 	"SupplierAdmissionViability",                          // runtime_cell_performance.go
