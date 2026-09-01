@@ -468,6 +468,7 @@ var declaredMoneyAuthority = []string{
 	"chargeBuyer",                                         // billing.go
 	"chargeOrDeferJob",                                    // billing.go
 	"chargePaymentIntent",                                 // billing.go
+	"chargePaymentIntentWithKeys",                         // billing.go
 	"clampSettlementToContributionFloorNanos",             // observed_output_settlement.go
 	"clampSettlementToContributionFloorUSD",               // observed_output_settlement.go
 	"clawbackTaskCreditTx",                                // verification_apply.go
@@ -621,6 +622,7 @@ var declaredMoneyAuthority = []string{
 	"stripeCreateRefund",                                  // prepaid.go
 	"stripeForm",                                          // billing.go
 	"stripeGet",                                           // billing.go
+	"fetchStripeTransferSnapshot",                         // reconcile.go
 	"stripeTransferredUSD",                                // reconcile.go
 	"storedRoutableEntryHasCurrentGlobalAuthority",        // activation_policy.go
 	"stubPayout.RefundCharge",                             // payment.go

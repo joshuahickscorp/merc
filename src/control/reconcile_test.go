@@ -4,8 +4,100 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
+
+	"github.com/google/uuid"
 )
+
+func TestStripePayoutReconciliationRequiresExactTransferReferences(t *testing.T) {
+	expected := []StripePayoutTransferExpectation{
+		{TransferRef: "tr_expected", SentCents: 100, Currency: "usd"},
+	}
+
+	t.Run("exact reference and amount", func(t *testing.T) {
+		actual := stripeTransferSnapshot{Transfers: map[string]stripeTransferObservation{
+			"tr_expected": {ID: "tr_expected", AmountCents: 100, Currency: "usd"},
+		}}
+		if err := compareStripePayoutTransfers(expected, actual); err != nil {
+			t.Fatalf("exact transfer set rejected: %v", err)
+		}
+	})
+
+	t.Run("equal total replacement is drift", func(t *testing.T) {
+		actual := stripeTransferSnapshot{Transfers: map[string]stripeTransferObservation{
+			"tr_rogue": {ID: "tr_rogue", AmountCents: 100, Currency: "usd"},
+		}}
+		err := compareStripePayoutTransfers(expected, actual)
+		if err == nil || !strings.Contains(err.Error(), "not represented") {
+			t.Fatalf("equal-sized replacement accepted: %v", err)
+		}
+	})
+
+	t.Run("missing provider transfer is drift", func(t *testing.T) {
+		err := compareStripePayoutTransfers(expected, stripeTransferSnapshot{
+			Transfers: map[string]stripeTransferObservation{},
+		})
+		if err == nil || !strings.Contains(err.Error(), "absent") {
+			t.Fatalf("missing provider transfer accepted: %v", err)
+		}
+	})
+
+	for name, provider := range map[string]stripeTransferObservation{
+		"amount drift":   {ID: "tr_expected", AmountCents: 101, Currency: "usd"},
+		"currency drift": {ID: "tr_expected", AmountCents: 100, Currency: "cad"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := compareStripePayoutTransfers(expected, stripeTransferSnapshot{
+				Transfers: map[string]stripeTransferObservation{"tr_expected": provider},
+			})
+			if err == nil || !strings.Contains(err.Error(), "differs") {
+				t.Fatalf("provider %s accepted: %v", name, err)
+			}
+		})
+	}
+}
+
+func TestStoreStripePayoutReconciliationInputsIncludeIdleAccounts(t *testing.T) {
+	ctx, store, pool := openIsolatedTestStore(t)
+	f := seedPayoutFixture(t, ctx, pool, payoutFixtureOpts{creditUSD: 1.00})
+	acct := "acct_reconcile_" + uuid.NewString()
+	mustf(t, store.SetSupplierStripeAcct(ctx, f.supplierID, acct), "bind supplier Stripe account: %v")
+	transferRef := "tr_expected_" + uuid.NewString()
+	_, err := pool.Exec(ctx, `
+		INSERT INTO supplier_payout_operations
+		  (ledger_entry_id,supplier_id,requested_cents,sent_cents,currency,status,cash_moved,transfer_ref)
+		VALUES ($1,$2,$3,$3,$4,'released',true,$5)`,
+		f.entryID, f.supplierID, f.creditCents, f.currency, transferRef)
+	mustf(t, err, "seed cash-moving payout operation: %v")
+
+	accounts, err := store.ListSupplierStripeAccounts(ctx)
+	mustf(t, err, "list supplier Stripe accounts: %v")
+	var found bool
+	for _, account := range accounts {
+		if account.SupplierID == f.supplierID && account.AccountID == acct {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("bound account %s was not enumerated: %+v", acct, accounts)
+	}
+
+	expectations, err := store.ListStripePayoutTransferExpectations(ctx)
+	mustf(t, err, "list Stripe payout expectations: %v")
+	var expected bool
+	for _, expectation := range expectations {
+		if expectation.SupplierID == f.supplierID && expectation.TransferRef == transferRef &&
+			expectation.SentCents == f.creditCents && expectation.Currency == f.currency {
+			expected = true
+			break
+		}
+	}
+	if !expected {
+		t.Fatalf("cash-moving transfer %s was not enumerated: %+v", transferRef, expectations)
+	}
+}
 
 func TestStripeTransferredUsesSettlementMinorUnitsAndCurrency(t *testing.T) {
 	installSettlementCurrencyForTest(t, "jpy")
@@ -43,10 +135,12 @@ func TestStripeTransferredRefusesMismatchedOrFractionalCash(t *testing.T) {
 func TestStripeTransferredRequiresCompleteTypedPages(t *testing.T) {
 	installSettlementCurrencyForTest(t, "cad")
 	for name, body := range map[string]string{
-		"wrong transfer object": `{"data":[{"id":"pi_wrong","amount":5,"currency":"cad"}],"has_more":false}`,
-		"missing transfer id":   `{"data":[{"amount":5,"currency":"cad"}],"has_more":false}`,
-		"missing has_more":      `{"data":[{"id":"tr_one","amount":5,"currency":"cad"}]}`,
-		"empty continuation":    `{"data":[],"has_more":true}`,
+		"wrong transfer object":      `{"data":[{"id":"pi_wrong","amount":5,"currency":"cad"}],"has_more":false}`,
+		"wrong transfer object type": `{"data":[{"id":"tr_wrong_type","object":"payment_intent","amount":5,"currency":"cad"}],"has_more":false}`,
+		"wrong transfer destination": `{"data":[{"id":"tr_wrong_destination","destination":"acct_other","amount":5,"currency":"cad"}],"has_more":false}`,
+		"missing transfer id":        `{"data":[{"amount":5,"currency":"cad"}],"has_more":false}`,
+		"missing has_more":           `{"data":[{"id":"tr_one","amount":5,"currency":"cad"}]}`,
+		"empty continuation":         `{"data":[],"has_more":true}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			withStripeTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

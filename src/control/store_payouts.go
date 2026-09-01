@@ -30,6 +30,26 @@ type AdminPayout struct {
 	ReleasedWithoutCashCount int       `json:"released_without_cash_count"`
 }
 
+// StripeSupplierAccount is the provider identity bound to one Merc supplier.
+// Reconciliation must enumerate these bindings even when the ledger has no
+// payout rows yet: an unexpected Stripe transfer to an otherwise idle account
+// is still a financial finding.
+type StripeSupplierAccount struct {
+	SupplierID uuid.UUID
+	AccountID  string
+}
+
+// StripePayoutTransferExpectation is the exact provider evidence Merc expects
+// for one cash-moving supplier payout. Aggregate amounts are useful for a
+// dashboard, but an exact reference set is what prevents an equal-sized rogue
+// transfer from masking a missing or replaced payout.
+type StripePayoutTransferExpectation struct {
+	SupplierID  uuid.UUID
+	TransferRef string
+	SentCents   int64
+	Currency    string
+}
+
 func (s *Store) ListPayoutsAdmin(ctx context.Context) ([]AdminPayout, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT COALESCE(le.supplier_id,'00000000-0000-0000-0000-000000000000'::uuid),
@@ -69,6 +89,72 @@ func (s *Store) ListPayoutsAdmin(ctx context.Context) ([]AdminPayout, error) {
 		a.CashSentUSD = microsToUSD(cashMicros)
 		a.CarriedRemainderUSD = microsToUSD(carriedMicros)
 		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
+// ListSupplierStripeAccounts returns every non-empty Connect binding. It is
+// intentionally broader than the payout rollup query: provider-side transfers
+// must be audited for suppliers with no current Merc liability as well.
+func (s *Store) ListSupplierStripeAccounts(ctx context.Context) ([]StripeSupplierAccount, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT id,btrim(stripe_acct)
+		  FROM suppliers
+		 WHERE stripe_acct IS NOT NULL AND btrim(stripe_acct) <> ''
+		 ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []StripeSupplierAccount
+	for rows.Next() {
+		var account StripeSupplierAccount
+		if err := rows.Scan(&account.SupplierID, &account.AccountID); err != nil {
+			return nil, err
+		}
+		if !validStripeObjectID(account.AccountID, "acct_") {
+			return nil, fmt.Errorf("supplier %s has an invalid Stripe connected account id", account.SupplierID)
+		}
+		out = append(out, account)
+	}
+	return out, rows.Err()
+}
+
+// ListStripePayoutTransferExpectations returns the durable set of Stripe
+// transfers that Merc has recorded as cash moved. The provider reconciliation
+// path compares this set by reference, amount, and currency—not just by sum.
+func (s *Store) ListStripePayoutTransferExpectations(ctx context.Context) ([]StripePayoutTransferExpectation, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT op.supplier_id,op.transfer_ref,op.sent_cents,op.currency
+		  FROM supplier_payout_operations op
+		  JOIN ledger_entries le ON le.id=op.ledger_entry_id
+		 WHERE le.kind='supplier_credit'
+		   AND op.cash_moved=true
+		   AND op.transfer_ref IS NOT NULL
+		 ORDER BY op.supplier_id,op.transfer_ref`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []StripePayoutTransferExpectation
+	for rows.Next() {
+		var expectation StripePayoutTransferExpectation
+		if err := rows.Scan(&expectation.SupplierID, &expectation.TransferRef,
+			&expectation.SentCents, &expectation.Currency); err != nil {
+			return nil, err
+		}
+		expectation.TransferRef = strings.TrimSpace(expectation.TransferRef)
+		expectation.Currency = strings.ToLower(strings.TrimSpace(expectation.Currency))
+		if !validStripeObjectID(expectation.TransferRef, "tr_") {
+			return nil, fmt.Errorf("supplier %s has an invalid cash-moving Stripe transfer reference", expectation.SupplierID)
+		}
+		if expectation.SentCents <= 0 {
+			return nil, fmt.Errorf("Stripe transfer %s has a non-positive sent amount", expectation.TransferRef)
+		}
+		if err := RequireSettlementCurrency(expectation.Currency); err != nil {
+			return nil, fmt.Errorf("Stripe transfer %s currency refused: %w", expectation.TransferRef, err)
+		}
+		out = append(out, expectation)
 	}
 	return out, rows.Err()
 }
