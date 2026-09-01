@@ -389,6 +389,34 @@ func parseStripeTransferObject(body []byte, cents int64, currency, expectedDesti
 	return out, nil
 }
 
+// parseStripePayoutTransferObject binds the provider response to the exact
+// payout instruction Merc sent. Destination, amount, and currency identify a
+// plausible transfer, but the payout key and transfer group identify this
+// durable operation and prevent an unrelated same-sized transfer from being
+// accepted at the cash boundary.
+func parseStripePayoutTransferObject(body []byte, cents int64, currency, expectedDestination, expectedPayoutKey string) (stripeMoneyObject, error) {
+	out, err := parseStripeTransferObject(body, cents, currency, expectedDestination)
+	if err != nil {
+		return stripeMoneyObject{}, err
+	}
+	expectedPayoutKey = strings.TrimSpace(expectedPayoutKey)
+	if expectedPayoutKey == "" {
+		return stripeMoneyObject{}, errors.New("stripe transfer payout key is required")
+	}
+	var binding struct {
+		TransferGroup string            `json:"transfer_group"`
+		Metadata      map[string]string `json:"metadata"`
+	}
+	if err := json.Unmarshal(body, &binding); err != nil {
+		return stripeMoneyObject{}, fmt.Errorf("stripe transfer %s has unreadable payout binding: %w", out.ID, err)
+	}
+	if strings.TrimSpace(binding.TransferGroup) != "cxpo_"+expectedPayoutKey ||
+		strings.TrimSpace(binding.Metadata["cx_payout_key"]) != expectedPayoutKey {
+		return stripeMoneyObject{}, fmt.Errorf("stripe transfer %s payout binding does not match %q", out.ID, expectedPayoutKey)
+	}
+	return out, nil
+}
+
 // parseStripeTransferReversalObject binds a reversal to the exact transfer
 // whose provider cash is being recovered.  The reversal reference itself is
 // not enough to prove that relationship.
@@ -501,7 +529,7 @@ func (p StripePayout) Send(ctx context.Context, supplierID uuid.UUID, cents int6
 		}
 		return PayoutResult{}, payoutDefinitelyNotSent(err)
 	}
-	out, err := parseStripeTransferObject(body, cents, currency, acct)
+	out, err := parseStripePayoutTransferObject(body, cents, currency, acct, payoutKey)
 	if err != nil {
 		return PayoutResult{}, payoutOutcomeUnknown(err)
 	}

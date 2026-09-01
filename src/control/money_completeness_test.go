@@ -379,6 +379,33 @@ func TestStripePrepaidRefundResponseBindsDurableSlice(t *testing.T) {
 	}
 }
 
+func TestStripePayoutTransferBindsDurableInstruction(t *testing.T) {
+	const expectedKey = "payout-123"
+	base := func() []byte {
+		return []byte(`{"object":"transfer","id":"tr_bound","amount":50,"currency":"usd","destination":"acct_bound","transfer_group":"cxpo_payout-123","metadata":{"cx_payout_key":"payout-123"}}`)
+	}
+	if _, err := parseStripePayoutTransferObject(base(), 50, "usd", "acct_bound", expectedKey); err != nil {
+		t.Fatalf("exact payout transfer rejected: %v", err)
+	}
+	for name, mutate := range map[string]func(map[string]any){
+		"wrong transfer group":    func(out map[string]any) { out["transfer_group"] = "cxpo_other" },
+		"wrong payout metadata":   func(out map[string]any) { out["metadata"] = map[string]any{"cx_payout_key": "other"} },
+		"missing payout metadata": func(out map[string]any) { out["metadata"] = map[string]any{} },
+		"wrong metadata type":     func(out map[string]any) { out["metadata"] = map[string]any{"cx_payout_key": 123} },
+	} {
+		t.Run(name, func(t *testing.T) {
+			var out map[string]any
+			mustf(t, json.Unmarshal(base(), &out), "decode transfer fixture: %v")
+			mutate(out)
+			body, err := json.Marshal(out)
+			mustf(t, err, "encode transfer fixture: %v")
+			if _, err := parseStripePayoutTransferObject(body, 50, "usd", "acct_bound", expectedKey); err == nil {
+				t.Fatal("accepted transfer for a different durable payout instruction")
+			}
+		})
+	}
+}
+
 func TestStripePayoutRecoveryRejectsWrongProviderInputBeforeHTTP(t *testing.T) {
 	configureStripeHTTPShapeAuthority(t, "sk_test_recovery_input_shape")
 	calls := 0
