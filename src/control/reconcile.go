@@ -262,6 +262,10 @@ func fetchStripeTransferSnapshot(ctx context.Context, acct string) (stripeTransf
 		if err != nil {
 			return stripeTransferSnapshot{}, err
 		}
+		listObject, ok := out["object"].(string)
+		if !ok || strings.TrimSpace(listObject) != "list" {
+			return stripeTransferSnapshot{}, fmt.Errorf("stripe transfers: response is not a Stripe list object")
+		}
 		data, ok := out["data"].([]any)
 		if !ok {
 			return stripeTransferSnapshot{}, fmt.Errorf("stripe transfers: missing data array")

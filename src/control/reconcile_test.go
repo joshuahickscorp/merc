@@ -106,7 +106,7 @@ func TestStripeTransferredUsesSettlementMinorUnitsAndCurrency(t *testing.T) {
 			t.Errorf("request = %s", r.URL.String())
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = fmt.Fprint(w, `{"data":[{"object":"transfer","id":"tr_1","destination":"acct_jpy","amount":2,"currency":"jpy"},{"object":"transfer","id":"tr_2","destination":"acct_jpy","amount":3,"currency":"jpy"}],"has_more":false}`)
+		_, _ = fmt.Fprint(w, `{"object":"list","data":[{"object":"transfer","id":"tr_1","destination":"acct_jpy","amount":2,"currency":"jpy"},{"object":"transfer","id":"tr_2","destination":"acct_jpy","amount":3,"currency":"jpy"}],"has_more":false}`)
 	}))
 	got, err := stripeTransferredUSD(context.Background(), "acct_jpy")
 	if err != nil || got != 5 {
@@ -117,8 +117,8 @@ func TestStripeTransferredUsesSettlementMinorUnitsAndCurrency(t *testing.T) {
 func TestStripeTransferredRefusesMismatchedOrFractionalCash(t *testing.T) {
 	installSettlementCurrencyForTest(t, "cad")
 	for name, body := range map[string]string{
-		"currency mismatch":     `{"data":[{"object":"transfer","id":"tr_wrong","destination":"acct_cad","amount":5,"currency":"usd"}],"has_more":false}`,
-		"fractional minor unit": `{"data":[{"object":"transfer","id":"tr_fraction","destination":"acct_cad","amount":5.5,"currency":"cad"}],"has_more":false}`,
+		"currency mismatch":     `{"object":"list","data":[{"object":"transfer","id":"tr_wrong","destination":"acct_cad","amount":5,"currency":"usd"}],"has_more":false}`,
+		"fractional minor unit": `{"object":"list","data":[{"object":"transfer","id":"tr_fraction","destination":"acct_cad","amount":5.5,"currency":"cad"}],"has_more":false}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			withStripeTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -135,6 +135,7 @@ func TestStripeTransferredRefusesMismatchedOrFractionalCash(t *testing.T) {
 func TestStripeTransferredRequiresCompleteTypedPages(t *testing.T) {
 	installSettlementCurrencyForTest(t, "cad")
 	for name, body := range map[string]string{
+		"missing list object":          `{"data":[{"object":"transfer","id":"tr_list_missing","destination":"acct_cad","amount":5,"currency":"cad"}],"has_more":false}`,
 		"wrong transfer object":        `{"data":[{"id":"pi_wrong","object":"transfer","destination":"acct_cad","amount":5,"currency":"cad"}],"has_more":false}`,
 		"wrong transfer object type":   `{"data":[{"id":"tr_wrong_type","object":"payment_intent","destination":"acct_cad","amount":5,"currency":"cad"}],"has_more":false}`,
 		"wrong transfer destination":   `{"data":[{"id":"tr_wrong_destination","object":"transfer","destination":"acct_other","amount":5,"currency":"cad"}],"has_more":false}`,
@@ -166,10 +167,10 @@ func TestStripeTransferredPaginatesByTypedCursor(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		if len(cursors) == 1 {
-			_, _ = fmt.Fprint(w, `{"data":[{"object":"transfer","id":"tr_first","destination":"acct_cad-safe","amount":5,"currency":"cad"}],"has_more":true}`)
+			_, _ = fmt.Fprint(w, `{"object":"list","data":[{"object":"transfer","id":"tr_first","destination":"acct_cad-safe","amount":5,"currency":"cad"}],"has_more":true}`)
 			return
 		}
-		_, _ = fmt.Fprint(w, `{"data":[{"object":"transfer","id":"tr_second","destination":"acct_cad-safe","amount":7,"currency":"cad"}],"has_more":false}`)
+		_, _ = fmt.Fprint(w, `{"object":"list","data":[{"object":"transfer","id":"tr_second","destination":"acct_cad-safe","amount":7,"currency":"cad"}],"has_more":false}`)
 	}))
 	got, err := stripeTransferredUSD(context.Background(), "acct_cad-safe")
 	if err != nil || got != 0.12 {
