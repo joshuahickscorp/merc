@@ -1,8 +1,9 @@
 package main
 
 import (
-	"fmt"
 	"math"
+	"strconv"
+	"strings"
 )
 
 // Realtime market clearing ranks live offers by the expected cost of a
@@ -222,9 +223,16 @@ func buildRealtimeClearingRankingInputs(
 func realtimeClearingSelectionReason(inputs RealtimeClearingRankingInputs, selectedRank, candidateCount int) string {
 	discipline := realtimeClearingRankingDiscipline(inputs)
 	if selectedRank > 1 {
-		return fmt.Sprintf(
-			"SKIP LOCKED admitted economic rank %d of %d; better-ranked peers were lock-skipped under concurrent reservation (not lowest unlocked cost). Ranking: %s",
-			selectedRank, candidateCount, discipline)
+		var b strings.Builder
+		b.Grow(150 + len(discipline))
+		b.WriteString("SKIP LOCKED admitted economic rank ")
+		var buf [32]byte
+		b.Write(strconv.AppendInt(buf[:0], int64(selectedRank), 10))
+		b.WriteString(" of ")
+		b.Write(strconv.AppendInt(buf[:0], int64(candidateCount), 10))
+		b.WriteString("; better-ranked peers were lock-skipped under concurrent reservation (not lowest unlocked cost). Ranking: ")
+		b.WriteString(discipline)
+		return b.String()
 	}
 	return "lowest verified-outcome cost (" + discipline + ")"
 }
@@ -232,24 +240,29 @@ func realtimeClearingSelectionReason(inputs RealtimeClearingRankingInputs, selec
 // realtimeClearingRankingDiscipline is the ranking-terms clause shared by the
 // uncontended "lowest cost" reason and the contended rank>1 reason.
 func realtimeClearingRankingDiscipline(inputs RealtimeClearingRankingInputs) string {
+	var b strings.Builder
+	var buf [32]byte
+	b.Grow(105 + len(inputs.Warmth))
 	switch {
 	case inputs.RetryCostApplied && inputs.RefundRiskApplied:
-		return fmt.Sprintf(
-			"base ask adjusted by measured failure rate %.4f and refund rate %.4f; warmth %s is tiebreak only",
-			*inputs.ObservedFailureRate, *inputs.ObservedRefundRate, inputs.Warmth)
+		b.WriteString("base ask adjusted by measured failure rate ")
+		b.Write(strconv.AppendFloat(buf[:0], *inputs.ObservedFailureRate, 'f', 4, 64))
+		b.WriteString(" and refund rate ")
+		b.Write(strconv.AppendFloat(buf[:0], *inputs.ObservedRefundRate, 'f', 4, 64))
 	case inputs.RetryCostApplied:
-		return fmt.Sprintf(
-			"base ask adjusted by measured failure rate %.4f; warmth %s is tiebreak only",
-			*inputs.ObservedFailureRate, inputs.Warmth)
+		b.WriteString("base ask adjusted by measured failure rate ")
+		b.Write(strconv.AppendFloat(buf[:0], *inputs.ObservedFailureRate, 'f', 4, 64))
 	case inputs.RefundRiskApplied:
-		return fmt.Sprintf(
-			"base ask adjusted by measured refund rate %.4f; warmth %s is tiebreak only",
-			*inputs.ObservedRefundRate, inputs.Warmth)
+		b.WriteString("base ask adjusted by measured refund rate ")
+		b.Write(strconv.AppendFloat(buf[:0], *inputs.ObservedRefundRate, 'f', 4, 64))
 	default:
-		return fmt.Sprintf(
-			"base supplier ask; failure and refund rates unmeasured below %d samples; warmth %s is tiebreak only",
-			minRealtimeOutcomeSamples, inputs.Warmth)
+		b.WriteString("base supplier ask; failure and refund rates unmeasured below ")
+		b.Write(strconv.AppendInt(buf[:0], int64(minRealtimeOutcomeSamples), 10))
 	}
+	b.WriteString("; warmth ")
+	b.WriteString(inputs.Warmth)
+	b.WriteString(" is tiebreak only")
+	return b.String()
 }
 
 // realtimeOfferBeats reports whether offer a should clear above offer b under

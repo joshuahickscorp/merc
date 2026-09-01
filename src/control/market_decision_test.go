@@ -8,6 +8,65 @@ import (
 	"github.com/google/uuid"
 )
 
+func TestRealtimeClearingSelectionReasonFormattingIsCanonical(t *testing.T) {
+	failureRate := 0.125
+	refundRate := 0.375
+	cases := []struct {
+		name   string
+		inputs RealtimeClearingRankingInputs
+		rank   int
+		want   string
+	}{
+		{
+			name: "unmeasured rank one",
+			inputs: RealtimeClearingRankingInputs{
+				Warmth: "HOT",
+			},
+			rank: 1,
+			want: "lowest verified-outcome cost (base supplier ask; failure and refund rates unmeasured below 5 samples; warmth HOT is tiebreak only)",
+		},
+		{
+			name: "failure rank two",
+			inputs: RealtimeClearingRankingInputs{
+				RetryCostApplied:    true,
+				ObservedFailureRate: &failureRate,
+				Warmth:              "WARM",
+			},
+			rank: 2,
+			want: "SKIP LOCKED admitted economic rank 2 of 3; better-ranked peers were lock-skipped under concurrent reservation (not lowest unlocked cost). Ranking: base ask adjusted by measured failure rate 0.1250; warmth WARM is tiebreak only",
+		},
+		{
+			name: "refund rank one",
+			inputs: RealtimeClearingRankingInputs{
+				RefundRiskApplied:  true,
+				ObservedRefundRate: &refundRate,
+				Warmth:             "COLD",
+			},
+			rank: 1,
+			want: "lowest verified-outcome cost (base ask adjusted by measured refund rate 0.3750; warmth COLD is tiebreak only)",
+		},
+		{
+			name: "both rank two",
+			inputs: RealtimeClearingRankingInputs{
+				RetryCostApplied:    true,
+				ObservedFailureRate: &failureRate,
+				RefundRiskApplied:   true,
+				ObservedRefundRate:  &refundRate,
+				Warmth:              "HOT",
+			},
+			rank: 2,
+			want: "SKIP LOCKED admitted economic rank 2 of 3; better-ranked peers were lock-skipped under concurrent reservation (not lowest unlocked cost). Ranking: base ask adjusted by measured failure rate 0.1250 and refund rate 0.3750; warmth HOT is tiebreak only",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := realtimeClearingSelectionReason(tc.inputs, tc.rank, 3); got != tc.want {
+				t.Fatalf("selection reason = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 // Failing-before evidence (Step 7, 2026-08-09):
 //
 //	go test -run TestStep7FailingBeforeSelectionReasonClaimsLowestWhenRank2
