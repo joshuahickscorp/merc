@@ -130,6 +130,39 @@ func TestStripeRiskEventRejectsConflictingCashIdentity(t *testing.T) {
 	}
 }
 
+func TestStripeRiskEventRejectsWarningIdentityChange(t *testing.T) {
+	ctx, store, pool := openIsolatedTestStore(t)
+	first, err := parseStripeRiskEvent(
+		"evt_risk_identity_1", stripeRiskEventEarlyFraudWarningCreated, 1_700_000_500,
+		map[string]any{
+			"object": "radar.early_fraud_warning", "id": "issfr_risk_identity",
+			"charge": "ch_risk_identity", "fraud_type": "made_with_stolen_card", "actionable": true,
+		}, []byte(`{"signed":"risk-identity-1"}`),
+	)
+	must(t, err)
+	if _, err := store.ApplyStripeRiskEvent(ctx, first); err != nil {
+		t.Fatalf("recorded first fraud warning evidence: %v", err)
+	}
+	second, err := parseStripeRiskEvent(
+		"evt_risk_identity_2", stripeRiskEventEarlyFraudWarningUpdated, 1_700_000_501,
+		map[string]any{
+			"object": "radar.early_fraud_warning", "id": "issfr_risk_identity",
+			"charge": "ch_risk_other", "fraud_type": "made_with_stolen_card", "actionable": false,
+		}, []byte(`{"signed":"risk-identity-2"}`),
+	)
+	must(t, err)
+	if _, err := store.ApplyStripeRiskEvent(ctx, second); err == nil {
+		t.Fatal("accepted fraud warning evidence rewritten to a different charge")
+	}
+	var rows int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM stripe_risk_events`).Scan(&rows); err != nil {
+		t.Fatal(err)
+	}
+	if rows != 1 {
+		t.Fatalf("fraud warning rows=%d, want only the original evidence", rows)
+	}
+}
+
 func TestStripeRiskParserRejectsWrongWarningObjectKind(t *testing.T) {
 	for _, objectKind := range []string{"charge", "early_fraud_warning"} {
 		t.Run(objectKind, func(t *testing.T) {

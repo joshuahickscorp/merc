@@ -120,6 +120,9 @@ func (s *Store) ApplyStripeRiskEvent(ctx context.Context, event stripeRiskEvent)
 	if err := lockStripeCashBinding(ctx, tx, event.ChargeID); err != nil {
 		return result, err
 	}
+	if err := ensureStripeRiskWarningIdentityTx(ctx, tx, event); err != nil {
+		return result, err
+	}
 	if err := ensureStripeRiskCashBindingTx(ctx, tx, event); err != nil {
 		return result, err
 	}
@@ -159,6 +162,37 @@ func (s *Store) ApplyStripeRiskEvent(ctx context.Context, event stripeRiskEvent)
 		return stripeRiskEventResult{}, err
 	}
 	return result, nil
+}
+
+// ensureStripeRiskWarningIdentityTx keeps all deliveries for one provider
+// warning attached to one charge. Stripe may add a PaymentIntent reference on
+// a later update, but it must not rewrite either the charge or an already
+// observed non-empty PaymentIntent identity.
+func ensureStripeRiskWarningIdentityTx(ctx context.Context, tx pgx.Tx, event stripeRiskEvent) error {
+	var chargeConflict, paymentIntentConflict bool
+	err := tx.QueryRow(ctx, `
+		SELECT EXISTS(
+		         SELECT 1 FROM stripe_risk_events
+		          WHERE warning_id=$1 AND charge_id<>$2
+		       ),
+		       $3<>'' AND EXISTS(
+		         SELECT 1 FROM stripe_risk_events
+		          WHERE warning_id=$1
+		            AND payment_intent IS NOT NULL
+		            AND payment_intent<>$3
+		       )`, event.WarningID, event.ChargeID, event.PaymentIntent).
+		Scan(&chargeConflict, &paymentIntentConflict)
+	if err != nil {
+		return err
+	}
+	if chargeConflict {
+		return fmt.Errorf("Stripe risk warning %s conflicts with a different charge", event.WarningID)
+	}
+	if paymentIntentConflict {
+		return fmt.Errorf("Stripe risk warning %s PaymentIntent %s conflicts with prior warning evidence",
+			event.WarningID, event.PaymentIntent)
+	}
+	return nil
 }
 
 // ensureStripeRiskCashBindingTx prevents a risk observation from being
