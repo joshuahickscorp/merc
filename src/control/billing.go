@@ -195,7 +195,8 @@ func ensureStripeCustomer(ctx context.Context, store *Store, buyerID uuid.UUID) 
 	if cust, _, err := store.GetBillingCustomer(ctx, buyerID); err == nil && cust != "" {
 		return cust, nil
 	}
-	out, err := stripeForm(ctx, "customers", url.Values{"metadata[buyer_id]": {buyerID.String()}}, "")
+	out, err := stripeForm(ctx, "customers", url.Values{"metadata[buyer_id]": {buyerID.String()}},
+		stripeCustomerIdempotencyKey(buyerID))
 	if err != nil {
 		return "", err
 	}
@@ -207,6 +208,10 @@ func ensureStripeCustomer(ctx context.Context, store *Store, buyerID uuid.UUID) 
 		return "", err
 	}
 	return cust, nil
+}
+
+func stripeCustomerIdempotencyKey(buyerID uuid.UUID) string {
+	return "cx-customer-" + buyerID.String()
 }
 
 func setupIntent(ctx context.Context, store *Store, buyerID uuid.UUID) (string, error) {
@@ -520,6 +525,7 @@ func verifyStripeSigAt(payload []byte, sigHeader, secret string, now time.Time) 
 }
 
 type billingPMSetter func(context.Context, string, string) error
+type billingPMEventSetter func(context.Context, string, string, int64, string) error
 type stripeCashEventApplier func(context.Context, stripeCashEvent) (stripeCashEventResult, error)
 type buyerChargeReconciler func(context.Context, string, ChargeResult) error
 type stripeRiskEventRecorder func(context.Context, stripeRiskEvent) (stripeRiskEventResult, error)
@@ -598,6 +604,24 @@ func handleStripeWebhookWithAllHandlersAtModeAndRiskAndPaymentFailure(
 	recordRisk stripeRiskEventRecorder,
 	recordPaymentFailure stripePaymentFailureEventRecorder,
 ) {
+	handleStripeWebhookWithAllHandlersAtModeAndRiskAndPaymentFailureAndPMEvent(
+		w, r, secret, setPM, applyCashEvent, reconcileCharge, expectedLive,
+		recordRisk, recordPaymentFailure, nil,
+	)
+}
+
+func handleStripeWebhookWithAllHandlersAtModeAndRiskAndPaymentFailureAndPMEvent(
+	w http.ResponseWriter,
+	r *http.Request,
+	secret string,
+	setPM billingPMSetter,
+	applyCashEvent stripeCashEventApplier,
+	reconcileCharge buyerChargeReconciler,
+	expectedLive bool,
+	recordRisk stripeRiskEventRecorder,
+	recordPaymentFailure stripePaymentFailureEventRecorder,
+	setPMEvent billingPMEventSetter,
+) {
 	payload, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 	if !verifyStripeSig(payload, r.Header.Get("Stripe-Signature"), secret) {
 		writeErr(w, http.StatusBadRequest, "invalid stripe signature")
@@ -628,13 +652,29 @@ func handleStripeWebhookWithAllHandlersAtModeAndRiskAndPaymentFailure(
 			writeErr(w, http.StatusBadRequest, "unparseable webhook object")
 			return
 		}
-		cust, _ := obj["customer"].(string)
-		pm, _ := obj["payment_method"].(string)
+		cust, err := stripeExpandableMapID(obj, "customer")
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, "invalid webhook customer reference")
+			return
+		}
+		pm, err := stripeExpandableMapID(obj, "payment_method")
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, "invalid webhook payment-method reference")
+			return
+		}
 		if pm == "" {
 			pm, _ = obj["id"].(string) // payment_method.attached: the object IS the PM
 		}
 		if cust != "" && pm != "" {
-			if err := setPM(r.Context(), cust, pm); err != nil {
+			var err error
+			if setPMEvent != nil {
+				err = setPMEvent(r.Context(), cust, pm, ev.Created, ev.ID)
+			} else if setPM != nil {
+				err = setPM(r.Context(), cust, pm)
+			} else {
+				err = errors.New("saved payment-method handler unavailable")
+			}
+			if err != nil {
 				// A customer this deployment has never seen is not our event:
 				// the Stripe account is shared with fixtures and other tooling.
 				// Answering 500 tells Stripe to retry, and no number of retries
@@ -779,10 +819,11 @@ func (s *Server) handleStripeWebhook(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusServiceUnavailable, "stripe webhooks not configured (set STRIPE_WEBHOOK_SECRET)")
 		return
 	}
-	handleStripeWebhookWithAllHandlersAtModeAndRiskAndPaymentFailure(
+	handleStripeWebhookWithAllHandlersAtModeAndRiskAndPaymentFailureAndPMEvent(
 		w, r, secret, s.store.SetBillingPMByCustomer, s.store.ApplyPaymentEventTx,
 		s.store.ReconcileBuyerChargeOperation, authority.Mode == PaymentModeLive,
 		s.store.ApplyStripeRiskEvent, s.store.ApplyStripePaymentFailureEvent,
+		s.store.SetBillingPMByCustomerEvent,
 	)
 }
 

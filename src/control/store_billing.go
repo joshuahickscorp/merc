@@ -39,6 +39,10 @@ func (s *Store) UpsertBillingCustomer(ctx context.Context, buyerID uuid.UUID, cu
 }
 
 func (s *Store) SetBillingPMByCustomer(ctx context.Context, custID, pm string) error {
+	custID, pm = strings.TrimSpace(custID), strings.TrimSpace(pm)
+	if custID == "" || pm == "" || !strings.HasPrefix(pm, "pm_") {
+		return errors.New("billing customer and payment method are required")
+	}
 	tag, err := s.pool.Exec(ctx,
 		`UPDATE billing_customers
 		    SET default_payment_method=$2, updated_at=now()
@@ -47,6 +51,48 @@ func (s *Store) SetBillingPMByCustomer(ctx context.Context, custID, pm string) e
 		return err
 	}
 	return validateBillingPMUpdateCount(tag.RowsAffected())
+}
+
+// SetBillingPMByCustomerEvent applies a provider-signed saved-card fact only
+// when its Stripe event ordering tuple is newer than the last applied fact.
+// Stripe can deliver payment_method.attached/setup_intent.succeeded out of
+// order; allowing an older delivery to replace the current card would make the
+// next buyer charge use the wrong instrument.
+func (s *Store) SetBillingPMByCustomerEvent(
+	ctx context.Context, custID, pm string, eventCreated int64, eventID string,
+) error {
+	custID, pm, eventID = strings.TrimSpace(custID), strings.TrimSpace(pm), strings.TrimSpace(eventID)
+	if custID == "" || pm == "" || !strings.HasPrefix(pm, "pm_") || eventCreated <= 0 || eventID == "" {
+		return errors.New("billing payment-method event is missing its identity or ordering tuple")
+	}
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE billing_customers
+		   SET default_payment_method=$2,
+		       default_payment_method_event_created=$3,
+		       default_payment_method_event_id=$4,
+		       updated_at=now()
+		 WHERE stripe_customer_id=$1
+		   AND (default_payment_method_event_created < $3
+		        OR (default_payment_method_event_created = $3
+		            AND default_payment_method_event_id < $4))`,
+		custID, pm, eventCreated, eventID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 1 {
+		return nil
+	}
+	var exists bool
+	if err := s.pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM billing_customers WHERE stripe_customer_id=$1)`, custID,
+	).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		return errNotFound
+	}
+	// A known customer with an older event is already in the desired state.
+	return nil
 }
 
 func validateBillingPMUpdateCount(rows int64) error {

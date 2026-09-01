@@ -2,6 +2,9 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -65,5 +68,54 @@ func TestBillingCustomerCanonicalSchema(t *testing.T) {
 	mustf(t, pool.QueryRow(ctx, `SELECT charge_status FROM jobs WHERE id=$1`, jobID).Scan(&chargeStatus), "read charge status: %v")
 	if chargeStatus != "deferred" {
 		t.Fatalf("charge status = %q, want deferred", chargeStatus)
+	}
+}
+
+func TestSavedCardWebhookOrderingAndExpandableReferences(t *testing.T) {
+	ctx, store, pool := openIsolatedTestStore(t)
+	defer pool.Close()
+	buyerID := insertTestBuyer(t, pool, ctx)
+	customerID := "cus_card_order_" + buyerID.String()[:8]
+	mustf(t, store.UpsertBillingCustomer(ctx, buyerID, customerID), "upsert billing customer: %v")
+
+	const secret = "whsec_card_ordering"
+	handler := func(payload []byte) *httptest.ResponseRecorder {
+		req := signedStripeCashRequest(t, payload, secret)
+		rec := httptest.NewRecorder()
+		handleStripeWebhookWithAllHandlersAtModeAndRiskAndPaymentFailureAndPMEvent(
+			rec, req, secret, nil, nil, nil, false, nil, nil,
+			store.SetBillingPMByCustomerEvent,
+		)
+		return rec
+	}
+
+	newPayload, err := json.Marshal(map[string]any{
+		"id": "evt_card_new", "type": "setup_intent.succeeded",
+		"api_version": stripeAPIVersion, "livemode": false, "created": int64(1_700_000_002),
+		"data": map[string]any{"object": map[string]any{
+			"customer":       map[string]any{"id": customerID},
+			"payment_method": map[string]any{"id": "pm_card_new"},
+		}},
+	})
+	mustf(t, err, "marshal new card event: %v")
+	if response := handler(newPayload); response.Code != http.StatusOK {
+		t.Fatalf("new card webhook status=%d, want 200", response.Code)
+	}
+
+	oldPayload, err := json.Marshal(map[string]any{
+		"id": "evt_card_old", "type": "payment_method.attached",
+		"api_version": stripeAPIVersion, "livemode": false, "created": int64(1_700_000_001),
+		"data": map[string]any{"object": map[string]any{
+			"id": "pm_card_old", "customer": map[string]any{"id": customerID},
+		}},
+	})
+	mustf(t, err, "marshal old card event: %v")
+	if response := handler(oldPayload); response.Code != http.StatusOK {
+		t.Fatalf("old card webhook status=%d, want 200", response.Code)
+	}
+	_, paymentMethod, err := store.GetBillingCustomer(ctx, buyerID)
+	mustf(t, err, "read ordered payment method: %v")
+	if paymentMethod != "pm_card_new" {
+		t.Fatalf("ordered payment method=%q, want pm_card_new", paymentMethod)
 	}
 }

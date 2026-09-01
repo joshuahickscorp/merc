@@ -313,10 +313,22 @@ CREATE TABLE IF NOT EXISTS billing_customers (
     buyer_id               UUID PRIMARY KEY REFERENCES buyers(id) ON DELETE CASCADE,
     stripe_customer_id     TEXT NOT NULL UNIQUE CHECK (btrim(stripe_customer_id) <> ''),
     default_payment_method TEXT,
+    default_payment_method_event_created BIGINT NOT NULL DEFAULT 0,
+    default_payment_method_event_id TEXT NOT NULL DEFAULT '',
     created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
     CHECK (default_payment_method IS NULL OR btrim(default_payment_method) <> '')
 );
+
+ALTER TABLE billing_customers
+    ADD COLUMN IF NOT EXISTS default_payment_method_event_created BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE billing_customers
+    ADD COLUMN IF NOT EXISTS default_payment_method_event_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE billing_customers
+    DROP CONSTRAINT IF EXISTS billing_customers_payment_method_event_created_check;
+ALTER TABLE billing_customers
+    ADD CONSTRAINT billing_customers_payment_method_event_created_check
+    CHECK (default_payment_method_event_created >= 0);
 
 ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS owner_buyer_id UUID;
 WITH ownership_matches AS (

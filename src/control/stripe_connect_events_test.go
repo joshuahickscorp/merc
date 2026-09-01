@@ -7,6 +7,19 @@ import (
 	"github.com/google/uuid"
 )
 
+func TestStripeExternalIdentityIdempotencyKeysAreStableAndScoped(t *testing.T) {
+	buyerID, supplierID := uuid.New(), uuid.New()
+	if got, want := stripeCustomerIdempotencyKey(buyerID), "cx-customer-"+buyerID.String(); got != want {
+		t.Fatalf("customer idempotency key=%q, want %q", got, want)
+	}
+	if got, want := stripeConnectAccountIdempotencyKey(supplierID), "cx-connect-account-"+supplierID.String(); got != want {
+		t.Fatalf("Connect idempotency key=%q, want %q", got, want)
+	}
+	if stripeCustomerIdempotencyKey(buyerID) == stripeConnectAccountIdempotencyKey(supplierID) {
+		t.Fatal("customer and Connect identity idempotency keys share a namespace")
+	}
+}
+
 func TestStripeConnectEventParserRequiresBoundAccountReadiness(t *testing.T) {
 	for _, tc := range []struct {
 		name string

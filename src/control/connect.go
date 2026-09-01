@@ -20,7 +20,7 @@ func ensureConnectAccount(ctx context.Context, store *Store, supplierID uuid.UUI
 		"type":                               {"express"},
 		"capabilities[transfers][requested]": {"true"},
 		"metadata[supplier_id]":              {supplierID.String()},
-	}, "")
+	}, stripeConnectAccountIdempotencyKey(supplierID))
 	if err != nil {
 		return "", err
 	}
@@ -34,6 +34,10 @@ func ensureConnectAccount(ctx context.Context, store *Store, supplierID uuid.UUI
 		return "", err
 	}
 	return acct, nil
+}
+
+func stripeConnectAccountIdempotencyKey(supplierID uuid.UUID) string {
+	return "cx-connect-account-" + supplierID.String()
 }
 
 func onboardingLink(ctx context.Context, acct string) (string, error) {
