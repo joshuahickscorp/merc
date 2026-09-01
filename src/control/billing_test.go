@@ -13,6 +13,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 func withStripeTestServer(t *testing.T, handler http.Handler) *httptest.Server {
@@ -166,6 +168,19 @@ func TestBuyerChargeProviderKeyChangesOnlyAfterDefiniteFailure(t *testing.T) {
 	}
 	if got := buyerChargeProviderKey(operation, 3); got == buyerChargeProviderKey(operation, 2) {
 		t.Fatalf("successive retry provider keys collided: %q", got)
+	}
+}
+
+func TestStripeSetupIntentIdempotencyKeyIsBuyerScoped(t *testing.T) {
+	buyerA, buyerB := uuid.New(), uuid.New()
+	if got, want := setupIntentIdempotencyKey(buyerA, "setup-retry-1"), "cx-setup-"+buyerA.String()+"-setup-retry-1"; got != want {
+		t.Fatalf("setup intent key=%q, want %q", got, want)
+	}
+	if got := setupIntentIdempotencyKey(buyerA, "setup-retry-1"); got == setupIntentIdempotencyKey(buyerB, "setup-retry-1") {
+		t.Fatalf("setup intent keys for different buyers collided: %q", got)
+	}
+	if got := setupIntentIdempotencyKey(buyerA, " "); !strings.HasPrefix(got, "cx-setup-"+buyerA.String()+"-") {
+		t.Fatalf("generated setup intent key=%q is not buyer scoped", got)
 	}
 }
 

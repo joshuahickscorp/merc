@@ -235,12 +235,24 @@ func stripeCustomerIdempotencyKey(buyerID uuid.UUID) string {
 	return "cx-customer-" + buyerID.String()
 }
 
-func setupIntent(ctx context.Context, store *Store, buyerID uuid.UUID) (string, error) {
+// setupIntentIdempotencyKey scopes an optional client retry key to the buyer.
+// When the client omits one, each request still gets a fresh provider key so
+// an intentionally new card setup is not accidentally replayed as an older
+// SetupIntent. Clients that retry a lost response should resend their key.
+func setupIntentIdempotencyKey(buyerID uuid.UUID, requestKey string) string {
+	requestKey = strings.TrimSpace(requestKey)
+	if requestKey == "" {
+		requestKey = uuid.NewString()
+	}
+	return "cx-setup-" + buyerID.String() + "-" + requestKey
+}
+
+func setupIntent(ctx context.Context, store *Store, buyerID uuid.UUID, requestKey string) (string, error) {
 	cust, err := ensureStripeCustomer(ctx, store, buyerID)
 	if err != nil {
 		return "", err
 	}
-	out, err := stripeForm(ctx, "setup_intents", url.Values{"customer": {cust}, "payment_method_types[]": {"card"}}, "")
+	out, err := stripeForm(ctx, "setup_intents", url.Values{"customer": {cust}, "payment_method_types[]": {"card"}}, setupIntentIdempotencyKey(buyerID, requestKey))
 	if err != nil {
 		return "", err
 	}
@@ -475,7 +487,12 @@ func (s *Server) handleBillingSetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	auth := r.Context().Value(ctxBuyer).(*AuthResult)
-	cs, err := setupIntent(r.Context(), s.store, auth.BuyerID)
+	requestKey := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+	if requestKey != "" && !idempotencyKeyPattern.MatchString(requestKey) {
+		writeErr(w, http.StatusBadRequest, "Idempotency-Key must be 8-128 safe ASCII characters")
+		return
+	}
+	cs, err := setupIntent(r.Context(), s.store, auth.BuyerID, requestKey)
 	if err != nil {
 		writeErr(w, http.StatusServiceUnavailable, err.Error())
 		return
