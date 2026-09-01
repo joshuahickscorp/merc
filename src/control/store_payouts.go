@@ -925,20 +925,16 @@ func (s *Store) ClaimPayout(ctx context.Context, entryID uuid.UUID) (DueHeldEntr
 	// active dispute and cannot advance the credit to sending.
 	var jobID uuid.UUID
 	err = tx.QueryRow(ctx, `
-		SELECT t.job_id
-		  FROM ledger_entries le JOIN tasks t ON t.id=le.task_id
-		 WHERE le.id=$1 AND le.kind='supplier_credit'`, entryID).Scan(&jobID)
+		SELECT j.id
+		  FROM ledger_entries le
+		  JOIN tasks t ON t.id=le.task_id
+		  JOIN jobs j ON j.id=t.job_id
+		 WHERE le.id=$1 AND le.kind='supplier_credit'
+		 FOR UPDATE OF j`, entryID).Scan(&jobID)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return out, false, err
 	}
 	if err == nil {
-		if err := tx.QueryRow(ctx,
-			`SELECT id FROM jobs WHERE id=$1 FOR UPDATE`, jobID).Scan(&jobID); err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				return out, false, errNotFound
-			}
-			return out, false, err
-		}
 		var disputed bool
 		if err := tx.QueryRow(ctx, `
 			SELECT EXISTS(SELECT 1 FROM disputes
