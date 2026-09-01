@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"testing"
 
@@ -64,5 +65,67 @@ func TestStripeCashOutcomeProvesOutOfOrderNonRegressionAndReplay(t *testing.T) {
 	if status != "lost" || rank != 30 || lastEventID != closedID || lastCreated != closed.EventCreated {
 		t.Fatalf("durable state status/rank/event/created=%s/%d/%s/%d, want lost/30/%s/%d",
 			status, rank, lastEventID, lastCreated, closedID, closed.EventCreated)
+	}
+}
+
+func TestStripeCashImpairmentDefinitePayoutFailureRearmsWithoutCash(t *testing.T) {
+	ctx, store, pool := openPayoutTestStore(t)
+	t.Setenv("MERC_CANARY_MODE", "false")
+	t.Setenv("MERC_CANARY_DISABLE_DECISION_REF", "TEST-stripe-cash-rearm")
+	f := seedPayoutFixture(t, ctx, pool, payoutFixtureOpts{creditUSD: 1.00})
+	if _, claimed, err := store.ClaimPayout(ctx, f.entryID); err != nil || !claimed {
+		t.Fatalf("claim payout: claimed=%v err=%v", claimed, err)
+	}
+
+	object := []byte(fmt.Sprintf(
+		`{"object":"dispute","id":"dp_rearm_%s","charge":%q,"payment_intent":%q,"amount":%d,"currency":%q,"status":"needs_response"}`,
+		f.entryID, f.chargeID, f.paymentIntent, f.collectionCents, f.currency,
+	))
+	event, err := parseStripeCashEvent(
+		"evt_rearm_"+f.entryID.String(), stripeEventDisputeCreated, 1_700_002_000,
+		object, []byte(fmt.Sprintf(`{"event":"rearm","id":%q}`, f.entryID.String())),
+	)
+	mustf(t, err, "parse impairment event: %v")
+	result, err := store.ApplyPaymentEventTx(ctx, event)
+	mustf(t, err, "apply impairment event: %v")
+	if result.CompromisedFundingRows != 1 || result.ReversalRequiredRows != 1 {
+		t.Fatalf("impairment result=%+v, want one compromised/reversal row", result)
+	}
+
+	state, err := store.DeferPayout(ctx, f.entryID, errors.New("stripe rejected payout before transfer"))
+	mustf(t, err, "defer definite payout failure: %v")
+	if state != PayoutReady {
+		t.Fatalf("deferred impaired payout state=%q, want %q", state, PayoutReady)
+	}
+
+	var ledgerStatus, operationStatus string
+	var cashMoved, outcomeUnknown bool
+	mustf(t, pool.QueryRow(ctx, `
+		SELECT le.payout_status,op.status,op.cash_moved,op.outcome_unknown
+		  FROM ledger_entries le JOIN supplier_payout_operations op ON op.ledger_entry_id=le.id
+		 WHERE le.id=$1`, f.entryID).Scan(&ledgerStatus, &operationStatus, &cashMoved, &outcomeUnknown),
+		"inspect rearmed payout: %v")
+	if ledgerStatus != PayoutReady || operationStatus != PayoutReady || cashMoved || outcomeUnknown {
+		t.Fatalf("rearmed payout=%s/%s cash=%v unknown=%v, want ready/ready/false/false",
+			ledgerStatus, operationStatus, cashMoved, outcomeUnknown)
+	}
+	if n, err := store.CountReversalRequired(ctx); err != nil || n != 0 {
+		t.Fatalf("no-cash impairment left reversal pause count=%d err=%v", n, err)
+	}
+	due, err := store.DuePayouts(ctx, 10)
+	mustf(t, err, "due after rearm: %v")
+	if !dueContains(due, f.entryID) {
+		t.Fatal("rearmed definite-failure payout disappeared from retry queue")
+	}
+
+	// The impaired funding source remains unusable, so the retry must not send;
+	// it becomes an ordinary awaiting_funding hold rather than a global reversal.
+	if _, claimed, err := store.ClaimPayout(ctx, f.entryID); err != nil || claimed {
+		t.Fatalf("claim with impaired funding: claimed=%v err=%v", claimed, err)
+	}
+	mustf(t, pool.QueryRow(ctx, `SELECT payout_status FROM ledger_entries WHERE id=$1`, f.entryID).
+		Scan(&ledgerStatus), "inspect impaired retry status: %v")
+	if ledgerStatus != PayoutAwaitingFunding {
+		t.Fatalf("impaired retry status=%q, want %q", ledgerStatus, PayoutAwaitingFunding)
 	}
 }

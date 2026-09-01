@@ -885,9 +885,10 @@ func (s *Store) DuePayouts(ctx context.Context, limit int) ([]DueHeldEntry, erro
 	rows, err := s.pool.Query(ctx,
 		`SELECT le.id, le.supplier_id, le.amount_usd
 		 FROM ledger_entries le LEFT JOIN tasks t ON t.id=le.task_id
-		 -- A failed funding attempt is recoverable: a later prepaid top-up or
-		 -- authorized subsidy must make the same immutable liability claimable.
-		 WHERE le.kind = 'supplier_credit' AND le.payout_status IN ('held','awaiting_funding')
+		 -- A failed funding or provider attempt is recoverable: a later prepaid
+		 -- top-up, authorized subsidy, or payout retry must make the same immutable
+		 -- liability claimable.
+		 WHERE le.kind = 'supplier_credit' AND le.payout_status IN ('held','ready','awaiting_funding')
 		   AND le.release_at IS NOT NULL AND le.release_at <= now()
 		   AND NOT EXISTS (
 		       SELECT 1 FROM disputes d
@@ -983,7 +984,7 @@ func (s *Store) ClaimPayout(ctx context.Context, entryID uuid.UUID) (DueHeldEntr
 	}
 	// awaiting_funding is a retryable hold, not a terminal payout state.  Keep
 	// the exact liability/accrual and retry its funding source on a later sweep.
-	if (status != PayoutHeld && status != PayoutAwaitingFunding) || releaseAt == nil || releaseAt.After(time.Now()) ||
+	if (status != PayoutHeld && status != PayoutReady && status != PayoutAwaitingFunding) || releaseAt == nil || releaseAt.After(time.Now()) ||
 		(taskID != nil && verdict != string(OutcomePass)) {
 		return out, false, nil
 	}
@@ -1058,8 +1059,8 @@ func (s *Store) ClaimPayout(ctx context.Context, entryID uuid.UUID) (DueHeldEntr
 	if !funded {
 		if _, err := tx.Exec(ctx,
 			`UPDATE ledger_entries SET payout_status=$2
-			  WHERE id=$1 AND payout_status IN ($3,$4)`,
-			entryID, PayoutAwaitingFunding, PayoutHeld, PayoutAwaitingFunding); err != nil {
+			  WHERE id=$1 AND payout_status IN ($3,$4,$5)`,
+			entryID, PayoutAwaitingFunding, PayoutHeld, PayoutReady, PayoutAwaitingFunding); err != nil {
 			return out, false, err
 		}
 		if err := tx.Commit(ctx); err != nil {
@@ -1296,18 +1297,19 @@ func (s *Store) DeferPayout(ctx context.Context, entryID uuid.UUID, cause error)
 		return "", err
 	}
 	defer tx.Rollback(ctx)
-	var status string
+	var status, operationStatus, ledgerPayoutRef string
 	var outcomeUnknown, cashMoved bool
 	var transferRef *string
 	if err := tx.QueryRow(ctx, `
-		SELECT le.payout_status,COALESCE(op.outcome_unknown,false),COALESCE(op.cash_moved,false),op.transfer_ref
+		SELECT le.payout_status,COALESCE(op.status,''),COALESCE(op.outcome_unknown,false),
+		       COALESCE(op.cash_moved,false),op.transfer_ref,COALESCE(le.payout_ref,'')
 		  FROM ledger_entries le
 		  LEFT JOIN supplier_payout_operations op ON op.ledger_entry_id=le.id
 		 WHERE le.id=$1 FOR UPDATE OF le`, entryID).
-		Scan(&status, &outcomeUnknown, &cashMoved, &transferRef); err != nil {
+		Scan(&status, &operationStatus, &outcomeUnknown, &cashMoved, &transferRef, &ledgerPayoutRef); err != nil {
 		return "", err
 	}
-	if cashMoved || transferRef != nil {
+	if cashMoved || transferRef != nil || strings.TrimSpace(ledgerPayoutRef) != "" {
 		return status, fmt.Errorf("payout %s already has provider cash evidence", entryID)
 	}
 	if outcomeUnknown {
@@ -1320,11 +1322,57 @@ func (s *Store) DeferPayout(ctx context.Context, entryID uuid.UUID, cause error)
 		return status, fmt.Errorf("payout %s has an unresolved provider outcome and cannot be deferred to ready", entryID)
 	}
 	if status == PayoutReversalRequired {
-		// Filing a dispute can move an in-flight operation here before the
-		// original worker receives a definite-not-sent response. There is no
-		// cash to reverse, but the active dispute still owns the hold; leave the
-		// recovery state for resolution to re-arm safely.
-		return status, tx.Commit(ctx)
+		// An external Stripe refund/dispute can impair the funding source while a
+		// payout is sending. If the provider then definitely rejects that payout,
+		// there is no cash to reverse; re-arm the same operation instead of leaving
+		// the platform-wide reversal pause permanently engaged. Internal disputes
+		// set outcome_unknown=true and therefore stay in their stricter recovery
+		// path below.
+		if operationStatus != PayoutReversalRequired {
+			return status, tx.Commit(ctx)
+		}
+		var activeDispute bool
+		if err := tx.QueryRow(ctx, `
+			SELECT EXISTS(
+			  SELECT 1
+			    FROM ledger_entries held
+			    JOIN tasks t ON t.id=held.task_id
+			    JOIN disputes d ON d.job_id=t.job_id
+			   WHERE held.id=$1
+			     AND d.status IN ('open','no_peer','reverifying','unresolvable'))`, entryID).
+			Scan(&activeDispute); err != nil {
+			return "", err
+		}
+		if activeDispute {
+			// A dispute resolution transaction owns the re-arm decision when the
+			// internal hold is still active.
+			return status, tx.Commit(ctx)
+		}
+		errText := ""
+		if cause != nil {
+			errText = truncate(cause.Error(), 500)
+		}
+		ct, err := tx.Exec(ctx, `
+			UPDATE supplier_payout_operations
+			   SET status='ready',outcome_unknown=false,
+			       last_error=NULLIF($2,''),updated_at=now()
+			 WHERE ledger_entry_id=$1 AND status='reversal_required'
+			   AND NOT cash_moved AND transfer_ref IS NULL AND NOT outcome_unknown`, entryID, errText)
+		if err != nil {
+			return "", err
+		}
+		if ct.RowsAffected() != 1 {
+			return status, tx.Commit(ctx)
+		}
+		if _, err := tx.Exec(ctx, `
+			UPDATE ledger_entries SET payout_status='ready'
+			 WHERE id=$1 AND payout_status='reversal_required'`, entryID); err != nil {
+			return "", err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return "", err
+		}
+		return PayoutReady, nil
 	}
 	if status != PayoutSending {
 		return status, tx.Commit(ctx)

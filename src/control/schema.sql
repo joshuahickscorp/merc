@@ -3004,7 +3004,7 @@ INSERT INTO lifecycle_transitions (entity,from_state,to_state) VALUES
 ('payout','awaiting_funding','held'),('payout','awaiting_funding','ready'),('payout','awaiting_funding','sending'),
 ('payout','awaiting_funding','clawed_back'),('payout','awaiting_funding','reversal_required'),
 ('payout','ready','held'),('payout','ready','sending'),('payout','ready','released'),('payout','ready','exported'),
-('payout','ready','clawed_back'),('payout','ready','reversal_required'),
+('payout','ready','clawed_back'),('payout','ready','awaiting_funding'),('payout','ready','reversal_required'),
 ('payout','sending','ready'),('payout','sending','released'),('payout','sending','outcome_unknown'),
 ('payout','sending','reversal_required'),
 -- Manual-export settlement rail.  FinalizePayout's non-cash branch requires the
@@ -3020,7 +3020,7 @@ INSERT INTO lifecycle_transitions (entity,from_state,to_state) VALUES
 ('payout','carried','held'),('payout','carried','awaiting_funding'),
 ('payout','carried','clawed_back'),('payout','carried','reversal_required'),
 ('payout','reversal_required','reversing'),
-('payout','reversal_required','released'),('payout','reversal_required','outcome_unknown'),
+('payout','reversal_required','ready'),('payout','reversal_required','released'),('payout','reversal_required','outcome_unknown'),
 ('payout','reversing','reversed'),('payout','reversing','reversal_required'),
 ('webhook','pending','leased'),('webhook','pending','delivered'),('webhook','pending','dead'),
 ('webhook','leased','pending'),('webhook','leased','delivered'),('webhook','leased','dead');
