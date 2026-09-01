@@ -129,3 +129,46 @@ func TestStripeCashImpairmentDefinitePayoutFailureRearmsWithoutCash(t *testing.T
 		t.Fatalf("impaired retry status=%q, want %q", ledgerStatus, PayoutAwaitingFunding)
 	}
 }
+
+func TestStripeCashImpairmentRepairsLedgerForExistingReversalOperation(t *testing.T) {
+	ctx, store, pool := openPayoutTestStore(t)
+	t.Setenv("MERC_CANARY_MODE", "false")
+	t.Setenv("MERC_CANARY_DISABLE_DECISION_REF", "TEST-stripe-cash-existing-reversal")
+	f := seedPayoutFixture(t, ctx, pool, payoutFixtureOpts{creditUSD: 1.00})
+	if _, claimed, err := store.ClaimPayout(ctx, f.entryID); err != nil || !claimed {
+		t.Fatalf("claim payout: claimed=%v err=%v", claimed, err)
+	}
+	// Simulate an earlier impairment transition whose ledger update was
+	// interrupted after the append-only payout operation changed state. The
+	// next event must repair the ledger even though this operation no longer
+	// matches the fresh-transition predicate.
+	if _, err := pool.Exec(ctx, `
+		UPDATE supplier_payout_operations
+		   SET status='reversal_required'
+		 WHERE ledger_entry_id=$1`, f.entryID); err != nil {
+		t.Fatalf("seed existing reversal operation: %v", err)
+	}
+
+	object := []byte(fmt.Sprintf(
+		`{"object":"dispute","id":"dp_existing_%s","charge":%q,"payment_intent":%q,"amount":%d,"currency":%q,"status":"needs_response"}`,
+		f.entryID, f.chargeID, f.paymentIntent, f.collectionCents, f.currency,
+	))
+	event, err := parseStripeCashEvent(
+		"evt_existing_"+f.entryID.String(), stripeEventDisputeCreated, 1_700_003_000,
+		object, []byte(fmt.Sprintf(`{"event":"existing-reversal","id":%q}`, f.entryID.String())),
+	)
+	mustf(t, err, "parse impairment event: %v")
+	if _, err := store.ApplyPaymentEventTx(ctx, event); err != nil {
+		t.Fatalf("apply impairment event: %v", err)
+	}
+
+	var ledgerStatus, operationStatus string
+	mustf(t, pool.QueryRow(ctx, `
+		SELECT le.payout_status,op.status
+		  FROM ledger_entries le JOIN supplier_payout_operations op ON op.ledger_entry_id=le.id
+		 WHERE le.id=$1`, f.entryID).Scan(&ledgerStatus, &operationStatus),
+		"inspect repaired reversal operation: %v")
+	if ledgerStatus != PayoutReversalRequired || operationStatus != PayoutReversalRequired {
+		t.Fatalf("repaired payout=%s/%s, want reversal_required/reversal_required", ledgerStatus, operationStatus)
+	}
+}

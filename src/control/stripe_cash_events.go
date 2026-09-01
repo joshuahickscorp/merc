@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -556,19 +555,6 @@ func stripeCollectionCapacityForPaymentIntent(
 	return capacity, err
 }
 
-func stripeCollectionUnavailableCents(ctx context.Context, tx pgx.Tx, paymentIntent string, received int64) (int64, error) {
-	var unavailable int64
-	err := tx.QueryRow(ctx, `
-		SELECT LEAST($2::bigint,
-		  COALESCE((SELECT sum(refunded_cents) FROM stripe_charge_cash_state
-		             WHERE payment_intent=$1),0)::bigint
-		  + COALESCE((SELECT sum(amount_cents) FROM stripe_dispute_cash_state
-		               WHERE payment_intent=$1 AND cash_unavailable),0)::bigint)`,
-		paymentIntent, received,
-	).Scan(&unavailable)
-	return unavailable, err
-}
-
 func recomputeStripeCollectionFunding(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -576,79 +562,84 @@ func recomputeStripeCollectionFunding(
 	received int64,
 	event stripeCashEvent,
 ) (unavailable int64, compromisedRows int, reversalRows int64, err error) {
-	unavailable, err = stripeCollectionUnavailableCents(ctx, tx, paymentIntent, received)
-	if err != nil {
-		return 0, 0, 0, err
-	}
-	available := received - unavailable
-	rows, err := tx.Query(ctx, `
-		SELECT id,ledger_entry_id,amount_cents,
-		       GREATEST(0::bigint,LEAST(amount_cents,
-		         sum(amount_cents) OVER (ORDER BY created_at,id ROWS UNBOUNDED PRECEDING)-$2::bigint))::bigint
-		  FROM supplier_payout_funding
-		 WHERE source_kind='buyer_collection' AND collection_payment_intent=$1
-		 ORDER BY created_at,id`, paymentIntent, available)
-	if err != nil {
-		return 0, 0, 0, err
-	}
-	type fundingExposure struct {
-		fundingID, entryID  uuid.UUID
-		amount, compromised int64
-	}
-	var exposures []fundingExposure
-	for rows.Next() {
-		var exposure fundingExposure
-		if err := rows.Scan(&exposure.fundingID, &exposure.entryID, &exposure.amount, &exposure.compromised); err != nil {
-			rows.Close()
-			return 0, 0, 0, err
-		}
-		exposures = append(exposures, exposure)
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return 0, 0, 0, err
-	}
-
-	for _, exposure := range exposures {
-		state := "available"
-		reason := fmt.Sprintf("collection %s remains available after Stripe event %s", paymentIntent, event.EventID)
-		if exposure.compromised > 0 {
-			state = "compromised"
-			reason = fmt.Sprintf(
-				"collection %s has %d unavailable cents after %s; this reservation is impaired by %d cents",
-				paymentIntent, unavailable, event.EventType, exposure.compromised)
-			compromisedRows++
-		}
-		if _, err := tx.Exec(ctx, `
+	var compromisedCount, reversalCount, ledgerCount, stateCount int64
+	err = tx.QueryRow(ctx, `
+		WITH capacity AS MATERIALIZED (
+			SELECT LEAST($2::bigint,
+			  COALESCE((SELECT sum(refunded_cents) FROM stripe_charge_cash_state
+			             WHERE payment_intent=$1),0)::bigint
+			  + COALESCE((SELECT sum(amount_cents) FROM stripe_dispute_cash_state
+			               WHERE payment_intent=$1 AND cash_unavailable),0)::bigint
+			) AS unavailable
+		), raw_exposures AS MATERIALIZED (
+			SELECT f.id AS funding_id,f.ledger_entry_id,
+			       c.unavailable,
+			       GREATEST(0::bigint,LEAST(f.amount_cents,
+			         sum(f.amount_cents) OVER (ORDER BY f.created_at,f.id ROWS UNBOUNDED PRECEDING)
+			         - ($2::bigint-c.unavailable)))::bigint AS compromised_cents
+			  FROM supplier_payout_funding f
+			 CROSS JOIN capacity c
+			 WHERE f.source_kind='buyer_collection' AND f.collection_payment_intent=$1
+		), exposures AS MATERIALIZED (
+			SELECT funding_id,ledger_entry_id,unavailable,compromised_cents,
+			       CASE WHEN compromised_cents > 0
+			            THEN format('collection %s has %s unavailable cents after %s; this reservation is impaired by %s cents',
+			                        $1,unavailable,$4::text,compromised_cents)
+			            ELSE format('collection %s remains available after Stripe event %s',$1,$3::text)
+			       END AS reason
+			  FROM raw_exposures
+		), states AS (
 			INSERT INTO supplier_payout_funding_state
 			  (funding_id,status,compromised_cents,last_event_id,reason)
-			VALUES ($1,$2,$3,$4,$5)
+			SELECT funding_id,
+			       CASE WHEN compromised_cents > 0 THEN 'compromised' ELSE 'available' END,
+			       compromised_cents,$3,reason
+			  FROM exposures
 			ON CONFLICT (funding_id) DO UPDATE SET
 			  status=EXCLUDED.status,compromised_cents=EXCLUDED.compromised_cents,
-			  last_event_id=EXCLUDED.last_event_id,reason=EXCLUDED.reason,updated_at=now()`,
-			exposure.fundingID, state, exposure.compromised, event.EventID, reason); err != nil {
-			return 0, 0, 0, err
-		}
-		if exposure.compromised == 0 {
-			continue
-		}
-		tag, err := tx.Exec(ctx, `
-			UPDATE supplier_payout_operations
-			   SET status='reversal_required',last_error=$2,updated_at=now()
-			 WHERE funding_id=$1 AND status<>'reversed'
-			   AND (cash_moved OR outcome_unknown OR status='sending')`,
-			exposure.fundingID, reason)
-		if err != nil {
-			return 0, 0, 0, err
-		}
-		reversalRows += tag.RowsAffected()
-		if _, err := tx.Exec(ctx, `
+			  last_event_id=EXCLUDED.last_event_id,reason=EXCLUDED.reason,updated_at=now()
+			RETURNING funding_id
+		), reversals AS (
+			UPDATE supplier_payout_operations op
+			   SET status='reversal_required',last_error=e.reason,updated_at=now()
+			  FROM exposures e
+			 WHERE e.compromised_cents > 0 AND op.funding_id=e.funding_id
+			   AND op.status<>'reversed'
+			   AND (op.cash_moved OR op.outcome_unknown OR op.status='sending')
+			RETURNING op.ledger_entry_id
+		), reversal_targets AS (
+			-- The old loop marked the ledger entry for every reversal_required
+			-- operation belonging to an impaired funding row, including an
+			-- operation that was already reversal_required before this event.
+			-- A data-modifying sibling CTE cannot see reversals' writes through
+			-- the statement snapshot, so union its RETURNING rows with the
+			-- pre-existing targets explicitly.
+			SELECT op.ledger_entry_id
+			  FROM exposures e
+			  JOIN supplier_payout_operations op ON op.funding_id=e.funding_id
+			 WHERE e.compromised_cents > 0 AND op.status='reversal_required'
+			UNION
+			SELECT ledger_entry_id FROM reversals
+		), ledger AS (
 			UPDATE ledger_entries le SET payout_status='reversal_required'
-			  FROM supplier_payout_operations op
-			 WHERE op.funding_id=$1 AND op.ledger_entry_id=le.id AND op.status='reversal_required'`,
-			exposure.fundingID); err != nil {
-			return 0, 0, 0, err
-		}
+			  FROM reversal_targets r
+			 WHERE r.ledger_entry_id=le.id
+			RETURNING le.id
+		)
+		SELECT (SELECT unavailable FROM capacity),
+		       COALESCE((SELECT sum((compromised_cents > 0)::int) FROM exposures),0)::bigint,
+		       COALESCE((SELECT count(*) FROM reversals),0)::bigint,
+		       COALESCE((SELECT count(*) FROM ledger),0)::bigint,
+		       COALESCE((SELECT count(*) FROM states),0)::bigint`,
+		paymentIntent, received, event.EventID, event.EventType,
+	).Scan(&unavailable, &compromisedCount, &reversalCount, &ledgerCount, &stateCount)
+	if err != nil {
+		return 0, 0, 0, err
 	}
-	return unavailable, compromisedRows, reversalRows, nil
+	// The final SELECT intentionally observes every data-modifying CTE. The
+	// ledger/state counts are not part of the public result, but binding them
+	// here makes the one-statement write set explicit and auditable.
+	_ = ledgerCount
+	_ = stateCount
+	return unavailable, int(compromisedCount), reversalCount, nil
 }
