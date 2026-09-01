@@ -334,6 +334,7 @@ var declaredMoneyAuthority = []string{
 	"Store.CurrentActivationPolicy",                       // activation_policy.go
 	"Store.DebitPrepaidForTask",                           // store_prepaid.go
 	"Store.DeferPayout",                                   // store_payouts.go
+	"Store.decodeJobPricingDecision",                      // store_jobs.go
 	"Store.EvaluateCellPromotion",                         // runtime_cell_promotion.go
 	"Store.FailPrepaidRefund",                             // store_prepaid.go
 	"Store.FailoverPendingServiceLeases",                  // service_leases.go
@@ -352,6 +353,7 @@ var declaredMoneyAuthority = []string{
 	"Store.JobPricingDecision",                            // store_jobs.go
 	"Store.JobPrimaryChunkCount",                          // store_jobs.go
 	"Store.JobTaskReceipts",                               // store_tasks.go
+	"Store.loadJobReceiptComputeAuthority",                // store_jobs.go
 	"Store.LoadCataloguePriceAuthority",                   // pricing_decision.go
 	"Store.MarkPayout",                                    // store_payouts.go
 	"Store.MarkPayoutOutcomeUnknown",                      // store_payouts.go
@@ -506,6 +508,7 @@ var declaredMoneyAuthority = []string{
 	"dispatchLaunchRelease",                               // release_launch.go
 	"dispatchProject",                                     // dev_project_compile.go
 	"dispatchRelease",                                     // stripe_simulator.go
+	"decodeJobComputePlan",                                // store_jobs.go
 	"distributedPricingDecisionAtRate",                    // pricing_decision.go
 	"documentActivation",                                  // activation_policy.go
 	"documentActivationEntries",                           // activation_policy.go

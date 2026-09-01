@@ -758,18 +758,61 @@ type jobRow struct {
 	activationPolicyRevision int64
 }
 
-func (s *Store) JobWorkloadDecision(ctx context.Context, jobID uuid.UUID) (*WorkloadDecision, error) {
-	var blob []byte
-	var frozenSHA256 string
-	if err := s.pool.QueryRow(ctx,
-		`SELECT workload_decision, COALESCE(workload_decision_sha256,'')
-		   FROM jobs WHERE id=$1`, jobID,
-	).Scan(&blob, &frozenSHA256); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, errNotFound
-		}
-		return nil, err
+type jobComputeAuthorityInputs struct {
+	workloadBlob      []byte
+	workloadSHA256    string
+	computePlanBlob   []byte
+	computePlanSHA256 string
+	placementBlob     []byte
+	placementSHA256   string
+	pricingBlob       []byte
+	pricingSHA256     string
+	economicPlanBlob  []byte
+}
+
+// loadJobComputeAuthorityInputs reads the immutable execution and pricing
+// authority in one row. These documents are persisted together for a job;
+// splitting their reads forces every receipt path to pay a network round-trip
+// per dependency and makes it easier to accidentally compare authorities from
+// different snapshots.
+func (s *Store) loadJobComputeAuthorityInputs(
+	ctx context.Context,
+	jobID uuid.UUID,
+) (jobComputeAuthorityInputs, error) {
+	var inputs jobComputeAuthorityInputs
+	err := s.pool.QueryRow(ctx, `
+		SELECT j.workload_decision,
+		       COALESCE(j.workload_decision_sha256,''),
+		       j.compute_plan,
+		       COALESCE(j.compute_plan_sha256,''),
+		       j.placement_requirement,
+		       COALESCE(j.placement_requirement_sha256,''),
+		       j.pricing_decision,
+		       COALESCE(j.pricing_decision_sha256,''),
+		       ep.plan_json
+		  FROM jobs j
+		  LEFT JOIN job_economic_plans ep ON ep.job_id=j.id
+		 WHERE j.id=$1`, jobID).Scan(
+		&inputs.workloadBlob, &inputs.workloadSHA256,
+		&inputs.computePlanBlob, &inputs.computePlanSHA256,
+		&inputs.placementBlob, &inputs.placementSHA256,
+		&inputs.pricingBlob, &inputs.pricingSHA256,
+		&inputs.economicPlanBlob,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return jobComputeAuthorityInputs{}, errNotFound
 	}
+	if err != nil {
+		return jobComputeAuthorityInputs{}, err
+	}
+	return inputs, nil
+}
+
+func decodeJobWorkloadDecision(
+	jobID uuid.UUID,
+	blob []byte,
+	frozenSHA256 string,
+) (*WorkloadDecision, error) {
 	if len(blob) == 0 {
 		// Legacy jobs predate workload-decision authority. Their receipts stay
 		// readable but do not invent a classification after execution.
@@ -792,18 +835,13 @@ func (s *Store) JobWorkloadDecision(ctx context.Context, jobID uuid.UUID) (*Work
 	return &decision, nil
 }
 
-func (s *Store) JobComputePlan(ctx context.Context, jobID uuid.UUID) (*ComputePlan, error) {
-	var blob []byte
-	var frozenSHA256 string
-	if err := s.pool.QueryRow(ctx,
-		`SELECT compute_plan, COALESCE(compute_plan_sha256,'')
-		   FROM jobs WHERE id=$1`, jobID,
-	).Scan(&blob, &frozenSHA256); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, errNotFound
-		}
-		return nil, err
-	}
+func decodeJobComputePlan(
+	jobID uuid.UUID,
+	blob []byte,
+	frozenSHA256 string,
+	workload *WorkloadDecision,
+	economicBlob []byte,
+) (*ComputePlan, error) {
 	if len(blob) == 0 {
 		// Legacy jobs remain readable without inventing execution geometry.
 		return nil, nil
@@ -812,10 +850,6 @@ func (s *Store) JobComputePlan(ctx context.Context, jobID uuid.UUID) (*ComputePl
 	if err := json.Unmarshal(blob, &plan); err != nil {
 		return nil, fmt.Errorf("decode compute plan for job %s: %w", jobID, err)
 	}
-	workload, err := s.JobWorkloadDecision(ctx, jobID)
-	if err != nil {
-		return nil, err
-	}
 	if workload == nil {
 		return nil, fmt.Errorf("job %s has a compute plan without workload authority", jobID)
 	}
@@ -823,11 +857,11 @@ func (s *Store) JobComputePlan(ctx context.Context, jobID uuid.UUID) (*ComputePl
 		return nil, fmt.Errorf("invalid frozen compute plan for job %s: %w", jobID, err)
 	}
 	if plan.ExecutionMode == computeExecutionDistributed {
-		var economicBlob []byte
-		if err := s.pool.QueryRow(ctx,
-			`SELECT plan_json FROM job_economic_plans WHERE job_id=$1`, jobID,
-		).Scan(&economicBlob); err != nil {
-			return nil, fmt.Errorf("load economic authority for compute plan on job %s: %w", jobID, err)
+		if len(economicBlob) == 0 {
+			return nil, fmt.Errorf(
+				"load economic authority for compute plan on job %s: %w",
+				jobID, pgx.ErrNoRows,
+			)
 		}
 		var economic EconomicPlan
 		if err := json.Unmarshal(economicBlob, &economic); err != nil {
@@ -847,18 +881,12 @@ func (s *Store) JobComputePlan(ctx context.Context, jobID uuid.UUID) (*ComputePl
 	return &plan, nil
 }
 
-func (s *Store) JobPlacementRequirement(ctx context.Context, jobID uuid.UUID) (*PlacementRequirement, error) {
-	var blob []byte
-	var frozenSHA256 string
-	if err := s.pool.QueryRow(ctx,
-		`SELECT placement_requirement,COALESCE(placement_requirement_sha256,'')
-		   FROM jobs WHERE id=$1`, jobID,
-	).Scan(&blob, &frozenSHA256); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, errNotFound
-		}
-		return nil, err
-	}
+func decodeJobPlacementRequirement(
+	jobID uuid.UUID,
+	blob []byte,
+	frozenSHA256 string,
+	workload *WorkloadDecision,
+) (*PlacementRequirement, error) {
 	if len(blob) == 0 {
 		// Exact reuse has no physical placement. Legacy physical jobs also
 		// remain explicitly unverifiable instead of receiving a reconstruction.
@@ -867,10 +895,6 @@ func (s *Store) JobPlacementRequirement(ctx context.Context, jobID uuid.UUID) (*
 	var placement PlacementRequirement
 	if err := json.Unmarshal(blob, &placement); err != nil {
 		return nil, fmt.Errorf("decode placement requirement for job %s: %w", jobID, err)
-	}
-	workload, err := s.JobWorkloadDecision(ctx, jobID)
-	if err != nil {
-		return nil, err
 	}
 	if workload == nil {
 		return nil, fmt.Errorf("job %s has placement without workload authority", jobID)
@@ -888,18 +912,17 @@ func (s *Store) JobPlacementRequirement(ctx context.Context, jobID uuid.UUID) (*
 	return &placement, nil
 }
 
-func (s *Store) JobPricingDecision(ctx context.Context, jobID uuid.UUID) (*PricingDecision, error) {
-	var blob []byte
-	var frozenSHA256 string
-	if err := s.pool.QueryRow(ctx,
-		`SELECT pricing_decision,COALESCE(pricing_decision_sha256,'')
-		   FROM jobs WHERE id=$1`, jobID,
-	).Scan(&blob, &frozenSHA256); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, errNotFound
-		}
-		return nil, err
-	}
+func (s *Store) decodeJobPricingDecision(
+	ctx context.Context,
+	jobID uuid.UUID,
+	blob []byte,
+	frozenSHA256 string,
+	placementBlob []byte,
+	placementSHA256 string,
+	workload *WorkloadDecision,
+	compute *ComputePlan,
+	economicBlob []byte,
+) (*PricingDecision, error) {
 	if len(blob) == 0 {
 		return nil, nil
 	}
@@ -907,31 +930,25 @@ func (s *Store) JobPricingDecision(ctx context.Context, jobID uuid.UUID) (*Prici
 	if err := json.Unmarshal(blob, &pricing); err != nil {
 		return nil, fmt.Errorf("decode pricing decision for job %s: %w", jobID, err)
 	}
-	workload, err := s.JobWorkloadDecision(ctx, jobID)
-	if err != nil {
-		return nil, err
-	}
-	compute, err := s.JobComputePlan(ctx, jobID)
-	if err != nil {
-		return nil, err
-	}
 	if workload == nil || compute == nil {
 		return nil, fmt.Errorf("job %s pricing lacks workload or compute authority", jobID)
 	}
 	switch pricing.ExecutionMode {
 	case computeExecutionDistributed:
-		placement, err := s.JobPlacementRequirement(ctx, jobID)
+		placement, err := decodeJobPlacementRequirement(
+			jobID, placementBlob, placementSHA256, workload,
+		)
 		if err != nil {
 			return nil, err
 		}
 		if placement == nil {
 			return nil, fmt.Errorf("job %s physical pricing lacks placement authority", jobID)
 		}
-		var economicBlob []byte
-		if err := s.pool.QueryRow(ctx,
-			`SELECT plan_json FROM job_economic_plans WHERE job_id=$1`, jobID,
-		).Scan(&economicBlob); err != nil {
-			return nil, fmt.Errorf("load economic plan for pricing on job %s: %w", jobID, err)
+		if len(economicBlob) == 0 {
+			return nil, fmt.Errorf(
+				"load economic plan for pricing on job %s: %w",
+				jobID, pgx.ErrNoRows,
+			)
 		}
 		var economic EconomicPlan
 		if err := json.Unmarshal(economicBlob, &economic); err != nil {
@@ -959,6 +976,111 @@ func (s *Store) JobPricingDecision(ctx context.Context, jobID uuid.UUID) (*Prici
 		return nil, fmt.Errorf("frozen pricing decision digest mismatch for job %s", jobID)
 	}
 	return &pricing, nil
+}
+
+func (s *Store) JobWorkloadDecision(ctx context.Context, jobID uuid.UUID) (*WorkloadDecision, error) {
+	inputs, err := s.loadJobComputeAuthorityInputs(ctx, jobID)
+	if err != nil {
+		return nil, err
+	}
+	return decodeJobWorkloadDecision(jobID, inputs.workloadBlob, inputs.workloadSHA256)
+}
+
+func (s *Store) JobComputePlan(ctx context.Context, jobID uuid.UUID) (*ComputePlan, error) {
+	inputs, err := s.loadJobComputeAuthorityInputs(ctx, jobID)
+	if err != nil {
+		return nil, err
+	}
+	if len(inputs.computePlanBlob) == 0 {
+		// Preserve the historical no-compute fast path: a legacy job remains
+		// readable even when no execution geometry was frozen.
+		return nil, nil
+	}
+	workload, err := decodeJobWorkloadDecision(
+		jobID, inputs.workloadBlob, inputs.workloadSHA256,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return decodeJobComputePlan(
+		jobID, inputs.computePlanBlob, inputs.computePlanSHA256,
+		workload, inputs.economicPlanBlob,
+	)
+}
+
+func (s *Store) loadJobReceiptComputeAuthority(
+	ctx context.Context,
+	jobID uuid.UUID,
+) (*WorkloadDecision, *ComputePlan, error) {
+	inputs, err := s.loadJobComputeAuthorityInputs(ctx, jobID)
+	if err != nil {
+		return nil, nil, err
+	}
+	workload, err := decodeJobWorkloadDecision(
+		jobID, inputs.workloadBlob, inputs.workloadSHA256,
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+	plan, err := decodeJobComputePlan(
+		jobID, inputs.computePlanBlob, inputs.computePlanSHA256,
+		workload, inputs.economicPlanBlob,
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+	return workload, plan, nil
+}
+
+// The former per-document implementations are intentionally represented by the
+// shared decoders above. All callers still receive the same validation and
+// digest checks, but the immutable dependency row is fetched once.
+
+func (s *Store) JobPlacementRequirement(ctx context.Context, jobID uuid.UUID) (*PlacementRequirement, error) {
+	inputs, err := s.loadJobComputeAuthorityInputs(ctx, jobID)
+	if err != nil {
+		return nil, err
+	}
+	if len(inputs.placementBlob) == 0 {
+		return nil, nil
+	}
+	workload, err := decodeJobWorkloadDecision(
+		jobID, inputs.workloadBlob, inputs.workloadSHA256,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return decodeJobPlacementRequirement(
+		jobID, inputs.placementBlob, inputs.placementSHA256, workload,
+	)
+}
+
+func (s *Store) JobPricingDecision(ctx context.Context, jobID uuid.UUID) (*PricingDecision, error) {
+	inputs, err := s.loadJobComputeAuthorityInputs(ctx, jobID)
+	if err != nil {
+		return nil, err
+	}
+	if len(inputs.pricingBlob) == 0 {
+		return nil, nil
+	}
+	workload, err := decodeJobWorkloadDecision(
+		jobID, inputs.workloadBlob, inputs.workloadSHA256,
+	)
+	if err != nil {
+		return nil, err
+	}
+	compute, err := decodeJobComputePlan(
+		jobID, inputs.computePlanBlob, inputs.computePlanSHA256,
+		workload, inputs.economicPlanBlob,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return s.decodeJobPricingDecision(
+		ctx, jobID, inputs.pricingBlob, inputs.pricingSHA256,
+		inputs.placementBlob, inputs.placementSHA256,
+		workload, compute, inputs.economicPlanBlob,
+	)
 }
 
 type JobView struct {

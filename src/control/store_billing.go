@@ -1004,16 +1004,12 @@ func (s *Store) attachObservedOutputInvoiceEvidence(ctx context.Context, iv *Inv
 	if iv == nil {
 		return nil
 	}
-	plan, err := s.JobComputePlan(ctx, iv.JobID)
+	workload, plan, err := s.loadJobReceiptComputeAuthority(ctx, iv.JobID)
 	if err != nil {
 		return err
 	}
 	if plan == nil || plan.EstimatedOutputTokens <= 0 {
 		return nil
-	}
-	workload, err := s.JobWorkloadDecision(ctx, iv.JobID)
-	if err != nil {
-		return err
 	}
 	if workload == nil {
 		return nil

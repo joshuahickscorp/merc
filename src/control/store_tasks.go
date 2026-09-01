@@ -958,13 +958,9 @@ func (s *Store) ClawbackTaskCredit(ctx context.Context, supplierID, taskID uuid.
 func (s *Store) JobTaskReceipts(ctx context.Context, jobID uuid.UUID) ([]TaskReceipt, error) {
 	// Load frozen compute plan once so generative tasks can show ceiling /
 	// observed / rebate without inventing a parallel receipt path.
-	plan, planErr := s.JobComputePlan(ctx, jobID)
-	if planErr != nil {
-		return nil, planErr
-	}
-	workload, workloadErr := s.JobWorkloadDecision(ctx, jobID)
-	if workloadErr != nil {
-		return nil, workloadErr
+	workload, plan, authorityErr := s.loadJobReceiptComputeAuthority(ctx, jobID)
+	if authorityErr != nil {
+		return nil, authorityErr
 	}
 	var maxTokens uint32
 	if plan != nil && workload != nil {
