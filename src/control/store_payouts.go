@@ -1091,8 +1091,8 @@ func (s *Store) ClaimPayout(ctx context.Context, entryID uuid.UUID) (DueHeldEntr
 	}
 	ct, err := tx.Exec(ctx,
 		`UPDATE ledger_entries SET payout_status=$2
-		  WHERE id=$1 AND payout_status IN ($3,$4)`,
-		entryID, PayoutSending, PayoutHeld, PayoutAwaitingFunding)
+		  WHERE id=$1 AND payout_status IN ($3,$4,$5)`,
+		entryID, PayoutSending, PayoutHeld, PayoutAwaitingFunding, PayoutReady)
 	if err != nil {
 		return out, false, err
 	}

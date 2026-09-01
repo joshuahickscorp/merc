@@ -59,6 +59,40 @@ func TestReservePayoutFundingUnderfundingFailsClosed(t *testing.T) {
 	}
 }
 
+func TestReadyPayoutRetryTransitionsLedgerAndOperationTogether(t *testing.T) {
+	installSettlementCurrencyForTest(t, "usd")
+	t.Setenv("MERC_CANARY_MODE", "false")
+	t.Setenv("MERC_CANARY_DISABLE_DECISION_REF", "TEST-ready-payout-retry")
+	ctx, store, pool := openIsolatedTestStore(t)
+	f := seedPayoutFixture(t, ctx, pool, payoutFixtureOpts{
+		creditUSD:    1.25,
+		payoutStatus: PayoutReady,
+	})
+
+	claimed, sent, err := store.ClaimPayout(ctx, f.entryID)
+	if err != nil || !sent {
+		t.Fatalf("ready payout claim sent=%v err=%v claimed=%+v", sent, err, claimed)
+	}
+	var ledgerStatus, operationStatus string
+	mustf(t, pool.QueryRow(ctx, `
+		SELECT le.payout_status,op.status
+		  FROM ledger_entries le
+		  JOIN supplier_payout_operations op ON op.ledger_entry_id=le.id
+		 WHERE le.id=$1`, f.entryID).Scan(&ledgerStatus, &operationStatus),
+		"inspect ready retry states: %v")
+	if ledgerStatus != PayoutSending || operationStatus != PayoutSending {
+		t.Fatalf("ready retry states=%s/%s, want sending/sending", ledgerStatus, operationStatus)
+	}
+
+	state, err := store.FinalizePayout(ctx, f.entryID, PayoutResult{
+		Ref: "tr_ready_retry_" + uuid.NewString(), SentCents: claimed.RequestedCents,
+		Currency: f.currency, CashMoved: true,
+	})
+	if err != nil || state != PayoutReleased {
+		t.Fatalf("finalize ready retry state=%q err=%v", state, err)
+	}
+}
+
 func TestAwaitingFundingPayoutRetriesAfterLatePrepaidTopup(t *testing.T) {
 	installSettlementCurrencyForTest(t, "usd")
 	t.Setenv("MERC_CANARY_MODE", "false")
