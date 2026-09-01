@@ -68,7 +68,7 @@ func TestStripePayoutUsesBoundedIdlePool(t *testing.T) {
 }
 
 func TestChargePaymentIntentRequiresExactTerminalCashFact(t *testing.T) {
-	const good = `{"object":"payment_intent","id":"pi_exact","latest_charge":{"object":"charge","id":"ch_exact"},"status":"succeeded","currency":"usd","amount":123,"amount_received":123}`
+	const good = `{"object":"payment_intent","id":"pi_exact","customer":"cus_test","payment_method":"pm_test","latest_charge":{"object":"charge","id":"ch_exact"},"status":"succeeded","currency":"usd","amount":123,"amount_received":123}`
 	cases := []struct {
 		name string
 		body string
@@ -77,6 +77,10 @@ func TestChargePaymentIntentRequiresExactTerminalCashFact(t *testing.T) {
 		{"still processing", `{"id":"pi_processing","status":"processing","currency":"usd","amount":123,"amount_received":0}`},
 		{"missing id", `{"status":"succeeded","currency":"usd","amount":123,"amount_received":123}`},
 		{"wrong payment intent object kind", `{"id":"ch_not_a_payment_intent","latest_charge":"ch_exact","status":"succeeded","currency":"usd","amount":123,"amount_received":123}`},
+		{"wrong customer binding", `{"object":"payment_intent","id":"pi_wrong_customer","customer":"cus_other","payment_method":"pm_test","latest_charge":"ch_exact","status":"succeeded","currency":"usd","amount":123,"amount_received":123}`},
+		{"wrong payment method binding", `{"object":"payment_intent","id":"pi_wrong_payment_method","customer":"cus_test","payment_method":"pm_other","latest_charge":"ch_exact","status":"succeeded","currency":"usd","amount":123,"amount_received":123}`},
+		{"wrong expanded customer kind", `{"object":"payment_intent","id":"pi_wrong_customer_kind","customer":{"object":"payment_method","id":"cus_test"},"payment_method":"pm_test","latest_charge":"ch_exact","status":"succeeded","currency":"usd","amount":123,"amount_received":123}`},
+		{"wrong expanded payment method kind", `{"object":"payment_intent","id":"pi_wrong_payment_method_kind","customer":"cus_test","payment_method":{"object":"customer","id":"pm_test"},"latest_charge":"ch_exact","status":"succeeded","currency":"usd","amount":123,"amount_received":123}`},
 		{"wrong charge object kind", `{"id":"pi_wrong_charge","latest_charge":"pi_not_a_charge","status":"succeeded","currency":"usd","amount":123,"amount_received":123}`},
 		{"wrong currency", `{"id":"pi_currency","status":"succeeded","currency":"cad","amount":123,"amount_received":123}`},
 		{"request amount mismatch", `{"id":"pi_amount","status":"succeeded","currency":"usd","amount":122,"amount_received":123}`},
@@ -314,7 +318,7 @@ func TestChargePaymentIntentResponseLossKeepsIdempotencyKey(t *testing.T) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = fmt.Fprint(w, `{"object":"payment_intent","id":"pi_replayed","latest_charge":"ch_replayed","status":"succeeded","currency":"usd","amount":321,"amount_received":321}`)
+		_, _ = fmt.Fprint(w, `{"object":"payment_intent","id":"pi_replayed","customer":"cus_test","payment_method":"pm_test","latest_charge":"ch_replayed","status":"succeeded","currency":"usd","amount":321,"amount_received":321}`)
 	}))
 
 	const key = "job-response-loss"

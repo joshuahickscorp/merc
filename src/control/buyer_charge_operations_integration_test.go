@@ -63,8 +63,8 @@ func TestBuyerChargeExplicitDeclineRearmsWithFreshProviderKey(t *testing.T) {
 			return
 		}
 		_, _ = fmt.Fprintf(w,
-			`{"object":"payment_intent","id":"pi_decline_recovery","latest_charge":{"object":"charge","id":"ch_decline_recovery"},"status":"succeeded","currency":%q,"amount":%d,"amount_received":%d}`,
-			currency, cents, cents)
+			`{"object":"payment_intent","id":"pi_decline_recovery","customer":%q,"payment_method":%q,"latest_charge":{"object":"charge","id":"ch_decline_recovery"},"status":"succeeded","currency":%q,"amount":%d,"amount_received":%d}`,
+			r.Form.Get("customer"), r.Form.Get("payment_method"), currency, cents, cents)
 	}))
 
 	if _, err := chargeBuyer(ctx, store, buyerID, 5, operationKey, "job", jobID); !errors.Is(err, errBuyerChargeDefinitelyFailed) {

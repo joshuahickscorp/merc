@@ -392,6 +392,16 @@ func chargePaymentIntentWithKeys(
 	if err != nil {
 		return ChargeResult{}, err
 	}
+	returnedCustomer, err := stripeExpandableMapID(out, "customer", "customer")
+	if err != nil || !validStripeObjectID(returnedCustomer, "cus_") || returnedCustomer != customer {
+		return ChargeResult{}, fmt.Errorf("payment intent %s customer does not match the requested customer", id)
+	}
+	if paymentMethod != "" {
+		returnedPaymentMethod, err := stripeExpandableMapID(out, "payment_method", "payment_method")
+		if err != nil || !validStripeObjectID(returnedPaymentMethod, "pm_") || returnedPaymentMethod != paymentMethod {
+			return ChargeResult{}, fmt.Errorf("payment intent %s payment method does not match the requested payment method", id)
+		}
+	}
 	chargeID := ""
 	switch latest := out["latest_charge"].(type) {
 	case string:

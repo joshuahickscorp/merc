@@ -113,9 +113,9 @@ func newFundingHarness(t *testing.T) *fundingHarness {
 			amount := r.Form.Get("amount")
 			currency := r.Form.Get("currency")
 			charge.set(amount, currency)
-			fmt.Fprintf(w, `{"object":"payment_intent","id":"pi_live_%d","latest_charge":{"object":"charge","id":"ch_live_%d"},`+
+			fmt.Fprintf(w, `{"object":"payment_intent","id":"pi_live_%d","customer":%q,"payment_method":%q,"latest_charge":{"object":"charge","id":"ch_live_%d"},`+
 				`"status":"succeeded","currency":%q,"amount":%s,"amount_received":%s}`,
-				charges.Load(), charges.Load(), currency, amount, amount)
+				charges.Load(), r.Form.Get("customer"), r.Form.Get("payment_method"), charges.Load(), currency, amount, amount)
 		case strings.HasSuffix(r.URL.Path, "/refunds"):
 			if refundErr.Load() {
 				w.WriteHeader(http.StatusInternalServerError)
