@@ -125,6 +125,11 @@ func stripeKey() string {
 	return key
 }
 
+func validStripeObjectID(value, prefix string) bool {
+	value, prefix = strings.TrimSpace(value), strings.TrimSpace(prefix)
+	return prefix != "" && len(value) > len(prefix) && strings.HasPrefix(value, prefix)
+}
+
 func stripePOSTOperation(path string, form url.Values) (PaymentOperation, int64, string, error) {
 	path = strings.Trim(strings.SplitN(path, "?", 2)[0], "/")
 	switch path {
@@ -201,8 +206,8 @@ func ensureStripeCustomer(ctx context.Context, store *Store, buyerID uuid.UUID) 
 		return "", err
 	}
 	cust, _ := out["id"].(string)
-	if cust == "" {
-		return "", fmt.Errorf("stripe customer: no id in response")
+	if !validStripeObjectID(cust, "cus_") {
+		return "", fmt.Errorf("stripe customer: provider returned an invalid customer id")
 	}
 	if err := store.UpsertBillingCustomer(ctx, buyerID, cust); err != nil {
 		return "", err
@@ -525,7 +530,7 @@ func verifyStripeSigAt(payload []byte, sigHeader, secret string, now time.Time) 
 }
 
 type billingPMSetter func(context.Context, string, string) error
-type billingPMEventSetter func(context.Context, string, string, int64, string) error
+type billingPMEventSetter func(context.Context, stripePaymentMethodEvent) error
 type stripeCashEventApplier func(context.Context, stripeCashEvent) (stripeCashEventResult, error)
 type buyerChargeReconciler func(context.Context, string, ChargeResult) error
 type stripeRiskEventRecorder func(context.Context, stripeRiskEvent) (stripeRiskEventResult, error)
@@ -668,7 +673,15 @@ func handleStripeWebhookWithAllHandlersAtModeAndRiskAndPaymentFailureAndPMEvent(
 		if cust != "" && pm != "" {
 			var err error
 			if setPMEvent != nil {
-				err = setPMEvent(r.Context(), cust, pm, ev.Created, ev.ID)
+				hash := sha256.Sum256(payload)
+				err = setPMEvent(r.Context(), stripePaymentMethodEvent{
+					EventID:       ev.ID,
+					EventType:     ev.Type,
+					CustomerID:    cust,
+					PaymentMethod: pm,
+					EventCreated:  ev.Created,
+					PayloadSHA256: hex.EncodeToString(hash[:]),
+				})
 			} else if setPM != nil {
 				err = setPM(r.Context(), cust, pm)
 			} else {

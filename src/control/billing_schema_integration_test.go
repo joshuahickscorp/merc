@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -42,6 +43,9 @@ func TestBillingCustomerCanonicalSchema(t *testing.T) {
 	})
 
 	mustf(t, store.UpsertBillingCustomer(ctx, buyerID, customerID), "upsert billing customer: %v")
+	if err := store.UpsertBillingCustomer(ctx, buyerID, "cus_card_replacement"); !errors.Is(err, errBillingCustomerIdentityMismatch) {
+		t.Fatalf("replacement billing customer err=%v, want %v", err, errBillingCustomerIdentityMismatch)
+	}
 	customer, paymentMethod, err := store.GetBillingCustomer(ctx, buyerID)
 	if err != nil || customer != customerID || paymentMethod != "" {
 		t.Fatalf("initial billing customer = (%q,%q,%v)", customer, paymentMethod, err)
@@ -113,9 +117,26 @@ func TestSavedCardWebhookOrderingAndExpandableReferences(t *testing.T) {
 	if response := handler(oldPayload); response.Code != http.StatusOK {
 		t.Fatalf("old card webhook status=%d, want 200", response.Code)
 	}
+	conflictPayload, err := json.Marshal(map[string]any{
+		"id": "evt_card_old", "type": "payment_method.attached",
+		"api_version": stripeAPIVersion, "livemode": false, "created": int64(1_700_000_001),
+		"data": map[string]any{"object": map[string]any{
+			"id": "pm_card_conflict", "customer": map[string]any{"id": customerID},
+		}},
+	})
+	mustf(t, err, "marshal conflicting card event: %v")
+	if response := handler(conflictPayload); response.Code != http.StatusInternalServerError {
+		t.Fatalf("conflicting card webhook status=%d, want 500", response.Code)
+	}
 	_, paymentMethod, err := store.GetBillingCustomer(ctx, buyerID)
 	mustf(t, err, "read ordered payment method: %v")
 	if paymentMethod != "pm_card_new" {
 		t.Fatalf("ordered payment method=%q, want pm_card_new", paymentMethod)
+	}
+	var eventRows int
+	mustf(t, pool.QueryRow(ctx, `SELECT count(*) FROM stripe_payment_method_events`).Scan(&eventRows),
+		"count payment-method events: %v")
+	if eventRows != 2 {
+		t.Fatalf("payment-method event rows=%d, want 2", eventRows)
 	}
 }

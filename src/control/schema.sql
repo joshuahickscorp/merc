@@ -2400,6 +2400,22 @@ CREATE TABLE IF NOT EXISTS stripe_connect_webhook_events (
 CREATE INDEX IF NOT EXISTS stripe_connect_webhook_events_account_idx
     ON stripe_connect_webhook_events (account_id,event_created DESC);
 
+-- Saved payment methods are provider identity facts, not just a mutable
+-- customer projection. Retain every accepted delivery so old-event ordering
+-- and same-ID conflict checks remain possible after a newer card is applied.
+CREATE TABLE IF NOT EXISTS stripe_payment_method_events (
+    event_id       TEXT PRIMARY KEY CHECK (btrim(event_id) <> ''),
+    event_type     TEXT NOT NULL CHECK (event_type IN (
+                     'setup_intent.succeeded','payment_method.attached')),
+    customer_id    TEXT NOT NULL CHECK (customer_id LIKE 'cus_%'),
+    payment_method TEXT NOT NULL CHECK (payment_method LIKE 'pm_%'),
+    event_created  BIGINT NOT NULL CHECK (event_created > 0),
+    payload_sha256 TEXT NOT NULL CHECK (payload_sha256 ~ '^[0-9a-f]{64}$'),
+    recorded_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS stripe_payment_method_events_customer_idx
+    ON stripe_payment_method_events (customer_id,event_created DESC,event_id DESC);
+
 -- Early-fraud warnings are actionable risk observations, not cash reversals.
 -- Keep every provider delivery so an operator can inspect warning updates
 -- without allowing a warning to mutate the dispute or settlement state.
@@ -2710,6 +2726,10 @@ FOR EACH ROW EXECUTE FUNCTION reject_immutable_money_fact_mutation();
 DROP TRIGGER IF EXISTS stripe_connect_webhook_events_append_only ON stripe_connect_webhook_events;
 CREATE TRIGGER stripe_connect_webhook_events_append_only
 BEFORE UPDATE OR DELETE ON stripe_connect_webhook_events
+FOR EACH ROW EXECUTE FUNCTION reject_immutable_money_fact_mutation();
+DROP TRIGGER IF EXISTS stripe_payment_method_events_append_only ON stripe_payment_method_events;
+CREATE TRIGGER stripe_payment_method_events_append_only
+BEFORE UPDATE OR DELETE ON stripe_payment_method_events
 FOR EACH ROW EXECUTE FUNCTION reject_immutable_money_fact_mutation();
 DROP TRIGGER IF EXISTS stripe_risk_events_append_only ON stripe_risk_events;
 CREATE TRIGGER stripe_risk_events_append_only

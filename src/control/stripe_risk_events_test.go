@@ -10,6 +10,12 @@ import (
 
 func TestStripeRiskWebhookIsRecordedReplaySafeAndNonCash(t *testing.T) {
 	ctx, store, pool := openIsolatedTestStore(t)
+	buyerID := insertTestBuyer(t, pool, ctx)
+	_, err := pool.Exec(ctx, `
+		INSERT INTO buyer_cash_collections
+		  (payment_intent,charge_id,buyer_id,source_kind,requested_cents,received_cents,currency)
+		VALUES ('pi_risk_1','ch_risk_1',$1,'topup',500,500,'usd')`, buyerID)
+	mustf(t, err, "seed risk cash collection: %v")
 	secret := "whsec_risk_events_" + strings.Repeat("r", 21)
 	handler := func(w http.ResponseWriter, r *http.Request) {
 		handleStripeWebhookWithAllHandlersAtModeAndRisk(
@@ -72,6 +78,11 @@ func TestStripeRiskWebhookIsRecordedReplaySafeAndNonCash(t *testing.T) {
 	mustf(t, err, "list risk events: %v")
 	if len(rows) != 2 || rows[0].EventType != stripeRiskEventEarlyFraudWarningUpdated || rows[0].Actionable {
 		t.Fatalf("risk list=%+v, want newest non-actionable update first", rows)
+	}
+	if rows[0].Collection == nil || rows[0].Collection.PaymentIntent != "pi_risk_1" ||
+		rows[0].Collection.BuyerID != buyerID || rows[0].Collection.SourceKind != "topup" ||
+		rows[0].Collection.ReceivedCents != 500 || rows[0].Collection.Currency != "usd" {
+		t.Fatalf("risk collection linkage=%+v, want the recorded cash collection", rows[0].Collection)
 	}
 }
 

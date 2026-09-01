@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/google/uuid"
 )
 
 const (
@@ -144,14 +146,25 @@ func (s *Store) ApplyStripeRiskEvent(ctx context.Context, event stripeRiskEvent)
 }
 
 type StripeRiskEventRecord struct {
-	EventID       string `json:"event_id"`
-	EventType     string `json:"event_type"`
-	WarningID     string `json:"warning_id"`
-	ChargeID      string `json:"charge_id"`
-	PaymentIntent string `json:"payment_intent,omitempty"`
-	FraudType     string `json:"fraud_type"`
-	Actionable    bool   `json:"actionable"`
-	EventCreated  int64  `json:"event_created"`
+	EventID       string                      `json:"event_id"`
+	EventType     string                      `json:"event_type"`
+	WarningID     string                      `json:"warning_id"`
+	ChargeID      string                      `json:"charge_id"`
+	PaymentIntent string                      `json:"payment_intent,omitempty"`
+	FraudType     string                      `json:"fraud_type"`
+	Actionable    bool                        `json:"actionable"`
+	EventCreated  int64                       `json:"event_created"`
+	Collection    *StripeRiskCollectionRecord `json:"collection,omitempty"`
+}
+
+type StripeRiskCollectionRecord struct {
+	PaymentIntent string     `json:"payment_intent"`
+	BuyerID       uuid.UUID  `json:"buyer_id"`
+	SourceKind    string     `json:"source_kind"`
+	JobID         *uuid.UUID `json:"job_id,omitempty"`
+	ChargeBatchID *uuid.UUID `json:"charge_batch_id,omitempty"`
+	ReceivedCents int64      `json:"received_cents"`
+	Currency      string     `json:"currency"`
 }
 
 func (s *Store) ListStripeRiskEvents(ctx context.Context, limit int) ([]StripeRiskEventRecord, error) {
@@ -159,10 +172,13 @@ func (s *Store) ListStripeRiskEvents(ctx context.Context, limit int) ([]StripeRi
 		return nil, fmt.Errorf("Stripe risk event limit must be between 1 and 200")
 	}
 	rows, err := s.pool.Query(ctx, `
-		SELECT event_id,event_type,warning_id,charge_id,COALESCE(payment_intent,''),
-		       fraud_type,actionable,event_created
-		  FROM stripe_risk_events
-		 ORDER BY event_created DESC,event_id DESC
+		SELECT e.event_id,e.event_type,e.warning_id,e.charge_id,COALESCE(e.payment_intent,''),
+		       e.fraud_type,e.actionable,e.event_created,
+		       c.payment_intent,c.buyer_id,c.source_kind,c.job_id,c.charge_batch_id,
+		       c.received_cents,c.currency
+		  FROM stripe_risk_events e
+		  LEFT JOIN buyer_cash_collections c ON c.charge_id=e.charge_id
+		 ORDER BY e.event_created DESC,e.event_id DESC
 		 LIMIT $1`, limit)
 	if err != nil {
 		return nil, err
@@ -171,9 +187,26 @@ func (s *Store) ListStripeRiskEvents(ctx context.Context, limit int) ([]StripeRi
 	var out []StripeRiskEventRecord
 	for rows.Next() {
 		var row StripeRiskEventRecord
+		var collectionPaymentIntent, collectionSourceKind, collectionCurrency *string
+		var collectionBuyerID, collectionJobID, collectionBatchID *uuid.UUID
+		var collectionReceivedCents *int64
 		if err := rows.Scan(&row.EventID, &row.EventType, &row.WarningID, &row.ChargeID,
-			&row.PaymentIntent, &row.FraudType, &row.Actionable, &row.EventCreated); err != nil {
+			&row.PaymentIntent, &row.FraudType, &row.Actionable, &row.EventCreated,
+			&collectionPaymentIntent, &collectionBuyerID, &collectionSourceKind,
+			&collectionJobID, &collectionBatchID, &collectionReceivedCents,
+			&collectionCurrency); err != nil {
 			return nil, err
+		}
+		if collectionBuyerID != nil {
+			row.Collection = &StripeRiskCollectionRecord{
+				PaymentIntent: *collectionPaymentIntent,
+				BuyerID:       *collectionBuyerID,
+				SourceKind:    *collectionSourceKind,
+				JobID:         collectionJobID,
+				ChargeBatchID: collectionBatchID,
+				ReceivedCents: *collectionReceivedCents,
+				Currency:      *collectionCurrency,
+			}
 		}
 		out = append(out, row)
 	}

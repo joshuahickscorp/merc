@@ -362,6 +362,9 @@ func TestStripeAcctUniquenessAtEnrolmentAndConstraint(t *testing.T) {
 	}
 
 	mustf(t, store.SetSupplierStripeAcct(ctx, supA, acct), "idempotent re-set: %v")
+	if err := store.SetSupplierStripeAcct(ctx, supA, "acct_replacement"); !errors.Is(err, errStripeAcctIdentityMismatch) {
+		t.Fatalf("replacement Connect account err=%v, want %v", err, errStripeAcctIdentityMismatch)
+	}
 }
 
 // TestSeededDevelopmentFleetTakesOrdinaryWork: seed fleet remains locally

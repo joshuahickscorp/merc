@@ -23,6 +23,10 @@ import (
 // suppliers.stripe_acct so a bypassed check still fails at the constraint.
 var errStripeAcctTaken = errors.New("STRIPE_ACCT_TAKEN: stripe connect account already linked to another supplier")
 
+var errStripeAcctIdentityMismatch = errors.New(
+	"STRIPE_ACCT_IDENTITY_MISMATCH: supplier is already bound to a different Stripe account",
+)
+
 // errWorkerTokenUnboundForbidden refuses CreateWorkerToken in production.
 // Unbound credentials cannot satisfy ordinary-work containment; production
 // suppliers must enrol through the device-bound path (EnrollWorkerTx).
@@ -33,6 +37,9 @@ func (s *Store) SetSupplierStripeAcct(ctx context.Context, supplierID uuid.UUID,
 	if acct == "" {
 		_, err := s.pool.Exec(ctx, `UPDATE suppliers SET stripe_acct=NULL WHERE id=$1`, supplierID)
 		return err
+	}
+	if !validStripeObjectID(acct, "acct_") {
+		return errors.New("stripe connected account id must be an acct_* identifier")
 	}
 	var other uuid.UUID
 	err := s.pool.QueryRow(ctx,
@@ -46,11 +53,25 @@ func (s *Store) SetSupplierStripeAcct(ctx context.Context, supplierID uuid.UUID,
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return err
 	}
-	_, err = s.pool.Exec(ctx, `UPDATE suppliers SET stripe_acct=$2 WHERE id=$1`, supplierID, acct)
+	tag, err := s.pool.Exec(ctx, `UPDATE suppliers SET stripe_acct=$2
+		WHERE id=$1 AND (stripe_acct IS NULL OR btrim(stripe_acct)='' OR stripe_acct=$2)`, supplierID, acct)
 	if isUniqueViolation(err) {
 		return errStripeAcctTaken
 	}
-	return err
+	if err != nil || tag.RowsAffected() == 1 {
+		return err
+	}
+	var current *string
+	if err := s.pool.QueryRow(ctx, `SELECT stripe_acct FROM suppliers WHERE id=$1`, supplierID).Scan(&current); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return errNotFound
+		}
+		return err
+	}
+	if current != nil && strings.TrimSpace(*current) != "" && strings.TrimSpace(*current) != acct {
+		return errStripeAcctIdentityMismatch
+	}
+	return nil
 }
 
 type WorkerAuth struct {

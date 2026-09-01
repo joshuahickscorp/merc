@@ -19,6 +19,10 @@ import (
 // file move so that a reviewer can hold one subject at a time and two people
 // can edit payouts and job submission without conflicting.
 
+var errBillingCustomerIdentityMismatch = errors.New(
+	"BILLING_CUSTOMER_IDENTITY_MISMATCH: buyer is already bound to a different Stripe customer",
+)
+
 func (s *Store) GetBillingCustomer(ctx context.Context, buyerID uuid.UUID) (custID, pm string, err error) {
 	err = s.pool.QueryRow(ctx,
 		`SELECT COALESCE(stripe_customer_id,''), COALESCE(default_payment_method,'')
@@ -30,12 +34,34 @@ func (s *Store) GetBillingCustomer(ctx context.Context, buyerID uuid.UUID) (cust
 }
 
 func (s *Store) UpsertBillingCustomer(ctx context.Context, buyerID uuid.UUID, custID string) error {
-	_, err := s.pool.Exec(ctx,
+	custID = strings.TrimSpace(custID)
+	if !validStripeObjectID(custID, "cus_") {
+		return errors.New("billing customer id must be a cus_* identifier")
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	tag, err := tx.Exec(ctx,
 		`INSERT INTO billing_customers (buyer_id, stripe_customer_id) VALUES ($1, $2)
-		   ON CONFLICT (buyer_id) DO UPDATE
-		   SET stripe_customer_id = EXCLUDED.stripe_customer_id, updated_at = now()`,
-		buyerID, custID)
-	return err
+		   ON CONFLICT (buyer_id) DO NOTHING`, buyerID, custID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		var current string
+		if err := tx.QueryRow(ctx,
+			`SELECT stripe_customer_id FROM billing_customers WHERE buyer_id=$1 FOR UPDATE`, buyerID,
+		).Scan(&current); err != nil {
+			return err
+		}
+		if strings.TrimSpace(current) != custID {
+			return errBillingCustomerIdentityMismatch
+		}
+	}
+	return tx.Commit(ctx)
 }
 
 func (s *Store) SetBillingPMByCustomer(ctx context.Context, custID, pm string) error {
@@ -53,19 +79,73 @@ func (s *Store) SetBillingPMByCustomer(ctx context.Context, custID, pm string) e
 	return validateBillingPMUpdateCount(tag.RowsAffected())
 }
 
+type stripePaymentMethodEvent struct {
+	EventID       string
+	EventType     string
+	CustomerID    string
+	PaymentMethod string
+	EventCreated  int64
+	PayloadSHA256 string
+}
+
+func isStripePaymentMethodEventType(eventType string) bool {
+	return eventType == "setup_intent.succeeded" || eventType == "payment_method.attached"
+}
+
 // SetBillingPMByCustomerEvent applies a provider-signed saved-card fact only
 // when its Stripe event ordering tuple is newer than the last applied fact.
 // Stripe can deliver payment_method.attached/setup_intent.succeeded out of
 // order; allowing an older delivery to replace the current card would make the
-// next buyer charge use the wrong instrument.
+// next buyer charge use the wrong instrument. Every accepted event is also
+// retained so a same-ID conflicting replay cannot disappear after a newer card
+// has superseded it.
 func (s *Store) SetBillingPMByCustomerEvent(
-	ctx context.Context, custID, pm string, eventCreated int64, eventID string,
+	ctx context.Context, event stripePaymentMethodEvent,
 ) error {
-	custID, pm, eventID = strings.TrimSpace(custID), strings.TrimSpace(pm), strings.TrimSpace(eventID)
-	if custID == "" || pm == "" || !strings.HasPrefix(pm, "pm_") || eventCreated <= 0 || eventID == "" {
+	event.EventID = strings.TrimSpace(event.EventID)
+	event.EventType = strings.TrimSpace(event.EventType)
+	event.CustomerID = strings.TrimSpace(event.CustomerID)
+	event.PaymentMethod = strings.TrimSpace(event.PaymentMethod)
+	if event.EventID == "" || !isStripePaymentMethodEventType(event.EventType) ||
+		!strings.HasPrefix(event.CustomerID, "cus_") ||
+		!strings.HasPrefix(event.PaymentMethod, "pm_") || event.EventCreated <= 0 ||
+		!isSHA256Hex(event.PayloadSHA256) {
 		return errors.New("billing payment-method event is missing its identity or ordering tuple")
 	}
-	tag, err := s.pool.Exec(ctx, `
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	tag, err := tx.Exec(ctx, `
+		INSERT INTO stripe_payment_method_events
+		  (event_id,event_type,customer_id,payment_method,event_created,payload_sha256)
+		VALUES ($1,$2,$3,$4,$5,$6)
+		ON CONFLICT (event_id) DO NOTHING`,
+		event.EventID, event.EventType, event.CustomerID, event.PaymentMethod,
+		event.EventCreated, event.PayloadSHA256)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		var storedType, storedCustomer, storedPM, storedHash string
+		var storedCreated int64
+		if err := tx.QueryRow(ctx, `
+			SELECT event_type,customer_id,payment_method,event_created,payload_sha256
+			  FROM stripe_payment_method_events WHERE event_id=$1`, event.EventID).
+			Scan(&storedType, &storedCustomer, &storedPM, &storedCreated, &storedHash); err != nil {
+			return err
+		}
+		if storedType != event.EventType || storedCustomer != event.CustomerID ||
+			storedPM != event.PaymentMethod || storedCreated != event.EventCreated ||
+			storedHash != event.PayloadSHA256 {
+			return fmt.Errorf("Stripe payment-method event %s conflicts with its durable event binding", event.EventID)
+		}
+		return tx.Commit(ctx)
+	}
+
+	updated, err := tx.Exec(ctx, `
 		UPDATE billing_customers
 		   SET default_payment_method=$2,
 		       default_payment_method_event_created=$3,
@@ -75,24 +155,22 @@ func (s *Store) SetBillingPMByCustomerEvent(
 		   AND (default_payment_method_event_created < $3
 		        OR (default_payment_method_event_created = $3
 		            AND default_payment_method_event_id < $4))`,
-		custID, pm, eventCreated, eventID)
+		event.CustomerID, event.PaymentMethod, event.EventCreated, event.EventID)
 	if err != nil {
 		return err
 	}
-	if tag.RowsAffected() == 1 {
-		return nil
+	if updated.RowsAffected() == 0 {
+		var exists bool
+		if err := tx.QueryRow(ctx,
+			`SELECT EXISTS(SELECT 1 FROM billing_customers WHERE stripe_customer_id=$1)`, event.CustomerID,
+		).Scan(&exists); err != nil {
+			return err
+		}
+		if !exists {
+			return errNotFound
+		}
 	}
-	var exists bool
-	if err := s.pool.QueryRow(ctx,
-		`SELECT EXISTS(SELECT 1 FROM billing_customers WHERE stripe_customer_id=$1)`, custID,
-	).Scan(&exists); err != nil {
-		return err
-	}
-	if !exists {
-		return errNotFound
-	}
-	// A known customer with an older event is already in the desired state.
-	return nil
+	return tx.Commit(ctx)
 }
 
 func validateBillingPMUpdateCount(rows int64) error {

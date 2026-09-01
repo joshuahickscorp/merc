@@ -25,8 +25,8 @@ func ensureConnectAccount(ctx context.Context, store *Store, supplierID uuid.UUI
 		return "", err
 	}
 	acct, _ := out["id"].(string)
-	if acct == "" {
-		return "", fmt.Errorf("stripe account: no id in response")
+	if !validStripeObjectID(acct, "acct_") {
+		return "", fmt.Errorf("stripe account: provider returned an invalid connected-account id")
 	}
 	if err := store.SetSupplierStripeAcct(ctx, supplierID, acct); err != nil {
 		// Named enrolment refusal (duplicate payout instrument) must surface

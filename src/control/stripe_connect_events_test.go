@@ -20,6 +20,25 @@ func TestStripeExternalIdentityIdempotencyKeysAreStableAndScoped(t *testing.T) {
 	}
 }
 
+func TestStripeExternalIdentityIDsFailClosedOnWrongOrEmptyPrefix(t *testing.T) {
+	for _, tc := range []struct {
+		name, value, prefix string
+		want                bool
+	}{
+		{"customer", "cus_valid", "cus_", true},
+		{"account", "acct_valid", "acct_", true},
+		{"empty suffix", "cus_", "cus_", false},
+		{"wrong prefix", "acct_wrong", "cus_", false},
+		{"whitespace", " cus_valid ", "cus_", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := validStripeObjectID(tc.value, tc.prefix); got != tc.want {
+				t.Fatalf("validStripeObjectID(%q,%q)=%v, want %v", tc.value, tc.prefix, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestStripeConnectEventParserRequiresBoundAccountReadiness(t *testing.T) {
 	for _, tc := range []struct {
 		name string
