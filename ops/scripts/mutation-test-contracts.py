@@ -100,6 +100,18 @@ def test_names(root: Path, source: str, tests: list[str]) -> list[str]:
     return unique
 
 
+def load_manifest(root: Path) -> list[dict]:
+    path = root / "ops" / "scripts" / "mutation-manifest.json"
+    try:
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise SystemExit(f"mutation manifest is unreadable: {exc}") from exc
+    mutations = manifest.get("mutations") if isinstance(manifest, dict) else None
+    if not isinstance(mutations, list):
+        raise SystemExit("mutation manifest must contain mutations")
+    return mutations
+
+
 def resolve(root: Path, source: str) -> list[str]:
     if not SAFE_SOURCE.fullmatch(source):
         raise SystemExit(f"invalid source name: {source!r}")
@@ -110,27 +122,17 @@ def resolve(root: Path, source: str) -> list[str]:
     return test_names(root, source, tests)
 
 
-def resolve_case(root: Path, case_id: int, source_hint: str | None = None) -> list[str]:
-    manifest_path = root / "ops" / "scripts" / "mutation-manifest.json"
-    try:
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise SystemExit(f"mutation manifest is unreadable: {exc}") from exc
-    mutations = manifest.get("mutations") if isinstance(manifest, dict) else None
-    if not isinstance(mutations, list):
-        raise SystemExit("mutation manifest must contain mutations")
-    entry = next((item for item in mutations if isinstance(item, dict) and item.get("id") == case_id), None)
-    if entry is None:
-        raise SystemExit(f"mutation case {case_id} is absent from the mutation manifest")
-    source_target = entry.get("source_target")
-    if not isinstance(source_target, str):
-        raise SystemExit(f"mutation case {case_id} lacks a source target")
-    source = source_target.removeprefix("src/control/")
-    if source_hint is not None and source != source_hint:
-        raise SystemExit(
-            f"mutation case {case_id} source mismatch: manifest={source} requested={source_hint}"
-        )
-    source_names = resolve(root, source)
+def resolve_cases(
+    root: Path, case_ids: list[int], source_hints: dict[int, str] | None = None
+) -> dict[int, tuple[str, list[str]]]:
+    if len(set(case_ids)) != len(case_ids):
+        raise SystemExit("mutation case list contains duplicate IDs")
+    mutations = load_manifest(root)
+    by_id = {
+        item.get("id"): item
+        for item in mutations
+        if isinstance(item, dict) and isinstance(item.get("id"), int)
+    }
     case_contracts = load_case_contracts(root)
     manifest_ids = {
         item.get("id") for item in mutations if isinstance(item, dict) and isinstance(item.get("id"), int)
@@ -138,15 +140,39 @@ def resolve_case(root: Path, case_id: int, source_hint: str | None = None) -> li
     unknown = sorted(set(case_contracts) - manifest_ids)
     if unknown:
         raise SystemExit(f"mutation case contract manifest names unknown cases: {unknown}")
-    selected = case_contracts.get(case_id)
-    if selected is None:
-        return source_names
-    missing = sorted(set(selected) - set(source_names))
-    if missing:
-        raise SystemExit(
-            f"mutation case {case_id} names tests outside the {source} contract: {missing}"
-        )
-    return selected
+    contracts = load_contracts(root)
+    source_names: dict[str, list[str]] = {}
+    resolved: dict[int, tuple[str, list[str]]] = {}
+    for case_id in case_ids:
+        entry = by_id.get(case_id)
+        if entry is None:
+            raise SystemExit(f"mutation case {case_id} is absent from the mutation manifest")
+        source_target = entry.get("source_target")
+        if not isinstance(source_target, str):
+            raise SystemExit(f"mutation case {case_id} lacks a source target")
+        source = source_target.removeprefix("src/control/")
+        if source_hints is not None and case_id in source_hints and source != source_hints[case_id]:
+            raise SystemExit(
+                f"mutation case {case_id} source mismatch: manifest={source} requested={source_hints[case_id]}"
+            )
+        if source not in source_names:
+            tests = contracts.get(source)
+            if tests is None:
+                raise SystemExit(f"no fast mutation contract is declared for src/control/{source}")
+            source_names[source] = test_names(root, source, tests)
+        selected = case_contracts.get(case_id, source_names[source])
+        missing = sorted(set(selected) - set(source_names[source]))
+        if missing:
+            raise SystemExit(
+                f"mutation case {case_id} names tests outside the {source} contract: {missing}"
+            )
+        resolved[case_id] = (source, selected)
+    return resolved
+
+
+def resolve_case(root: Path, case_id: int, source_hint: str | None = None) -> list[str]:
+    hints = {case_id: source_hint} if source_hint is not None else None
+    return resolve_cases(root, [case_id], hints)[case_id][1]
 
 
 def main() -> int:
@@ -154,6 +180,7 @@ def main() -> int:
     parser.add_argument("--root", default=".")
     parser.add_argument("--source")
     parser.add_argument("--case-id", type=int)
+    parser.add_argument("--case-ids", type=int, nargs="+")
     parser.add_argument("--selector", action="store_true")
     parser.add_argument("--validate-sources", type=Path)
     args = parser.parse_args()
@@ -170,6 +197,14 @@ def main() -> int:
         for source in sorted(sources):
             names = resolve(root, source)
             print(f"{source}: {len(names)} invariant tests")
+        return 0
+    if args.case_ids is not None:
+        if args.source or args.case_id is not None:
+            parser.error("--case-ids cannot be combined with --source or --case-id")
+        resolved = resolve_cases(root, args.case_ids)
+        for case_id in args.case_ids:
+            source, names = resolved[case_id]
+            print(f"{case_id}\t{source}\t^(" + "|".join(names) + ")$\t" + ",".join(names))
         return 0
     if args.case_id is not None:
         names = resolve_case(root, args.case_id, args.source)

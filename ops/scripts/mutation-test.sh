@@ -46,6 +46,9 @@ BACKUP=""
 MUTATION_OBSERVATION=""
 MUTATION_PATHWAY=""
 MERC_MUTATION_CANDIDATE=""
+declare -a MUTATION_CASE_SELECTORS=()
+declare -a MUTATION_CASE_SOURCES=()
+declare -a MUTATION_CASE_NAMES=()
 
 if [ -n "$MERC_MUTATION_TIMINGS_FILE" ]; then
   MERC_MUTATION_CANDIDATE="$(git rev-parse HEAD)" || exit 2
@@ -151,6 +154,14 @@ run_unit_tests() {
 
 contract_selector() {
   local source="$1" case_id="${2:-}" selector
+  if [ -n "$case_id" ] && [ -n "${MUTATION_CASE_SELECTORS[$case_id]:-}" ]; then
+    if [ "${MUTATION_CASE_SOURCES[$case_id]}" != "$source" ]; then
+      echo "mutation-test: cached case $case_id source mismatch: cache=${MUTATION_CASE_SOURCES[$case_id]} requested=$source" >&2
+      return 2
+    fi
+    printf '%s\n' "${MUTATION_CASE_SELECTORS[$case_id]}"
+    return 0
+  fi
   if [ -n "$case_id" ]; then
     selector="$(python3 ops/scripts/mutation-test-contracts.py \
       --root . --source "$source" --case-id "$case_id" --selector)" || return 2
@@ -167,6 +178,16 @@ contract_selector() {
 
 contract_test_names() {
   local source="$1" case_id="${2:-}" name_args
+  if [ -n "$case_id" ] && [ -n "${MUTATION_CASE_NAMES[$case_id]:-}" ]; then
+    if [ "${MUTATION_CASE_SOURCES[$case_id]}" != "$source" ]; then
+      echo "mutation-test: cached case $case_id source mismatch: cache=${MUTATION_CASE_SOURCES[$case_id]} requested=$source" >&2
+      return 2
+    fi
+    local -a cached_names=()
+    IFS=',' read -r -a cached_names <<<"${MUTATION_CASE_NAMES[$case_id]}"
+    printf '%s\n' "${cached_names[@]}"
+    return 0
+  fi
   name_args=(--root .)
   if [ -n "$case_id" ]; then
     name_args+=(--source "$source" --case-id "$case_id")
@@ -662,6 +683,38 @@ case_is_selected() {
     *) return 1 ;;
   esac
 }
+
+load_mutation_contract_cache() {
+  local case_id source selector names cached_count=0
+  while IFS=$'\t' read -r case_id source selector names; do
+    if ! [[ "$case_id" =~ ^[1-9][0-9]*$ ]] || [ -z "$source" ] || [ -z "$selector" ] || [ -z "$names" ]; then
+      echo "mutation-test: contract cache emitted an invalid row" >&2
+      return 2
+    fi
+    if [ -n "${MUTATION_CASE_SELECTORS[$case_id]:-}" ]; then
+      echo "mutation-test: contract cache repeated case $case_id" >&2
+      return 2
+    fi
+    MUTATION_CASE_SOURCES[$case_id]="$source"
+    MUTATION_CASE_SELECTORS[$case_id]="$selector"
+    MUTATION_CASE_NAMES[$case_id]="$names"
+    cached_count=$((cached_count + 1))
+  done < <(python3 ops/scripts/mutation-test-contracts.py --root . --case-ids "${MUTATION_CASE_ORDER[@]}")
+  if [ "$cached_count" -ne "${#MUTATION_CASE_ORDER[@]}" ]; then
+    echo "mutation-test: contract cache was incomplete: $cached_count/${#MUTATION_CASE_ORDER[@]} cases" >&2
+    return 2
+  fi
+  for case_id in "${MUTATION_CASE_ORDER[@]}"; do
+    if [ -z "${MUTATION_CASE_SELECTORS[$case_id]:-}" ] || [ -z "${MUTATION_CASE_NAMES[$case_id]:-}" ]; then
+      echo "mutation-test: contract cache omitted case $case_id" >&2
+      return 2
+    fi
+  done
+}
+
+if [ "$MERC_MUTATION_TEST_STRATEGY" != "oracle" ]; then
+  load_mutation_contract_cache || exit 2
+fi
 
 mutation_clock() {
   python3 - <<'PY'
