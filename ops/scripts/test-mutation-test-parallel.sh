@@ -131,7 +131,7 @@ rg --fixed-strings 'pg_restore --host=127.0.0.1' ops/scripts/mutation-test-paral
 rg --fixed-strings 'prepare_seed_template' ops/scripts/mutation-test-parallel.sh >/dev/null
 rg --fixed-strings 'restore_template_snapshot' ops/scripts/mutation-test-parallel.sh >/dev/null
 rg --fixed-strings 'candidate_baseline_pid' ops/scripts/mutation-test-parallel.sh >/dev/null
-rg --fixed-strings 'preflight_db_lanes=2' ops/scripts/mutation-test-parallel.sh >/dev/null
+rg --fixed-strings 'preflight_db_lanes="${MERC_MUTATION_PREFLIGHT_DB_LANES:-4}"' ops/scripts/mutation-test-parallel.sh >/dev/null
 rg --fixed-strings 'proof-candidate-baseline' ops/scripts/mutation-test-parallel.sh >/dev/null
 rg --fixed-strings 'proof-aggregate-unit' ops/scripts/mutation-test-parallel.sh >/dev/null
 rg --fixed-strings -- '--selector-shards "$preflight_db_lanes"' ops/scripts/mutation-test-parallel.sh >/dev/null

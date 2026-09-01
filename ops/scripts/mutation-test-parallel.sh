@@ -21,6 +21,7 @@
 #   MERC_MUTATION_POSTGRES_PORT_BASE=0     # 0 finds an unused local range
 #   MERC_MUTATION_TEST_STRATEGY=adaptive   # adaptive (default), contracts, or oracle (aliases: full, whole-suite)
 #   MERC_MUTATION_GOMAXPROCS=1             # per-worker runtime CPU ceiling
+#   MERC_MUTATION_PREFLIGHT_DB_LANES=4    # aggregate DB proof lanes; capped at workers
 #   MERC_MUTATION_PARALLEL_CASE_IDS=1,25   # optional calibrated subset
 #   MERC_MUTATION_KEEP_WORKDIR=1          # retain failed shard logs/worktrees
 #   MERC_MUTATION_TIMINGS_OUT=/tmp/run.json # external, validated timing record
@@ -480,7 +481,11 @@ python3 ops/scripts/verify-lfs-corpus.py --root "$ROOT" >"$run_root/candidate-lf
 lfs_verify_pid="$!"
 
 cluster_port_base="$(find_cluster_port_base)"
-preflight_db_lanes=2
+preflight_db_lanes="${MERC_MUTATION_PREFLIGHT_DB_LANES:-4}"
+if ! [[ "$preflight_db_lanes" =~ ^[1-9][0-9]*$ ]]; then
+  echo "MERC_MUTATION_PREFLIGHT_DB_LANES must be a positive integer" >&2
+  exit 2
+fi
 if [ "$preflight_db_lanes" -gt "$workers" ]; then
   preflight_db_lanes="$workers"
 fi
@@ -686,11 +691,22 @@ if ! snapshot_template; then
   cat "$run_root/template-snapshot.log" >&2 || true
   exit 1
 fi
-if [ "$preflight_db_lanes" -ge 2 ] && ! restore_template_snapshot 2; then
-  echo "parallel-mutation-test: preflight worker 2 could not prepare its schema template" >&2
-  cat "$run_root/template-2.log" >&2 || true
-  exit 1
-fi
+for ((worker = 2; worker <= preflight_db_lanes; worker++)); do
+  restore_template_snapshot "$worker" &
+  template_pids+=("$!")
+  template_workers+=("$worker")
+done
+template_failed=0
+for ((index = 0; index < ${#template_pids[@]}; index++)); do
+  worker="${template_workers[$index]}"
+  if ! wait "${template_pids[$index]}"; then
+    echo "parallel-mutation-test: preflight worker $worker could not prepare its schema template" >&2
+    cat "$run_root/template-$worker.log" >&2 || true
+    template_failed=1
+  fi
+done
+template_pids=()
+template_workers=()
 
 run_aggregate_db_lane() {
   local lane="$1" worktree port lane_selector
@@ -715,7 +731,7 @@ for ((lane = 1; lane <= preflight_db_lanes; lane++)); do
   preflight_db_pids[$((lane - 1))]="$!"
 done
 
-# Finish the worker fleet while all four default proof lanes are already live.
+# Finish the worker fleet while all aggregate proof lanes are already live.
 for ((worker = preflight_db_lanes + 1; worker <= workers; worker++)); do
   start_worker_cluster "$worker"
   restore_template_snapshot "$worker" &
