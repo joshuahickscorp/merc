@@ -212,6 +212,44 @@ func TestStripeMoneyObjectRequiresExpectedObjectKind(t *testing.T) {
 	}
 }
 
+func TestStripePrepaidRefundResponseBindsDurableSlice(t *testing.T) {
+	base := func() map[string]any {
+		return map[string]any{
+			"object":         "refund",
+			"id":             "re_sim_1",
+			"amount":         float64(50),
+			"currency":       "usd",
+			"payment_intent": "pi_sim_1",
+			"status":         "succeeded",
+		}
+	}
+	got, err := parseStripePrepaidRefundResponse(base(), "pi_sim_1", 50, "USD")
+	must(t, err)
+	if got != "re_sim_1" {
+		t.Fatalf("refund id = %q", got)
+	}
+
+	for _, tc := range []struct {
+		name   string
+		mutate func(map[string]any)
+	}{
+		{name: "wrong object", mutate: func(out map[string]any) { out["object"] = "charge" }},
+		{name: "wrong amount", mutate: func(out map[string]any) { out["amount"] = float64(49) }},
+		{name: "wrong currency", mutate: func(out map[string]any) { out["currency"] = "cad" }},
+		{name: "wrong payment intent", mutate: func(out map[string]any) { out["payment_intent"] = "pi_other" }},
+		{name: "missing payment intent", mutate: func(out map[string]any) { delete(out, "payment_intent") }},
+		{name: "pending status", mutate: func(out map[string]any) { out["status"] = "pending" }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			out := base()
+			tc.mutate(out)
+			if _, err := parseStripePrepaidRefundResponse(out, "pi_sim_1", 50, "usd"); err == nil {
+				t.Fatal("mismatched refund response was accepted")
+			}
+		})
+	}
+}
+
 func TestStripePayoutRecoveryRejectsWrongProviderInputBeforeHTTP(t *testing.T) {
 	configureStripeHTTPShapeAuthority(t, "sk_test_recovery_input_shape")
 	calls := 0

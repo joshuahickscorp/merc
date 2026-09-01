@@ -123,7 +123,9 @@ func newFundingHarness(t *testing.T) *fundingHarness {
 				return
 			}
 			refunds.Add(1)
-			fmt.Fprintf(w, `{"id":"re_live_%d","status":"succeeded"}`, refunds.Load())
+			_ = r.ParseForm()
+			fmt.Fprintf(w, `{"object":"refund","id":"re_live_%d","amount":%s,"currency":%q,"payment_intent":%q,"status":"succeeded"}`,
+				refunds.Load(), r.Form.Get("amount"), SettlementCurrencyCode(), r.Form.Get("payment_intent"))
 		default:
 			fmt.Fprint(w, `{"id":"obj_test"}`)
 		}
