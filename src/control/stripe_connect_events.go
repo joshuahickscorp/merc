@@ -236,74 +236,81 @@ func (s *Store) ApplyConnectWebhookEvent(ctx context.Context, event stripeConnec
 	}
 	defer tx.Rollback(ctx)
 
-	var supplierID uuid.UUID
-	var currentCreated int64
-	var currentID string
-	if err := tx.QueryRow(ctx, `
-		SELECT id,COALESCE(payouts_enabled_event_created,0),COALESCE(payouts_enabled_event_id,'')
-		  FROM suppliers WHERE stripe_acct=$1 FOR UPDATE`, event.AccountID).
-		Scan(&supplierID, &currentCreated, &currentID); errors.Is(err, pgx.ErrNoRows) {
-		return result, errUnknownConnectAccount
-	} else if err != nil {
-		return result, err
-	}
-
 	var capabilityStatus *string
 	if event.EventType == stripeConnectEventCapabilityUpdated {
 		capabilityStatus = &event.CapabilityStatus
 	}
-	tag, err := tx.Exec(ctx, `
-		INSERT INTO stripe_connect_webhook_events
-		  (event_id,event_type,account_id,object_id,capability_status,event_created,payload_sha256)
-		VALUES ($1,$2,$3,$4,$5,$6,$7)
-		ON CONFLICT (event_id) DO NOTHING`,
-		event.EventID, event.EventType, event.AccountID, event.ObjectID,
-		capabilityStatus, event.EventCreated, event.PayloadSHA256)
+	payoutsEnabled := false
+	if event.PayoutsEnabled != nil {
+		payoutsEnabled = *event.PayoutsEnabled
+	}
+	// Lock the exact supplier row before idempotency resolution, insert the
+	// immutable provider observation, and apply a newer account.updated fact in
+	// one statement. The INSERT RETURNING branch supplies the just-written row;
+	// the durable-table branch supplies a duplicate without relying on a
+	// data-modifying sibling CTE seeing writes through its statement snapshot.
+	var storedType, storedAccount, storedObject, storedCapabilityStatus, storedHash string
+	var storedCreated int64
+	var inserted, applied, stale bool
+	err = tx.QueryRow(ctx, `
+		WITH supplier AS MATERIALIZED (
+			SELECT id,COALESCE(payouts_enabled_event_created,0) AS current_created,
+			       COALESCE(payouts_enabled_event_id,'') AS current_id
+			  FROM suppliers WHERE stripe_acct=$1 FOR UPDATE
+		), inserted AS (
+			INSERT INTO stripe_connect_webhook_events
+			  (event_id,event_type,account_id,object_id,capability_status,event_created,payload_sha256)
+			SELECT $2,$3,$1,$4,$5,$6,$7
+			  FROM supplier
+			ON CONFLICT (event_id) DO NOTHING
+			RETURNING event_type,account_id,object_id,COALESCE(capability_status,'') AS capability_status,
+		              event_created,payload_sha256
+		), durable AS (
+			SELECT event_type,account_id,object_id,capability_status,event_created,payload_sha256,true AS inserted
+			  FROM inserted
+			UNION ALL
+			SELECT event_type,account_id,object_id,COALESCE(capability_status,''),event_created,payload_sha256,false
+			  FROM stripe_connect_webhook_events WHERE event_id=$2
+		), account_update AS (
+			UPDATE suppliers s
+			   SET payouts_enabled=$8,payouts_enabled_event_created=$6,payouts_enabled_event_id=$2
+			  FROM supplier current
+			  JOIN inserted i ON TRUE
+			 WHERE s.id=current.id AND i.event_type='account.updated'
+			   AND ($6 > current.current_created
+			        OR ($6 = current.current_created AND $2 > current.current_id))
+			RETURNING s.id
+		)
+		SELECT event_type,account_id,object_id,capability_status,event_created,payload_sha256,inserted,
+		       (inserted AND (event_type <> 'account.updated' OR EXISTS(SELECT 1 FROM account_update))),
+		       (inserted AND event_type='account.updated' AND NOT EXISTS(SELECT 1 FROM account_update))
+		  FROM durable`,
+		event.AccountID, event.EventID, event.EventType, event.ObjectID,
+		capabilityStatus, event.EventCreated, event.PayloadSHA256, payoutsEnabled,
+	).Scan(
+		&storedType, &storedAccount, &storedObject, &storedCapabilityStatus, &storedCreated,
+		&storedHash, &inserted, &applied, &stale,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return result, errUnknownConnectAccount
+	}
 	if err != nil {
 		return result, err
 	}
-	if tag.RowsAffected() == 0 {
-		var storedType, storedAccount, storedObject, storedCapabilityStatus, storedHash string
-		var storedCreated int64
-		if err := tx.QueryRow(ctx, `
-				SELECT event_type,account_id,object_id,COALESCE(capability_status,''),event_created,payload_sha256
-				  FROM stripe_connect_webhook_events WHERE event_id=$1`, event.EventID).
-			Scan(&storedType, &storedAccount, &storedObject, &storedCapabilityStatus, &storedCreated, &storedHash); err != nil {
-			return result, err
-		}
+	if !inserted {
 		if storedType != event.EventType || storedAccount != event.AccountID ||
 			storedObject != event.ObjectID || storedCreated != event.EventCreated ||
 			storedCapabilityStatus != event.CapabilityStatus || storedHash != event.PayloadSHA256 {
 			return result, fmt.Errorf("Stripe Connect event %s conflicts with its durable event binding", event.EventID)
 		}
 		result.Duplicate = true
-		if err := tx.Commit(ctx); err != nil {
-			return stripeConnectEventResult{}, err
-		}
-		return result, nil
 	}
-
-	if event.EventType == stripeConnectEventAccountUpdated {
-		newer := event.EventCreated > currentCreated ||
-			(event.EventCreated == currentCreated && event.EventID > currentID)
-		if newer {
-			if _, err := tx.Exec(ctx, `
-				UPDATE suppliers
-				   SET payouts_enabled=$2,payouts_enabled_event_created=$3,payouts_enabled_event_id=$4
-				 WHERE id=$1`, supplierID, *event.PayoutsEnabled, event.EventCreated, event.EventID); err != nil {
-				return result, err
-			}
-			result.Applied = true
-		} else {
-			result.Stale = true
-		}
-	} else {
-		// External-account, capability.updated, and payout.* are durable provider
-		// observations only: Merc's internal supplier credit, Stripe transfers,
-		// connected-account bank payouts, and bank/card instrument changes are
-		// different objects and must not be settled by this notification.
-		result.Applied = true
-	}
+	// External-account, capability.updated, and payout.* are durable provider
+	// observations only: Merc's internal supplier credit, Stripe transfers,
+	// connected-account bank payouts, and bank/card instrument changes are
+	// different objects and must not be settled by this notification.
+	result.Applied = applied
+	result.Stale = stale
 	if err := tx.Commit(ctx); err != nil {
 		return stripeConnectEventResult{}, err
 	}
