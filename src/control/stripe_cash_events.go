@@ -531,6 +531,31 @@ func applyStripeDisputeState(
 	return boundPI, currentEffectCreated, currentEffectRank, err
 }
 
+type stripeCollectionCapacity struct {
+	Unavailable int64
+	Reserved    int64
+}
+
+func stripeCollectionCapacityForPaymentIntent(
+	ctx context.Context,
+	tx pgx.Tx,
+	paymentIntent string,
+	received int64,
+) (stripeCollectionCapacity, error) {
+	var capacity stripeCollectionCapacity
+	err := tx.QueryRow(ctx, `
+		SELECT LEAST($2::bigint,
+		  COALESCE((SELECT sum(refunded_cents) FROM stripe_charge_cash_state
+		             WHERE payment_intent=$1),0)::bigint
+		  + COALESCE((SELECT sum(amount_cents) FROM stripe_dispute_cash_state
+		               WHERE payment_intent=$1 AND cash_unavailable),0)::bigint),
+		COALESCE((SELECT sum(amount_cents) FROM supplier_payout_funding
+		           WHERE source_kind='buyer_collection' AND collection_payment_intent=$1),0)::bigint`,
+		paymentIntent, received,
+	).Scan(&capacity.Unavailable, &capacity.Reserved)
+	return capacity, err
+}
+
 func stripeCollectionUnavailableCents(ctx context.Context, tx pgx.Tx, paymentIntent string, received int64) (int64, error) {
 	var unavailable int64
 	err := tx.QueryRow(ctx, `

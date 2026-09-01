@@ -683,24 +683,15 @@ func reservePayoutFunding(
 		return uuid.Nil, false, nil
 	}
 
-	unavailable, err := stripeCollectionUnavailableCents(ctx, tx, paymentIntent, cashReceived)
+	capacity, err := stripeCollectionCapacityForPaymentIntent(ctx, tx, paymentIntent, cashReceived)
 	if err != nil {
 		return uuid.Nil, false, err
 	}
-	available := cashReceived - unavailable
+	available := cashReceived - capacity.Unavailable
 	if available < 0 {
 		return uuid.Nil, false, fmt.Errorf("stripe cash state for %s exceeds collected cash", paymentIntent)
 	}
-
-	var reserved int64
-	if err := tx.QueryRow(ctx, `
-		SELECT COALESCE(sum(amount_cents),0)::bigint
-		  FROM supplier_payout_funding
-		 WHERE source_kind='buyer_collection' AND collection_payment_intent=$1`, paymentIntent,
-	).Scan(&reserved); err != nil {
-		return uuid.Nil, false, err
-	}
-	if reserved < 0 || reserved > available || requestedCents > available-reserved {
+	if capacity.Reserved < 0 || capacity.Reserved > available || requestedCents > available-capacity.Reserved {
 		return uuid.Nil, false, nil
 	}
 
@@ -765,12 +756,20 @@ func reserveBuyerTopupPayoutFunding(
 	// capacity. A competing job or service payout therefore cannot observe the
 	// same unreserved card cash and oversubscribe it.
 	rows, err := tx.Query(ctx, `
-		SELECT payment_intent,received_cents,COALESCE(charge_id,'')
-		  FROM buyer_cash_collections
-		 WHERE buyer_id=$1 AND source_kind='topup' AND currency=$2
-		   AND requested_cents=received_cents
-		 ORDER BY recorded_at,payment_intent
-		 FOR UPDATE`, f.BuyerID, f.Currency)
+		SELECT c.payment_intent,c.received_cents,COALESCE(c.charge_id,''),
+		       LEAST(c.received_cents::bigint,
+		         COALESCE((SELECT sum(refunded_cents) FROM stripe_charge_cash_state
+		                    WHERE payment_intent=c.payment_intent),0)::bigint
+		         + COALESCE((SELECT sum(amount_cents) FROM stripe_dispute_cash_state
+		                    WHERE payment_intent=c.payment_intent AND cash_unavailable),0)::bigint),
+		       COALESCE((SELECT sum(amount_cents) FROM supplier_payout_funding
+		                  WHERE source_kind='buyer_collection'
+		                    AND collection_payment_intent=c.payment_intent),0)::bigint
+		  FROM buyer_cash_collections c
+		 WHERE c.buyer_id=$1 AND c.source_kind='topup' AND c.currency=$2
+		   AND c.requested_cents=c.received_cents
+		 ORDER BY c.recorded_at,c.payment_intent
+		 FOR UPDATE OF c`, f.BuyerID, f.Currency)
 	if err != nil {
 		return uuid.Nil, false, err
 	}
@@ -778,11 +777,14 @@ func reserveBuyerTopupPayoutFunding(
 		paymentIntent string
 		receivedCents int64
 		chargeID      string
+		unavailable   int64
+		reserved      int64
 	}
 	var candidates []candidate
 	for rows.Next() {
 		var c candidate
-		if err := rows.Scan(&c.paymentIntent, &c.receivedCents, &c.chargeID); err != nil {
+		if err := rows.Scan(&c.paymentIntent, &c.receivedCents, &c.chargeID,
+			&c.unavailable, &c.reserved); err != nil {
 			rows.Close()
 			return uuid.Nil, false, err
 		}
@@ -798,22 +800,11 @@ func reserveBuyerTopupPayoutFunding(
 		if c.receivedCents <= 0 || strings.TrimSpace(c.paymentIntent) == "" || strings.TrimSpace(c.chargeID) == "" {
 			continue
 		}
-		unavailable, err := stripeCollectionUnavailableCents(ctx, tx, c.paymentIntent, c.receivedCents)
-		if err != nil {
-			return uuid.Nil, false, err
-		}
-		available := c.receivedCents - unavailable
+		available := c.receivedCents - c.unavailable
 		if available < 0 {
 			return uuid.Nil, false, fmt.Errorf("stripe cash state for %s exceeds collected top-up cash", c.paymentIntent)
 		}
-		var reserved int64
-		if err := tx.QueryRow(ctx, `
-			SELECT COALESCE(sum(amount_cents),0)::bigint
-			  FROM supplier_payout_funding
-			 WHERE source_kind='buyer_collection' AND collection_payment_intent=$1`, c.paymentIntent).Scan(&reserved); err != nil {
-			return uuid.Nil, false, err
-		}
-		if reserved < 0 || reserved > available || f.RequestedCents > available-reserved {
+		if c.reserved < 0 || c.reserved > available || f.RequestedCents > available-c.reserved {
 			continue
 		}
 		var fundingID uuid.UUID

@@ -3389,6 +3389,12 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
+-- Prepaid supplier payouts scan top-ups in recorded order while their cash rows
+-- are locked. Keep the selection path index-backed as the buyer's history grows.
+CREATE INDEX IF NOT EXISTS buyer_cash_collections_topup_selection_idx
+    ON buyer_cash_collections (buyer_id,currency,recorded_at,payment_intent)
+    WHERE source_kind='topup' AND requested_cents=received_cents;
+
 DROP TABLE IF EXISTS admin_sessions;
 DROP TABLE IF EXISTS private_pool_members;
 DROP TABLE IF EXISTS job_economic_facts;
