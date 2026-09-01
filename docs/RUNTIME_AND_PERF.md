@@ -107,6 +107,9 @@ boundary:
   ledger transitions in one PostgreSQL CTE. The lock selection, fail-closed
   outcome-unknown state, and transaction boundary are unchanged; a batch no
   longer incurs two client/server round trips per payout.
+- Outcome-unknown payout claims now refresh the selected recovery leases in one
+  guarded array update instead of one update round trip per payout. The locked
+  eligibility snapshot and retry-window semantics are unchanged.
 - The flag-on liveness shadow fingerprint now uses the same FNV-1a bytes through
   a direct loop: about 18 nanoseconds became about 12 nanoseconds per lookup,
   with zero allocations and a compatibility test against the standard

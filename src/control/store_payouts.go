@@ -1250,6 +1250,7 @@ func (s *Store) ClaimOutcomeUnknownPayouts(
 		return nil, err
 	}
 	var out []DueHeldEntry
+	var ids []uuid.UUID
 	for rows.Next() {
 		var e DueHeldEntry
 		var requestedMinorUnits int64
@@ -1271,16 +1272,21 @@ func (s *Store) ClaimOutcomeUnknownPayouts(
 		}
 		e.AmountUSD = microsToUSD(cashMicros)
 		out = append(out, e)
+		ids = append(ids, e.ID)
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	for _, e := range out {
+	if len(out) > 0 {
+		// The selection locks every operation in the batch. Refresh their
+		// recovery leases together; there is no per-row decision left after the
+		// guarded selection.
 		if _, err := tx.Exec(ctx, `
 			UPDATE supplier_payout_operations SET updated_at=$2
-			 WHERE ledger_entry_id=$1 AND outcome_unknown=true
-			   AND NOT cash_moved AND transfer_ref IS NULL`, e.ID, now); err != nil {
+			 WHERE ledger_entry_id = ANY($1::uuid[])
+			   AND outcome_unknown=true
+			   AND NOT cash_moved AND transfer_ref IS NULL`, ids, now); err != nil {
 			return nil, err
 		}
 	}
