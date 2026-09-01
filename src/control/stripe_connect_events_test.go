@@ -149,7 +149,6 @@ func TestStripeConnectEventsAreDurableMonotonicAndSeparateFromMercPayouts(t *tes
 	if !enabled {
 		t.Fatal("payout.created changed supplier account readiness")
 	}
-
 	conflictPayload := []byte(`{"id":"evt_connect_new","type":"account.updated","created":1700000002,"changed":true}`)
 	conflictEvent, err := parseStripeConnectEvent(
 		"evt_connect_new", stripeConnectEventAccountUpdated, acct, 1_700_000_002,
@@ -165,5 +164,16 @@ func TestStripeConnectEventsAreDurableMonotonicAndSeparateFromMercPayouts(t *tes
 	mustf(t, err, "parse unknown-account event: %v")
 	if _, err := store.ApplyConnectWebhookEvent(ctx, unknown); !errors.Is(err, errUnknownConnectAccount) {
 		t.Fatalf("unknown account error=%v, want %v", err, errUnknownConnectAccount)
+	}
+
+	_, statusAcct, _, err := store.SupplierStatusForBuyer(ctx, buyerID)
+	mustf(t, err, "read supplier status: %v")
+	if statusAcct != acct {
+		t.Fatalf("supplier status account=%q, want %q", statusAcct, acct)
+	}
+	_, err = pool.Exec(ctx, `UPDATE suppliers SET stripe_acct=$2 WHERE id=$1`, supplierID, "acct_bad&destination=other")
+	mustf(t, err, "seed malformed legacy account: %v")
+	if _, _, _, err := store.SupplierStatusForBuyer(ctx, buyerID); err == nil {
+		t.Fatal("supplier status accepted a malformed stored Stripe account")
 	}
 }

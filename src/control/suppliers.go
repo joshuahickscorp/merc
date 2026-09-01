@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -128,7 +129,10 @@ func (s *Store) SupplierStatusForBuyer(ctx context.Context, buyerID uuid.UUID) (
 		return uuid.Nil, "", false, errNotFound
 	}
 	if acctP != nil {
-		acct = *acctP
+		acct = strings.TrimSpace(*acctP)
+		if acct != "" && !validStripeObjectID(acct, "acct_") {
+			return uuid.Nil, "", false, errors.New("stored Stripe connected account id is not an acct_* identifier")
+		}
 	}
 	return supplierID, acct, payoutsEnabled, nil
 }

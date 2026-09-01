@@ -89,7 +89,11 @@ func validateConnectURLPair(returnURL, refreshURL, siteHost string) error {
 
 func (s *Server) handleWorkerConnectStatus(w http.ResponseWriter, r *http.Request) {
 	auth := r.Context().Value(ctxWorker).(*WorkerAuth)
-	acct, _ := s.store.SupplierStripeAcct(r.Context(), auth.SupplierID)
+	acct, err := s.store.SupplierStripeAcct(r.Context(), auth.SupplierID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "reading Stripe connected account")
+		return
+	}
 	if stripeKey() == "" || acct == "" {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"configured": stripeKey() != "", "connected": false, "payouts_enabled": false,
