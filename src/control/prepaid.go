@@ -329,7 +329,8 @@ func (s *Server) refundPrepaidRemainder(
 }
 
 func stripeCreateRefund(ctx context.Context, paymentIntent string, minorUnits int64, idemKey string) (string, error) {
-	if minorUnits <= 0 || strings.TrimSpace(paymentIntent) == "" {
+	paymentIntent = strings.TrimSpace(paymentIntent)
+	if minorUnits <= 0 || !validStripeObjectID(paymentIntent, "pi_") {
 		return "", fmt.Errorf("invalid refund request")
 	}
 	form := url.Values{
@@ -341,8 +342,8 @@ func stripeCreateRefund(ctx context.Context, paymentIntent string, minorUnits in
 		return "", err
 	}
 	id, _ := out["id"].(string)
-	if strings.TrimSpace(id) == "" {
-		return "", fmt.Errorf("stripe refund: no id in response")
+	if !validStripeObjectID(id, "re_") {
+		return "", fmt.Errorf("stripe refund: response has an invalid id")
 	}
 	status, _ := out["status"].(string)
 	if status != "succeeded" && status != "pending" {

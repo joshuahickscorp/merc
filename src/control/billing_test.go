@@ -74,6 +74,8 @@ func TestChargePaymentIntentRequiresExactTerminalCashFact(t *testing.T) {
 		{"requires action", `{"id":"pi_action","status":"requires_action","currency":"usd","amount":123,"amount_received":0}`},
 		{"still processing", `{"id":"pi_processing","status":"processing","currency":"usd","amount":123,"amount_received":0}`},
 		{"missing id", `{"status":"succeeded","currency":"usd","amount":123,"amount_received":123}`},
+		{"wrong payment intent object kind", `{"id":"ch_not_a_payment_intent","latest_charge":"ch_exact","status":"succeeded","currency":"usd","amount":123,"amount_received":123}`},
+		{"wrong charge object kind", `{"id":"pi_wrong_charge","latest_charge":"pi_not_a_charge","status":"succeeded","currency":"usd","amount":123,"amount_received":123}`},
 		{"wrong currency", `{"id":"pi_currency","status":"succeeded","currency":"cad","amount":123,"amount_received":123}`},
 		{"request amount mismatch", `{"id":"pi_amount","status":"succeeded","currency":"usd","amount":122,"amount_received":123}`},
 		{"received amount mismatch", `{"id":"pi_received","status":"succeeded","currency":"usd","amount":123,"amount_received":122}`},

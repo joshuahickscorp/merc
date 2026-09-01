@@ -132,9 +132,11 @@ func (s *Store) BeginPrepaidTopup(ctx context.Context, operationKey string, buye
 // and payment_intent.
 func (s *Store) CreditPrepaidTopup(ctx context.Context, operationKey string, buyerID uuid.UUID, charge ChargeResult) error {
 	operationKey = strings.TrimSpace(operationKey)
-	if operationKey == "" || buyerID == uuid.Nil || charge.PaymentIntentID == "" || charge.ChargeID == "" ||
-		charge.ReceivedCents <= 0 || charge.ReceivedCents != charge.RequestedCents {
+	if operationKey == "" || buyerID == uuid.Nil {
 		return fmt.Errorf("invalid prepaid top-up credit")
+	}
+	if err := validateChargeResult(charge); err != nil {
+		return fmt.Errorf("invalid prepaid top-up credit: %w", err)
 	}
 	settlement, err := ParseCurrency(charge.Currency)
 	if err != nil {

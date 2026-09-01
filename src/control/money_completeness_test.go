@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -171,6 +172,63 @@ func TestStripeChargeRefundHTTPShape(t *testing.T) {
 	must(t, err)
 	if got.Ref != "re_sim_1" || got.Instrument != "charge_refund" {
 		t.Fatalf("got = %+v", got)
+	}
+}
+
+func TestStripeMoneyObjectRequiresExpectedObjectKind(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		body   string
+		prefix string
+		wantID string
+	}{
+		{name: "transfer", body: `{"id":"tr_sim_1","amount":50,"currency":"USD"}`, prefix: "tr_", wantID: "tr_sim_1"},
+		{name: "reversal", body: `{"id":"trr_sim_1","amount":50,"currency":"usd"}`, prefix: "trr_", wantID: "trr_sim_1"},
+		{name: "refund", body: `{"id":"re_sim_1","amount":50,"currency":"usd"}`, prefix: "re_", wantID: "re_sim_1"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := parseStripeMoneyObject([]byte(tc.body), tc.name, tc.prefix, 50, "usd")
+			mustf(t, err, "parse %s: %v", tc.name, err)
+			if got.ID != tc.wantID || got.Currency != "usd" {
+				t.Fatalf("object = %+v", got)
+			}
+		})
+	}
+	for _, tc := range []struct {
+		name   string
+		body   string
+		prefix string
+	}{
+		{name: "transfer rejects refund", body: `{"id":"re_wrong","amount":50,"currency":"usd"}`, prefix: "tr_"},
+		{name: "reversal rejects transfer", body: `{"id":"tr_wrong","amount":50,"currency":"usd"}`, prefix: "trr_"},
+		{name: "refund rejects payment intent", body: `{"id":"pi_wrong","amount":50,"currency":"usd"}`, prefix: "re_"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := parseStripeMoneyObject([]byte(tc.body), tc.name, tc.prefix, 50, "usd"); err == nil {
+				t.Fatal("wrong Stripe object kind was accepted")
+			}
+		})
+	}
+}
+
+func TestStripePayoutRecoveryRejectsWrongProviderInputBeforeHTTP(t *testing.T) {
+	configureStripeHTTPShapeAuthority(t, "sk_test_recovery_input_shape")
+	calls := 0
+	p := StripePayout{
+		secret: "sk_test_recovery_input_shape",
+		http: &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			calls++
+			return nil, errors.New("provider must not be reached")
+		})},
+	}
+	if _, err := p.ReverseTransfer(context.Background(), "pi_not_a_transfer", 50, "usd", "reverse-1"); !errors.Is(err, errPayoutDefinitelyNotSent) {
+		t.Fatalf("wrong transfer input error = %v", err)
+	}
+	if _, err := p.RefundCharge(context.Background(), "ch_not_a_payment_intent", 50, "usd", "reverse-2"); !errors.Is(err, errPayoutDefinitelyNotSent) {
+		t.Fatalf("wrong payment intent input error = %v", err)
+	}
+	if calls != 0 {
+		t.Fatalf("provider calls = %d, want 0", calls)
 	}
 }
 

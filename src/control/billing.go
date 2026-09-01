@@ -245,6 +245,16 @@ type ChargeResult struct {
 	Currency        string
 }
 
+func validateChargeResult(charge ChargeResult) error {
+	if !validStripeObjectID(charge.PaymentIntentID, "pi_") ||
+		!validStripeObjectID(charge.ChargeID, "ch_") ||
+		charge.RequestedCents <= 0 || charge.ReceivedCents != charge.RequestedCents ||
+		RequireSettlementCurrency(charge.Currency) != nil {
+		return errors.New("charge result has invalid Stripe identities, amount, or settlement currency")
+	}
+	return nil
+}
+
 func stripeIntegerField(out map[string]any, field string) (int64, error) {
 	v, ok := out[field].(float64)
 	if !ok || math.IsNaN(v) || math.IsInf(v, 0) || v < 0 || math.Trunc(v) != v || v > math.MaxInt64 {
@@ -267,6 +277,12 @@ func chargePaymentIntentWithKeys(
 	cents int64,
 	currency, operationKey, providerIdemKey string,
 ) (ChargeResult, error) {
+	customer = strings.TrimSpace(customer)
+	paymentMethod = strings.TrimSpace(paymentMethod)
+	if !validStripeObjectID(customer, "cus_") ||
+		(paymentMethod != "" && !validStripeObjectID(paymentMethod, "pm_")) {
+		return ChargeResult{}, errors.New("charge requires valid Stripe customer and payment-method identities")
+	}
 	if cents <= 0 {
 		return ChargeResult{}, fmt.Errorf("non-positive charge amount %d cents", cents)
 	}
@@ -293,8 +309,9 @@ func chargePaymentIntentWithKeys(
 		return ChargeResult{}, fmt.Errorf("payment intent returned an error-shaped 2xx response: %v", raw)
 	}
 	id, _ := out["id"].(string)
-	if strings.TrimSpace(id) == "" {
-		return ChargeResult{}, fmt.Errorf("payment intent: successful response has no id")
+	id = strings.TrimSpace(id)
+	if !validStripeObjectID(id, "pi_") {
+		return ChargeResult{}, fmt.Errorf("payment intent: successful response has an invalid id")
 	}
 	chargeID := ""
 	switch latest := out["latest_charge"].(type) {
@@ -304,8 +321,8 @@ func chargePaymentIntentWithKeys(
 		chargeID, _ = latest["id"].(string)
 		chargeID = strings.TrimSpace(chargeID)
 	}
-	if chargeID == "" {
-		return ChargeResult{}, fmt.Errorf("payment intent %s: successful response has no latest charge id", id)
+	if !validStripeObjectID(chargeID, "ch_") {
+		return ChargeResult{}, fmt.Errorf("payment intent %s: successful response has an invalid latest charge id", id)
 	}
 	status, _ := out["status"].(string)
 	if status != "succeeded" {
@@ -362,7 +379,7 @@ func parseStripeSucceededPaymentIntent(object json.RawMessage) (string, ChargeRe
 		return "", ChargeResult{}, true, err
 	}
 	pi.ID, chargeID = strings.TrimSpace(pi.ID), strings.TrimSpace(chargeID)
-	if pi.ID == "" || chargeID == "" || pi.Status != "succeeded" ||
+	if !validStripeObjectID(pi.ID, "pi_") || !validStripeObjectID(chargeID, "ch_") || pi.Status != "succeeded" ||
 		pi.Amount <= 0 || pi.AmountReceived != pi.Amount || RequireSettlementCurrency(pi.Currency) != nil {
 		return "", ChargeResult{}, true, errors.New("owned successful PaymentIntent has invalid cash evidence")
 	}

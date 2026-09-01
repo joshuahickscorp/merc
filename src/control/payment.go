@@ -296,6 +296,27 @@ func readStripePayoutResponseBody(r io.Reader) ([]byte, error) {
 	return body, nil
 }
 
+type stripeMoneyObject struct {
+	ID       string `json:"id"`
+	Amount   int64  `json:"amount"`
+	Currency string `json:"currency"`
+}
+
+func parseStripeMoneyObject(body []byte, objectName, prefix string, cents int64, currency string) (stripeMoneyObject, error) {
+	var out stripeMoneyObject
+	if err := json.Unmarshal(body, &out); err != nil || !validStripeObjectID(out.ID, prefix) {
+		return stripeMoneyObject{}, fmt.Errorf("stripe %s: unparseable success response: %s", objectName, strings.TrimSpace(string(body)))
+	}
+	if out.Amount != cents || !strings.EqualFold(out.Currency, currency) {
+		return stripeMoneyObject{}, fmt.Errorf(
+			"stripe %s %s amount/currency mismatch: requested=%d %s response=%d %s",
+			objectName, out.ID, cents, currency, out.Amount, out.Currency)
+	}
+	out.ID = strings.TrimSpace(out.ID)
+	out.Currency = strings.ToLower(strings.TrimSpace(out.Currency))
+	return out, nil
+}
+
 func (p StripePayout) Send(ctx context.Context, supplierID uuid.UUID, cents int64, currency, payoutKey string) (PayoutResult, error) {
 	if p.secret == "" {
 		return PayoutResult{}, payoutDefinitelyNotSent(errPayoutUnconfigured)
@@ -350,21 +371,11 @@ func (p StripePayout) Send(ctx context.Context, supplierID uuid.UUID, cents int6
 		}
 		return PayoutResult{}, payoutDefinitelyNotSent(err)
 	}
-	var out struct {
-		ID       string `json:"id"`
-		Amount   int64  `json:"amount"`
-		Currency string `json:"currency"`
+	out, err := parseStripeMoneyObject(body, "transfer", "tr_", cents, currency)
+	if err != nil {
+		return PayoutResult{}, payoutOutcomeUnknown(err)
 	}
-	if err := json.Unmarshal(body, &out); err != nil || out.ID == "" {
-		return PayoutResult{}, payoutOutcomeUnknown(
-			fmt.Errorf("stripe transfer: unparseable success response: %s", strings.TrimSpace(string(body))))
-	}
-	if out.Amount != cents || !strings.EqualFold(out.Currency, currency) {
-		return PayoutResult{}, payoutOutcomeUnknown(fmt.Errorf(
-			"stripe transfer %s amount/currency mismatch: requested=%d %s response=%d %s",
-			out.ID, cents, currency, out.Amount, out.Currency))
-	}
-	return PayoutResult{Ref: out.ID, SentCents: out.Amount, Currency: strings.ToLower(out.Currency), CashMoved: true}, nil
+	return PayoutResult{Ref: out.ID, SentCents: out.Amount, Currency: out.Currency, CashMoved: true}, nil
 }
 
 func stripeIdempotencyKey(supplierID uuid.UUID, cents int64, payoutKey string) string {
@@ -401,8 +412,8 @@ func (p StripePayout) ReverseTransfer(ctx context.Context, transferRef string, c
 		return ReversalResult{}, payoutDefinitelyNotSent(err)
 	}
 	transferRef = strings.TrimSpace(transferRef)
-	if transferRef == "" {
-		return ReversalResult{}, payoutDefinitelyNotSent(errors.New("empty transfer ref for reversal"))
+	if !validStripeObjectID(transferRef, "tr_") {
+		return ReversalResult{}, payoutDefinitelyNotSent(errors.New("invalid Stripe transfer ref for reversal"))
 	}
 	if cents <= 0 {
 		return ReversalResult{}, payoutDefinitelyNotSent(fmt.Errorf("non-positive reversal amount %d cents", cents))
@@ -442,19 +453,9 @@ func (p StripePayout) ReverseTransfer(ctx context.Context, transferRef string, c
 		}
 		return ReversalResult{}, payoutDefinitelyNotSent(err)
 	}
-	var out struct {
-		ID       string `json:"id"`
-		Amount   int64  `json:"amount"`
-		Currency string `json:"currency"`
-	}
-	if err := json.Unmarshal(body, &out); err != nil || out.ID == "" {
-		return ReversalResult{}, payoutOutcomeUnknown(
-			fmt.Errorf("stripe transfer reversal: unparseable success response: %s", strings.TrimSpace(string(body))))
-	}
-	if out.Amount != cents || !strings.EqualFold(out.Currency, currency) {
-		return ReversalResult{}, payoutOutcomeUnknown(fmt.Errorf(
-			"stripe transfer reversal %s amount/currency mismatch: requested=%d %s response=%d %s",
-			out.ID, cents, currency, out.Amount, out.Currency))
+	out, err := parseStripeMoneyObject(body, "transfer reversal", "trr_", cents, currency)
+	if err != nil {
+		return ReversalResult{}, payoutOutcomeUnknown(err)
 	}
 	return ReversalResult{Ref: out.ID, Cents: out.Amount, Currency: strings.ToLower(out.Currency), Instrument: "transfer_reversal"}, nil
 }
@@ -472,8 +473,8 @@ func (p StripePayout) RefundCharge(ctx context.Context, paymentIntent string, ce
 		return ReversalResult{}, payoutDefinitelyNotSent(err)
 	}
 	paymentIntent = strings.TrimSpace(paymentIntent)
-	if paymentIntent == "" {
-		return ReversalResult{}, payoutDefinitelyNotSent(errors.New("empty payment_intent for refund"))
+	if !validStripeObjectID(paymentIntent, "pi_") {
+		return ReversalResult{}, payoutDefinitelyNotSent(errors.New("invalid Stripe payment intent for refund"))
 	}
 	if cents <= 0 {
 		return ReversalResult{}, payoutDefinitelyNotSent(fmt.Errorf("non-positive refund amount %d cents", cents))
@@ -513,19 +514,9 @@ func (p StripePayout) RefundCharge(ctx context.Context, paymentIntent string, ce
 		}
 		return ReversalResult{}, payoutDefinitelyNotSent(err)
 	}
-	var out struct {
-		ID       string `json:"id"`
-		Amount   int64  `json:"amount"`
-		Currency string `json:"currency"`
-	}
-	if err := json.Unmarshal(body, &out); err != nil || out.ID == "" {
-		return ReversalResult{}, payoutOutcomeUnknown(
-			fmt.Errorf("stripe refund: unparseable success response: %s", strings.TrimSpace(string(body))))
-	}
-	if out.Amount != cents || !strings.EqualFold(out.Currency, currency) {
-		return ReversalResult{}, payoutOutcomeUnknown(fmt.Errorf(
-			"stripe refund %s amount/currency mismatch: requested=%d %s response=%d %s",
-			out.ID, cents, currency, out.Amount, out.Currency))
+	out, err := parseStripeMoneyObject(body, "refund", "re_", cents, currency)
+	if err != nil {
+		return ReversalResult{}, payoutOutcomeUnknown(err)
 	}
 	return ReversalResult{Ref: out.ID, Cents: out.Amount, Currency: strings.ToLower(out.Currency), Instrument: "charge_refund"}, nil
 }
