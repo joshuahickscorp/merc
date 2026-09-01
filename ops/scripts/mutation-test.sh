@@ -150,9 +150,14 @@ run_unit_tests() {
 }
 
 contract_selector() {
-  local source="$1"
-  local selector
-  selector="$(python3 ops/scripts/mutation-test-contracts.py --root . --source "$source" --selector)" || return 2
+  local source="$1" case_id="${2:-}" selector
+  if [ -n "$case_id" ]; then
+    selector="$(python3 ops/scripts/mutation-test-contracts.py \
+      --root . --source "$source" --case-id "$case_id" --selector)" || return 2
+  else
+    selector="$(python3 ops/scripts/mutation-test-contracts.py \
+      --root . --source "$source" --selector)" || return 2
+  fi
   [ -n "$selector" ] || {
     echo "mutation-test: contract selector is empty for src/control/$source" >&2
     return 2
@@ -160,8 +165,19 @@ contract_selector() {
   printf '%s\n' "$selector"
 }
 
+contract_test_names() {
+  local source="$1" case_id="${2:-}" name_args
+  name_args=(--root .)
+  if [ -n "$case_id" ]; then
+    name_args+=(--source "$source" --case-id "$case_id")
+  else
+    name_args+=(--source "$source")
+  fi
+  python3 ops/scripts/mutation-test-contracts.py "${name_args[@]}"
+}
+
 observe_contract_log() {
-  local source="$1" log="$2" status="$3" completion_requirement="${4:-}"
+  local source="$1" log="$2" status="$3" completion_requirement="${4:-}" case_id="${5:-}"
   local -a arguments
   local test_name
   arguments=(--log "$log" --exit-code "$status")
@@ -177,7 +193,7 @@ observe_contract_log() {
   while IFS= read -r test_name; do
     [ -n "$test_name" ] || continue
     arguments+=(--expected "$test_name")
-  done < <(python3 ops/scripts/mutation-test-contracts.py --root . --source "$source")
+  done < <(contract_test_names "$source" "$case_id")
   if ! MUTATION_OBSERVATION="$(python3 ops/scripts/mutation-contract-observer.py "${arguments[@]}")"; then
     echo "mutation-test: contract execution is infrastructure, not a mutation catch: $MUTATION_OBSERVATION" >&2
     cat "$log" >&2 || true
@@ -250,11 +266,11 @@ run_oracle_suite_tests() {
 }
 
 run_unit_contract_tests() {
-  local source="$1" label="$2" selector log status completion_requirement=""
+  local source="$1" label="$2" case_id="${3:-}" selector log status completion_requirement=""
   if [ "$label" = "baseline" ]; then
     completion_requirement="all-run"
   fi
-  selector="$(contract_selector "$source")" || return 2
+  selector="$(contract_selector "$source" "$case_id")" || return 2
   log="${BACKUP:-${TMPDIR:-/tmp}}/mutation-contract-${label}-${source%.go}-unit.json"
   (
     cd "$CONTROL" &&
@@ -262,11 +278,11 @@ run_unit_contract_tests() {
         go test -json -count=1 -timeout="$MERC_MUTATION_SUITE_TIMEOUT_FLAG" -run "$selector" .
   ) >"$log" 2>&1
   status=$?
-  observe_contract_log "$source" "$log" "$status" "$completion_requirement"
+  observe_contract_log "$source" "$log" "$status" "$completion_requirement" "$case_id"
 }
 
 run_db_contract_tests() {
-  local source="$1" label="$2" selector log status completion_requirement=""
+  local source="$1" label="$2" case_id="${3:-}" selector log status completion_requirement=""
   if [ "$label" = "baseline" ]; then
     # A source contract may intentionally contain both a unit-only invariant
     # and a database-only invariant. Every named test must run here, while the
@@ -274,7 +290,7 @@ run_db_contract_tests() {
     # any mutant may rely on this fallback.
     completion_requirement="all-run"
   fi
-  selector="$(contract_selector "$source")" || return 2
+  selector="$(contract_selector "$source" "$case_id")" || return 2
   log="${BACKUP:-${TMPDIR:-/tmp}}/mutation-contract-${label}-${source%.go}-db.json"
   # Contract tests are bounded independently of the full-package default. The
   # clean-source preflight and the mutant both execute this exact selector, so a
@@ -285,12 +301,12 @@ run_db_contract_tests() {
     bash -c 'cd "$1" && go test -json -count=1 -timeout="$3" -run "$2" .' _ "$CONTROL" "$selector" "$MERC_MUTATION_SUITE_TIMEOUT_FLAG" \
     >"$log" 2>&1
   status=$?
-  observe_contract_log "$source" "$log" "$status" "$completion_requirement"
+  observe_contract_log "$source" "$log" "$status" "$completion_requirement" "$case_id"
 }
 
 run_contract_tests() {
-  local source="$1"
-  run_db_contract_tests "$source" "contract" || return $?
+  local source="$1" case_id="${2:-}"
+  run_db_contract_tests "$source" "contract" "$case_id" || return $?
   case "$MUTATION_OBSERVATION" in
     caught:*) return 10 ;;
     pass:*) return 0 ;;
@@ -302,10 +318,10 @@ run_contract_tests() {
 }
 
 run_mutation_tests() {
-  local source="$1" suite_status
+  local source="$1" case_id="$2" suite_status
   case "$MERC_MUTATION_TEST_STRATEGY" in
     contracts)
-      run_contract_tests "$source"
+      run_contract_tests "$source" "$case_id"
       return $?
       ;;
     adaptive)
@@ -313,14 +329,14 @@ run_mutation_tests() {
       # weaker suite: a clean preflight proves the same named invariants run;
       # a pass or deliberate DB skip must still fail the isolated DB contract.
       # That avoids charging every mutation for unrelated package tests.
-      run_unit_contract_tests "$source" "mutant" || return $?
+      run_unit_contract_tests "$source" "mutant" "$case_id" || return $?
       case "$MUTATION_OBSERVATION" in
         caught:*)
           MUTATION_PATHWAY="PURE"
           return 10
           ;;
         pass:*|skipped:*)
-          run_contract_tests "$source"
+          run_contract_tests "$source" "$case_id"
           case "$?" in
             10) MUTATION_PATHWAY="DB"; return 10 ;;
             0) MUTATION_PATHWAY="DB"; return 0 ;;
@@ -730,7 +746,7 @@ for case_index in "${MUTATION_CASE_ORDER[@]}"; do
     # selector.  Let the contract/oracle observer classify a compile failure
     # as infrastructure; a separate go build here would compile the same
     # mutation twice and add avoidable work to every case.
-    run_mutation_tests "$file"
+    run_mutation_tests "$file" "$case_index"
     mutation_status=$?
     case "$mutation_status" in
       0)

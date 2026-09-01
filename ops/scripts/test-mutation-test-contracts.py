@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
@@ -64,9 +65,32 @@ def main() -> int:
 
     if not selected:
         raise AssertionError("contracts resolve to no invariant tests")
+
+    manifest = json.loads(
+        (ROOT / "ops/scripts" / "mutation-manifest.json").read_text(encoding="utf-8")
+    )
+    by_id = {
+        item["id"]: item
+        for item in manifest["mutations"]
+        if isinstance(item, dict) and isinstance(item.get("id"), int)
+    }
+    for case_id, names in sorted(contracts.load_case_contracts(ROOT).items()):
+        entry = by_id.get(case_id)
+        if entry is None:
+            raise AssertionError(f"case contract names unknown mutation {case_id}")
+        source = entry["source_target"].removeprefix("src/control/")
+        resolved = contracts.resolve_case(ROOT, case_id, source)
+        if resolved != names:
+            raise AssertionError(
+                f"case contract {case_id} resolved differently: {resolved} != {names}"
+            )
+        absent = sorted(set(names) - available)
+        if absent:
+            raise AssertionError(f"case contract {case_id} names unavailable tests: {absent}")
+
     print(
         f"mutation contracts: PASS {len(sources)} source contracts / "
-        f"{len(selected)} named invariant tests"
+        f"{len(selected)} named invariant tests / {len(contracts.load_case_contracts(ROOT))} narrowed cases"
     )
     return 0
 

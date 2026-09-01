@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "cases": {
+    "47": [
+      "TestSubmitExactReuseBatchJobFreezesWorkloadDecision"
+    ],
+    "52": [
+      "TestSubmitJobTxFailsClosed"
+    ],
+    "53": [
+      "TestSubmitExactReuseBatchJobFreezesWorkloadDecision"
+    ]
+  }
+}
