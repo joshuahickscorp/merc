@@ -72,7 +72,15 @@ func l12WriteReceipt(t *testing.T, name string, doc map[string]any) {
 	t.Helper()
 	root, err := filepath.Abs(filepath.Join("..", ".."))
 	mustf(t, err, "repo root: %v")
-	path := filepath.Join(root, "evidence", "canary", "l12-p1-canary-rehearsal-"+name+".json")
+	outputDir := t.TempDir()
+	if os.Getenv("MERC_L12_PERSIST_RECEIPTS") == "1" {
+		// Persisting a fresh observed_at timestamp is an operator action, not a
+		// side effect of an ordinary test or mutation baseline.
+		outputDir = filepath.Join(root, "evidence", "canary")
+	} else {
+		t.Log("L12 rehearsal receipt kept in a temporary directory; set MERC_L12_PERSIST_RECEIPTS=1 to persist it")
+	}
+	path := filepath.Join(outputDir, "l12-p1-canary-rehearsal-"+name+".json")
 	stamped := map[string]any{
 		"schema_version":         1,
 		"kind":                   "p1_canary_rehearsal_" + name,
