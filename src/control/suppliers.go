@@ -327,7 +327,11 @@ func (s *Server) handleConnectWebhook(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusServiceUnavailable, "connect webhooks not configured (set MERC_CONNECT_WEBHOOK_SECRET)")
 		return
 	}
-	payload, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	payload, err := readStripeWebhookPayload(r.Body)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "unreadable Stripe webhook body")
+		return
+	}
 	if !verifyStripeSig(payload, r.Header.Get("Stripe-Signature"), secret) {
 		writeErr(w, http.StatusBadRequest, "invalid stripe signature")
 		return

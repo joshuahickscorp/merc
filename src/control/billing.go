@@ -31,6 +31,8 @@ var (
 
 const stripeAPIResponseMaxBytes int64 = 2 << 20
 
+const stripeWebhookPayloadMaxBytes int64 = 1 << 20
+
 const stripeMaxIdleConnsPerHost = 16
 
 func newStripeHTTPClient() *http.Client {
@@ -86,6 +88,10 @@ func readBoundedRemoteBody(r io.Reader, maxBytes int64) ([]byte, error) {
 		return nil, errRemoteResponseTooLarge
 	}
 	return body, nil
+}
+
+func readStripeWebhookPayload(r io.Reader) ([]byte, error) {
+	return readBoundedRemoteBody(r, stripeWebhookPayloadMaxBytes)
 }
 
 func configuredStripeKey() (string, error) {
@@ -677,7 +683,11 @@ func handleStripeWebhookWithAllHandlersAtModeAndRiskAndPaymentFailureAndPMEvent(
 	recordPaymentFailure stripePaymentFailureEventRecorder,
 	setPMEvent billingPMEventSetter,
 ) {
-	payload, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	payload, err := readStripeWebhookPayload(r.Body)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "unreadable Stripe webhook body")
+		return
+	}
 	if !verifyStripeSig(payload, r.Header.Get("Stripe-Signature"), secret) {
 		writeErr(w, http.StatusBadRequest, "invalid stripe signature")
 		return

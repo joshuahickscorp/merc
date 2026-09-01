@@ -184,6 +184,21 @@ func TestStripeSetupIntentIdempotencyKeyIsBuyerScoped(t *testing.T) {
 	}
 }
 
+type failingStripeReader struct{}
+
+func (failingStripeReader) Read([]byte) (int, error) {
+	return 0, errors.New("synthetic webhook read failure")
+}
+
+func TestStripeWebhookPayloadReadFailsClosed(t *testing.T) {
+	if _, err := readStripeWebhookPayload(failingStripeReader{}); err == nil {
+		t.Fatal("webhook reader swallowed a body read failure")
+	}
+	if _, err := readStripeWebhookPayload(strings.NewReader(strings.Repeat("x", int(stripeWebhookPayloadMaxBytes)+1))); err == nil {
+		t.Fatal("webhook reader accepted an oversized payload")
+	}
+}
+
 func TestStripePaymentIntentFeeCashBindsCurrencyAndExactMinorUnits(t *testing.T) {
 	installSettlementCurrencyForTest(t, "jpy")
 	good := map[string]any{
