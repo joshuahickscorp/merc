@@ -258,6 +258,7 @@ func realtimeClearingRankingDiscipline(inputs RealtimeClearingRankingInputs) str
 	default:
 		b.WriteString("base supplier ask; failure and refund rates unmeasured below ")
 		b.Write(strconv.AppendInt(buf[:0], int64(minRealtimeOutcomeSamples), 10))
+		b.WriteString(" samples")
 	}
 	b.WriteString("; warmth ")
 	b.WriteString(inputs.Warmth)
