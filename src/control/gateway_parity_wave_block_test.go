@@ -2,8 +2,10 @@ package main
 
 import (
 	"encoding/json"
+	"math"
 	"os"
 	"path/filepath"
+	"sort"
 	"testing"
 )
 
@@ -115,5 +117,46 @@ func TestPointEstimateBoundsUnsetCINotOK(t *testing.T) {
 	_, _, _, ok = pointEstimateBounds(&GatewayParityPointEstimate{Point: 0, CI95Low: 0, CI95High: 0})
 	if !ok {
 		t.Fatal("point=0 with CI at 0 must remain ok (true zero, not unset)")
+	}
+}
+
+func copySortBootstrapReference(xs []float64, p float64, rounds int) GatewayParityPointEstimate {
+	want := GatewayParityPointEstimate{Method: "percentile_bootstrap_95", N: len(xs), Point: PercentileNearestRank(xs, p)}
+	state := uint64(0x9e3779b97f4a7c15) ^ uint64(len(xs))<<32 ^ uint64(math.Float64bits(xs[0]))
+	next := func() uint64 {
+		state = state*6364136223846793005 + 1
+		return state
+	}
+	boot := make([]float64, rounds)
+	for r := range boot {
+		tmp := make([]float64, len(xs))
+		for i := range tmp {
+			tmp[i] = xs[int(next()%uint64(len(xs)))]
+		}
+		boot[r] = PercentileNearestRank(tmp, p)
+	}
+	sort.Float64s(boot)
+	want.CI95Low = boot[int(0.025*float64(rounds))]
+	want.CI95High = boot[int(0.975*float64(rounds))]
+	return want
+}
+
+func TestBootstrapPercentileCIMatchesCopyAndSortReference(t *testing.T) {
+	xs := []float64{3.0, 1.0, 8.0, 2.0, 5.0, 13.0}
+	probabilities := []float64{0.50, 0.95, 0.99}
+	rounds := 64
+	actual := bootstrapPercentileCIs(xs, probabilities, rounds)
+	if len(actual) != len(probabilities) {
+		t.Fatalf("percentile count=%d want %d", len(actual), len(probabilities))
+	}
+
+	for i, p := range probabilities {
+		want := copySortBootstrapReference(xs, p, rounds)
+		if actual[i] != want {
+			t.Fatalf("optimized multi-bootstrap changed p=%.2f: got=%+v want=%+v", p, actual[i], want)
+		}
+		if got := BootstrapPercentileCI(xs, p, rounds); got != want {
+			t.Fatalf("optimized single bootstrap changed p=%.2f: got=%+v want=%+v", p, got, want)
+		}
 	}
 }

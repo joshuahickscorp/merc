@@ -370,16 +370,31 @@ type GatewayParityPointEstimate struct {
 // BootstrapPercentileCI returns a percentile point estimate and a percentile
 // bootstrap 95% CI. Deterministic given the same samples (fixed seed stream).
 func BootstrapPercentileCI(xs []float64, p float64, rounds int) GatewayParityPointEstimate {
-	out := GatewayParityPointEstimate{Method: "percentile_bootstrap_95", N: len(xs)}
-	if len(xs) == 0 {
-		out.Point = math.NaN()
-		return out
+	return bootstrapPercentileCIs(xs, []float64{p}, rounds)[0]
+}
+
+func bootstrapPercentileCIs(xs []float64, probabilities []float64, rounds int) []GatewayParityPointEstimate {
+	outs := make([]GatewayParityPointEstimate, len(probabilities))
+	for i := range probabilities {
+		outs[i] = GatewayParityPointEstimate{Method: "percentile_bootstrap_95", N: len(xs)}
 	}
-	out.Point = PercentileNearestRank(xs, p)
+	if len(xs) == 0 {
+		for i := range outs {
+			outs[i].Point = math.NaN()
+		}
+		return outs
+	}
+	ordered := append([]float64(nil), xs...)
+	sort.Float64s(ordered)
+	for i, p := range probabilities {
+		outs[i].Point = percentileNearestRankSorted(ordered, p)
+	}
 	if len(xs) == 1 || rounds < 1 {
-		out.CI95Low = out.Point
-		out.CI95High = out.Point
-		return out
+		for i := range outs {
+			outs[i].CI95Low = outs[i].Point
+			outs[i].CI95High = outs[i].Point
+		}
+		return outs
 	}
 	// Simple LCG so the harness has no math/rand seed global dependency and
 	// results are reproducible for a given sample multiset order.
@@ -388,23 +403,31 @@ func BootstrapPercentileCI(xs []float64, p float64, rounds int) GatewayParityPoi
 		state = state*6364136223846793005 + 1
 		return state
 	}
-	boot := make([]float64, rounds)
+	boot := make([][]float64, len(probabilities))
+	for i := range boot {
+		boot[i] = make([]float64, rounds)
+	}
 	tmp := make([]float64, len(xs))
 	for r := 0; r < rounds; r++ {
 		for i := range tmp {
 			tmp[i] = xs[int(next()%uint64(len(xs)))]
 		}
-		boot[r] = PercentileNearestRank(tmp, p)
+		sort.Float64s(tmp)
+		for i, p := range probabilities {
+			boot[i][r] = percentileNearestRankSorted(tmp, p)
+		}
 	}
-	sort.Float64s(boot)
 	loIdx := int(0.025 * float64(rounds))
 	hiIdx := int(0.975 * float64(rounds))
 	if hiIdx >= rounds {
 		hiIdx = rounds - 1
 	}
-	out.CI95Low = boot[loIdx]
-	out.CI95High = boot[hiIdx]
-	return out
+	for i := range outs {
+		sort.Float64s(boot[i])
+		outs[i].CI95Low = boot[i][loIdx]
+		outs[i].CI95High = boot[i][hiIdx]
+	}
+	return outs
 }
 
 // okTTFTByWave groups successful TTFT samples into scheduler waves.
@@ -1089,11 +1112,9 @@ func finalizeGatewayParitySamples(
 		r.Reason = "refused: no OK samples with defined TTFT; cannot evaluate overhead budget"
 		return r
 	}
-	p50 := BootstrapPercentileCI(ttfts, 0.50, 1000)
-	p95 := BootstrapPercentileCI(ttfts, 0.95, 1000)
-	p99 := BootstrapPercentileCI(ttfts, 0.99, 1000)
+	percentiles := bootstrapPercentileCIs(ttfts, []float64{0.50, 0.95, 0.99}, 1000)
 	mean := MeanWithCI(ttfts)
-	r.TTFTp50, r.TTFTp95, r.TTFTp99, r.TTFTMean = &p50, &p95, &p99, &mean
+	r.TTFTp50, r.TTFTp95, r.TTFTp99, r.TTFTMean = &percentiles[0], &percentiles[1], &percentiles[2], &mean
 	return r
 }
 

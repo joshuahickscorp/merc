@@ -672,6 +672,10 @@ func PercentileNearestRank(xs []float64, p float64) float64 {
 	}
 	ordered := append([]float64(nil), xs...)
 	sort.Float64s(ordered)
+	return percentileNearestRankSorted(ordered, p)
+}
+
+func percentileNearestRankSorted(ordered []float64, p float64) float64 {
 	if len(ordered) == 1 {
 		return ordered[0]
 	}
