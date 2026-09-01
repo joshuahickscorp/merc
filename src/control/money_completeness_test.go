@@ -75,7 +75,16 @@ func TestMoneyDomainRejectsOversizeValues(t *testing.T) {
 	}
 }
 
+func configureStripeHTTPShapeAuthority(t *testing.T, secret string) {
+	t.Helper()
+	t.Setenv("MERC_ENV", "development")
+	t.Setenv(paymentModeEnv, string(PaymentModeTest))
+	t.Setenv(stripeSecretKeyFileEnv, "")
+	t.Setenv("STRIPE_SECRET_KEY", secret)
+}
+
 func TestStripeTransferReversalHTTPIdempotentShape(t *testing.T) {
+	configureStripeHTTPShapeAuthority(t, "sk_test_reversal_shape")
 	var seenKeys []string
 	var calls int
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -132,6 +141,7 @@ func TestStripeTransferReversalHTTPIdempotentShape(t *testing.T) {
 }
 
 func TestStripeChargeRefundHTTPShape(t *testing.T) {
+	configureStripeHTTPShapeAuthority(t, "sk_test_refund_shape")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if got := r.Header.Get("Stripe-Version"); got != stripeAPIVersion {
 			t.Errorf("Stripe-Version = %q, want %q", got, stripeAPIVersion)
