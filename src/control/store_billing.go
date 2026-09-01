@@ -1030,31 +1030,64 @@ func (s *Store) attachObservedOutputInvoiceEvidence(ctx context.Context, iv *Inv
 		rebateSum         float64
 		tasks             int
 	)
+	// Load every task's frozen settlement facts in one round trip. The old
+	// presentation path re-read the job authority once per task when the
+	// buyer-charge ledger projection was absent; that made a large generative
+	// invoice's latency grow with task count and could observe a different
+	// authority snapshot for each fallback. The reducer below remains the same
+	// money authority; only its inputs are now prefetched and its immutable
+	// economic plan is validated once.
 	rows, err := s.pool.Query(ctx, `
 		SELECT t.id,
+		       t.economic_buyer_charge_usd::float8,
+		       t.economic_supplier_payout_usd::float8,
+		       t.economic_buyer_charge_nanos,
+		       t.economic_supplier_payout_nanos,
 		       COALESCE(t.expected_output_records,0),
 		       t.reported_tokens_used,
-		       t.economic_buyer_charge_usd::float8,
+		       j.id,
+		       j.workload_decision,
+		       COALESCE(j.workload_decision_sha256,''),
+		       j.compute_plan,
+		       COALESCE(j.compute_plan_sha256,''),
+		       ep.plan_json,
 		       COALESCE((
 		         SELECT -le.amount_usd::float8 FROM ledger_entries le
 		          WHERE le.task_id = t.id AND le.kind = 'buyer_charge'
 		          LIMIT 1
 		       ),0)
 		  FROM tasks t
+		  JOIN jobs j ON j.id = t.job_id
+		  LEFT JOIN job_economic_plans ep ON ep.job_id = j.id
 		 WHERE t.job_id = $1`, iv.JobID)
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	var economicPlan *EconomicPlan
 	for rows.Next() {
 		var (
-			taskID          uuid.UUID
-			expectedRecords int64
-			reported        *int64
-			frozen          *float64
-			billed          float64
+			taskID                     uuid.UUID
+			frozenCharge, frozenPayout *float64
+			buyerNanos, supplierNanos  *int64
+			expectedRecords            int64
+			reported                   *int64
+			jobID                      uuid.UUID
+			workloadJSON               []byte
+			workloadSHA256             string
+			computePlanJSON            []byte
+			computePlanSHA256          string
+			economicPlanJSON           []byte
+			billed                     float64
 		)
-		if err := rows.Scan(&taskID, &expectedRecords, &reported, &frozen, &billed); err != nil {
+		if err := rows.Scan(
+			&taskID, &frozenCharge, &frozenPayout,
+			&buyerNanos, &supplierNanos,
+			&expectedRecords, &reported,
+			&jobID, &workloadJSON, &workloadSHA256,
+			&computePlanJSON, &computePlanSHA256, &economicPlanJSON,
+			&billed,
+		); err != nil {
+			rows.Close()
 			return err
 		}
 		if expectedRecords <= 0 || maxTokens <= 0 ||
@@ -1074,20 +1107,50 @@ func (s *Store) attachObservedOutputInvoiceEvidence(ctx context.Context, iv *Inv
 				observedSum += obs
 			}
 		}
-		if frozen != nil && *frozen > 0 {
-			frozenSum += *frozen
+		if frozenCharge != nil && *frozenCharge > 0 {
+			frozenSum += *frozenCharge
 			var rebate float64
 			if billed <= 0 {
-				// Same loader as settlement so nano authority and floor clamp
+				if frozenPayout == nil {
+					rows.Close()
+					return fmt.Errorf("task %s has no frozen supplier payout", taskID)
+				}
+				facts := observedOutputSettlementTaskFacts{
+					taskID:            taskID,
+					frozenCharge:      *frozenCharge,
+					frozenPayout:      *frozenPayout,
+					buyerNanos:        buyerNanos,
+					supplierNanos:     supplierNanos,
+					expectedRecords:   expectedRecords,
+					reportedTokens:    reported,
+					jobID:             jobID,
+					workloadJSON:      workloadJSON,
+					workloadSHA256:    workloadSHA256,
+					computePlanJSON:   computePlanJSON,
+					computePlanSHA256: computePlanSHA256,
+					economicPlanJSON:  economicPlanJSON,
+				}
+				if economicPlan == nil && len(economicPlanJSON) > 0 {
+					plan, _, perr := assertDenormalizedEconomicPlanMoney(ctx, s.pool, jobID)
+					if perr != nil {
+						rows.Close()
+						return perr
+					}
+					economicPlan = &plan
+				}
+				// Same reducer as settlement so nano authority and floor clamp
 				// cannot disagree with the invoice.
-				settled, serr := loadObservedOutputSettlement(ctx, s.pool, taskID)
+				settled, serr := settleObservedOutputSettlementTaskFacts(
+					ctx, s.pool, facts, economicPlan,
+				)
 				if serr != nil {
+					rows.Close()
 					return serr
 				}
 				billed = settled.BilledCharge
 				rebate = settled.RebateUSD
 			} else {
-				rebate = roundUSD(*frozen - billed)
+				rebate = roundUSD(*frozenCharge - billed)
 			}
 			if rebate > 0 {
 				rebateSum += rebate
@@ -1096,8 +1159,10 @@ func (s *Store) attachObservedOutputInvoiceEvidence(ctx context.Context, iv *Inv
 		tasks++
 	}
 	if err := rows.Err(); err != nil {
+		rows.Close()
 		return err
 	}
+	rows.Close()
 	if tasks == 0 || ceilingSum == 0 {
 		return nil
 	}
