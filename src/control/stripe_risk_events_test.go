@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestStripeRiskWebhookIsRecordedReplaySafeAndNonCash(t *testing.T) {
@@ -161,6 +162,53 @@ func TestStripeRiskEventRejectsWarningIdentityChange(t *testing.T) {
 	if rows != 1 {
 		t.Fatalf("fraud warning rows=%d, want only the original evidence", rows)
 	}
+}
+
+func TestStripeRiskWarningIdentityLockSerializesWriters(t *testing.T) {
+	ctx, _, pool := openIsolatedTestStore(t)
+	first, err := pool.Begin(ctx)
+	mustf(t, err, "begin first risk transaction: %v")
+	defer first.Rollback(ctx)
+	firstEvent := stripeRiskEvent{WarningID: "issfr_lock_order"}
+	mustf(t, ensureStripeRiskWarningIdentityTx(ctx, first, firstEvent),
+		"lock first risk warning identity: %v")
+
+	second, err := pool.Begin(ctx)
+	mustf(t, err, "begin second risk transaction: %v")
+	defer second.Rollback(ctx)
+	var secondPID int
+	mustf(t, second.QueryRow(ctx, "SELECT pg_backend_pid()").Scan(&secondPID),
+		"read second risk backend pid: %v")
+
+	lockCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	locked := make(chan error, 1)
+	go func() {
+		locked <- ensureStripeRiskWarningIdentityTx(lockCtx, second, firstEvent)
+	}()
+
+	waiting := false
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		var rowWaiting bool
+		if err := pool.QueryRow(ctx, `
+			SELECT EXISTS(
+			  SELECT 1 FROM pg_locks
+			   WHERE pid=$1 AND locktype='advisory' AND NOT granted)`, secondPID).
+			Scan(&rowWaiting); err != nil {
+			t.Fatalf("inspect second risk lock wait: %v", err)
+		}
+		if rowWaiting {
+			waiting = true
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if !waiting {
+		t.Fatal("second risk warning writer did not wait for the first identity lock")
+	}
+	mustf(t, first.Commit(ctx), "commit first risk transaction: %v")
+	mustf(t, <-locked, "second risk transaction lock: %v")
 }
 
 func TestStripeRiskParserRejectsWrongWarningObjectKind(t *testing.T) {

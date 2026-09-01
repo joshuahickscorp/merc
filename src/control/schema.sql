@@ -246,9 +246,15 @@ ALTER TABLE ledger_entries ALTER COLUMN amount_usd TYPE NUMERIC(12,6);
 ALTER TABLE ledger_entries DROP CONSTRAINT IF EXISTS ledger_released_requires_ref;
 ALTER TABLE ledger_entries ADD CONSTRAINT ledger_released_requires_ref
     CHECK (kind <> 'supplier_credit' OR payout_status <> 'released' OR payout_ref IS NOT NULL);
+-- The worker retries every recoverable payout state. Keep the recovery queue
+-- indexed as one set so awaiting_funding/ready rows do not fall back to a
+-- ledger-wide scan after a failed funding or provider attempt.
+DROP INDEX IF EXISTS ledger_due_payout_idx;
 CREATE INDEX IF NOT EXISTS ledger_due_payout_idx
     ON ledger_entries (release_at,id)
-    WHERE kind='supplier_credit' AND payout_status='held' AND release_at IS NOT NULL;
+    WHERE kind='supplier_credit'
+      AND payout_status IN ('held','ready','awaiting_funding')
+      AND release_at IS NOT NULL;
 
 CREATE UNIQUE INDEX IF NOT EXISTS ledger_task_kind_uniq ON ledger_entries (task_id, kind);
 
@@ -2456,6 +2462,8 @@ CREATE TABLE IF NOT EXISTS stripe_risk_events (
 );
 CREATE INDEX IF NOT EXISTS stripe_risk_events_warning_idx
     ON stripe_risk_events (warning_id,event_created DESC);
+CREATE INDEX IF NOT EXISTS stripe_risk_events_charge_idx
+    ON stripe_risk_events (charge_id,event_created DESC);
 
 -- A failed PaymentIntent is an explicit provider observation, not a cash
 -- reversal. Retain the normalized failure without changing a job or top-up:
@@ -2514,6 +2522,8 @@ CREATE TABLE IF NOT EXISTS stripe_dispute_cash_state (
 CREATE INDEX IF NOT EXISTS stripe_dispute_cash_state_pi_unavailable_idx
     ON stripe_dispute_cash_state (payment_intent)
     WHERE payment_intent IS NOT NULL AND cash_unavailable;
+CREATE INDEX IF NOT EXISTS stripe_dispute_cash_state_charge_idx
+    ON stripe_dispute_cash_state (charge_id,last_event_created DESC);
 
 CREATE TABLE IF NOT EXISTS platform_subsidy_funds (
     id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),

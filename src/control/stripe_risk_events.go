@@ -167,8 +167,19 @@ func (s *Store) ApplyStripeRiskEvent(ctx context.Context, event stripeRiskEvent)
 // ensureStripeRiskWarningIdentityTx keeps all deliveries for one provider
 // warning attached to one charge. Stripe may add a PaymentIntent reference on
 // a later update, but it must not rewrite either the charge or an already
-// observed non-empty PaymentIntent identity.
+// observed non-empty PaymentIntent identity. The advisory lock closes the
+// first-writer gap: two different events for the same warning can arrive
+// concurrently while referring to different charges.
 func ensureStripeRiskWarningIdentityTx(ctx context.Context, tx pgx.Tx, event stripeRiskEvent) error {
+	if strings.TrimSpace(event.WarningID) == "" {
+		return errors.New("Stripe risk warning identity requires a warning id")
+	}
+	if _, err := tx.Exec(ctx,
+		`SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`,
+		"merc:stripe-risk-warning:"+event.WarningID,
+	); err != nil {
+		return err
+	}
 	var chargeConflict, paymentIntentConflict bool
 	err := tx.QueryRow(ctx, `
 		SELECT EXISTS(
