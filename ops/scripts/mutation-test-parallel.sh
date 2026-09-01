@@ -38,6 +38,14 @@ cd "$ROOT"
 # shellcheck source=lib/mutation-load-preflight.sh
 source "$ROOT/ops/scripts/lib/mutation-load-preflight.sh"
 
+# The Go control module lives below src/; keep this path explicit because the
+# parallel runner executes commands from detached repository worktrees.
+control_module_rel="src/control"
+[ -f "$ROOT/$control_module_rel/go.mod" ] || {
+  echo "parallel-mutation-test: expected Go control module at $control_module_rel" >&2
+  exit 2
+}
+
 usage() {
   cat <<'EOF'
 usage: bash ops/scripts/mutation-test-parallel.sh [--plan]
@@ -549,7 +557,7 @@ prepare_seed_template() {
   createdb --host=127.0.0.1 --port="$port" --username=cx \
     --maintenance-db=postgres "$template"
   (
-    cd "$worktree/control" &&
+    cd "$worktree/$control_module_rel" &&
       MERC_TEST_DATABASE_URL="$template_url" MERC_MUTATION_TEMPLATE_DB=1 \
         GOMAXPROCS="$go_max_procs" \
         go test -count=1 -timeout="${suite_timeout_seconds}s" -run '^TestMutationTemplateSchema$' .
@@ -597,7 +605,7 @@ if [ "$suite_timeout_explicit" -eq 0 ]; then
 fi
 baseline_started="$(date +%s)"
 (
-  cd "$candidate_baseline_worktree/control" &&
+  cd "$candidate_baseline_worktree/$control_module_rel" &&
     exec env -u MERC_TEST_DATABASE_URL MERC_ALLOW_SKIPPING_DB_TESTS=1 \
       go test -count=1 -timeout="${baseline_measure_timeout}s" ./...
 ) >"$run_root/candidate-unit-baseline.log" 2>&1
@@ -652,7 +660,7 @@ fi
 
 # Aggregate unit contract preflight under the measured suite budget.
 (
-  cd "$aggregate_unit_worktree/control" &&
+  cd "$aggregate_unit_worktree/$control_module_rel" &&
     exec env -u MERC_TEST_DATABASE_URL MERC_ALLOW_SKIPPING_DB_TESTS=1 \
       GOMAXPROCS="$go_max_procs" \
       go test -json -count=1 -timeout="${suite_timeout_seconds}s" -run "$aggregate_selector" .
@@ -691,7 +699,7 @@ run_aggregate_db_lane() {
     GOMAXPROCS="$go_max_procs" \
     bash ops/scripts/with-isolated-test-db.sh \
       bash -c 'cd "$1" && go test -json -count=1 -timeout="$3" -run "$2" .' \
-      _ "$worktree/control" "$lane_selector" "${suite_timeout_seconds}s"
+      _ "$worktree/$control_module_rel" "$lane_selector" "${suite_timeout_seconds}s"
 }
 
 for ((lane = 1; lane <= preflight_db_lanes; lane++)); do
