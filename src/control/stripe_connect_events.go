@@ -230,12 +230,6 @@ func (s *Store) ApplyConnectWebhookEvent(ctx context.Context, event stripeConnec
 	if err := validateStripeConnectEvent(event); err != nil {
 		return result, err
 	}
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return result, err
-	}
-	defer tx.Rollback(ctx)
-
 	var capabilityStatus *string
 	if event.EventType == stripeConnectEventCapabilityUpdated {
 		capabilityStatus = &event.CapabilityStatus
@@ -252,7 +246,7 @@ func (s *Store) ApplyConnectWebhookEvent(ctx context.Context, event stripeConnec
 	var storedType, storedAccount, storedObject, storedCapabilityStatus, storedHash string
 	var storedCreated int64
 	var inserted, applied, stale bool
-	err = tx.QueryRow(ctx, `
+	err := s.pool.QueryRow(ctx, `
 		WITH supplier AS MATERIALIZED (
 			SELECT id,COALESCE(payouts_enabled_event_created,0) AS current_created,
 			       COALESCE(payouts_enabled_event_id,'') AS current_id
@@ -292,7 +286,22 @@ func (s *Store) ApplyConnectWebhookEvent(ctx context.Context, event stripeConnec
 		&storedHash, &inserted, &applied, &stale,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return result, errUnknownConnectAccount
+		// An unknown account has no supplier row and therefore no durable branch.
+		// A concurrent same-ID insert can also be invisible to this statement's
+		// snapshot after ON CONFLICT waits; the follow-up read distinguishes those
+		// cases without adding work to the normal path.
+		err = s.pool.QueryRow(ctx, `
+			SELECT event_type,account_id,object_id,COALESCE(capability_status,''),
+			       event_created,payload_sha256
+			  FROM stripe_connect_webhook_events WHERE event_id=$1`, event.EventID).
+			Scan(&storedType, &storedAccount, &storedObject, &storedCapabilityStatus,
+				&storedCreated, &storedHash)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return result, errUnknownConnectAccount
+		}
+		if err != nil {
+			return result, err
+		}
 	}
 	if err != nil {
 		return result, err
@@ -311,9 +320,6 @@ func (s *Store) ApplyConnectWebhookEvent(ctx context.Context, event stripeConnec
 	// different objects and must not be settled by this notification.
 	result.Applied = applied
 	result.Stale = stale
-	if err := tx.Commit(ctx); err != nil {
-		return stripeConnectEventResult{}, err
-	}
 	return result, nil
 }
 

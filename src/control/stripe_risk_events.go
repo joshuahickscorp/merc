@@ -112,37 +112,108 @@ func (s *Store) ApplyStripeRiskEvent(ctx context.Context, event stripeRiskEvent)
 	if err := validateStripeRiskEvent(event); err != nil {
 		return result, err
 	}
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
+	// The cash and warning locks, both identity checks, the append-only insert,
+	// and the duplicate read are one atomic server statement. PostgreSQL's
+	// implicit transaction holds the xact locks through that statement, so the
+	// uncontended path needs no explicit BEGIN or COMMIT round trip. CTE
+	// dependencies retain the old lock order (cash, then warning) and make the
+	// checks happen before the insert without weakening any fail-closed binding
+	// rule.
+	var (
+		chargeConflict, paymentIntentConflict, cashConflict                        bool
+		storedType, storedWarning, storedCharge, storedPI, storedFraud, storedHash string
+		storedActionable                                                           bool
+		storedCreated                                                              int64
+		inserted                                                                   bool
+	)
+	if err := s.pool.QueryRow(ctx, `
+		WITH cash_lock AS MATERIALIZED (
+			SELECT pg_advisory_xact_lock(
+				hashtextextended('merc:stripe-cash:' || $4, 0)) AS locked
+		), warning_lock AS MATERIALIZED (
+			SELECT pg_advisory_xact_lock(
+				hashtextextended('merc:stripe-risk-warning:' || $3, 0)) AS locked
+			  FROM cash_lock
+		), warning_binding AS MATERIALIZED (
+			SELECT EXISTS(
+				SELECT 1 FROM stripe_risk_events
+				 WHERE warning_id=$3 AND charge_id<>$4
+			) AS charge_conflict,
+			       $5<>'' AND EXISTS(
+				SELECT 1 FROM stripe_risk_events
+				 WHERE warning_id=$3
+				   AND payment_intent IS NOT NULL
+				   AND payment_intent<>$5
+			) AS payment_intent_conflict
+			  FROM warning_lock
+		), cash_binding AS MATERIALIZED (
+			SELECT CASE WHEN $5='' THEN false ELSE EXISTS(
+				SELECT 1 FROM buyer_cash_collections
+				 WHERE charge_id=$4 AND payment_intent<>$5
+				UNION ALL
+				SELECT 1 FROM stripe_charge_cash_state
+				 WHERE charge_id=$4
+				   AND payment_intent IS NOT NULL
+				   AND payment_intent<>$5
+				UNION ALL
+				SELECT 1 FROM stripe_dispute_cash_state
+				 WHERE charge_id=$4
+				   AND payment_intent IS NOT NULL
+				   AND payment_intent<>$5
+			) END AS cash_conflict
+			  FROM warning_lock
+		), inserted AS (
+			INSERT INTO stripe_risk_events
+			  (event_id,event_type,warning_id,charge_id,payment_intent,fraud_type,actionable,event_created,payload_sha256)
+			SELECT $1,$2,$3,$4,NULLIF($5,''),$6,$7,$8,$9
+			  FROM warning_binding w
+			 CROSS JOIN cash_binding c
+			 WHERE NOT w.charge_conflict
+			   AND NOT w.payment_intent_conflict
+			   AND NOT c.cash_conflict
+			ON CONFLICT (event_id) DO NOTHING
+			RETURNING event_type,warning_id,charge_id,COALESCE(payment_intent,'') AS payment_intent,
+			          fraud_type,actionable,event_created,payload_sha256,true AS inserted
+		), durable AS (
+			SELECT event_type,warning_id,charge_id,payment_intent,fraud_type,actionable,
+			       event_created,payload_sha256,inserted
+			  FROM inserted
+			UNION ALL
+			SELECT event_type,warning_id,charge_id,COALESCE(payment_intent,''),fraud_type,actionable,
+			       event_created,payload_sha256,false
+			  FROM stripe_risk_events
+			 WHERE event_id=$1
+		)
+		SELECT w.charge_conflict,w.payment_intent_conflict,c.cash_conflict,
+		       COALESCE(d.event_type,''),COALESCE(d.warning_id,''),COALESCE(d.charge_id,''),
+		       COALESCE(d.payment_intent,''),COALESCE(d.fraud_type,''),COALESCE(d.actionable,false),
+		       COALESCE(d.event_created,0),COALESCE(d.payload_sha256,''),COALESCE(d.inserted,false)
+		  FROM warning_binding w
+		 CROSS JOIN cash_binding c
+		 LEFT JOIN durable d ON TRUE`,
+		event.EventID, event.EventType, event.WarningID, event.ChargeID, event.PaymentIntent,
+		event.FraudType, event.Actionable, event.EventCreated, event.PayloadSHA256).
+		Scan(&chargeConflict, &paymentIntentConflict, &cashConflict,
+			&storedType, &storedWarning, &storedCharge, &storedPI, &storedFraud,
+			&storedActionable, &storedCreated, &storedHash, &inserted); err != nil {
 		return result, err
 	}
-	defer tx.Rollback(ctx)
-	if err := lockStripeCashBinding(ctx, tx, event.ChargeID); err != nil {
-		return result, err
+	if chargeConflict {
+		return result, fmt.Errorf("Stripe risk warning %s conflicts with a different charge", event.WarningID)
 	}
-	if err := ensureStripeRiskWarningIdentityTx(ctx, tx, event); err != nil {
-		return result, err
+	if paymentIntentConflict {
+		return result, fmt.Errorf("Stripe risk warning %s PaymentIntent %s conflicts with prior warning evidence",
+			event.WarningID, event.PaymentIntent)
 	}
-	if err := ensureStripeRiskCashBindingTx(ctx, tx, event); err != nil {
-		return result, err
+	if cashConflict {
+		return result, fmt.Errorf("Stripe risk event %s PaymentIntent %s conflicts with charge %s cash state",
+			event.EventID, event.PaymentIntent, event.ChargeID)
 	}
-
-	tag, err := tx.Exec(ctx, `
-		INSERT INTO stripe_risk_events
-		  (event_id,event_type,warning_id,charge_id,payment_intent,fraud_type,actionable,event_created,payload_sha256)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-		ON CONFLICT (event_id) DO NOTHING`,
-		event.EventID, event.EventType, event.WarningID, event.ChargeID,
-		nullableStripeID(event.PaymentIntent), event.FraudType, event.Actionable,
-		event.EventCreated, event.PayloadSHA256)
-	if err != nil {
-		return result, err
-	}
-	if tag.RowsAffected() == 0 {
-		var storedType, storedWarning, storedCharge, storedPI, storedFraud, storedHash string
-		var storedActionable bool
-		var storedCreated int64
-		if err := tx.QueryRow(ctx, `
+	if storedType == "" {
+		// A concurrent same-ID insert can win after this statement's snapshot
+		// was taken. The normal path above remains one round trip; this is only
+		// the wait-recovery path needed to read that now-committed winner.
+		if err := s.pool.QueryRow(ctx, `
 			SELECT event_type,warning_id,charge_id,COALESCE(payment_intent,''),fraud_type,
 			       actionable,event_created,payload_sha256
 			  FROM stripe_risk_events WHERE event_id=$1`, event.EventID).
@@ -150,6 +221,8 @@ func (s *Store) ApplyStripeRiskEvent(ctx context.Context, event stripeRiskEvent)
 				&storedActionable, &storedCreated, &storedHash); err != nil {
 			return result, err
 		}
+	}
+	if !inserted {
 		if storedType != event.EventType || storedWarning != event.WarningID ||
 			storedCharge != event.ChargeID || storedPI != event.PaymentIntent ||
 			storedFraud != event.FraudType || storedActionable != event.Actionable ||
@@ -157,9 +230,6 @@ func (s *Store) ApplyStripeRiskEvent(ctx context.Context, event stripeRiskEvent)
 			return result, fmt.Errorf("Stripe risk event %s conflicts with its durable event binding", event.EventID)
 		}
 		result.Duplicate = true
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return stripeRiskEventResult{}, err
 	}
 	return result, nil
 }
