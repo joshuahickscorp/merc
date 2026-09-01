@@ -994,10 +994,7 @@ func (s *Store) AuthorizeRealtimeContract(ctx context.Context, auth RealtimeCont
 	// create already held buyer funding; admit only claims offer capacity.
 	var envelopeSpend *ExecutionEnvelopeSpend
 	if auth.EnvelopeID != uuid.Nil {
-		needNanos, nerr := realtimeAuthNeedNanos(auth)
-		if nerr != nil {
-			return RealtimeContract{}, false, nerr
-		}
+		needNanos := settlementMaximum.Nanos
 		reserveTokens := auth.MaximumPromptTokens + auth.MaximumCompletionTokens
 		if reserveTokens < 0 {
 			reserveTokens = 0
@@ -1053,12 +1050,9 @@ func (s *Store) AuthorizeRealtimeContract(ctx context.Context, auth RealtimeCont
 	} else {
 		// Legacy per-request path: buyer funding *before* offer claim.
 		// A saved payment method is a top-up rail only — never admission funding.
-		// Same exact nano ceiling the envelope path holds (realtimeAuthNeedNanos),
+		// Same exact nano ceiling the envelope path holds (settlementMaximum),
 		// not the to-nearest micro projection of settlementMaximumProjection.
-		needNanos, nerr := realtimeAuthNeedNanos(auth)
-		if nerr != nil {
-			return RealtimeContract{}, false, nerr
-		}
+		needNanos := settlementMaximum.Nanos
 		if err := evaluateRealtimeBuyerFunding(ctx, tx, auth.BuyerID, needNanos); err != nil {
 			return RealtimeContract{}, false, err
 		}
