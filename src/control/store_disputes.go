@@ -126,29 +126,44 @@ func (s *Store) RecordDispute(ctx context.Context, jobID, buyerID uuid.UUID, rea
 	if err := rows.Err(); err != nil {
 		return uuid.Nil, err
 	}
-	for _, credit := range credits {
-		if _, err := tx.Exec(ctx, `
-			INSERT INTO dispute_payout_holds
-			  (dispute_id,ledger_entry_id,payout_status_at_filing)
-			VALUES ($1,$2,$3)`, disputeID, credit.id, credit.status); err != nil {
-			return uuid.Nil, err
+	if len(credits) > 0 {
+		creditIDs := make([]uuid.UUID, 0, len(credits))
+		creditStatuses := make([]string, 0, len(credits))
+		for _, credit := range credits {
+			creditIDs = append(creditIDs, credit.id)
+			creditStatuses = append(creditStatuses, credit.status)
 		}
-		// A claim which linearized just before filing may already be at the
-		// provider boundary.  Preserve it as recovery-required; FinalizePayout
-		// will never represent resulting cash as an ordinary release.
-		if credit.status == PayoutSending || credit.status == PayoutOutcomeUnknown {
-			if _, err := tx.Exec(ctx, `
-				UPDATE ledger_entries SET payout_status='reversal_required'
-				 WHERE id=$1`, credit.id); err != nil {
-				return uuid.Nil, err
-			}
-			if _, err := tx.Exec(ctx, `
-				UPDATE supplier_payout_operations
-				   SET status='reversal_required',outcome_unknown=true,updated_at=now(),
-				       last_error='buyer dispute filed while payout was in flight'
-				 WHERE ledger_entry_id=$1`, credit.id); err != nil {
-				return uuid.Nil, err
-			}
+		// The credit rows are already locked. Insert the complete filing
+		// snapshot, then move only the in-flight subset into recovery in one
+		// data-modifying statement. This removes the per-credit hold/ledger/
+		// operation round trips without allowing a partial dispute scope.
+		if _, err := tx.Exec(ctx, `
+			WITH frozen(entry_id,payout_status) AS (
+				SELECT entry_id,payout_status
+				  FROM unnest($2::uuid[],$3::text[]) AS frozen_rows(entry_id,payout_status)
+			), holds AS (
+				INSERT INTO dispute_payout_holds
+				  (dispute_id,ledger_entry_id,payout_status_at_filing)
+				SELECT $1,entry_id,payout_status FROM frozen
+				RETURNING ledger_entry_id
+			), inflight AS (
+				SELECT frozen.entry_id
+				  FROM frozen JOIN holds ON holds.ledger_entry_id=frozen.entry_id
+				 WHERE frozen.payout_status IN ('sending','outcome_unknown')
+			), ledger_updates AS (
+				UPDATE ledger_entries le
+				   SET payout_status='reversal_required'
+				  FROM inflight
+				 WHERE le.id=inflight.entry_id
+				RETURNING le.id
+			)
+			UPDATE supplier_payout_operations op
+			   SET status='reversal_required',outcome_unknown=true,updated_at=now(),
+			       last_error='buyer dispute filed while payout was in flight'
+			  FROM ledger_updates
+			 WHERE op.ledger_entry_id=ledger_updates.id`,
+			disputeID, creditIDs, creditStatuses); err != nil {
+			return uuid.Nil, err
 		}
 	}
 

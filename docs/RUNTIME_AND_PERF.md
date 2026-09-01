@@ -110,6 +110,10 @@ boundary:
 - Outcome-unknown payout claims now refresh the selected recovery leases in one
   guarded array update instead of one update round trip per payout. The locked
   eligibility snapshot and retry-window semantics are unchanged.
+- Dispute filing now inserts the complete payout-hold snapshot and transitions
+  any in-flight held payouts to recovery through one PostgreSQL data-modifying
+  CTE. The parent job and credit locks remain the authority; this removes the
+  per-credit hold/ledger/operation round-trip fan-out.
 - The flag-on liveness shadow fingerprint now uses the same FNV-1a bytes through
   a direct loop: about 18 nanoseconds became about 12 nanoseconds per lookup,
   with zero allocations and a compatibility test against the standard
