@@ -1467,6 +1467,74 @@ type DueReversal struct {
 	CashMoved      bool
 }
 
+// PendingReversalRefundRef returns the exact Stripe Refund already observed
+// for a supplier recovery operation. It is separate from the claim query so a
+// provider read can happen after the claim transaction commits, without ever
+// falling back to a second POST for the same durable operation.
+func (s *Store) PendingReversalRefundRef(ctx context.Context, entryID uuid.UUID) (string, error) {
+	if entryID == uuid.Nil {
+		return "", errors.New("reversal refund lookup requires a ledger entry")
+	}
+	var ref string
+	err := s.pool.QueryRow(ctx, `
+		SELECT COALESCE(reverse_ref,'')
+		  FROM supplier_payout_operations
+		 WHERE ledger_entry_id=$1`, entryID).Scan(&ref)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return "", nil
+	}
+	if !validStripeObjectID(ref, "re_") {
+		return "", fmt.Errorf("reversal %s has a non-refund provider reference %q", entryID, ref)
+	}
+	return ref, nil
+}
+
+// RecordReversalRefundRef binds a Stripe Refund to the exact still-open
+// recovery operation before local finalization. The reference is immutable
+// once seen; a later provider response cannot replace it with a different
+// refund.
+func (s *Store) RecordReversalRefundRef(ctx context.Context, entryID uuid.UUID, refundID string) error {
+	if entryID == uuid.Nil || !validStripeObjectID(refundID, "re_") {
+		return errors.New("pending reversal refund binding has invalid identity")
+	}
+	refundID = strings.TrimSpace(refundID)
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE supplier_payout_operations
+		   SET reverse_ref=$2,updated_at=now()
+		 WHERE ledger_entry_id=$1
+		   AND status IN ('reversal_required','reversing')
+		   AND (reverse_ref IS NULL OR reverse_ref=$2)`, entryID, refundID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 1 {
+		return nil
+	}
+	var storedRef, status string
+	err = s.pool.QueryRow(ctx, `
+		SELECT COALESCE(reverse_ref,''),status
+		  FROM supplier_payout_operations
+		 WHERE ledger_entry_id=$1`, entryID).Scan(&storedRef, &status)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("reversal operation %s is missing", entryID)
+	}
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(storedRef) == refundID &&
+		(status == "reversal_required" || status == "reversing" || status == "reversed") {
+		return nil
+	}
+	return fmt.Errorf("reversal %s has a conflicting provider refund binding", entryID)
+}
+
 // ClaimReversals claims reversal_required operations that already moved cash
 // (or have a durable transfer_ref). CAS discipline matches ClaimPayout:
 // SELECT … FOR UPDATE SKIP LOCKED, then status CAS reversal_required → reversing
@@ -1605,6 +1673,10 @@ func (s *Store) FinalizeReversal(ctx context.Context, entryID uuid.UUID, result 
 	if ledgerStatus != PayoutReversing || opStatus != PayoutReversing {
 		return "", fmt.Errorf("payout %s cannot reverse from ledger=%s operation=%s",
 			entryID, ledgerStatus, opStatus)
+	}
+	if reverseRef != nil && strings.TrimSpace(*reverseRef) != "" && strings.TrimSpace(*reverseRef) != result.Ref {
+		return "", fmt.Errorf("payout %s already observed provider recovery ref %s, got %s",
+			entryID, strings.TrimSpace(*reverseRef), result.Ref)
 	}
 	if result.Cents != requested || result.Currency != currency {
 		return "", fmt.Errorf(

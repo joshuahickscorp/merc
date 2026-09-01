@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -155,10 +156,14 @@ func TestStripeChargeRefundHTTPShape(t *testing.T) {
 		if r.Form.Get("payment_intent") != "pi_sim" || r.Form.Get("amount") != "50" {
 			t.Errorf("form = %v", r.Form)
 		}
+		if r.Form.Get("metadata[cx_reverse_key]") != "entry-1" {
+			t.Errorf("refund recovery metadata = %q, want entry-1", r.Form.Get("metadata[cx_reverse_key]"))
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"object": "refund", "id": "re_sim_1", "amount": 50, "currency": "usd",
 			"payment_intent": "pi_sim", "status": "succeeded",
+			"metadata": map[string]string{"cx_reverse_key": "entry-1"},
 		})
 	}))
 	defer srv.Close()
@@ -174,6 +179,104 @@ func TestStripeChargeRefundHTTPShape(t *testing.T) {
 	must(t, err)
 	if got.Ref != "re_sim_1" || got.Instrument != "charge_refund" {
 		t.Fatalf("got = %+v", got)
+	}
+}
+
+func TestStripeRefundRecoveryRetrievesStoredProviderObject(t *testing.T) {
+	configureStripeHTTPShapeAuthority(t, "sk_test_refund_retrieve")
+	ctx, store, pool := openIsolatedTestStore(t)
+	supplierID, entryID := uuid.New(), uuid.New()
+	refundID := "re_stored_" + uuid.NewString()
+	paymentIntent := "pi_stored_" + uuid.NewString()
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO suppliers (id,email,reputation,status) VALUES ($1,$2,0.5,'active')`,
+		supplierID, supplierID.String()+"@refund-retrieve.invalid"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO ledger_entries
+		  (id,kind,supplier_id,amount_usd,currency,payout_status,payout_ref)
+		VALUES ($1,'supplier_credit',$2,1.00,'usd','reversing','manual-export:/tmp/refund-retrieve')`,
+		entryID, supplierID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO supplier_payout_operations
+		  (ledger_entry_id,supplier_id,requested_cents,currency,status)
+		VALUES ($1,$2,100,'usd','reversing')`, entryID, supplierID); err != nil {
+		t.Fatal(err)
+	}
+
+	var methods []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		methods = append(methods, r.Method+" "+r.URL.Path)
+		if got := r.Header.Get("Stripe-Version"); got != stripeAPIVersion {
+			t.Errorf("Stripe-Version = %q, want %q", got, stripeAPIVersion)
+		}
+		switch r.Method {
+		case http.MethodPost:
+			if r.URL.Path != "/v1/refunds" {
+				t.Errorf("unexpected refund-create path %s", r.URL.Path)
+			}
+			if got := r.Header.Get("Idempotency-Key"); got != stripeReversalIdempotencyKey(entryID.String()) {
+				t.Errorf("refund idempotency key = %q", got)
+			}
+			if err := r.ParseForm(); err != nil {
+				t.Errorf("parse refund form: %v", err)
+			}
+			if r.Form.Get("payment_intent") != paymentIntent || r.Form.Get("amount") != "100" ||
+				r.Form.Get("metadata[cx_reverse_key]") != entryID.String() {
+				t.Errorf("refund form = %v", r.Form)
+			}
+		case http.MethodGet:
+			if r.URL.Path != "/v1/refunds/"+refundID {
+				t.Errorf("unexpected stored-refund path %s", r.URL.Path)
+			}
+			if got := r.Header.Get("Idempotency-Key"); got != "" {
+				t.Errorf("GET carried idempotency key %q", got)
+			}
+		default:
+			t.Errorf("unexpected stored-refund method %s", r.Method)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"object": "refund", "id": refundID, "amount": 100, "currency": "usd",
+			"payment_intent": paymentIntent,
+			"status":         map[string]string{http.MethodPost: "pending", http.MethodGet: "succeeded"}[r.Method],
+			"metadata":       map[string]string{"cx_reverse_key": entryID.String()},
+		})
+	}))
+	defer srv.Close()
+	p := StripePayout{
+		store:  store,
+		secret: "sk_test_refund_retrieve",
+		http: &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			req.URL.Scheme = "http"
+			req.URL.Host = strings.TrimPrefix(srv.URL, "http://")
+			return http.DefaultTransport.RoundTrip(req)
+		})},
+	}
+	first, err := p.RefundCharge(ctx, paymentIntent, 100, "usd", entryID.String())
+	mustf(t, err, "create pending refund: %v")
+	if first.Ref != refundID || first.ProviderStatus != "pending" || first.Instrument != "charge_refund" {
+		t.Fatalf("pending refund = %+v", first)
+	}
+	var storedRef string
+	if err := pool.QueryRow(ctx, `SELECT COALESCE(reverse_ref,'') FROM supplier_payout_operations WHERE ledger_entry_id=$1`, entryID).
+		Scan(&storedRef); err != nil {
+		t.Fatal(err)
+	}
+	if storedRef != refundID {
+		t.Fatalf("stored pending refund ref = %q, want %q", storedRef, refundID)
+	}
+	got, err := p.RefundCharge(ctx, paymentIntent, 100, "usd", entryID.String())
+	mustf(t, err, "retrieve stored refund: %v")
+	if got.Ref != refundID || got.ProviderStatus != "succeeded" || got.Instrument != "charge_refund" {
+		t.Fatalf("retrieved refund = %+v", got)
+	}
+	if len(methods) != 2 || methods[0] != http.MethodPost+" /v1/refunds" ||
+		methods[1] != http.MethodGet+" /v1/refunds/"+refundID {
+		t.Fatalf("provider requests = %q, want one POST then bound GET", methods)
 	}
 }
 
@@ -352,6 +455,23 @@ func TestStripeRefundRecoveryRequiresCompletedStatus(t *testing.T) {
 		50, "usd", "pi_status",
 	); err != nil {
 		t.Fatalf("rejected completed refund: %v", err)
+	}
+}
+
+func TestStripeRefundRecoveryBindsDurableReverseKey(t *testing.T) {
+	base := func() []byte {
+		return []byte(`{"object":"refund","id":"re_key","amount":50,"currency":"usd","payment_intent":"pi_key","status":"succeeded","metadata":{"cx_reverse_key":"entry-key"}}`)
+	}
+	if _, status, err := parseStripeRefundObjectState(base(), 50, "usd", "pi_key", "entry-key"); err != nil || status != "succeeded" {
+		t.Fatalf("exact recovery binding rejected: status=%q err=%v", status, err)
+	}
+	for _, replacement := range []string{"", "other"} {
+		t.Run(fmt.Sprintf("%q", replacement), func(t *testing.T) {
+			body := strings.Replace(string(base()), "entry-key", replacement, 1)
+			if _, _, err := parseStripeRefundObjectState([]byte(body), 50, "usd", "pi_key", "entry-key"); err == nil {
+				t.Fatalf("accepted refund with recovery key %q", replacement)
+			}
+		})
 	}
 }
 
@@ -747,6 +867,57 @@ func TestReversalCASTerminalIntegration(t *testing.T) {
 	}
 }
 
+func TestReversalWorkerPersistsPendingRefundReference(t *testing.T) {
+	ctx, store, pool := openIsolatedTestStore(t)
+	f := seedPayoutFixture(t, ctx, pool, payoutFixtureOpts{creditUSD: 1.00})
+	fundingID := uuid.New()
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO supplier_payout_funding
+		  (id,ledger_entry_id,source_kind,liability_job_id,collection_payment_intent,amount_cents,currency)
+		VALUES ($1,$2,'buyer_collection',$3,$4,$5,$6)`,
+		fundingID, f.entryID, f.jobID, f.paymentIntent, f.creditCents, f.currency); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `
+		UPDATE ledger_entries
+		   SET payout_status='reversal_required',payout_ref='manual-export:/tmp/pending-refund'
+		 WHERE id=$1`, f.entryID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO supplier_payout_operations
+		  (ledger_entry_id,funding_id,supplier_id,requested_cents,currency,status,cash_moved,transfer_ref)
+		VALUES ($1,$2,$3,$4,$5,'reversal_required',false,'manual-export:/tmp/pending-refund')`,
+		f.entryID, fundingID, f.supplierID, f.creditCents, f.currency); err != nil {
+		t.Fatal(err)
+	}
+
+	wk := NewWorkers(store, nil, pendingRefundReverserPayout{})
+	must(t, wk.processReversals(ctx))
+	var status, opStatus, reverseRef string
+	if err := pool.QueryRow(ctx, `
+		SELECT le.payout_status,op.status,COALESCE(op.reverse_ref,'')
+		  FROM ledger_entries le JOIN supplier_payout_operations op ON op.ledger_entry_id=le.id
+		 WHERE le.id=$1`, f.entryID).Scan(&status, &opStatus, &reverseRef); err != nil {
+		t.Fatal(err)
+	}
+	if status != PayoutReversalRequired || opStatus != PayoutReversalRequired ||
+		reverseRef != "re_pending_"+f.entryID.String() {
+		t.Fatalf("pending refund state = %q/%q/%q", status, opStatus, reverseRef)
+	}
+	claimed, err := store.ClaimReversals(ctx, time.Minute, 10)
+	mustf(t, err, "reclaim pending refund: %v")
+	if !dueContainsReversal(claimed, f.entryID) {
+		t.Fatalf("pending refund was not reclaimable: %+v", claimed)
+	}
+	if _, err := store.FinalizeReversal(ctx, f.entryID, ReversalResult{
+		Ref: "re_other_" + uuid.NewString(), Cents: f.creditCents,
+		Currency: f.currency, Instrument: "charge_refund",
+	}); err == nil {
+		t.Fatal("FinalizeReversal replaced an already observed refund reference")
+	}
+}
+
 // fakeReverserPayout implements Send (unused) and reverse instruments.
 type fakeReverserPayout struct{}
 
@@ -763,5 +934,22 @@ func (fakeReverserPayout) ReverseTransfer(_ context.Context, transferRef string,
 func (fakeReverserPayout) RefundCharge(_ context.Context, pi string, cents int64, currency, reverseKey string) (ReversalResult, error) {
 	return ReversalResult{
 		Ref: "re_" + reverseKey, Cents: cents, Currency: currency, Instrument: "charge_refund",
+	}, nil
+}
+
+type pendingRefundReverserPayout struct{}
+
+func (pendingRefundReverserPayout) Send(context.Context, uuid.UUID, int64, string, string) (PayoutResult, error) {
+	return PayoutResult{}, payoutDefinitelyNotSent(errPayoutUnconfigured)
+}
+
+func (pendingRefundReverserPayout) ReverseTransfer(context.Context, string, int64, string, string) (ReversalResult, error) {
+	return ReversalResult{}, errors.New("transfer reversal should not be selected for manual export")
+}
+
+func (pendingRefundReverserPayout) RefundCharge(_ context.Context, _ string, cents int64, currency, reverseKey string) (ReversalResult, error) {
+	return ReversalResult{
+		Ref: "re_pending_" + reverseKey, Cents: cents, Currency: currency,
+		Instrument: "charge_refund", ProviderStatus: "pending",
 	}, nil
 }

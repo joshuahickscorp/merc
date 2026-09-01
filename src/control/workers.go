@@ -527,6 +527,40 @@ func (wk *Workers) processReversals(ctx context.Context) error {
 				r.ID, r.TransferRef, r.PaymentIntent, revErr)
 			continue
 		}
+		providerStatus := strings.TrimSpace(result.ProviderStatus)
+		if providerStatus != "" && providerStatus != "succeeded" {
+			switch providerStatus {
+			case "pending", "requires_action", "failed", "canceled":
+			default:
+				providerStatus = "unsupported"
+			}
+			if providerStatus == "unsupported" || result.Instrument != "charge_refund" ||
+				!validStripeObjectID(result.Ref, "re_") {
+				metrics.payoutReversalFailures.Add(1)
+				cause := fmt.Errorf("Stripe refund recovery returned an invalid non-terminal result: status=%q ref=%q instrument=%q",
+					result.ProviderStatus, result.Ref, result.Instrument)
+				if markErr := wk.store.MarkReversalFailed(ctx, r.ID, cause); markErr != nil {
+					return markErr
+				}
+				log.Printf("workers: CRITICAL payout reversal returned invalid refund state for %s: %v", r.ID, cause)
+				continue
+			}
+			if err := wk.store.RecordReversalRefundRef(ctx, r.ID, result.Ref); err != nil {
+				metrics.payoutReversalFailures.Add(1)
+				if markErr := wk.store.MarkReversalFailed(ctx, r.ID, err); markErr != nil {
+					return markErr
+				}
+				log.Printf("workers: CRITICAL payout reversal refund binding failed for %s: %v", r.ID, err)
+				continue
+			}
+			if err := wk.store.MarkReversalFailed(ctx, r.ID,
+				fmt.Errorf("Stripe refund %s remains %s", result.Ref, providerStatus)); err != nil {
+				return err
+			}
+			log.Printf("workers: payout reversal deferred for %s: Stripe refund %s remains %s",
+				r.ID, result.Ref, providerStatus)
+			continue
+		}
 		state, err := wk.store.FinalizeReversal(ctx, r.ID, result)
 		if err != nil {
 			metrics.payoutReversalFailures.Add(1)

@@ -252,6 +252,10 @@ type ReversalResult struct {
 	Currency string
 	// Instrument is "transfer_reversal" or "charge_refund".
 	Instrument string
+	// ProviderStatus is populated for a refund that Stripe accepted but has not
+	// completed. Such a result is durable evidence of an in-flight provider
+	// object, not a successful recovery, and must not be finalized locally.
+	ProviderStatus string
 }
 
 // validateReversalResult binds recovery evidence to the Stripe endpoint that
@@ -441,30 +445,57 @@ func parseStripeTransferReversalObject(body []byte, cents int64, currency, expec
 	return out, nil
 }
 
-// parseStripeRefundObject binds a successful refund to the exact PaymentIntent
-// that the recovery path requested.  A refund ID with matching money fields
-// must not be allowed to finalize a different buyer obligation.
-func parseStripeRefundObject(body []byte, cents int64, currency, expectedPaymentIntent string) (stripeMoneyObject, error) {
+// parseStripeRefundObjectState binds a refund to the exact PaymentIntent and,
+// when supplied, recovery key that the recovery path requested. A refund ID
+// with matching money fields must not be allowed to finalize a different
+// buyer obligation. It accepts every provider lifecycle state so a non-
+// terminal response can be persisted and later retrieved by ID.
+func parseStripeRefundObjectState(
+	body []byte, cents int64, currency, expectedPaymentIntent, expectedReverseKey string,
+) (stripeMoneyObject, string, error) {
 	out, err := parseStripeMoneyObject(body, "refund", "re_", cents, currency)
 	if err != nil {
-		return stripeMoneyObject{}, err
+		return stripeMoneyObject{}, "", err
 	}
 	var raw struct {
-		PaymentIntent json.RawMessage `json:"payment_intent"`
-		Status        string          `json:"status"`
+		PaymentIntent json.RawMessage   `json:"payment_intent"`
+		Status        string            `json:"status"`
+		Metadata      map[string]string `json:"metadata"`
 	}
 	if err := json.Unmarshal(body, &raw); err != nil {
-		return stripeMoneyObject{}, fmt.Errorf("stripe refund %s has an unreadable PaymentIntent: %w", out.ID, err)
+		return stripeMoneyObject{}, "", fmt.Errorf("stripe refund %s has unreadable recovery bindings: %w", out.ID, err)
 	}
-	if strings.TrimSpace(raw.Status) != "succeeded" {
-		return stripeMoneyObject{}, fmt.Errorf("stripe refund %s is not complete (status %q)", out.ID, strings.TrimSpace(raw.Status))
+	status := strings.TrimSpace(raw.Status)
+	switch status {
+	case "pending", "requires_action", "succeeded", "failed", "canceled":
+	default:
+		return stripeMoneyObject{}, "", fmt.Errorf("stripe refund %s has unsupported status %q", out.ID, status)
 	}
 	expectedPaymentIntent = strings.TrimSpace(expectedPaymentIntent)
 	paymentIntent, err := stripeExpandableID(raw.PaymentIntent, "payment_intent")
 	if err != nil || !validStripeObjectID(paymentIntent, "pi_") || paymentIntent != expectedPaymentIntent {
-		return stripeMoneyObject{}, fmt.Errorf(
+		return stripeMoneyObject{}, "", fmt.Errorf(
 			"stripe refund %s PaymentIntent mismatch: expected %q, got %q",
 			out.ID, expectedPaymentIntent, paymentIntent)
+	}
+	expectedReverseKey = strings.TrimSpace(expectedReverseKey)
+	if expectedReverseKey != "" && strings.TrimSpace(raw.Metadata["cx_reverse_key"]) != expectedReverseKey {
+		return stripeMoneyObject{}, "", fmt.Errorf(
+			"stripe refund %s recovery binding does not match %q", out.ID, expectedReverseKey)
+	}
+	return out, status, nil
+}
+
+// parseStripeRefundObject binds a successful refund to the exact PaymentIntent
+// that the recovery path requested. A non-terminal refund is not a completed
+// cash recovery and must remain retryable.
+func parseStripeRefundObject(body []byte, cents int64, currency, expectedPaymentIntent string) (stripeMoneyObject, error) {
+	out, status, err := parseStripeRefundObjectState(body, cents, currency, expectedPaymentIntent, "")
+	if err != nil {
+		return stripeMoneyObject{}, err
+	}
+	if status != "succeeded" {
+		return stripeMoneyObject{}, fmt.Errorf("stripe refund %s is not complete (status %q)", out.ID, status)
 	}
 	return out, nil
 }
@@ -653,6 +684,21 @@ func (p StripePayout) RefundCharge(ctx context.Context, paymentIntent string, ce
 	if strings.TrimSpace(reverseKey) == "" {
 		return ReversalResult{}, payoutDefinitelyNotSent(errors.New("refund idempotency key is required"))
 	}
+	// A previous POST may have returned a valid but non-terminal Refund. Stripe
+	// caches the response for the idempotency key, so retrying that POST alone
+	// can replay the same pending object forever. Once Merc has the provider ID,
+	// retrieve that exact object instead and observe its current status.
+	if p.store != nil {
+		if entryID, err := uuid.Parse(strings.TrimSpace(reverseKey)); err == nil {
+			storedRefundID, err := p.store.PendingReversalRefundRef(ctx, entryID)
+			if err != nil {
+				return ReversalResult{}, payoutOutcomeUnknown(fmt.Errorf("reading stored Stripe refund for %s: %w", entryID, err))
+			}
+			if storedRefundID != "" {
+				return p.retrieveStripeRefund(ctx, storedRefundID, paymentIntent, cents, currency, reverseKey)
+			}
+		}
+	}
 	form := url.Values{}
 	form.Set("payment_intent", paymentIntent)
 	form.Set("amount", strconv.FormatInt(cents, 10))
@@ -682,11 +728,84 @@ func (p StripePayout) RefundCharge(ctx context.Context, paymentIntent string, ce
 		}
 		return ReversalResult{}, payoutDefinitelyNotSent(err)
 	}
-	out, err := parseStripeRefundObject(body, cents, currency, paymentIntent)
+	out, status, err := parseStripeRefundObjectState(body, cents, currency, paymentIntent, reverseKey)
 	if err != nil {
 		return ReversalResult{}, payoutOutcomeUnknown(err)
 	}
-	return ReversalResult{Ref: out.ID, Cents: out.Amount, Currency: strings.ToLower(out.Currency), Instrument: "charge_refund"}, nil
+	result := ReversalResult{
+		Ref: out.ID, Cents: out.Amount, Currency: strings.ToLower(out.Currency),
+		Instrument: "charge_refund", ProviderStatus: status,
+	}
+	if p.store != nil {
+		entryID, err := uuid.Parse(strings.TrimSpace(reverseKey))
+		if err != nil {
+			return ReversalResult{}, payoutOutcomeUnknown(fmt.Errorf("Stripe refund %s has no durable payout entry key", out.ID))
+		}
+		if err := p.store.RecordReversalRefundRef(ctx, entryID, out.ID); err != nil {
+			return ReversalResult{}, payoutOutcomeUnknown(fmt.Errorf("recording Stripe refund %s: %w", out.ID, err))
+		}
+	}
+	return result, nil
+}
+
+// retrieveStripeRefund observes the exact refund already returned by a prior
+// recovery POST. It deliberately uses GET: no new provider-side refund can be
+// created while a pending or requires_action object is being resolved.
+func (p StripePayout) retrieveStripeRefund(
+	ctx context.Context, refundID, paymentIntent string, cents int64, currency, reverseKey string,
+) (ReversalResult, error) {
+	if p.secret == "" {
+		return ReversalResult{}, payoutDefinitelyNotSent(errPayoutUnconfigured)
+	}
+	if p.http == nil {
+		return ReversalResult{}, payoutDefinitelyNotSent(errors.New("Stripe payout HTTP client is unavailable"))
+	}
+	if _, err := authorizePaymentOperation(paymentOperationRead, 0, "", p.secret); err != nil {
+		return ReversalResult{}, payoutDefinitelyNotSent(err)
+	}
+	refundID = strings.TrimSpace(refundID)
+	if !validStripeObjectID(refundID, "re_") {
+		return ReversalResult{}, payoutOutcomeUnknown(errors.New("invalid stored Stripe refund reference"))
+	}
+	paymentIntent = strings.TrimSpace(paymentIntent)
+	if !validStripeObjectID(paymentIntent, "pi_") {
+		return ReversalResult{}, payoutOutcomeUnknown(errors.New("invalid Stripe payment intent for stored refund"))
+	}
+	if cents <= 0 {
+		return ReversalResult{}, payoutOutcomeUnknown(fmt.Errorf("non-positive stored refund amount %d cents", cents))
+	}
+	if err := RequireSettlementCurrency(currency); err != nil {
+		return ReversalResult{}, payoutOutcomeUnknown(fmt.Errorf("stored refund currency refused: %w", err))
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		"https://api.stripe.com/v1/refunds/"+url.PathEscape(refundID), nil)
+	if err != nil {
+		return ReversalResult{}, payoutOutcomeUnknown(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+p.secret)
+	resp, err := doStripeRequest(p.http, req)
+	if err != nil {
+		return ReversalResult{}, payoutOutcomeUnknown(fmt.Errorf("Stripe refund retrieval request: %w", err))
+	}
+	defer resp.Body.Close()
+	body, err := readBoundedRemoteBody(resp.Body, stripeAPIResponseMaxBytes)
+	if err != nil {
+		return ReversalResult{}, payoutOutcomeUnknown(fmt.Errorf("Stripe refund retrieval response read: %w", err))
+	}
+	if resp.StatusCode/100 != 2 {
+		return ReversalResult{}, payoutOutcomeUnknown(fmt.Errorf("Stripe refund retrieval failed (%d): %s", resp.StatusCode, strings.TrimSpace(string(body))))
+	}
+	out, status, err := parseStripeRefundObjectState(body, cents, currency, paymentIntent, reverseKey)
+	if err != nil {
+		return ReversalResult{}, payoutOutcomeUnknown(err)
+	}
+	if out.ID != refundID {
+		return ReversalResult{}, payoutOutcomeUnknown(fmt.Errorf("Stripe refund retrieval returned %s, want %s", out.ID, refundID))
+	}
+	return ReversalResult{
+		Ref: out.ID, Cents: out.Amount, Currency: strings.ToLower(out.Currency),
+		Instrument: "charge_refund", ProviderStatus: status,
+	}, nil
 }
 
 func (p *ManualExportPayout) ReverseTransfer(_ context.Context, _ string, _ int64, _, _ string) (ReversalResult, error) {
