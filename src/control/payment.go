@@ -224,6 +224,25 @@ type PayoutResult struct {
 	CashMoved bool
 }
 
+// validatePayoutResult keeps the store's cash boundary tied to the provider
+// operation that produced the result. Stripe transfers are the only automated
+// cash-moving payout rail; non-cash results must explicitly identify a manual
+// export so an arbitrary string cannot be recorded as settlement evidence.
+func validatePayoutResult(result PayoutResult) error {
+	ref := strings.TrimSpace(result.Ref)
+	if result.CashMoved {
+		if !validStripeObjectID(ref, "tr_") {
+			return errors.New("cash-moving payout result requires a valid Stripe transfer reference")
+		}
+		return nil
+	}
+	const manualExportPrefix = "manual-export:"
+	if !strings.HasPrefix(ref, manualExportPrefix) || len(ref) == len(manualExportPrefix) {
+		return errors.New("non-cash payout result requires a manual-export reference")
+	}
+	return nil
+}
+
 // ReversalResult is the durable provider evidence for a completed recovery.
 type ReversalResult struct {
 	Ref      string // transfer reversal id or refund id
@@ -231,6 +250,26 @@ type ReversalResult struct {
 	Currency string
 	// Instrument is "transfer_reversal" or "charge_refund".
 	Instrument string
+}
+
+// validateReversalResult binds recovery evidence to the Stripe endpoint that
+// produced it. The instrument is part of the durable result so a refund cannot
+// be mistaken for a transfer reversal (or vice versa) during recovery.
+func validateReversalResult(result ReversalResult) error {
+	ref := strings.TrimSpace(result.Ref)
+	var prefix string
+	switch result.Instrument {
+	case "transfer_reversal":
+		prefix = "trr_"
+	case "charge_refund":
+		prefix = "re_"
+	default:
+		return fmt.Errorf("unsupported reversal instrument %q", result.Instrument)
+	}
+	if !validStripeObjectID(ref, prefix) {
+		return fmt.Errorf("%s reversal requires a valid Stripe %s reference", result.Instrument, prefix)
+	}
+	return nil
 }
 
 type Payout interface {

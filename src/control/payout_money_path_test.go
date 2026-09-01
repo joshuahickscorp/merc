@@ -216,6 +216,11 @@ func TestFinalizePayoutTerminalStatesAndSecondIsNoOp(t *testing.T) {
 	if _, ok, err := store.ClaimPayout(ctx, released.entryID); err != nil || !ok {
 		t.Fatalf("claim released fixture: ok=%v err=%v", ok, err)
 	}
+	if _, err := store.FinalizePayout(ctx, released.entryID, PayoutResult{
+		Ref: "fake", SentCents: released.creditCents, Currency: "usd", CashMoved: true,
+	}); err == nil {
+		t.Fatal("FinalizePayout accepted an arbitrary cash reference")
+	}
 	ref := "tr_released_" + uuid.NewString()
 	state, err := store.FinalizePayout(ctx, released.entryID, PayoutResult{
 		Ref: ref, SentCents: released.creditCents, Currency: "usd", CashMoved: true,

@@ -1561,8 +1561,9 @@ func (s *Store) ClaimReversals(ctx context.Context, lease time.Duration, limit i
 // still be reversing (CAS) so a retry after terminal success is inert under the
 // same reverse_ref.
 func (s *Store) FinalizeReversal(ctx context.Context, entryID uuid.UUID, result ReversalResult) (string, error) {
-	if strings.TrimSpace(result.Ref) == "" {
-		return "", errors.New("reversal result has no durable reference")
+	result.Ref = strings.TrimSpace(result.Ref)
+	if err := validateReversalResult(result); err != nil {
+		return "", fmt.Errorf("reversal result refused: %w", err)
 	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {

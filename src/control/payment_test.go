@@ -56,6 +56,48 @@ func TestMarkPayoutRefusesReleasedWithoutRef(t *testing.T) {
 	}
 }
 
+func TestProviderFinalizationResultsRequireTypedReferences(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		result PayoutResult
+		wantOK bool
+	}{
+		{name: "stripe transfer", result: PayoutResult{Ref: "tr_test_1", CashMoved: true}, wantOK: true},
+		{name: "cash rejects arbitrary ref", result: PayoutResult{Ref: "fake", CashMoved: true}},
+		{name: "cash rejects refund ref", result: PayoutResult{Ref: "re_test_1", CashMoved: true}},
+		{name: "manual export", result: PayoutResult{Ref: "manual-export:/tmp/payouts.csv"}, wantOK: true},
+		{name: "non-cash rejects provider transfer", result: PayoutResult{Ref: "tr_test_1"}},
+		{name: "non-cash rejects bare prefix", result: PayoutResult{Ref: "manual-export:"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validatePayoutResult(tc.result)
+			if (err == nil) != tc.wantOK {
+				t.Fatalf("validatePayoutResult(%+v) error=%v, wantOK=%v", tc.result, err, tc.wantOK)
+			}
+		})
+	}
+
+	for _, tc := range []struct {
+		name   string
+		result ReversalResult
+		wantOK bool
+	}{
+		{name: "transfer reversal", result: ReversalResult{Ref: "trr_test_1", Instrument: "transfer_reversal"}, wantOK: true},
+		{name: "charge refund", result: ReversalResult{Ref: "re_test_1", Instrument: "charge_refund"}, wantOK: true},
+		{name: "transfer reversal rejects refund", result: ReversalResult{Ref: "re_test_1", Instrument: "transfer_reversal"}},
+		{name: "refund rejects transfer", result: ReversalResult{Ref: "tr_test_1", Instrument: "charge_refund"}},
+		{name: "unknown instrument", result: ReversalResult{Ref: "trr_test_1", Instrument: "other"}},
+		{name: "malformed reference", result: ReversalResult{Ref: "fake", Instrument: "transfer_reversal"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateReversalResult(tc.result)
+			if (err == nil) != tc.wantOK {
+				t.Fatalf("validateReversalResult(%+v) error=%v, wantOK=%v", tc.result, err, tc.wantOK)
+			}
+		})
+	}
+}
+
 func TestManualExportPayout(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "payouts.csv")
 	p := newManualExportPayout(path)

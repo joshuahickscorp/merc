@@ -457,6 +457,12 @@ func TestReversalCASTerminalIntegration(t *testing.T) {
 		}
 	}
 
+	if _, err := store.FinalizeReversal(ctx, entryID, ReversalResult{
+		Ref: "fake", Cents: 100, Currency: "usd", Instrument: "transfer_reversal",
+	}); err == nil {
+		t.Fatal("FinalizeReversal accepted an arbitrary provider reference")
+	}
+
 	// One ref, generated per run so it is unique against the UNIQUE index, and
 	// then REPLAYED -- idempotency means the same reference arriving twice, which
 	// is what a provider retry actually looks like.  A second, different ref is
@@ -512,12 +518,12 @@ func (fakeReverserPayout) Send(context.Context, uuid.UUID, int64, string, string
 
 func (fakeReverserPayout) ReverseTransfer(_ context.Context, transferRef string, cents int64, currency, reverseKey string) (ReversalResult, error) {
 	return ReversalResult{
-		Ref: "trr-" + reverseKey, Cents: cents, Currency: currency, Instrument: "transfer_reversal",
+		Ref: "trr_" + reverseKey, Cents: cents, Currency: currency, Instrument: "transfer_reversal",
 	}, nil
 }
 
 func (fakeReverserPayout) RefundCharge(_ context.Context, pi string, cents int64, currency, reverseKey string) (ReversalResult, error) {
 	return ReversalResult{
-		Ref: "re-" + reverseKey, Cents: cents, Currency: currency, Instrument: "charge_refund",
+		Ref: "re_" + reverseKey, Cents: cents, Currency: currency, Instrument: "charge_refund",
 	}, nil
 }

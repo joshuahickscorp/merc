@@ -1233,8 +1233,9 @@ func (s *Store) DeferPayout(ctx context.Context, entryID uuid.UUID, cause error)
 }
 
 func (s *Store) FinalizePayout(ctx context.Context, entryID uuid.UUID, result PayoutResult) (string, error) {
-	if strings.TrimSpace(result.Ref) == "" {
-		return "", errors.New("payout result has no durable reference")
+	result.Ref = strings.TrimSpace(result.Ref)
+	if err := validatePayoutResult(result); err != nil {
+		return "", fmt.Errorf("payout result refused: %w", err)
 	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
