@@ -970,6 +970,13 @@ func (s *Store) JobTaskReceipts(ctx context.Context, jobID uuid.UUID) ([]TaskRec
 	if plan != nil && workload != nil {
 		maxTokens = effectiveObservedOutputMaxTokens(*workload, *plan)
 	}
+	// Prefetch the frozen settlement authority alongside the receipt rows. The
+	// old fallback called loadObservedOutputSettlement once per task when no
+	// buyer-charge ledger projection existed, multiplying receipt latency and
+	// rereading the same immutable job documents. Keep the reducer as the money
+	// authority, but feed it one bounded task snapshot and one cached economic
+	// plan assertion.
+	var economicPlan *EconomicPlan
 	rows, err := s.pool.Query(ctx,
 		`SELECT t.id, COALESCE(t.chunk_index,0), t.status, t.is_honeypot,
 		        COALESCE(vw.input_snapshot->>'engine',t.execution_engine,''),
@@ -984,13 +991,24 @@ func (s *Store) JobTaskReceipts(ctx context.Context, jobID uuid.UUID) ([]TaskRec
 		        COALESCE(t.expected_output_records,0),
 		        t.reported_tokens_used,
 		        t.economic_buyer_charge_usd::float8,
+		        t.economic_supplier_payout_usd::float8,
+		        t.economic_buyer_charge_nanos,
+		        t.economic_supplier_payout_nanos,
+		        j.id,
+		        j.workload_decision,
+		        COALESCE(j.workload_decision_sha256,''),
+		        j.compute_plan,
+		        COALESCE(j.compute_plan_sha256,''),
+		        ep.plan_json,
 		        COALESCE((
 		          SELECT -le.amount_usd::float8 FROM ledger_entries le
 		           WHERE le.task_id = t.id AND le.kind = 'buyer_charge'
 		           LIMIT 1
 		        ),0)
 		 FROM tasks t
+		 JOIN jobs j ON j.id = t.job_id
 		 LEFT JOIN verification_work vw ON vw.task_id=t.id AND vw.attempt=t.retry_count
+		 LEFT JOIN job_economic_plans ep ON ep.job_id = j.id
 		 WHERE t.job_id = $1
 		 ORDER BY COALESCE(t.chunk_index,0), t.id`,
 		jobID)
@@ -1013,13 +1031,24 @@ func (s *Store) JobTaskReceipts(ctx context.Context, jobID uuid.UUID) ([]TaskRec
 			verificationSelected         *bool
 			expectedRecords              int64
 			reportedTokens               *int64
-			frozenCharge                 *float64
+			frozenCharge, frozenPayout   *float64
+			buyerNanos, supplierNanos    *int64
+			authorityJobID               uuid.UUID
+			workloadJSON                 []byte
+			workloadSHA256               string
+			computePlanJSON              []byte
+			computePlanSHA256            string
+			economicPlanJSON             []byte
 			billedCharge                 float64
 		)
 		if err := rows.Scan(&taskID, &chunk, &status, &isHoneypot, &engine, &build, &buildPolicy, &kind, &verdict,
 			&cellID, &runtimeID, &matrixSHA, &modelKind,
 			&verificationClass, &verificationSelected,
-			&expectedRecords, &reportedTokens, &frozenCharge, &billedCharge); err != nil {
+			&expectedRecords, &reportedTokens, &frozenCharge, &frozenPayout,
+			&buyerNanos, &supplierNanos,
+			&authorityJobID, &workloadJSON, &workloadSHA256,
+			&computePlanJSON, &computePlanSHA256, &economicPlanJSON,
+			&billedCharge); err != nil {
 			return nil, err
 		}
 		tr := taskReceiptRowWithRuntimePolicy(chunk, status, isHoneypot, engine, build, buildPolicy,
@@ -1051,7 +1080,36 @@ func (s *Store) JobTaskReceipts(ctx context.Context, jobID uuid.UUID) ([]TaskRec
 				billed := billedCharge
 				rebate := roundUSD(0)
 				if billed <= 0 {
-					settled, serr := loadObservedOutputSettlement(ctx, s.pool, taskID)
+					if frozenPayout == nil {
+						return nil, fmt.Errorf("task %s has no frozen supplier payout", taskID)
+					}
+					facts := observedOutputSettlementTaskFacts{
+						taskID:            taskID,
+						frozenCharge:      *frozenCharge,
+						frozenPayout:      *frozenPayout,
+						buyerNanos:        buyerNanos,
+						supplierNanos:     supplierNanos,
+						expectedRecords:   expectedRecords,
+						reportedTokens:    reportedTokens,
+						jobID:             authorityJobID,
+						workloadJSON:      workloadJSON,
+						workloadSHA256:    workloadSHA256,
+						computePlanJSON:   computePlanJSON,
+						computePlanSHA256: computePlanSHA256,
+						economicPlanJSON:  economicPlanJSON,
+					}
+					if economicPlan == nil && len(economicPlanJSON) > 0 {
+						loaded, _, perr := assertDenormalizedEconomicPlanMoney(
+							ctx, s.pool, authorityJobID,
+						)
+						if perr != nil {
+							return nil, perr
+						}
+						economicPlan = &loaded
+					}
+					settled, serr := settleObservedOutputSettlementTaskFacts(
+						ctx, s.pool, facts, economicPlan,
+					)
 					if serr != nil {
 						return nil, serr
 					}
