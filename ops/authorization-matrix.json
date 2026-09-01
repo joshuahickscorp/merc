@@ -231,6 +231,8 @@
         "GET /admin/runtime/selector/promotion",
         "GET /admin/runtime/selector/regret",
         "GET /admin/scheduler/explain",
+        "GET /admin/stripe-payment-failures",
+        "GET /admin/stripe-risk-events",
         "GET /admin/workers",
         "POST /admin/buyers/{id}/prepaid-refund",
         "POST /admin/controls/{name}",
@@ -253,5 +255,5 @@
   "produced_by": "ops/scripts/produce-authorization-matrix-binding.py",
   "binding_status": "BOUND",
   "validated_by": "ops/scripts/validate-authorization-matrix.py",
-  "validator_output": "authorization matrix: PASS (126 routes, 8 roles, default deny)"
+  "validator_output": "authorization matrix: PASS (128 routes, 8 roles, default deny)"
 }

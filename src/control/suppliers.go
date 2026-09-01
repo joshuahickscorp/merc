@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log"
 	"net/http"
 	"os"
-	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -147,23 +147,6 @@ func (s *Store) CreateWorkerTokenForBuyer(ctx context.Context, buyerID, workerID
 	return s.CreateWorkerToken(ctx, workerID, supplierID)
 }
 
-func (s *Store) SetSupplierPayoutsEnabledByAcct(ctx context.Context, acct string, enabled bool) error {
-	_, err := s.pool.Exec(ctx,
-		`UPDATE suppliers SET payouts_enabled = $2 WHERE stripe_acct = $1`, acct, enabled)
-	return err
-}
-
-func (s *Store) HasSupplierStripeAcct(ctx context.Context, acct string) (bool, error) {
-	if !strings.HasPrefix(acct, "acct_") {
-		return false, nil
-	}
-	var exists bool
-	err := s.pool.QueryRow(ctx,
-		`SELECT EXISTS(SELECT 1 FROM suppliers WHERE stripe_acct = $1)`, acct,
-	).Scan(&exists)
-	return exists, err
-}
-
 func decodeEmptySupplierBody(r *http.Request) error {
 	if r.Body == nil {
 		return nil
@@ -294,7 +277,6 @@ func (s *Server) handleSupplierStatus(w http.ResponseWriter, r *http.Request) {
 		if out, gerr := stripeGet(r.Context(), "accounts/"+acct); gerr == nil {
 			if pe, ok := out["payouts_enabled"].(bool); ok {
 				payoutsEnabled = pe
-				_ = s.store.SetSupplierPayoutsEnabledByAcct(r.Context(), acct, pe) // keep cache fresh
 			}
 		}
 	}
@@ -346,8 +328,10 @@ func (s *Server) handleConnectWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var ev struct {
+		ID         string `json:"id"`
 		Type       string `json:"type"`
 		Account    string `json:"account"`
+		Created    int64  `json:"created"`
 		APIVersion string `json:"api_version"`
 		Livemode   *bool  `json:"livemode"`
 		Data       struct {
@@ -364,32 +348,37 @@ func (s *Server) handleConnectWebhook(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "connect webhook contract mismatch")
 		return
 	}
-	if ev.Type == "account.updated" {
-		obj := ev.Data.Object
-		acct, _ := obj["id"].(string)
-		if stripeConnectedAccountMismatch(ev.Account, acct) {
-			writeErr(w, http.StatusBadRequest, "connected account mismatch")
-			return
-		}
-		if acct == "" {
-			acct = ev.Account
-		}
-		if acct != "" {
-			known, err := s.store.HasSupplierStripeAcct(r.Context(), acct)
-			if err != nil {
-				writeErr(w, http.StatusInternalServerError, "updating payout readiness")
-				return
-			}
-			if !known {
-				writeErr(w, http.StatusBadRequest, "unknown connected account")
-				return
-			}
-			pe, _ := obj["payouts_enabled"].(bool)
-			if err := s.store.SetSupplierPayoutsEnabledByAcct(r.Context(), acct, pe); err != nil {
-				writeErr(w, http.StatusInternalServerError, "updating payout readiness: "+err.Error())
-				return
-			}
-		}
+	if !isStripeConnectEventType(ev.Type) {
+		w.Header().Set("X-Merc-Stripe-Event-Outcome", "accepted")
+		w.WriteHeader(http.StatusOK)
+		return
 	}
+	object := ev.Data.Object
+	if object == nil {
+		writeErr(w, http.StatusBadRequest, "unparseable Connect webhook object")
+		return
+	}
+	event, err := parseStripeConnectEvent(ev.ID, ev.Type, ev.Account, ev.Created, object, payload)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	result, err := s.store.ApplyConnectWebhookEvent(r.Context(), event)
+	if errors.Is(err, errInvalidStripeConnectEvent) || errors.Is(err, errUnknownConnectAccount) {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err != nil {
+		log.Printf("connect webhook: event apply failed type=%s event=%s: %v", ev.Type, ev.ID, err)
+		writeErr(w, http.StatusInternalServerError, "recording Connect webhook event")
+		return
+	}
+	outcome := "recorded"
+	if result.Duplicate {
+		outcome = "duplicate"
+	} else if result.Stale {
+		outcome = "stale_ignored"
+	}
+	w.Header().Set("X-Merc-Stripe-Event-Outcome", outcome)
 	w.WriteHeader(http.StatusOK)
 }

@@ -66,6 +66,12 @@ fenced by the retry-attempt epoch.
   supervised Sandbox matrix uses them to prove first-application ordering and
   replay against staging state without exposing ledger values or provider
   secrets.
+- Connect `account.updated` facts are bound to the connected account and applied
+  monotonically; Connect `payout.*` deliveries are append-only observations and
+  cannot settle or reverse a Merc supplier-credit ledger row.
+- `payment_intent.payment_failed` deliveries are retained as explicit provider
+  failures but never mutate cash or retry state: a late failure can belong to an
+  older PaymentIntent while a later attempt succeeds.
 - Job cancellation, task lease recovery, retry exhaustion, and result commit are
   transactional. Duplicate commits and duplicate money effects are rejected.
 - On macOS the shipped supplier profile denies inbound networking, listening

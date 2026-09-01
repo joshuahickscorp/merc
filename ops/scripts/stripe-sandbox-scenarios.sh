@@ -83,7 +83,7 @@ expected_billing_url="$(merc_stripe_expected_billing_url "$STAGING_TLS_HOSTNAME"
 expected_connect_url="$(merc_stripe_expected_connect_url "$STAGING_TLS_HOSTNAME")"
 merc_stripe_endpoint_contract \
   "$billing_endpoint" "$STRIPE_BILLING_WEBHOOK_ENDPOINT_ID" "$expected_billing_url" \
-  "setup_intent.succeeded,payment_method.attached,payment_intent.succeeded,charge.refunded,charge.dispute.created,charge.dispute.funds_withdrawn,charge.dispute.funds_reinstated,charge.dispute.closed"
+  "setup_intent.succeeded,payment_method.attached,payment_intent.succeeded,payment_intent.payment_failed,charge.refunded,charge.dispute.created,charge.dispute.funds_withdrawn,charge.dispute.funds_reinstated,charge.dispute.closed,radar.early_fraud_warning.created,radar.early_fraud_warning.updated"
 merc_stripe_endpoint_contract \
   "$connect_endpoint" "$STRIPE_CONNECT_WEBHOOK_ENDPOINT_ID" "$expected_connect_url" \
   "account.updated,payout.created,payout.paid,payout.failed"

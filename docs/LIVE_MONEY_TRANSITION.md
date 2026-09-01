@@ -116,15 +116,27 @@ Compiled billing handlers:
 - `setup_intent.succeeded`
 - `payment_method.attached`
 - `payment_intent.succeeded`
+- `payment_intent.payment_failed`
 - `charge.refunded`
 - `charge.dispute.created`
 - `charge.dispute.funds_withdrawn`
 - `charge.dispute.funds_reinstated`
 - `charge.dispute.closed`
+- `radar.early_fraud_warning.created`
+- `radar.early_fraud_warning.updated`
 
 Compiled Connect handlers:
 
 - `account.updated`
+- `payout.created`
+- `payout.paid`
+- `payout.failed`
+
+`account.updated` is the only Connect event that changes Merc state, and its
+`payouts_enabled` fact is applied only in event-time order. The `payout.*`
+events are retained as append-only observations of Stripe's connected-account
+bank payout; they do not settle or reverse Merc's separate supplier-credit
+transfer.
 
 A live endpoint that omits a handled cash event will never deliver it.
 `ops/scripts/validate-stripe-endpoint-subscriptions.py` checks the compiled

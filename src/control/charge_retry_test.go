@@ -93,6 +93,50 @@ func TestManualReviewEndsTheAutomaticLoop(t *testing.T) {
 	}
 }
 
+func TestChargeBatchRetryCapMovesBatchAndMembersToManualReview(t *testing.T) {
+	ctx, store, pool := openIsolatedTestStore(t)
+	buyerID, batchID, jobID := uuid.New(), uuid.New(), uuid.New()
+	currency := SettlementCurrencyCode()
+
+	_, err := pool.Exec(ctx, `INSERT INTO buyers (id,email) VALUES ($1,$2)`,
+		buyerID, buyerID.String()+"@batch-retry.invalid")
+	mustf(t, err, "insert buyer: %v")
+	_, err = pool.Exec(ctx, `
+		INSERT INTO charge_batches (id,buyer_id,amount_usd,currency,status,attempts)
+		VALUES ($1,$2,5.00,$3,'attempting',$4)`,
+		batchID, buyerID, currency, chargeMaxAttempts-1)
+	mustf(t, err, "insert charge batch: %v")
+	_, err = pool.Exec(ctx, `
+		INSERT INTO jobs (id,buyer_id,status,job_type,input_ref,actual_usd,currency,charge_status,charge_batch_id)
+		VALUES ($1,$2,'complete','embed','batch-retry/input',5.00,$3,'outcome_unknown',$4)`,
+		jobID, buyerID, currency, batchID)
+	mustf(t, err, "insert batch member: %v")
+
+	attempts, err := store.BumpChargeBatchRetry(ctx, batchID, func(int) time.Duration {
+		return time.Second
+	})
+	mustf(t, err, "BumpChargeBatchRetry: %v")
+	if attempts != chargeMaxAttempts {
+		t.Fatalf("attempts=%d, want cap %d", attempts, chargeMaxAttempts)
+	}
+
+	var batchStatus, jobStatus string
+	mustf(t, pool.QueryRow(ctx, `SELECT status FROM charge_batches WHERE id=$1`, batchID).
+		Scan(&batchStatus), "read batch status: %v")
+	mustf(t, pool.QueryRow(ctx, `SELECT charge_status FROM jobs WHERE id=$1`, jobID).
+		Scan(&jobStatus), "read member status: %v")
+	if batchStatus != chargeStatusManualReview || jobStatus != chargeStatusManualReview {
+		t.Fatalf("batch/member statuses=%q/%q, want manual_review/manual_review", batchStatus, jobStatus)
+	}
+	batches, err := store.AttemptingChargeBatches(ctx, 10)
+	mustf(t, err, "AttemptingChargeBatches: %v")
+	for _, batch := range batches {
+		if batch.ID == batchID {
+			t.Fatal("manual-review batch remained on the automatic queue")
+		}
+	}
+}
+
 func containsJob(ids []uuid.UUID, want uuid.UUID) bool {
 	for _, id := range ids {
 		if id == want {

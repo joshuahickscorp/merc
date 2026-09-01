@@ -157,8 +157,12 @@ STEP
 ask STRIPE_WEBHOOK_SECRET "whsec_…" \
 "https://dashboard.stripe.com/test/webhooks → 'Add endpoint'
   URL:    https://YOUR-HOST/v1/stripe/webhook
-  Events: payment_intent.succeeded, payment_intent.payment_failed,
-          charge.refunded, charge.dispute.created, charge.dispute.closed
+  Events: setup_intent.succeeded, payment_method.attached,
+          payment_intent.succeeded, payment_intent.payment_failed,
+          charge.refunded, charge.dispute.created,
+          charge.dispute.funds_withdrawn, charge.dispute.funds_reinstated,
+          charge.dispute.closed,
+          radar.early_fraud_warning.created, radar.early_fraud_warning.updated
 Create it, then 'Signing secret' → Reveal → copy." \
 "Signs the BILLING webhook. Without it the control plane cannot trust that a payment actually succeeded, and it returns 503 rather than guessing."
 
@@ -172,10 +176,9 @@ See docs/ARCHITECTURE.md for which path you are on." \
 ask MERC_CONNECT_WEBHOOK_SECRET "whsec_… (DIFFERENT from the billing one)" \
 "https://dashboard.stripe.com/test/webhooks → 'Add endpoint' — a SECOND one
   URL:    https://YOUR-HOST/v1/stripe/connect-webhook
-  Events: account.updated, transfer.created, transfer.reversed,
-          payout.created, payout.paid, payout.failed
+  Events: account.updated, payout.created, payout.paid, payout.failed
 Create it, then reveal its own signing secret." \
-"Signs the CONNECT webhook — supplier payouts and transfer reversals. This is the one that tells you money left the platform."
+"Signs the CONNECT webhook — account readiness and connected-account bank-payout observations. Merc transfer settlement remains on the internal payout operation path."
 
 ask STRIPE_CONNECT_WEBHOOK_ENDPOINT_ID "we_… (skip if using \`stripe listen\`)" \
 "The second endpoint's id, same place. Skip if using \`stripe listen\`." \

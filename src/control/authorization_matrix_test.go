@@ -131,8 +131,9 @@ func TestAuthorizationMatrixProtectedRoutesRejectAnonymousAndWrongCredentialName
 	// worker token boundary as /v1/worker/earnings; no cash movement.
 	// 106 after the versioned UI composition reads (GET /v1/ui/v1/buy buyer-owned,
 	// GET /v1/ui/v1/earn worker-owned). They copy existing handler bodies; they
-	// cannot quote, submit, charge, or pay.
-	if checked != 106 {
-		t.Fatalf("checked %d protected routes, want 106", checked)
+	// cannot quote, submit, or pay. The operator-only Stripe failure observation
+	// read is the 108th protected route.
+	if checked != 108 {
+		t.Fatalf("checked %d protected routes, want 108", checked)
 	}
 }

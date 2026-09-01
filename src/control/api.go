@@ -214,6 +214,8 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("GET /admin/payouts", s.authAdmin(http.HandlerFunc(s.handleAdminPayouts)))
 	mux.Handle("GET /admin/fraud-flags", s.authAdmin(http.HandlerFunc(s.handleAdminFraudFlags)))
 	mux.Handle("GET /admin/fraud", s.authAdmin(http.HandlerFunc(s.handleAdminFraud)))
+	mux.Handle("GET /admin/stripe-payment-failures", s.authAdmin(http.HandlerFunc(s.handleAdminStripePaymentFailures)))
+	mux.Handle("GET /admin/stripe-risk-events", s.authAdmin(http.HandlerFunc(s.handleAdminStripeRiskEvents)))
 	mux.Handle("GET /admin/drift", s.authAdmin(http.HandlerFunc(s.handleAdminDrift)))
 	mux.Handle("GET /admin/plan-accuracy", s.authAdmin(http.HandlerFunc(s.handleAdminPlanAccuracy)))
 	mux.Handle("GET /admin/runtime/selector/regret", s.authAdmin(http.HandlerFunc(s.handleAdminSelectorLiabilityRegret)))
@@ -3533,6 +3535,24 @@ func (s *Server) handleAdminFraud(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, f)
+}
+
+func (s *Server) handleAdminStripeRiskEvents(w http.ResponseWriter, r *http.Request) {
+	events, err := s.store.ListStripeRiskEvents(r.Context(), 100)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, events)
+}
+
+func (s *Server) handleAdminStripePaymentFailures(w http.ResponseWriter, r *http.Request) {
+	events, err := s.store.ListStripePaymentFailureEvents(r.Context(), 100)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, events)
 }
 
 func (s *Server) handleAdminDrift(w http.ResponseWriter, r *http.Request) {

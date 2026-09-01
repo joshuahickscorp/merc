@@ -491,16 +491,42 @@ func (s *Store) JobFrozenChargeInfo(ctx context.Context, jobID uuid.UUID) (uuid.
 }
 
 func (s *Store) BumpChargeBatchRetry(ctx context.Context, batchID uuid.UUID, backoff func(int) time.Duration) (int, error) {
-	var attempts int
-	if err := s.pool.QueryRow(ctx,
-		`UPDATE charge_batches SET attempts = attempts + 1 WHERE id = $1 RETURNING attempts`,
-		batchID).Scan(&attempts); err != nil {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
 		return 0, err
 	}
-	_, err := s.pool.Exec(ctx,
-		`UPDATE charge_batches SET next_at = now() + make_interval(secs => $2) WHERE id = $1`,
-		batchID, backoff(attempts).Seconds())
-	return attempts, err
+	defer tx.Rollback(ctx)
+
+	var attempts int
+	if err := tx.QueryRow(ctx,
+		`UPDATE charge_batches SET attempts = attempts + 1
+		   WHERE id = $1 AND status IN ('attempting','outcome_unknown')
+		 RETURNING attempts`, batchID).Scan(&attempts); err != nil {
+		return 0, err
+	}
+	if attempts >= chargeMaxAttempts {
+		if tag, err := tx.Exec(ctx,
+			`UPDATE charge_batches SET status='manual_review',next_at=NULL
+			   WHERE id=$1 AND status IN ('attempting','outcome_unknown')`, batchID); err != nil {
+			return 0, err
+		} else if tag.RowsAffected() != 1 {
+			return 0, fmt.Errorf("charge batch %s lost its manual-review transition", batchID)
+		}
+		if _, err := tx.Exec(ctx,
+			`UPDATE jobs SET charge_status='manual_review',charge_next_at=NULL
+			   WHERE charge_batch_id=$1 AND charge_status IN ('outcome_unknown','failed')`, batchID); err != nil {
+			return 0, err
+		}
+	} else if _, err := tx.Exec(ctx,
+		`UPDATE charge_batches SET next_at = now() + make_interval(secs => $2)
+		   WHERE id = $1 AND status IN ('attempting','outcome_unknown')`,
+		batchID, backoff(attempts).Seconds()); err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return 0, err
+	}
+	return attempts, nil
 }
 
 func (s *Store) SetJobCharged(ctx context.Context, jobID uuid.UUID, charge ChargeResult) error {

@@ -38,10 +38,10 @@ import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
-BILLING_SOURCES = ("src/control/billing.go", "src/control/stripe_cash_events.go")
-CONNECT_SOURCES = ("src/control/suppliers.go",)
+BILLING_SOURCES = ("src/control/billing.go", "src/control/stripe_cash_events.go", "src/control/stripe_risk_events.go")
+CONNECT_SOURCES = ("src/control/suppliers.go", "src/control/stripe_connect_events.go")
 
-EVENT_RE = re.compile(r'"((?:payment_intent|charge|customer|payment_method|setup_intent)\.[a-z_.]+)"')
+EVENT_RE = re.compile(r'"((?:payment_intent|charge|customer|payment_method|setup_intent|radar)\.[a-z_.]+)"')
 CONNECT_EVENT_RE = re.compile(r'"((?:account|transfer|payout|application)\.[a-z_.]+)"')
 
 

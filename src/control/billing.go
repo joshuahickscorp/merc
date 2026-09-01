@@ -45,6 +45,32 @@ func newStripeHTTPClient() *http.Client {
 
 var errRemoteResponseTooLarge = errors.New("remote response exceeds configured size limit")
 
+// stripeRequestError preserves enough provider response metadata for callers
+// to distinguish an explicit request rejection from an ambiguous provider or
+// transport failure. A 409, timeout, or 5xx remains ambiguous because Stripe
+// may have accepted the idempotent request before returning the error.
+type stripeRequestError struct {
+	path       string
+	statusCode int
+	detail     string
+}
+
+func (e *stripeRequestError) Error() string {
+	return fmt.Sprintf("stripe %s (%d): %s", e.path, e.statusCode, e.detail)
+}
+
+func (e *stripeRequestError) definitelyNotSent() bool {
+	if e == nil || e.statusCode < http.StatusBadRequest || e.statusCode >= http.StatusInternalServerError {
+		return false
+	}
+	switch e.statusCode {
+	case http.StatusRequestTimeout, http.StatusConflict, http.StatusTooManyRequests:
+		return false
+	default:
+		return true
+	}
+}
+
 func readBoundedRemoteBody(r io.Reader, maxBytes int64) ([]byte, error) {
 	if r == nil {
 		return nil, errors.New("remote response body is nil")
@@ -154,7 +180,9 @@ func stripeForm(ctx context.Context, path string, form url.Values, idemKey strin
 		return nil, fmt.Errorf("stripe %s response read: %w", path, readErr)
 	}
 	if resp.StatusCode/100 != 2 {
-		return nil, fmt.Errorf("stripe %s (%d): %s", path, resp.StatusCode, strings.TrimSpace(string(body)))
+		return nil, &stripeRequestError{
+			path: path, statusCode: resp.StatusCode, detail: strings.TrimSpace(string(body)),
+		}
 	}
 	var out map[string]any
 	if err := json.Unmarshal(body, &out); err != nil {
@@ -214,6 +242,19 @@ func stripeIntegerField(out map[string]any, field string) (int64, error) {
 }
 
 func chargePaymentIntent(ctx context.Context, customer, paymentMethod string, cents int64, currency, idemKey string) (ChargeResult, error) {
+	return chargePaymentIntentWithKeys(ctx, customer, paymentMethod, cents, currency, idemKey, idemKey)
+}
+
+// chargePaymentIntentWithKeys keeps the durable Merc operation key in Stripe
+// metadata while allowing a retry after a provider-confirmed decline to use a
+// new Stripe idempotency key. Reusing a key after a cached 4xx would replay the
+// same rejection even if the buyer has since replaced the card.
+func chargePaymentIntentWithKeys(
+	ctx context.Context,
+	customer, paymentMethod string,
+	cents int64,
+	currency, operationKey, providerIdemKey string,
+) (ChargeResult, error) {
 	if cents <= 0 {
 		return ChargeResult{}, fmt.Errorf("non-positive charge amount %d cents", cents)
 	}
@@ -227,12 +268,12 @@ func chargePaymentIntent(ctx context.Context, customer, paymentMethod string, ce
 		"confirm":                    {"true"},
 		"off_session":                {"true"},
 		"expand[]":                   {"latest_charge"},
-		"metadata[cx_operation_key]": {idemKey},
+		"metadata[cx_operation_key]": {operationKey},
 	}
 	if paymentMethod != "" {
 		form.Set("payment_method", paymentMethod)
 	}
-	out, err := stripeForm(ctx, "payment_intents", form, idemKey)
+	out, err := stripeForm(ctx, "payment_intents", form, providerIdemKey)
 	if err != nil {
 		return ChargeResult{}, err
 	}
@@ -354,7 +395,7 @@ func chargeBuyer(
 	if err != nil || strings.TrimSpace(pm) == "" {
 		return ChargeResult{}, fmt.Errorf("buyer has no saved payment method")
 	}
-	armed, err := store.BeginBuyerChargeOperation(
+	armed, providerIdemKey, err := store.BeginBuyerChargeOperation(
 		ctx, idemKey, sourceKind, sourceID, buyerID, cust, pm, cents, settle.Code(),
 	)
 	if err != nil {
@@ -364,8 +405,21 @@ func chargeBuyer(
 		return ChargeResult{}, fmt.Errorf("%w: operation %s already crossed its durable request boundary",
 			errBuyerChargeOutcomeUnknown, idemKey)
 	}
-	charge, err := chargePaymentIntent(ctx, cust, pm, cents, settle.Code(), idemKey)
+	charge, err := chargePaymentIntentWithKeys(
+		ctx, cust, pm, cents, settle.Code(), idemKey, providerIdemKey,
+	)
 	if err != nil {
+		var providerErr *stripeRequestError
+		if errors.As(err, &providerErr) && providerErr.definitelyNotSent() {
+			if ferr := store.MarkBuyerChargeDefinitelyFailed(ctx, idemKey, err); ferr != nil {
+				_ = store.NoteBuyerChargeOutcomeUnknown(ctx, idemKey, ferr)
+				return ChargeResult{}, fmt.Errorf(
+					"%w: operation %s requires Stripe reconciliation after durable failure recording failed: %v",
+					errBuyerChargeOutcomeUnknown, idemKey, ferr)
+			}
+			return ChargeResult{}, fmt.Errorf("%w: operation %s: %v",
+				errBuyerChargeDefinitelyFailed, idemKey, err)
+		}
 		_ = store.NoteBuyerChargeOutcomeUnknown(ctx, idemKey, err)
 		return ChargeResult{}, fmt.Errorf("%w: operation %s requires Stripe reconciliation: %v",
 			errBuyerChargeOutcomeUnknown, idemKey, err)
@@ -468,6 +522,8 @@ func verifyStripeSigAt(payload []byte, sigHeader, secret string, now time.Time) 
 type billingPMSetter func(context.Context, string, string) error
 type stripeCashEventApplier func(context.Context, stripeCashEvent) (stripeCashEventResult, error)
 type buyerChargeReconciler func(context.Context, string, ChargeResult) error
+type stripeRiskEventRecorder func(context.Context, stripeRiskEvent) (stripeRiskEventResult, error)
+type stripePaymentFailureEventRecorder func(context.Context, stripePaymentFailureEvent) (stripePaymentFailureEventResult, error)
 
 func handleStripeWebhookWithSetter(
 	w http.ResponseWriter,
@@ -509,6 +565,38 @@ func handleStripeWebhookWithAllHandlersAtMode(
 	applyCashEvent stripeCashEventApplier,
 	reconcileCharge buyerChargeReconciler,
 	expectedLive bool,
+) {
+	handleStripeWebhookWithAllHandlersAtModeAndRisk(
+		w, r, secret, setPM, applyCashEvent, reconcileCharge, expectedLive, nil,
+	)
+}
+
+func handleStripeWebhookWithAllHandlersAtModeAndRisk(
+	w http.ResponseWriter,
+	r *http.Request,
+	secret string,
+	setPM billingPMSetter,
+	applyCashEvent stripeCashEventApplier,
+	reconcileCharge buyerChargeReconciler,
+	expectedLive bool,
+	recordRisk stripeRiskEventRecorder,
+) {
+	handleStripeWebhookWithAllHandlersAtModeAndRiskAndPaymentFailure(
+		w, r, secret, setPM, applyCashEvent, reconcileCharge, expectedLive,
+		recordRisk, nil,
+	)
+}
+
+func handleStripeWebhookWithAllHandlersAtModeAndRiskAndPaymentFailure(
+	w http.ResponseWriter,
+	r *http.Request,
+	secret string,
+	setPM billingPMSetter,
+	applyCashEvent stripeCashEventApplier,
+	reconcileCharge buyerChargeReconciler,
+	expectedLive bool,
+	recordRisk stripeRiskEventRecorder,
+	recordPaymentFailure stripePaymentFailureEventRecorder,
 ) {
 	payload, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 	if !verifyStripeSig(payload, r.Header.Get("Stripe-Signature"), secret) {
@@ -563,6 +651,33 @@ func handleStripeWebhookWithAllHandlersAtMode(
 				return
 			}
 		}
+	case "payment_intent.payment_failed":
+		var obj map[string]any
+		if err := json.Unmarshal(ev.Data.Object, &obj); err != nil {
+			writeErr(w, http.StatusBadRequest, "unparseable Stripe payment-failure object")
+			return
+		}
+		failureEvent, err := parseStripePaymentFailureEvent(ev.ID, ev.Created, obj, payload)
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, "invalid Stripe payment-failure event")
+			return
+		}
+		if recordPaymentFailure == nil {
+			writeErr(w, http.StatusInternalServerError, "Stripe payment-failure handler unavailable")
+			return
+		}
+		result, err := recordPaymentFailure(r.Context(), failureEvent)
+		if err != nil {
+			log.Printf("billing webhook: Stripe payment-failure record failed event=%s pi=%s: %v",
+				ev.ID, failureEvent.PaymentIntent, err)
+			writeErr(w, http.StatusInternalServerError, "recording Stripe payment failure")
+			return
+		}
+		outcome := "recorded"
+		if result.Duplicate {
+			outcome = "duplicate"
+		}
+		w.Header().Set("X-Merc-Stripe-Event-Outcome", outcome)
 	case "payment_intent.succeeded":
 		operationKey, charge, owned, err := parseStripeSucceededPaymentIntent(ev.Data.Object)
 		if err != nil {
@@ -581,6 +696,32 @@ func handleStripeWebhookWithAllHandlersAtMode(
 				return
 			}
 		}
+	case "radar.early_fraud_warning.created", "radar.early_fraud_warning.updated":
+		var obj map[string]any
+		if err := json.Unmarshal(ev.Data.Object, &obj); err != nil {
+			writeErr(w, http.StatusBadRequest, "unparseable Stripe risk object")
+			return
+		}
+		riskEvent, err := parseStripeRiskEvent(ev.ID, ev.Type, ev.Created, obj, payload)
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, "invalid Stripe risk event")
+			return
+		}
+		if recordRisk == nil {
+			writeErr(w, http.StatusInternalServerError, "Stripe risk-event handler unavailable")
+			return
+		}
+		result, err := recordRisk(r.Context(), riskEvent)
+		if err != nil {
+			log.Printf("billing webhook: Stripe risk event record failed type=%s event=%s: %v", ev.Type, ev.ID, err)
+			writeErr(w, http.StatusInternalServerError, "recording Stripe risk event")
+			return
+		}
+		outcome := "recorded"
+		if result.Duplicate {
+			outcome = "duplicate"
+		}
+		w.Header().Set("X-Merc-Stripe-Event-Outcome", outcome)
 	default:
 		if isStripeCashEventType(ev.Type) {
 			cashEvent, err := parseStripeCashEvent(ev.ID, ev.Type, ev.Created, ev.Data.Object, payload)
@@ -638,9 +779,10 @@ func (s *Server) handleStripeWebhook(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusServiceUnavailable, "stripe webhooks not configured (set STRIPE_WEBHOOK_SECRET)")
 		return
 	}
-	handleStripeWebhookWithAllHandlersAtMode(
+	handleStripeWebhookWithAllHandlersAtModeAndRiskAndPaymentFailure(
 		w, r, secret, s.store.SetBillingPMByCustomer, s.store.ApplyPaymentEventTx,
 		s.store.ReconcileBuyerChargeOperation, authority.Mode == PaymentModeLive,
+		s.store.ApplyStripeRiskEvent, s.store.ApplyStripePaymentFailureEvent,
 	)
 }
 

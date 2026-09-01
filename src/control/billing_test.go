@@ -131,6 +131,42 @@ func TestChargePaymentIntentRequiresExactTerminalCashFact(t *testing.T) {
 	})
 }
 
+func TestStripeChargeErrorClassificationKeepsAmbiguousOutcomesUnknown(t *testing.T) {
+	for _, tc := range []struct {
+		status int
+		want   bool
+	}{
+		{http.StatusBadRequest, true},
+		{http.StatusPaymentRequired, true},
+		{http.StatusForbidden, true},
+		{http.StatusNotFound, true},
+		{http.StatusRequestTimeout, false},
+		{http.StatusConflict, false},
+		{http.StatusTooManyRequests, false},
+		{http.StatusInternalServerError, false},
+	} {
+		t.Run(fmt.Sprintf("status_%d", tc.status), func(t *testing.T) {
+			err := &stripeRequestError{path: "payment_intents", statusCode: tc.status}
+			if got := err.definitelyNotSent(); got != tc.want {
+				t.Fatalf("definitelyNotSent()=%v for status %d, want %v", got, tc.status, tc.want)
+			}
+		})
+	}
+}
+
+func TestBuyerChargeProviderKeyChangesOnlyAfterDefiniteFailure(t *testing.T) {
+	const operation = "job-provider-key"
+	if got := buyerChargeProviderKey(operation, 1); got != operation {
+		t.Fatalf("first provider key=%q, want %q", got, operation)
+	}
+	if got := buyerChargeProviderKey(operation, 2); got != operation+"-retry-2" {
+		t.Fatalf("retry provider key=%q, want retry suffix", got)
+	}
+	if got := buyerChargeProviderKey(operation, 3); got == buyerChargeProviderKey(operation, 2) {
+		t.Fatalf("successive retry provider keys collided: %q", got)
+	}
+}
+
 func TestStripePaymentIntentFeeCashBindsCurrencyAndExactMinorUnits(t *testing.T) {
 	installSettlementCurrencyForTest(t, "jpy")
 	good := map[string]any{

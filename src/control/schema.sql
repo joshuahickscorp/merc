@@ -1290,6 +1290,8 @@ ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS data_country   TEXT;            -
 ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS quarantined_at TIMESTAMPTZ;     -- set by auto-quarantine (Verification V2)
 
 ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS payouts_enabled BOOLEAN DEFAULT false;
+ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS payouts_enabled_event_created BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS payouts_enabled_event_id TEXT NOT NULL DEFAULT '';
 
 
 CREATE TABLE IF NOT EXISTS quotes (
@@ -1768,7 +1770,7 @@ CREATE TABLE IF NOT EXISTS charge_batches (
     id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     buyer_id   UUID NOT NULL,
     amount_usd NUMERIC(10,6) NOT NULL,       -- FROZEN sum of the member jobs at formation
-    status     TEXT NOT NULL DEFAULT 'attempting',  -- attempting|charged
+    status     TEXT NOT NULL DEFAULT 'attempting',  -- attempting|manual_review|charged
     stripe_pi  TEXT,                          -- the PaymentIntent id, once confirmed
     created_at TIMESTAMPTZ DEFAULT now(),
     charged_at TIMESTAMPTZ
@@ -1805,7 +1807,8 @@ CREATE TABLE IF NOT EXISTS buyer_charge_operations (
     stripe_payment_method TEXT NOT NULL CHECK (btrim(stripe_payment_method) <> ''),
     amount_cents         BIGINT NOT NULL CHECK (amount_cents > 0),
     currency             TEXT NOT NULL CHECK (currency IN ('usd','cad','jpy')),
-    status               TEXT NOT NULL CHECK (status IN ('outcome_unknown','succeeded')),
+    status               TEXT NOT NULL CHECK (status IN ('outcome_unknown','failed','succeeded')),
+    provider_attempt     BIGINT NOT NULL DEFAULT 1 CHECK (provider_attempt > 0),
     payment_intent       TEXT UNIQUE,
     charge_id            TEXT UNIQUE,
     last_error           TEXT,
@@ -1817,6 +1820,13 @@ CREATE TABLE IF NOT EXISTS buyer_charge_operations (
 );
 CREATE INDEX IF NOT EXISTS buyer_charge_operations_status_idx
     ON buyer_charge_operations (status,created_at);
+ALTER TABLE buyer_charge_operations ADD COLUMN IF NOT EXISTS provider_attempt BIGINT NOT NULL DEFAULT 1;
+ALTER TABLE buyer_charge_operations DROP CONSTRAINT IF EXISTS buyer_charge_operations_status_check;
+ALTER TABLE buyer_charge_operations ADD CONSTRAINT buyer_charge_operations_status_check
+    CHECK (status IN ('outcome_unknown','failed','succeeded'));
+ALTER TABLE buyer_charge_operations DROP CONSTRAINT IF EXISTS buyer_charge_operations_provider_attempt_check;
+ALTER TABLE buyer_charge_operations ADD CONSTRAINT buyer_charge_operations_provider_attempt_check
+    CHECK (provider_attempt > 0);
 CREATE UNIQUE INDEX IF NOT EXISTS ledger_stripe_fee_ref_uniq ON ledger_entries (payout_ref) WHERE kind = 'stripe_fee';
 
 ALTER TABLE jobs ADD COLUMN IF NOT EXISTS economic_input_records  BIGINT;
@@ -2361,6 +2371,66 @@ CREATE TABLE IF NOT EXISTS stripe_webhook_events (
 CREATE INDEX IF NOT EXISTS stripe_webhook_events_object_idx
     ON stripe_webhook_events (event_type,object_id,event_created);
 
+-- Connect events are provider facts, but payout.* describes Stripe's bank
+-- payout inside the connected account, not Merc's internal supplier-credit
+-- transfer. Keep that observation separate so it cannot settle or reverse the
+-- Merc ledger by accident.
+CREATE TABLE IF NOT EXISTS stripe_connect_webhook_events (
+    event_id       TEXT PRIMARY KEY CHECK (btrim(event_id) <> ''),
+    event_type     TEXT NOT NULL CHECK (event_type IN (
+                     'account.updated','payout.created','payout.paid','payout.failed')),
+    account_id     TEXT NOT NULL CHECK (account_id LIKE 'acct_%'),
+    object_id      TEXT NOT NULL CHECK (btrim(object_id) <> ''),
+    event_created  BIGINT NOT NULL CHECK (event_created > 0),
+    payload_sha256 TEXT NOT NULL CHECK (payload_sha256 ~ '^[0-9a-f]{64}$'),
+    recorded_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS stripe_connect_webhook_events_account_idx
+    ON stripe_connect_webhook_events (account_id,event_created DESC);
+
+-- Early-fraud warnings are actionable risk observations, not cash reversals.
+-- Keep every provider delivery so an operator can inspect warning updates
+-- without allowing a warning to mutate the dispute or settlement state.
+CREATE TABLE IF NOT EXISTS stripe_risk_events (
+    event_id       TEXT PRIMARY KEY CHECK (btrim(event_id) <> ''),
+    event_type     TEXT NOT NULL CHECK (event_type IN (
+                     'radar.early_fraud_warning.created',
+                     'radar.early_fraud_warning.updated')),
+    warning_id     TEXT NOT NULL CHECK (btrim(warning_id) <> ''),
+    charge_id      TEXT NOT NULL CHECK (btrim(charge_id) <> ''),
+    payment_intent TEXT CHECK (payment_intent IS NULL OR btrim(payment_intent) <> ''),
+    fraud_type     TEXT NOT NULL CHECK (btrim(fraud_type) <> ''),
+    actionable     BOOLEAN NOT NULL,
+    event_created  BIGINT NOT NULL CHECK (event_created > 0),
+    payload_sha256 TEXT NOT NULL CHECK (payload_sha256 ~ '^[0-9a-f]{64}$'),
+    recorded_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS stripe_risk_events_warning_idx
+    ON stripe_risk_events (warning_id,event_created DESC);
+
+-- A failed PaymentIntent is an explicit provider observation, not a cash
+-- reversal. Retain the normalized failure without changing a job or top-up:
+-- a late failure can belong to an older attempt while a later retry succeeds.
+CREATE TABLE IF NOT EXISTS stripe_payment_failure_events (
+    event_id       TEXT PRIMARY KEY CHECK (btrim(event_id) <> ''),
+    event_type     TEXT NOT NULL CHECK (event_type = 'payment_intent.payment_failed'),
+    payment_intent TEXT NOT NULL CHECK (payment_intent LIKE 'pi_%'),
+    operation_key  TEXT CHECK (operation_key IS NULL OR btrim(operation_key) <> ''),
+    customer_id    TEXT CHECK (customer_id IS NULL OR btrim(customer_id) <> ''),
+    status         TEXT NOT NULL CHECK (btrim(status) <> ''),
+    failure_type   TEXT CHECK (failure_type IS NULL OR btrim(failure_type) <> ''),
+    failure_code   TEXT CHECK (failure_code IS NULL OR btrim(failure_code) <> ''),
+    decline_code   TEXT CHECK (decline_code IS NULL OR btrim(decline_code) <> ''),
+    event_created  BIGINT NOT NULL CHECK (event_created > 0),
+    payload_sha256 TEXT NOT NULL CHECK (payload_sha256 ~ '^[0-9a-f]{64}$'),
+    recorded_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS stripe_payment_failure_events_pi_idx
+    ON stripe_payment_failure_events (payment_intent,event_created DESC);
+CREATE INDEX IF NOT EXISTS stripe_payment_failure_events_operation_idx
+    ON stripe_payment_failure_events (operation_key,event_created DESC)
+    WHERE operation_key IS NOT NULL;
+
 CREATE TABLE IF NOT EXISTS stripe_charge_cash_state (
     charge_id          TEXT PRIMARY KEY CHECK (btrim(charge_id) <> ''),
     payment_intent     TEXT CHECK (payment_intent IS NULL OR btrim(payment_intent) <> ''),
@@ -2625,6 +2695,18 @@ DROP TRIGGER IF EXISTS stripe_webhook_events_append_only ON stripe_webhook_event
 CREATE TRIGGER stripe_webhook_events_append_only
 BEFORE UPDATE OR DELETE ON stripe_webhook_events
 FOR EACH ROW EXECUTE FUNCTION reject_immutable_money_fact_mutation();
+DROP TRIGGER IF EXISTS stripe_connect_webhook_events_append_only ON stripe_connect_webhook_events;
+CREATE TRIGGER stripe_connect_webhook_events_append_only
+BEFORE UPDATE OR DELETE ON stripe_connect_webhook_events
+FOR EACH ROW EXECUTE FUNCTION reject_immutable_money_fact_mutation();
+DROP TRIGGER IF EXISTS stripe_risk_events_append_only ON stripe_risk_events;
+CREATE TRIGGER stripe_risk_events_append_only
+BEFORE UPDATE OR DELETE ON stripe_risk_events
+FOR EACH ROW EXECUTE FUNCTION reject_immutable_money_fact_mutation();
+DROP TRIGGER IF EXISTS stripe_payment_failure_events_append_only ON stripe_payment_failure_events;
+CREATE TRIGGER stripe_payment_failure_events_append_only
+BEFORE UPDATE OR DELETE ON stripe_payment_failure_events
+FOR EACH ROW EXECUTE FUNCTION reject_immutable_money_fact_mutation();
 CREATE OR REPLACE FUNCTION protect_buyer_charge_operation()
 RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
@@ -2632,13 +2714,17 @@ BEGIN
         RAISE EXCEPTION 'buyer charge operations cannot be deleted';
     END IF;
     IF (OLD.operation_key,OLD.source_kind,OLD.job_id,OLD.charge_batch_id,
-        OLD.buyer_id,OLD.stripe_customer,OLD.stripe_payment_method,
+        OLD.buyer_id,OLD.stripe_customer,
         OLD.amount_cents,OLD.currency,OLD.created_at)
        IS DISTINCT FROM
        (NEW.operation_key,NEW.source_kind,NEW.job_id,NEW.charge_batch_id,
-        NEW.buyer_id,NEW.stripe_customer,NEW.stripe_payment_method,
+        NEW.buyer_id,NEW.stripe_customer,
         NEW.amount_cents,NEW.currency,NEW.created_at) THEN
         RAISE EXCEPTION 'buyer charge operation request identity is immutable';
+    END IF;
+    IF OLD.stripe_payment_method IS DISTINCT FROM NEW.stripe_payment_method
+       AND NOT (OLD.status='failed' AND NEW.status='outcome_unknown') THEN
+        RAISE EXCEPTION 'buyer charge payment method changes require a confirmed provider failure';
     END IF;
     IF OLD.status='succeeded' AND
        (NEW.status,NEW.payment_intent,NEW.charge_id) IS DISTINCT FROM
@@ -2854,8 +2940,9 @@ INSERT INTO lifecycle_transitions (entity,from_state,to_state) VALUES
 ('job_charge','failed','manual_review'),('job_charge','failed','deferred'),
 ('job_charge','manual_review','deferred'),('job_charge','manual_review','charged'),
 ('job_charge','manual_review','abandoned'),
-('job_charge','outcome_unknown','charged'),('job_charge','outcome_unknown','failed'),('job_charge','outcome_unknown','deferred'),
-('charge_batch','attempting','charged'),('charge_batch','attempting','outcome_unknown'),('charge_batch','outcome_unknown','charged'),
+('job_charge','outcome_unknown','charged'),('job_charge','outcome_unknown','failed'),('job_charge','outcome_unknown','deferred'),('job_charge','outcome_unknown','manual_review'),
+('charge_batch','attempting','charged'),('charge_batch','attempting','outcome_unknown'),('charge_batch','attempting','manual_review'),('charge_batch','outcome_unknown','attempting'),('charge_batch','outcome_unknown','charged'),('charge_batch','outcome_unknown','manual_review'),('charge_batch','manual_review','attempting'),
+('charge_operation','outcome_unknown','failed'),('charge_operation','failed','outcome_unknown'),
 ('charge_operation','outcome_unknown','succeeded'),
 ('payout','pending','held'),('payout','pending','awaiting_funding'),('payout','pending','ready'),
 ('payout','pending','clawed_back'),('payout','pending','reversal_required'),

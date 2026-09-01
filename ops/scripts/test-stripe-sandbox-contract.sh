@@ -48,7 +48,7 @@ connect_url="$(merc_stripe_expected_connect_url "CANARY.EXAMPLE.INVALID")"
 [ "$connect_url" = "https://canary.example.invalid/v1/stripe/connect-webhook" ] \
   || die "Connect URL authority drifted"
 
-billing_events="setup_intent.succeeded,payment_method.attached,payment_intent.succeeded,charge.refunded,charge.dispute.created,charge.dispute.funds_withdrawn,charge.dispute.funds_reinstated,charge.dispute.closed"
+billing_events="setup_intent.succeeded,payment_method.attached,payment_intent.succeeded,payment_intent.payment_failed,charge.refunded,charge.dispute.created,charge.dispute.funds_withdrawn,charge.dispute.funds_reinstated,charge.dispute.closed,radar.early_fraud_warning.created,radar.early_fraud_warning.updated"
 billing_json="$(jq -nc \
   --arg id we_billing \
   --arg url "$billing_url" \

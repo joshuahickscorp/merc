@@ -91,8 +91,9 @@ if missing or stale:
 # GET /v1/ui/v1/earn through authWorker). They assemble existing handler
 # bodies for a future GUI; neither quotes, submits, charges, or pays.
 # The count is pinned so a NEW route cannot be added without a reviewer deciding
-# what every role may do with it.
-if len(reviewed) != 126:
-    fail(f"expected reviewed 126-route surface, found {len(reviewed)}")
+# what every role may do with it. 128 adds the operator read of explicit Stripe
+# PaymentIntent failures, which is observation only and cannot move cash.
+if len(reviewed) != 128:
+    fail(f"expected reviewed 128-route surface, found {len(reviewed)}")
 
 print(f"authorization matrix: PASS ({len(reviewed)} routes, {len(ROLES)} roles, default deny)")
