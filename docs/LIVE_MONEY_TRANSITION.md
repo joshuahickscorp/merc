@@ -144,11 +144,15 @@ payout readiness, and its `payouts_enabled` fact is applied only in event-time
 order. The three `account.external_account.*` events are retained as strictly
 bound bank-account/card observations; they do not change readiness or move
 money. `capability.updated` records the exact provider capability and status;
-it does not gate Merc's transfer path because the `transfers`
-capability and a connected account's bank-payout readiness are separate Stripe
-functions. The `payout.*` events are retained as append-only observations of
-Stripe's connected-account bank payout; they do not settle or reverse Merc's
-separate supplier-credit transfer.
+the payout worker refuses a new Merc transfer when the newest durable
+`transfers` observation is not `active`. A missing historical observation is
+reported as `unknown` and remains compatible with older enrolled accounts;
+Stripe's transfer response remains authoritative for that request. The
+`transfers` capability and a connected account's bank-payout readiness are
+separate Stripe functions, so status surfaces expose both facts instead of
+collapsing them. The `payout.*` events are retained as append-only observations
+of Stripe's connected-account bank payout; they do not settle or reverse
+Merc's separate supplier-credit transfer.
 
 A live endpoint that omits a handled cash event will never deliver it.
 `ops/scripts/validate-stripe-endpoint-subscriptions.py` checks the compiled

@@ -280,18 +280,20 @@ func (s *Server) handleSupplierStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	transfersCapability := stripeConnectTransfersCapabilityUnknown
 	if stripeKey() != "" && acct != "" {
 		out, gerr := stripeGet(r.Context(), "accounts/"+url.PathEscape(acct))
 		if gerr != nil {
 			writeErr(w, http.StatusServiceUnavailable, "reading Stripe connected account status")
 			return
 		}
-		pe, gerr := parseStripeConnectAccountStatus(out, acct)
+		status, gerr := parseStripeConnectAccountStatusDetails(out, acct)
 		if gerr != nil {
 			writeErr(w, http.StatusServiceUnavailable, "Stripe connected account status is unavailable")
 			return
 		}
-		payoutsEnabled = pe
+		payoutsEnabled = status.PayoutsEnabled
+		transfersCapability = status.TransfersCapability
 	}
 
 	status := "none"
@@ -303,10 +305,11 @@ func (s *Server) handleSupplierStatus(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"supplier_id":     supplierID,
-		"connect_status":  status,
-		"payouts_enabled": payoutsEnabled,
-		"kyc_provider":    "stripe_connect",
+		"supplier_id":          supplierID,
+		"connect_status":       status,
+		"payouts_enabled":      payoutsEnabled,
+		"transfers_capability": transfersCapability,
+		"kyc_provider":         "stripe_connect",
 	})
 }
 

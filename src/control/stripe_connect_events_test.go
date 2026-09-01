@@ -108,6 +108,69 @@ func TestStripeConnectAccountStatusRequiresExactProviderResponse(t *testing.T) {
 	}
 }
 
+func TestStripeConnectAccountStatusReportsTransfersCapabilitySeparately(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		out        map[string]any
+		wantStatus string
+		good       bool
+	}{
+		{
+			name: "active capability",
+			out: map[string]any{
+				"object": "account", "id": "acct_status_capability_active", "payouts_enabled": true,
+				"capabilities": map[string]any{"transfers": "active"},
+			},
+			wantStatus: "active", good: true,
+		},
+		{
+			name: "non-active capability",
+			out: map[string]any{
+				"object": "account", "id": "acct_status_capability_pending", "payouts_enabled": true,
+				"capabilities": map[string]any{"transfers": "pending"},
+			},
+			wantStatus: "pending", good: true,
+		},
+		{
+			name: "historical response without capability",
+			out: map[string]any{
+				"object": "account", "id": "acct_status_capability_missing", "payouts_enabled": false,
+			},
+			wantStatus: stripeConnectTransfersCapabilityUnknown, good: true,
+		},
+		{
+			name: "malformed capability map",
+			out: map[string]any{
+				"object": "account", "id": "acct_status_capability_map", "payouts_enabled": true,
+				"capabilities": "active",
+			},
+		},
+		{
+			name: "invalid capability status",
+			out: map[string]any{
+				"object": "account", "id": "acct_status_capability_invalid", "payouts_enabled": true,
+				"capabilities": map[string]any{"transfers": "restricted"},
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			status, err := parseStripeConnectAccountStatusDetails(tc.out, tc.out["id"].(string))
+			if tc.good {
+				if err != nil {
+					t.Fatalf("parse error=%v", err)
+				}
+				if status.TransfersCapability != tc.wantStatus {
+					t.Fatalf("transfers capability=%q, want %q", status.TransfersCapability, tc.wantStatus)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatal("malformed provider response was accepted")
+			}
+		})
+	}
+}
+
 func TestStripeAccountLinkResponseRequiresStripeHostedSingleUseURL(t *testing.T) {
 	for _, tc := range []struct {
 		name string

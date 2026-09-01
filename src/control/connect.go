@@ -129,25 +129,58 @@ func validateConnectURLPair(returnURL, refreshURL, siteHost string) error {
 	return nil
 }
 
-func parseStripeConnectAccountStatus(out map[string]any, expectedAcct string) (bool, error) {
+const stripeConnectTransfersCapabilityUnknown = "unknown"
+
+type stripeConnectAccountStatus struct {
+	PayoutsEnabled      bool
+	TransfersCapability string
+}
+
+func parseStripeConnectAccountStatusDetails(out map[string]any, expectedAcct string) (stripeConnectAccountStatus, error) {
 	expectedAcct = strings.TrimSpace(expectedAcct)
 	if !validStripeObjectID(expectedAcct, "acct_") {
-		return false, errors.New("stripe connected account: expected account id is invalid")
+		return stripeConnectAccountStatus{}, errors.New("stripe connected account: expected account id is invalid")
 	}
 	objectType, ok := out["object"].(string)
 	if !ok || strings.TrimSpace(objectType) != "account" {
-		return false, errors.New("stripe connected account: provider returned the wrong object type")
+		return stripeConnectAccountStatus{}, errors.New("stripe connected account: provider returned the wrong object type")
 	}
 	returnedAcct, _ := out["id"].(string)
 	returnedAcct = strings.TrimSpace(returnedAcct)
 	if !validStripeObjectID(returnedAcct, "acct_") || returnedAcct != expectedAcct {
-		return false, errors.New("stripe connected account: provider returned the wrong account")
+		return stripeConnectAccountStatus{}, errors.New("stripe connected account: provider returned the wrong account")
 	}
 	payoutsEnabled, ok := out["payouts_enabled"].(bool)
 	if !ok {
-		return false, errors.New("stripe connected account: provider omitted payouts_enabled")
+		return stripeConnectAccountStatus{}, errors.New("stripe connected account: provider omitted payouts_enabled")
 	}
-	return payoutsEnabled, nil
+
+	transfersCapability := stripeConnectTransfersCapabilityUnknown
+	if rawCapabilities, present := out["capabilities"]; present && rawCapabilities != nil {
+		capabilities, ok := rawCapabilities.(map[string]any)
+		if !ok {
+			return stripeConnectAccountStatus{}, errors.New("stripe connected account: provider returned malformed capabilities")
+		}
+		if rawTransfers, present := capabilities["transfers"]; present {
+			transfersCapability, ok = rawTransfers.(string)
+			transfersCapability = strings.TrimSpace(transfersCapability)
+			if !ok || !isStripeCapabilityStatus(transfersCapability) {
+				return stripeConnectAccountStatus{}, errors.New("stripe connected account: provider returned an invalid transfers capability status")
+			}
+		}
+	}
+	return stripeConnectAccountStatus{
+		PayoutsEnabled:      payoutsEnabled,
+		TransfersCapability: transfersCapability,
+	}, nil
+}
+
+func parseStripeConnectAccountStatus(out map[string]any, expectedAcct string) (bool, error) {
+	status, err := parseStripeConnectAccountStatusDetails(out, expectedAcct)
+	if err != nil {
+		return false, err
+	}
+	return status.PayoutsEnabled, nil
 }
 
 func (s *Server) handleWorkerConnectStatus(w http.ResponseWriter, r *http.Request) {
@@ -160,7 +193,8 @@ func (s *Server) handleWorkerConnectStatus(w http.ResponseWriter, r *http.Reques
 	if stripeKey() == "" || acct == "" {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"configured": stripeKey() != "", "connected": false, "payouts_enabled": false,
-			"credential_id": auth.CredentialID, "enrollment_device_bound": auth.EnrollmentDeviceBound,
+			"transfers_capability": stripeConnectTransfersCapabilityUnknown,
+			"credential_id":        auth.CredentialID, "enrollment_device_bound": auth.EnrollmentDeviceBound,
 			"device_fingerprint": auth.DeviceFingerprint, "credential_version": auth.CredentialVersion,
 		})
 		return
@@ -170,14 +204,15 @@ func (s *Server) handleWorkerConnectStatus(w http.ResponseWriter, r *http.Reques
 		writeErr(w, http.StatusServiceUnavailable, "reading Stripe connected account status")
 		return
 	}
-	pe, err := parseStripeConnectAccountStatus(out, acct)
+	status, err := parseStripeConnectAccountStatusDetails(out, acct)
 	if err != nil {
 		writeErr(w, http.StatusServiceUnavailable, "Stripe connected account status is unavailable")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"configured": true, "connected": true, "payouts_enabled": pe,
-		"credential_id": auth.CredentialID, "enrollment_device_bound": auth.EnrollmentDeviceBound,
+		"configured": true, "connected": true, "payouts_enabled": status.PayoutsEnabled,
+		"transfers_capability": status.TransfersCapability,
+		"credential_id":        auth.CredentialID, "enrollment_device_bound": auth.EnrollmentDeviceBound,
 		"device_fingerprint": auth.DeviceFingerprint, "credential_version": auth.CredentialVersion,
 	})
 }

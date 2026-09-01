@@ -69,7 +69,9 @@ fenced by the retry-attempt epoch.
 - Connect `account.updated` facts are bound to the connected account and applied
   monotonically; `capability.updated` and Connect `payout.*` deliveries are
   append-only provider observations and cannot settle or reverse a Merc
-  supplier-credit ledger row.
+  supplier-credit ledger row. A durable non-active `transfers` capability
+  observation refuses new Connect transfer creation, while missing historical
+  capability observations remain explicitly `unknown`.
 - `account.external_account.created`, `.updated`, and `.deleted` deliveries
   are also retained as bound provider observations; they cannot alter supplier
   readiness or settle/reverse a Merc ledger row.
