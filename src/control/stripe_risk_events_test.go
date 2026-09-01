@@ -100,6 +100,36 @@ func TestStripeRiskWebhookRejectsIncompleteWarning(t *testing.T) {
 	}
 }
 
+func TestStripeRiskEventRejectsConflictingCashIdentity(t *testing.T) {
+	ctx, store, pool := openIsolatedTestStore(t)
+	buyerID := insertTestBuyer(t, pool, ctx)
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO buyer_cash_collections
+		  (payment_intent,charge_id,buyer_id,source_kind,requested_cents,received_cents,currency)
+		VALUES ('pi_risk_bound','ch_risk_bound',$1,'topup',500,500,'usd')`, buyerID); err != nil {
+		t.Fatal(err)
+	}
+	event, err := parseStripeRiskEvent(
+		"evt_risk_conflict", stripeRiskEventEarlyFraudWarningCreated, 1_700_000_400,
+		map[string]any{
+			"object": "radar.early_fraud_warning", "id": "issfr_risk_conflict",
+			"charge": "ch_risk_bound", "payment_intent": "pi_risk_other",
+			"fraud_type": "made_with_stolen_card", "actionable": true,
+		}, []byte(`{"signed":"risk-conflict"}`),
+	)
+	must(t, err)
+	if _, err := store.ApplyStripeRiskEvent(ctx, event); err == nil {
+		t.Fatal("accepted fraud evidence bound to a different PaymentIntent")
+	}
+	var rows int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM stripe_risk_events`).Scan(&rows); err != nil {
+		t.Fatal(err)
+	}
+	if rows != 0 {
+		t.Fatalf("conflicting risk event rows=%d, want 0", rows)
+	}
+}
+
 func TestStripeRiskParserRejectsWrongWarningObjectKind(t *testing.T) {
 	for _, objectKind := range []string{"charge", "early_fraud_warning"} {
 		t.Run(objectKind, func(t *testing.T) {

@@ -147,6 +147,9 @@ func recordBuyerCashCollection(
 		   WHERE charge_id=$1 AND (
 		     (payment_intent IS NOT NULL AND payment_intent<>$2)
 		     OR amount_cents>$3 OR currency<>$4)
+		  UNION ALL
+		  SELECT 1 FROM stripe_risk_events
+		   WHERE charge_id=$1 AND payment_intent IS NOT NULL AND payment_intent<>$2
 		)`, charge.ChargeID, charge.PaymentIntentID, charge.ReceivedCents, charge.Currency).Scan(&conflictingState); err != nil {
 		return err
 	}

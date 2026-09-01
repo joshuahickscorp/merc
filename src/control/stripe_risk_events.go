@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 )
 
 const (
@@ -116,6 +117,12 @@ func (s *Store) ApplyStripeRiskEvent(ctx context.Context, event stripeRiskEvent)
 		return result, err
 	}
 	defer tx.Rollback(ctx)
+	if err := lockStripeCashBinding(ctx, tx, event.ChargeID); err != nil {
+		return result, err
+	}
+	if err := ensureStripeRiskCashBindingTx(ctx, tx, event); err != nil {
+		return result, err
+	}
 
 	tag, err := tx.Exec(ctx, `
 		INSERT INTO stripe_risk_events
@@ -154,6 +161,37 @@ func (s *Store) ApplyStripeRiskEvent(ctx context.Context, event stripeRiskEvent)
 	return result, nil
 }
 
+// ensureStripeRiskCashBindingTx prevents a risk observation from being
+// attributed to a different buyer cash obligation merely because both objects
+// mention the same charge. Early warnings may arrive before the canonical cash
+// row exists, so absence is retained as an unowned observation and correlated
+// later; an existing conflicting identity is refused.
+func ensureStripeRiskCashBindingTx(ctx context.Context, tx pgx.Tx, event stripeRiskEvent) error {
+	if event.PaymentIntent == "" {
+		return nil
+	}
+	var conflicting bool
+	err := tx.QueryRow(ctx, `
+		SELECT EXISTS(
+		  SELECT 1 FROM buyer_cash_collections
+		   WHERE charge_id=$1 AND payment_intent<>$2
+		  UNION ALL
+		  SELECT 1 FROM stripe_charge_cash_state
+		   WHERE charge_id=$1 AND payment_intent IS NOT NULL AND payment_intent<>$2
+		  UNION ALL
+		  SELECT 1 FROM stripe_dispute_cash_state
+		   WHERE charge_id=$1 AND payment_intent IS NOT NULL AND payment_intent<>$2
+		)`, event.ChargeID, event.PaymentIntent).Scan(&conflicting)
+	if err != nil {
+		return err
+	}
+	if conflicting {
+		return fmt.Errorf("Stripe risk event %s PaymentIntent %s conflicts with charge %s cash state",
+			event.EventID, event.PaymentIntent, event.ChargeID)
+	}
+	return nil
+}
+
 type StripeRiskEventRecord struct {
 	EventID       string                      `json:"event_id"`
 	EventType     string                      `json:"event_type"`
@@ -186,7 +224,9 @@ func (s *Store) ListStripeRiskEvents(ctx context.Context, limit int) ([]StripeRi
 		       c.payment_intent,c.buyer_id,c.source_kind,c.job_id,c.charge_batch_id,
 		       c.received_cents,c.currency
 		  FROM stripe_risk_events e
-		  LEFT JOIN buyer_cash_collections c ON c.charge_id=e.charge_id
+		  LEFT JOIN buyer_cash_collections c
+		    ON c.charge_id=e.charge_id
+		   AND (e.payment_intent IS NULL OR c.payment_intent=e.payment_intent)
 		 ORDER BY e.event_created DESC,e.event_id DESC
 		 LIMIT $1`, limit)
 	if err != nil {
