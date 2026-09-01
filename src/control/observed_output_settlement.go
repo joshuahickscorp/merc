@@ -480,21 +480,26 @@ func clampSettlementToContributionFloorNanos(
 // Both callers now read the same columns through the same SQL. `q` is a pgx.Tx
 // for the validator (so it sees the transaction's snapshot) and the pool for
 // the planner.
+type observedOutputSettlementTaskFacts struct {
+	taskID            uuid.UUID
+	frozenCharge      float64
+	frozenPayout      float64
+	buyerNanos        *int64
+	supplierNanos     *int64
+	expectedRecords   int64
+	reportedTokens    *int64
+	jobID             uuid.UUID
+	workloadJSON      []byte
+	workloadSHA256    string
+	computePlanJSON   []byte
+	computePlanSHA256 string
+	economicPlanJSON  []byte
+}
+
 func loadObservedOutputSettlement(
 	ctx context.Context, q ledgerExec, taskID uuid.UUID,
 ) (observedOutputSettlement, error) {
-	var (
-		frozenCharge, frozenPayout float64
-		buyerNanos, supplierNanos  *int64
-		expectedRecords            int64
-		reportedTokens             *int64
-		workloadJSON               []byte
-		workloadSHA256             string
-		computePlanJSON            []byte
-		computePlanSHA256          string
-		economicPlanJSON           []byte
-		jobID                      uuid.UUID
-	)
+	facts := observedOutputSettlementTaskFacts{taskID: taskID}
 	if err := q.QueryRow(ctx, `
 		SELECT t.economic_buyer_charge_usd::float8, t.economic_supplier_payout_usd::float8,
 		       t.economic_buyer_charge_nanos, t.economic_supplier_payout_nanos,
@@ -505,18 +510,31 @@ func loadObservedOutputSettlement(
 		  FROM tasks t JOIN jobs j ON j.id = t.job_id
 		  LEFT JOIN job_economic_plans ep ON ep.job_id = j.id
 		 WHERE t.id = $1`, taskID).
-		Scan(&frozenCharge, &frozenPayout, &buyerNanos, &supplierNanos,
-			&expectedRecords, &reportedTokens,
-			&jobID, &workloadJSON, &workloadSHA256, &computePlanJSON, &computePlanSHA256,
-			&economicPlanJSON); err != nil {
+		Scan(&facts.frozenCharge, &facts.frozenPayout, &facts.buyerNanos, &facts.supplierNanos,
+			&facts.expectedRecords, &facts.reportedTokens,
+			&facts.jobID, &facts.workloadJSON, &facts.workloadSHA256,
+			&facts.computePlanJSON, &facts.computePlanSHA256, &facts.economicPlanJSON); err != nil {
 		return observedOutputSettlement{}, err
 	}
-	if !moneyUSDInDomain(frozenCharge) || !moneyUSDInDomain(frozenPayout) ||
-		frozenCharge <= 0 || frozenPayout < 0 || frozenPayout > frozenCharge {
-		return observedOutputSettlement{}, fmt.Errorf("task %s has invalid frozen economics", taskID)
+	return settleObservedOutputSettlementTaskFacts(ctx, q, facts, nil)
+}
+
+// settleObservedOutputSettlementTaskFacts is the pure authority reducer after
+// the task and its frozen job documents have been read. If economicPlan is
+// supplied, it has already passed the denormalized-money assertion; this lets a
+// job-scoped loader validate one immutable plan once for all its tasks.
+func settleObservedOutputSettlementTaskFacts(
+	ctx context.Context,
+	q ledgerExec,
+	facts observedOutputSettlementTaskFacts,
+	economicPlan *EconomicPlan,
+) (observedOutputSettlement, error) {
+	if !moneyUSDInDomain(facts.frozenCharge) || !moneyUSDInDomain(facts.frozenPayout) ||
+		facts.frozenCharge <= 0 || facts.frozenPayout < 0 || facts.frozenPayout > facts.frozenCharge {
+		return observedOutputSettlement{}, fmt.Errorf("task %s has invalid frozen economics", facts.taskID)
 	}
 
-	hasNanos := buyerNanos != nil && supplierNanos != nil
+	hasNanos := facts.buyerNanos != nil && facts.supplierNanos != nil
 	var (
 		frozenChargeNanos, frozenPayoutNanos int64
 		schedule                             EconomicSchedule
@@ -524,45 +542,49 @@ func loadObservedOutputSettlement(
 		economic                             EconomicPlan
 	)
 	if hasNanos {
-		frozenChargeNanos = *buyerNanos
-		frozenPayoutNanos = *supplierNanos
+		frozenChargeNanos = *facts.buyerNanos
+		frozenPayoutNanos = *facts.supplierNanos
 		if frozenChargeNanos <= 0 || frozenPayoutNanos < 0 || frozenPayoutNanos > frozenChargeNanos {
-			return observedOutputSettlement{}, fmt.Errorf("task %s has invalid frozen nano economics", taskID)
+			return observedOutputSettlement{}, fmt.Errorf("task %s has invalid frozen nano economics", facts.taskID)
 		}
 	}
 
 	// When a plan row exists, assert denormalized money equals plan_json before
 	// any billing, and assert task nanos match the plan freeze when non-NULL.
-	if len(economicPlanJSON) > 0 {
-		plan, _, aerr := assertDenormalizedEconomicPlanMoney(ctx, q, jobID)
-		if aerr != nil {
-			return observedOutputSettlement{}, aerr
+	if len(facts.economicPlanJSON) > 0 {
+		if economicPlan == nil {
+			plan, _, aerr := assertDenormalizedEconomicPlanMoney(ctx, q, facts.jobID)
+			if aerr != nil {
+				return observedOutputSettlement{}, aerr
+			}
+			economic = plan
+		} else {
+			economic = *economicPlan
 		}
-		economic = plan
-		if err := assertTaskEconomicNanosMatchPlan(buyerNanos, supplierNanos, plan, taskID); err != nil {
+		if err := assertTaskEconomicNanosMatchPlan(facts.buyerNanos, facts.supplierNanos, economic, facts.taskID); err != nil {
 			return observedOutputSettlement{}, err
 		}
-		schedule = plan.Schedule
-		initialTaskCount = plan.Input.InitialTaskCount
+		schedule = economic.Schedule
+		initialTaskCount = economic.Input.InitialTaskCount
 	}
 
 	out := observedOutputSettlement{
-		BilledCharge: frozenCharge, SupplierPayout: frozenPayout,
+		BilledCharge: facts.frozenCharge, SupplierPayout: facts.frozenPayout,
 		HasNanos: hasNanos,
 	}
 	if hasNanos {
 		out.BilledChargeNanos = frozenChargeNanos
 		out.SupplierPayoutNanos = frozenPayoutNanos
 	}
-	if len(computePlanJSON) == 0 {
+	if len(facts.computePlanJSON) == 0 {
 		return out, nil // legacy job without a frozen plan settles at the freeze
 	}
-	if len(workloadJSON) == 0 {
+	if len(facts.workloadJSON) == 0 {
 		return observedOutputSettlement{}, fmt.Errorf(
-			"task %s has a compute plan without workload authority", taskID)
+			"task %s has a compute plan without workload authority", facts.taskID)
 	}
 	var workload WorkloadDecision
-	if err := json.Unmarshal(workloadJSON, &workload); err != nil {
+	if err := json.Unmarshal(facts.workloadJSON, &workload); err != nil {
 		return observedOutputSettlement{}, fmt.Errorf(
 			"decode workload decision for settlement: %w", err)
 	}
@@ -575,12 +597,12 @@ func loadObservedOutputSettlement(
 		return observedOutputSettlement{}, fmt.Errorf(
 			"hash workload decision for settlement: %w", err)
 	}
-	if workloadSHA256 == "" || workloadSHA256 != gotWorkloadSHA256 {
+	if facts.workloadSHA256 == "" || facts.workloadSHA256 != gotWorkloadSHA256 {
 		return observedOutputSettlement{}, fmt.Errorf(
-			"frozen workload decision digest mismatch for task %s", taskID)
+			"frozen workload decision digest mismatch for task %s", facts.taskID)
 	}
 	var plan ComputePlan
-	if err := json.Unmarshal(computePlanJSON, &plan); err != nil {
+	if err := json.Unmarshal(facts.computePlanJSON, &plan); err != nil {
 		return observedOutputSettlement{}, fmt.Errorf("decode compute plan for settlement: %w", err)
 	}
 	if err := ValidateFrozenComputePlanSnapshot(plan, workload); err != nil {
@@ -592,14 +614,14 @@ func loadObservedOutputSettlement(
 		return observedOutputSettlement{}, fmt.Errorf(
 			"hash compute plan for settlement: %w", err)
 	}
-	if computePlanSHA256 == "" || computePlanSHA256 != gotComputeSHA256 {
+	if facts.computePlanSHA256 == "" || facts.computePlanSHA256 != gotComputeSHA256 {
 		return observedOutputSettlement{}, fmt.Errorf(
-			"frozen compute plan digest mismatch for task %s", taskID)
+			"frozen compute plan digest mismatch for task %s", facts.taskID)
 	}
 	if plan.ExecutionMode == computeExecutionDistributed {
-		if len(economicPlanJSON) == 0 {
+		if len(facts.economicPlanJSON) == 0 {
 			return observedOutputSettlement{}, fmt.Errorf(
-				"task %s has no frozen economic authority", taskID)
+				"task %s has no frozen economic authority", facts.taskID)
 		}
 		if err := ValidateComputePlanEconomicSnapshot(plan, workload, economic); err != nil {
 			return observedOutputSettlement{}, fmt.Errorf(
@@ -607,15 +629,15 @@ func loadObservedOutputSettlement(
 		}
 	}
 	reported := int64(0)
-	hasReported := reportedTokens != nil
+	hasReported := facts.reportedTokens != nil
 	if hasReported {
-		reported = *reportedTokens
+		reported = *facts.reportedTokens
 	}
 	return settleObservedOutputTokensWithSchedule(
-		frozenCharge, frozenPayout,
+		facts.frozenCharge, facts.frozenPayout,
 		frozenChargeNanos, frozenPayoutNanos, hasNanos,
 		settlementInputUnitsForComputePlan(plan), plan.EstimatedOutputTokens,
-		expectedRecords, effectiveObservedOutputMaxTokens(workload, plan),
+		facts.expectedRecords, effectiveObservedOutputMaxTokens(workload, plan),
 		reported, hasReported,
 		schedule, initialTaskCount,
 	), nil

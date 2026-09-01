@@ -73,10 +73,21 @@ func assertDenormalizedEconomicPlanMoney(
 	denorm.FirmQuoteMaxUSD = firmQuote
 	denorm.BuyerChargePerTaskNanos = buyerNanos
 	denorm.SupplierPayoutPerTaskNanos = supplierNanos
+	plan, err := validateDenormalizedEconomicPlanMoney(jobID, planJSON, denorm)
+	if err != nil {
+		return EconomicPlan{}, denorm, err
+	}
+	return plan, denorm, nil
+}
 
+func validateDenormalizedEconomicPlanMoney(
+	jobID uuid.UUID,
+	planJSON []byte,
+	denorm denormalizedEconomicPlanMoney,
+) (EconomicPlan, error) {
 	var plan EconomicPlan
 	if err := json.Unmarshal(planJSON, &plan); err != nil {
-		return EconomicPlan{}, denormalizedEconomicPlanMoney{}, fmt.Errorf(
+		return EconomicPlan{}, fmt.Errorf(
 			"decode plan_json for denormalized money check: %w", err)
 	}
 
@@ -85,66 +96,66 @@ func assertDenormalizedEconomicPlanMoney(
 			errDenormalizedPlanMoneyMismatch, field, got, want, jobID)
 	}
 	if denorm.InitialTaskCount != plan.Input.InitialTaskCount {
-		return EconomicPlan{}, denorm, mismatch("initial_task_count",
+		return EconomicPlan{}, mismatch("initial_task_count",
 			denorm.InitialTaskCount, plan.Input.InitialTaskCount)
 	}
 	if !moneyEqual6(denorm.BuyerChargePerTaskUSD, plan.BuyerChargePerTaskUSD) {
-		return EconomicPlan{}, denorm, mismatch("buyer_charge_per_task_usd",
+		return EconomicPlan{}, mismatch("buyer_charge_per_task_usd",
 			denorm.BuyerChargePerTaskUSD, plan.BuyerChargePerTaskUSD)
 	}
 	if !moneyEqual6(denorm.SupplierPayoutPerTaskUSD, plan.SupplierPayoutPerTaskUSD) {
-		return EconomicPlan{}, denorm, mismatch("supplier_payout_per_task_usd",
+		return EconomicPlan{}, mismatch("supplier_payout_per_task_usd",
 			denorm.SupplierPayoutPerTaskUSD, plan.SupplierPayoutPerTaskUSD)
 	}
 	if !moneyEqual6(denorm.InitialBuyerChargeUSD, plan.InitialBuyerChargeUSD) {
-		return EconomicPlan{}, denorm, mismatch("initial_buyer_charge_usd",
+		return EconomicPlan{}, mismatch("initial_buyer_charge_usd",
 			denorm.InitialBuyerChargeUSD, plan.InitialBuyerChargeUSD)
 	}
 	if !moneyEqual6(denorm.ReservedBuyerChargeUSD, plan.ReservedBuyerChargeUSD) {
-		return EconomicPlan{}, denorm, mismatch("reserved_buyer_charge_usd",
+		return EconomicPlan{}, mismatch("reserved_buyer_charge_usd",
 			denorm.ReservedBuyerChargeUSD, plan.ReservedBuyerChargeUSD)
 	}
 	if !moneyEqual6(denorm.SLAPremiumUSD, plan.Input.SLAPremiumUSD) {
-		return EconomicPlan{}, denorm, mismatch("sla_premium_usd",
+		return EconomicPlan{}, mismatch("sla_premium_usd",
 			denorm.SLAPremiumUSD, plan.Input.SLAPremiumUSD)
 	}
 	planFirm := plan.Input.FirmQuoteMaxUSD
 	if planFirm > 0 {
-		if firmQuote == nil || !moneyEqual6(*firmQuote, planFirm) {
+		if denorm.FirmQuoteMaxUSD == nil || !moneyEqual6(*denorm.FirmQuoteMaxUSD, planFirm) {
 			got := any(nil)
-			if firmQuote != nil {
-				got = *firmQuote
+			if denorm.FirmQuoteMaxUSD != nil {
+				got = *denorm.FirmQuoteMaxUSD
 			}
-			return EconomicPlan{}, denorm, mismatch("firm_quote_max_usd", got, planFirm)
+			return EconomicPlan{}, mismatch("firm_quote_max_usd", got, planFirm)
 		}
-	} else if firmQuote != nil {
-		return EconomicPlan{}, denorm, mismatch("firm_quote_max_usd", *firmQuote, nil)
+	} else if denorm.FirmQuoteMaxUSD != nil {
+		return EconomicPlan{}, mismatch("firm_quote_max_usd", *denorm.FirmQuoteMaxUSD, nil)
 	}
 
 	// Nano columns: both NULL (legacy) or both equal to plan nanos.
 	planHasNanos := plan.EconomicRoundingPolicy == economicRoundingPolicy &&
 		plan.BuyerChargePerTaskNanos > 0 && plan.SupplierPayoutPerTaskNanos > 0
 	if planHasNanos {
-		if buyerNanos == nil || supplierNanos == nil {
-			return EconomicPlan{}, denorm, fmt.Errorf(
+		if denorm.BuyerChargePerTaskNanos == nil || denorm.SupplierPayoutPerTaskNanos == nil {
+			return EconomicPlan{}, fmt.Errorf(
 				"%s: plan carries exact nanos but denormalized nano columns are NULL (job %s)",
 				errDenormalizedPlanMoneyMismatch, jobID)
 		}
-		if *buyerNanos != plan.BuyerChargePerTaskNanos {
-			return EconomicPlan{}, denorm, mismatch("buyer_charge_per_task_nanos",
-				*buyerNanos, plan.BuyerChargePerTaskNanos)
+		if *denorm.BuyerChargePerTaskNanos != plan.BuyerChargePerTaskNanos {
+			return EconomicPlan{}, mismatch("buyer_charge_per_task_nanos",
+				*denorm.BuyerChargePerTaskNanos, plan.BuyerChargePerTaskNanos)
 		}
-		if *supplierNanos != plan.SupplierPayoutPerTaskNanos {
-			return EconomicPlan{}, denorm, mismatch("supplier_payout_per_task_nanos",
-				*supplierNanos, plan.SupplierPayoutPerTaskNanos)
+		if *denorm.SupplierPayoutPerTaskNanos != plan.SupplierPayoutPerTaskNanos {
+			return EconomicPlan{}, mismatch("supplier_payout_per_task_nanos",
+				*denorm.SupplierPayoutPerTaskNanos, plan.SupplierPayoutPerTaskNanos)
 		}
-	} else if buyerNanos != nil || supplierNanos != nil {
-		return EconomicPlan{}, denorm, fmt.Errorf(
+	} else if denorm.BuyerChargePerTaskNanos != nil || denorm.SupplierPayoutPerTaskNanos != nil {
+		return EconomicPlan{}, fmt.Errorf(
 			"%s: denormalized nano columns set on a legacy plan (job %s)",
 			errDenormalizedPlanMoneyMismatch, jobID)
 	}
 
-	return plan, denorm, nil
+	return plan, nil
 }
 
 // assertTaskEconomicNanosMatchPlan refuses settlement when a task's frozen nano

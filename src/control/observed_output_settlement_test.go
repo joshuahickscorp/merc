@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 )
 
 // Core regression: one record, max_tokens=256, observed 5 tokens.
@@ -464,6 +465,31 @@ func TestObservedOutputSettlementRecoverySnapshotPlannerAndApplyAgree(t *testing
 	}
 	if !settled.FloorClamped && settled.BilledCharge >= f.Plan.BuyerChargePerTaskUSD {
 		t.Fatalf("recovered settlement did not apply bounded rebate: %+v", settled)
+	}
+	// The contribution reader uses the same observed-output authority but loads
+	// the immutable job plan once for all observed tasks. Exercise that
+	// job-scoped path against the exact settlement just computed.
+	snapshot, err := pool.BeginTx(ctx, pgx.TxOptions{
+		IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly,
+	})
+	must(t, err)
+	defer snapshot.Rollback(ctx)
+	var frozenBuyerNanos int64
+	mustf(t, snapshot.QueryRow(ctx,
+		`SELECT economic_buyer_charge_nanos FROM tasks WHERE id=$1`, tasks[0].ID).
+		Scan(&frozenBuyerNanos), "read frozen buyer nanos: %v")
+	observedRebateNanos, err := loadContributionObservedOutputRebate(ctx, snapshot, f.JobID)
+	mustf(t, err, "load contribution observed-output rebate: %v")
+	wantObservedRebateNanos := int64(0)
+	if settled.Applied {
+		if settled.HasNanos {
+			wantObservedRebateNanos = frozenBuyerNanos - settled.BilledChargeNanos
+		} else {
+			wantObservedRebateNanos = usdToMicros(settled.RebateUSD) * NanosPerMicro
+		}
+	}
+	if observedRebateNanos != wantObservedRebateNanos {
+		t.Fatalf("job-scoped contribution rebate=%d, want %d", observedRebateNanos, wantObservedRebateNanos)
 	}
 	// Before verification writes the ledger, both presentation fallbacks must
 	// preserve the frozen whole-input economic composition. Compute-plan v3

@@ -659,15 +659,23 @@ func (s *Store) TrueNetContributionForAccount(
 		return out, err
 	}
 	rows.Close()
-	settlements := make([]*ContributionSettlement, 0, len(jobs))
+	settlementJobIDs := make([]uuid.UUID, 0, len(jobs))
 	for _, job := range jobs {
 		if !job.hasDecision {
 			out.JobsWithoutDecision++
 			continue
 		}
-		settlement, err := s.ContributionSettlementForJob(ctx, job.id)
-		if err != nil {
-			return out, err
+		settlementJobIDs = append(settlementJobIDs, job.id)
+	}
+	settlementByJob, err := s.contributionSettlementsForJobs(ctx, settlementJobIDs)
+	if err != nil {
+		return out, err
+	}
+	settlements := make([]*ContributionSettlement, 0, len(settlementJobIDs))
+	for _, jobID := range settlementJobIDs {
+		settlement, ok := settlementByJob[jobID]
+		if !ok {
+			return out, errNotFound
 		}
 		settlements = append(settlements, settlement)
 	}
@@ -713,11 +721,15 @@ func (s *Store) TrueNetContributionForWorkloadClass(
 		return out, err
 	}
 	rows.Close()
+	settlementByJob, err := s.contributionSettlementsForJobs(ctx, jobIDs)
+	if err != nil {
+		return out, err
+	}
 	settlements := make([]*ContributionSettlement, 0, len(jobIDs))
 	for _, jobID := range jobIDs {
-		settlement, err := s.ContributionSettlementForJob(ctx, jobID)
-		if err != nil {
-			return out, err
+		settlement, ok := settlementByJob[jobID]
+		if !ok {
+			return out, errNotFound
 		}
 		settlements = append(settlements, settlement)
 	}

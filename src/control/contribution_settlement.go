@@ -498,57 +498,7 @@ func loadContributionObservedOutputRebate(
 	tx pgx.Tx,
 	jobID uuid.UUID,
 ) (int64, error) {
-	rows, err := tx.Query(ctx, `
-		SELECT id,economic_buyer_charge_nanos
-		  FROM tasks
-		 WHERE job_id=$1
-		   AND COALESCE(expected_output_records,0) > 0
-		   AND reported_tokens_used IS NOT NULL
-		   AND economic_buyer_charge_usd IS NOT NULL
-		 ORDER BY id`, jobID)
-	if err != nil {
-		return 0, err
-	}
-	type taskAuthority struct {
-		id          uuid.UUID
-		frozenNanos *int64
-	}
-	var tasks []taskAuthority
-	for rows.Next() {
-		var task taskAuthority
-		if err := rows.Scan(&task.id, &task.frozenNanos); err != nil {
-			rows.Close()
-			return 0, err
-		}
-		tasks = append(tasks, task)
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return 0, err
-	}
-	var total int64
-	for _, task := range tasks {
-		settled, err := loadObservedOutputSettlement(ctx, tx, task.id)
-		if err != nil {
-			return 0, fmt.Errorf("load task %s observed-output settlement: %w", task.id, err)
-		}
-		if !settled.Applied {
-			continue
-		}
-		var rebate int64
-		if settled.HasNanos && task.frozenNanos != nil {
-			rebate = *task.frozenNanos - settled.BilledChargeNanos
-		} else {
-			rebate = usdToMicros(settled.RebateUSD) * NanosPerMicro
-		}
-		if rebate < 0 {
-			return 0, fmt.Errorf("task %s observed-output settlement exceeds its accepted charge", task.id)
-		}
-		if err := checkedContributionAdd(&total, rebate); err != nil {
-			return 0, err
-		}
-	}
-	return total, nil
+	return loadContributionObservedOutputRebateForJob(ctx, tx, jobID)
 }
 
 func checkedContributionAdd(total *int64, value int64) error {

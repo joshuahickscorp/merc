@@ -1,6 +1,7 @@
 package main
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -335,5 +336,36 @@ func TestCallerSuppliedCostSettlementRowCannotClearContributionBlockers(t *testi
 		if strings.Contains(component.Source, "job_cost_settlements") {
 			t.Fatalf("caller-supplied row masqueraded as canonical source: %+v", component)
 		}
+	}
+}
+
+func TestContributionBatchSettlementMatchesSingleJobAuthority(t *testing.T) {
+	ctx, store, _, fixture, job, tasks, _ := currentUniformMoneyPathJob(t)
+	mustf(t, store.SubmitJobTx(ctx, job, tasks), "submit batch settlement fixture: %v")
+
+	single, err := store.ContributionSettlementForJob(ctx, fixture.JobID)
+	must(t, err)
+	batched, err := store.contributionSettlementsForJobs(ctx, []uuid.UUID{fixture.JobID})
+	must(t, err)
+	got, ok := batched[fixture.JobID]
+	if !ok {
+		t.Fatalf("batched settlement omitted job %s", fixture.JobID)
+	}
+	if !reflect.DeepEqual(*single, *got) {
+		t.Fatalf("batched settlement changed canonical authority:\nsingle=%+v\nbatched=%+v", single, got)
+	}
+	rollup, err := store.TrueNetContributionForAccount(ctx, fixture.BuyerID)
+	must(t, err)
+	wantFinal := 0
+	wantUnknown := 1
+	if single.TrueNetNanos != nil {
+		wantFinal, wantUnknown = 1, 0
+	}
+	if rollup.JobsWithoutDecision != 0 || rollup.JobsWithTrueNet != wantFinal ||
+		rollup.JobsWithUnknownCosts != wantUnknown || rollup.Currency != single.Key.Currency {
+		t.Fatalf("account rollup did not use the batched authority: %+v", rollup)
+	}
+	if single.TrueNetNanos != nil && rollup.TrueNetContributionNanos != *single.TrueNetNanos {
+		t.Fatalf("account rollup changed true-net authority: %+v vs %+v", rollup, single)
 	}
 }

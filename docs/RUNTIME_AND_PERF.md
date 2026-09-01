@@ -114,6 +114,12 @@ boundary:
   any in-flight held payouts to recovery through one PostgreSQL data-modifying
   CTE. The parent job and credit locks remain the authority; this removes the
   per-credit hold/ledger/operation round-trip fan-out.
+- Account and workload-class true-net reports now reduce all selected jobs in
+  one repeatable-read snapshot. Jobs, task/job ledger facts, risk reserves,
+  processor-fee allocations, observed-output tasks, subsidy funding, and
+  dispute facts are bulk-loaded before the unchanged exact-nano reducer runs;
+  the report path no longer opens a transaction and repeats those fact queries
+  once per job. No Stripe/provider call is introduced into the report path.
 - The flag-on liveness shadow fingerprint now uses the same FNV-1a bytes through
   a direct loop: about 18 nanoseconds became about 12 nanoseconds per lookup,
   with zero allocations and a compatibility test against the standard

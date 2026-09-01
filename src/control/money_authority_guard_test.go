@@ -198,6 +198,7 @@ var declaredMoneyAuthoritySinks = []string{
 	"settleFinalServiceLeaseTx",               // service_leases.go
 	"settleLoRAExact",                         // lora_settlement.go
 	"settleLoRARun",                           // lora_settlement.go
+	"settleObservedOutputSettlementTaskFacts", // observed_output_settlement.go
 	"settleObservedOutputTokens",              // observed_output_settlement.go
 	"settleObservedOutputTokensWithSchedule",  // observed_output_settlement.go
 	"settleStorageEgressFromBytes",            // modeled_cost_settlement.go
@@ -324,6 +325,7 @@ var declaredMoneyAuthority = []string{
 	"Store.ClawbackTaskCredit",                            // store_tasks.go
 	"Store.CompletePrepaidRefund",                         // store_prepaid.go
 	"Store.ContributionSettlementForJob",                  // contribution_settlement.go
+	"Store.contributionSettlementsForJobs",                // contribution_settlement_batch.go
 	"Store.ConsumeRiskReserveOnRefund",                    // risk_reserve_ledger.go
 	"Store.CreateExecutionEnvelope",                       // execution_envelope.go
 	"Store.CreateServiceLease",                            // service_leases.go
@@ -540,7 +542,10 @@ var declaredMoneyAuthority = []string{
 	"lfsObjectPath",                                       // evidence.go
 	"loadActivationAtStartup",                             // activation_policy.go
 	"loadContributionJobFacts",                            // contribution_settlement.go
+	"loadContributionJobFactsBatch",                       // contribution_settlement_batch.go
 	"loadContributionObservedOutputRebate",                // contribution_settlement.go
+	"loadContributionObservedOutputRebateForJob",          // contribution_settlement_batch.go
+	"loadContributionObservedOutputRebatesBatch",          // contribution_settlement_batch.go
 	"loadLFSIndex",                                        // evidence.go
 	"loadObservedOutputSettlement",                        // observed_output_settlement.go
 	"main",                                                // main.go
@@ -607,6 +612,7 @@ var declaredMoneyAuthority = []string{
 	"runProjectSubmit",                                    // dev_project_compile.go
 	"runProjectSubmitRoots",                               // dev_project_compile.go
 	"runProjectSubmitStep",                                // dev_project_compile.go
+	"reduceContributionObservedOutputRebateTaskFacts",     // contribution_settlement_batch.go
 	"runWorkerLeader",                                     // worker_leader.go
 	"runtimeActivation.cellRoutable",                      // activation_policy.go
 	"runtimeCapabilitiesForBindingDirected",               // workload_classification.go
@@ -616,6 +622,7 @@ var declaredMoneyAuthority = []string{
 	"settleFinalServiceLeaseTx",                           // service_leases.go
 	"settleLoRAExact",                                     // lora_settlement.go
 	"settleLoRARun",                                       // lora_settlement.go
+	"settleObservedOutputSettlementTaskFacts",             // observed_output_settlement.go
 	"settleObservedOutputTokens",                          // observed_output_settlement.go
 	"settleObservedOutputTokensWithSchedule",              // observed_output_settlement.go
 	"settleSLAOutcome",                                    // collect.go
