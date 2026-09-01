@@ -43,6 +43,10 @@ func stripeConnectAccountIdempotencyKey(supplierID uuid.UUID) string {
 }
 
 func onboardingLink(ctx context.Context, acct string) (string, error) {
+	acct = strings.TrimSpace(acct)
+	if !validStripeObjectID(acct, "acct_") {
+		return "", errors.New("stripe account_link: connected account id is invalid")
+	}
 	ret, refresh := strings.TrimSpace(os.Getenv("MERC_CONNECT_RETURN_URL")),
 		strings.TrimSpace(os.Getenv("MERC_CONNECT_REFRESH_URL"))
 	if err := validateConnectURLPair(ret, refresh, os.Getenv("SITE_HOST")); err != nil {
@@ -57,9 +61,27 @@ func onboardingLink(ctx context.Context, acct string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	link, err := parseStripeAccountLinkResponse(out)
+	if err != nil {
+		return "", err
+	}
+	return link, nil
+}
+
+func parseStripeAccountLinkResponse(out map[string]any) (string, error) {
+	objectType, ok := out["object"].(string)
+	if !ok || strings.TrimSpace(objectType) != "account_link" {
+		return "", errors.New("stripe account_link: provider returned the wrong object type")
+	}
 	link, _ := out["url"].(string)
-	if link == "" {
-		return "", fmt.Errorf("stripe account_link: no url in response")
+	link = strings.TrimSpace(link)
+	u, err := url.Parse(link)
+	if err != nil || u.Scheme != "https" || u.User != nil || u.Fragment != "" || u.Path == "" {
+		return "", errors.New("stripe account_link: provider returned an invalid HTTPS URL")
+	}
+	if strings.ToLower(strings.TrimSuffix(u.Hostname(), ".")) != "connect.stripe.com" ||
+		(u.Port() != "" && u.Port() != "443") {
+		return "", errors.New("stripe account_link: provider URL is not hosted by connect.stripe.com")
 	}
 	return link, nil
 }

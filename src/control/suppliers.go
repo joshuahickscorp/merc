@@ -192,6 +192,8 @@ func writeSupplierStoreError(w http.ResponseWriter, action string, err error) {
 }
 
 func (s *Server) handleSupplierOnboard(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Pragma", "no-cache")
 	if !s.requireOperationalControlActive(w, r, controlPayments) {
 		return
 	}

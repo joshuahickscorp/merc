@@ -107,6 +107,72 @@ func TestStripeConnectAccountStatusRequiresExactProviderResponse(t *testing.T) {
 	}
 }
 
+func TestStripeAccountLinkResponseRequiresStripeHostedSingleUseURL(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		out  map[string]any
+		want string
+		good bool
+	}{
+		{
+			name: "exact hosted link",
+			out:  map[string]any{"object": "account_link", "url": "https://connect.stripe.com/setup/c/acct_link_exact/token"},
+			want: "https://connect.stripe.com/setup/c/acct_link_exact/token",
+			good: true,
+		},
+		{
+			name: "trailing dot hostname",
+			out:  map[string]any{"object": "account_link", "url": "https://connect.stripe.com./setup/c/acct_link_dot/token"},
+			want: "https://connect.stripe.com./setup/c/acct_link_dot/token",
+			good: true,
+		},
+		{
+			name: "wrong object type",
+			out:  map[string]any{"object": "account", "url": "https://connect.stripe.com/setup/c/acct_link_object/token"},
+		},
+		{
+			name: "missing object type",
+			out:  map[string]any{"url": "https://connect.stripe.com/setup/c/acct_link_missing/token"},
+		},
+		{
+			name: "wrong host",
+			out:  map[string]any{"object": "account_link", "url": "https://example.invalid/setup/c/acct_link_host/token"},
+		},
+		{
+			name: "insecure scheme",
+			out:  map[string]any{"object": "account_link", "url": "http://connect.stripe.com/setup/c/acct_link_http/token"},
+		},
+		{
+			name: "credentials in URL",
+			out:  map[string]any{"object": "account_link", "url": "https://user:pass@connect.stripe.com/setup/c/acct_link_userinfo/token"},
+		},
+		{
+			name: "fragment in URL",
+			out:  map[string]any{"object": "account_link", "url": "https://connect.stripe.com/setup/c/acct_link_fragment/token#fragment"},
+		},
+		{
+			name: "missing URL",
+			out:  map[string]any{"object": "account_link"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := parseStripeAccountLinkResponse(tc.out)
+			if tc.good {
+				if err != nil {
+					t.Fatalf("parse error=%v", err)
+				}
+				if got != tc.want {
+					t.Fatalf("link=%q, want %q", got, tc.want)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatal("malformed account-link response was accepted")
+			}
+		})
+	}
+}
+
 func TestStripeConnectEventParserRequiresBoundAccountReadiness(t *testing.T) {
 	for _, tc := range []struct {
 		name string
