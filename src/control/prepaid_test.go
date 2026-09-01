@@ -95,6 +95,57 @@ func TestPrepaidTopupCreditsBalanceAndLedger(t *testing.T) {
 	if count != 1 || topupSum != 25_000_000 {
 		t.Fatalf("topup ledger count=%d sum=%d", count, topupSum)
 	}
+	conflicting := charge
+	conflicting.ChargeID = "ch_conflicting_" + uuid.NewString()
+	if err := store.CreditPrepaidTopup(ctx, opKey, buyerID, conflicting); err == nil {
+		t.Fatal("completed top-up accepted a conflicting provider charge identity")
+	}
+}
+
+func TestCreditPrepaidTopupRejectsConflictingCashCollectionBinding(t *testing.T) {
+	store, pool, ctx := prepaidTestStore(t)
+	buyerID := insertTestBuyer(t, pool, ctx)
+	opKey := "topup-conflicting-collection-" + uuid.NewString()
+	paymentIntent := "pi_conflicting_collection_" + uuid.NewString()
+	chargeID := "ch_existing_collection_" + uuid.NewString()
+	if _, err := store.BeginPrepaidTopup(ctx, opKey, buyerID, 2500); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO buyer_cash_collections
+		  (payment_intent,charge_id,buyer_id,source_kind,requested_cents,received_cents,currency)
+		VALUES ($1,$2,$3,'topup',2500,2500,$4)`,
+		paymentIntent, chargeID, buyerID, SettlementCurrencyCode()); err != nil {
+		t.Fatalf("insert existing collection: %v", err)
+	}
+	err := store.CreditPrepaidTopup(ctx, opKey, buyerID, ChargeResult{
+		PaymentIntentID: paymentIntent,
+		ChargeID:        "ch_different_" + uuid.NewString(),
+		RequestedCents:  2500,
+		ReceivedCents:   2500,
+		Currency:        SettlementCurrencyCode(),
+	})
+	if err == nil {
+		t.Fatal("top-up accepted a PaymentIntent already bound to a different cash collection")
+	}
+	var status string
+	if err := pool.QueryRow(ctx,
+		`SELECT status FROM prepaid_topup_operations WHERE operation_key=$1`, opKey).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if status != "pending" {
+		t.Fatalf("conflicting top-up status=%q, want pending", status)
+	}
+	var balance, ledgerRows int64
+	if err := pool.QueryRow(ctx, `
+		SELECT COALESCE((SELECT balance_micros FROM buyer_prepaid_balances WHERE buyer_id=$1 AND currency=$2),0),
+		       (SELECT count(*) FROM ledger_entries WHERE buyer_id=$1 AND kind='prepaid_topup')`,
+		buyerID, SettlementCurrencyCode()).Scan(&balance, &ledgerRows); err != nil {
+		t.Fatal(err)
+	}
+	if balance != 0 || ledgerRows != 0 {
+		t.Fatalf("conflicting top-up left balance/ledger effects=%d/%d, want 0/0", balance, ledgerRows)
+	}
 }
 
 func TestReconcileBuyerChargeOperationAcceptsCompletedPrepaidWebhook(t *testing.T) {

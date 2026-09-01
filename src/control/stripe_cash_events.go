@@ -277,19 +277,25 @@ func (s *Store) ApplyPaymentEventTx(ctx context.Context, event stripeCashEvent) 
 
 	resolvedPI := event.PaymentIntent
 	if resolvedPI == "" {
-		_ = tx.QueryRow(ctx, `
+		if err := tx.QueryRow(ctx, `
 			SELECT payment_intent FROM buyer_cash_collections WHERE charge_id=$1`,
-			event.ChargeID).Scan(&resolvedPI)
+			event.ChargeID).Scan(&resolvedPI); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return result, err
+		}
 	}
 	if resolvedPI == "" {
-		_ = tx.QueryRow(ctx, `
+		if err := tx.QueryRow(ctx, `
 			SELECT COALESCE(payment_intent,'') FROM stripe_charge_cash_state WHERE charge_id=$1`,
-			event.ChargeID).Scan(&resolvedPI)
+			event.ChargeID).Scan(&resolvedPI); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return result, err
+		}
 	}
 	if resolvedPI == "" && event.EventType != stripeEventChargeRefunded {
-		_ = tx.QueryRow(ctx, `
+		if err := tx.QueryRow(ctx, `
 			SELECT COALESCE(payment_intent,'') FROM stripe_dispute_cash_state WHERE dispute_id=$1`,
-			event.ObjectID).Scan(&resolvedPI)
+			event.ObjectID).Scan(&resolvedPI); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return result, err
+		}
 	}
 
 	var collectionReceived int64

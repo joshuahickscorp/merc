@@ -151,11 +151,14 @@ func (s *Store) CreditPrepaidTopup(ctx context.Context, operationKey string, buy
 	var status string
 	var storedBuyer uuid.UUID
 	var amountCents int64
-	var storedCurrency string
+	var storedCurrency, storedPaymentIntent, storedChargeID string
 	err = tx.QueryRow(ctx, `
-		SELECT buyer_id, amount_cents, currency, status FROM prepaid_topup_operations
+		SELECT buyer_id, amount_cents, currency, status,
+		       COALESCE(payment_intent,''), COALESCE(charge_id,'')
+		  FROM prepaid_topup_operations
 		 WHERE operation_key=$1 FOR UPDATE`, operationKey,
-	).Scan(&storedBuyer, &amountCents, &storedCurrency, &status)
+	).Scan(&storedBuyer, &amountCents, &storedCurrency, &status,
+		&storedPaymentIntent, &storedChargeID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		// Webhook may race ahead of BeginPrepaidTopup on a lost response; insert pending.
 		if _, err := tx.Exec(ctx, `
@@ -182,15 +185,52 @@ func (s *Store) CreditPrepaidTopup(ctx context.Context, operationKey string, buy
 	if chargeCurrency.Code() != settlement.Code() {
 		return fmt.Errorf("top-up %s currency mismatch: stored=%s charge=%s", operationKey, settlement.Code(), charge.Currency)
 	}
-	micros, err := settlement.MinorToMicros(charge.ReceivedCents)
-	if err != nil {
-		return err
+	if status == "succeeded" &&
+		(storedPaymentIntent != charge.PaymentIntentID || storedChargeID != charge.ChargeID) {
+		return fmt.Errorf("top-up %s has a conflicting completed provider identity", operationKey)
 	}
 	if status == "succeeded" {
 		return tx.Commit(ctx)
 	}
 	if status != "pending" {
 		return fmt.Errorf("top-up %s is %s, cannot credit", operationKey, status)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO buyer_cash_collections
+		  (payment_intent,charge_id,buyer_id,source_kind,job_id,charge_batch_id,
+		   requested_cents,received_cents,currency)
+		VALUES ($1,$2,$3,'topup',NULL,NULL,$4,$5,$6)
+		ON CONFLICT (payment_intent) DO NOTHING`,
+		charge.PaymentIntentID, charge.ChargeID, buyerID,
+		charge.RequestedCents, charge.ReceivedCents, settlement.Code()); err != nil {
+		return err
+	}
+	var (
+		collectionChargeID, collectionCurrency, collectionSource string
+		collectionBuyer                                          uuid.UUID
+		collectionJobID, collectionBatchID                       *uuid.UUID
+		collectionRequested, collectionReceived                  int64
+	)
+	if err := tx.QueryRow(ctx, `
+		SELECT COALESCE(charge_id,''),buyer_id,source_kind,job_id,charge_batch_id,
+		       requested_cents,received_cents,currency
+		  FROM buyer_cash_collections WHERE payment_intent=$1 FOR UPDATE`,
+		charge.PaymentIntentID).Scan(
+		&collectionChargeID, &collectionBuyer, &collectionSource,
+		&collectionJobID, &collectionBatchID, &collectionRequested,
+		&collectionReceived, &collectionCurrency); err != nil {
+		return err
+	}
+	if collectionChargeID != charge.ChargeID || collectionBuyer != buyerID ||
+		collectionSource != "topup" || collectionJobID != nil || collectionBatchID != nil ||
+		collectionRequested != charge.RequestedCents || collectionReceived != charge.ReceivedCents ||
+		collectionCurrency != settlement.Code() {
+		return fmt.Errorf("top-up %s PaymentIntent %s conflicts with its durable cash collection binding",
+			operationKey, charge.PaymentIntentID)
+	}
+	micros, err := settlement.MinorToMicros(charge.ReceivedCents)
+	if err != nil {
+		return err
 	}
 
 	if _, err := tx.Exec(ctx, `
@@ -207,16 +247,6 @@ func (s *Store) CreditPrepaidTopup(ctx context.Context, operationKey string, buy
 		Currency: settlement.Code(), CurrencyAuthority: ledgerCurrencyAuthorityPrepaid,
 		PayoutStatus: PayoutReleased, PayoutRef: charge.PaymentIntentID,
 	}); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(ctx, `
-		INSERT INTO buyer_cash_collections
-		  (payment_intent,charge_id,buyer_id,source_kind,job_id,charge_batch_id,
-		   requested_cents,received_cents,currency)
-		VALUES ($1,$2,$3,'topup',NULL,NULL,$4,$5,$6)
-		ON CONFLICT (payment_intent) DO NOTHING`,
-		charge.PaymentIntentID, charge.ChargeID, buyerID,
-		charge.RequestedCents, charge.ReceivedCents, settlement.Code()); err != nil {
 		return err
 	}
 	ct, err := tx.Exec(ctx, `
