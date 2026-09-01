@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"net/url"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -116,6 +118,10 @@ func (wk *Workers) reconcileLedger(ctx context.Context) error {
 }
 
 func stripeTransferredUSD(ctx context.Context, acct string) (float64, error) {
+	acct = strings.TrimSpace(acct)
+	if !validStripeObjectID(acct, "acct_") {
+		return 0, fmt.Errorf("stripe transfers: invalid connected account id")
+	}
 	settlement, err := SettlementCurrency()
 	if err != nil {
 		return 0, err
@@ -123,10 +129,11 @@ func stripeTransferredUSD(ctx context.Context, acct string) (float64, error) {
 	var totalMinorUnits int64
 	startingAfter := ""
 	for page := 0; page < reconcileMaxPages; page++ {
-		path := fmt.Sprintf("transfers?destination=%s&limit=100", acct)
+		params := url.Values{"destination": {acct}, "limit": {"100"}}
 		if startingAfter != "" {
-			path += "&starting_after=" + startingAfter
+			params.Set("starting_after", startingAfter)
 		}
+		path := "transfers?" + params.Encode()
 		out, err := stripeGet(ctx, path)
 		if err != nil {
 			return 0, err
@@ -141,6 +148,11 @@ func stripeTransferredUSD(ctx context.Context, acct string) (float64, error) {
 			if !ok {
 				return 0, fmt.Errorf("stripe transfers: malformed entry")
 			}
+			id, ok := t["id"].(string)
+			id = strings.TrimSpace(id)
+			if !ok || !validStripeObjectID(id, "tr_") {
+				return 0, fmt.Errorf("stripe transfers: entry has an invalid transfer id")
+			}
 			currency, _ := t["currency"].(string)
 			if err := RequireSettlementCurrency(currency); err != nil {
 				return 0, fmt.Errorf("stripe transfers: entry currency refused: %w", err)
@@ -153,13 +165,23 @@ func stripeTransferredUSD(ctx context.Context, acct string) (float64, error) {
 				return 0, fmt.Errorf("stripe transfers: amount total overflows settlement range")
 			}
 			totalMinorUnits += amt
-			if id, ok := t["id"].(string); ok {
-				lastID = id
-			}
+			lastID = id
 		}
-		hasMore, _ := out["has_more"].(bool)
-		if !hasMore || lastID == "" {
+		hasMore, ok := out["has_more"].(bool)
+		if !ok {
+			return 0, fmt.Errorf("stripe transfers: missing has_more flag")
+		}
+		if !hasMore {
 			break
+		}
+		if lastID == "" {
+			return 0, fmt.Errorf("stripe transfers: has_more response has no transfer cursor")
+		}
+		if lastID == startingAfter {
+			return 0, fmt.Errorf("stripe transfers: pagination cursor did not advance")
+		}
+		if page == reconcileMaxPages-1 {
+			return 0, fmt.Errorf("stripe transfers: response exceeded %d pages", reconcileMaxPages)
 		}
 		startingAfter = lastID // cursor onto the next page
 	}

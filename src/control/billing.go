@@ -127,7 +127,21 @@ func stripeKey() string {
 
 func validStripeObjectID(value, prefix string) bool {
 	value, prefix = strings.TrimSpace(value), strings.TrimSpace(prefix)
-	return prefix != "" && len(value) > len(prefix) && strings.HasPrefix(value, prefix)
+	if prefix == "" || len(value) <= len(prefix) || !strings.HasPrefix(value, prefix) {
+		return false
+	}
+	// Stripe object IDs are opaque to Merc, but they are still placed into
+	// URL paths and query parameters.  Keep the accepted opaque suffix to the
+	// provider's URL-safe ID alphabet so a legacy or manually seeded row cannot
+	// turn a read into a different endpoint or query.
+	for i := len(prefix); i < len(value); i++ {
+		c := value[i]
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+			(c >= '0' && c <= '9') || c == '_' || c == '-') {
+			return false
+		}
+	}
+	return true
 }
 
 func stripePOSTOperation(path string, form url.Values) (PaymentOperation, int64, string, error) {
@@ -919,7 +933,7 @@ func recordStripeFee(ctx context.Context, store *Store, buyerID uuid.UUID, pi st
 	if pi == "" {
 		return fmt.Errorf("no payment intent id to fetch a fee for")
 	}
-	out, err := stripeGet(ctx, "payment_intents/"+pi+"?expand[]=latest_charge.balance_transaction")
+	out, err := stripeGet(ctx, "payment_intents/"+url.PathEscape(pi)+"?expand[]=latest_charge.balance_transaction")
 	if err != nil {
 		return err
 	}

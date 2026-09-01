@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 
 	"github.com/google/uuid"
@@ -274,7 +275,7 @@ func (s *Server) handleSupplierStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if stripeKey() != "" && acct != "" {
-		if out, gerr := stripeGet(r.Context(), "accounts/"+acct); gerr == nil {
+		if out, gerr := stripeGet(r.Context(), "accounts/"+url.PathEscape(acct)); gerr == nil {
 			if pe, ok := out["payouts_enabled"].(bool); ok {
 				payoutsEnabled = pe
 			}

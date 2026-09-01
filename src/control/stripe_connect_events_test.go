@@ -30,6 +30,9 @@ func TestStripeExternalIdentityIDsFailClosedOnWrongOrEmptyPrefix(t *testing.T) {
 		{"empty suffix", "cus_", "cus_", false},
 		{"wrong prefix", "acct_wrong", "cus_", false},
 		{"whitespace", " cus_valid ", "cus_", true},
+		{"query delimiter", "acct_bad&limit=1", "acct_", false},
+		{"path delimiter", "pi_bad/other", "pi_", false},
+		{"space", "pm_bad value", "pm_", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := validStripeObjectID(tc.value, tc.prefix); got != tc.want {

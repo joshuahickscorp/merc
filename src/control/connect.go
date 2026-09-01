@@ -98,7 +98,7 @@ func (s *Server) handleWorkerConnectStatus(w http.ResponseWriter, r *http.Reques
 		})
 		return
 	}
-	out, err := stripeGet(r.Context(), "accounts/"+acct)
+	out, err := stripeGet(r.Context(), "accounts/"+url.PathEscape(acct))
 	if err != nil {
 		writeErr(w, http.StatusServiceUnavailable, err.Error())
 		return
