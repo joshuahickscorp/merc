@@ -169,7 +169,7 @@ ensure_endpoint() {
 }
 
 ensure_endpoint "https://$HOST/v1/stripe/webhook"         "STRIPE_WEBHOOK_SECRET"     "setup_intent.succeeded,payment_method.attached,payment_intent.succeeded,payment_intent.payment_failed,charge.refunded,charge.dispute.created,charge.dispute.funds_withdrawn,charge.dispute.funds_reinstated,charge.dispute.closed,radar.early_fraud_warning.created,radar.early_fraud_warning.updated" false
-ensure_endpoint "https://$HOST/v1/stripe/connect-webhook" "MERC_CONNECT_WEBHOOK_SECRET" "account.updated,capability.updated,payout.created,payout.updated,payout.paid,payout.failed,payout.canceled,payout.reconciliation_completed" true
+ensure_endpoint "https://$HOST/v1/stripe/connect-webhook" "MERC_CONNECT_WEBHOOK_SECRET" "account.updated,account.external_account.created,account.external_account.updated,account.external_account.deleted,capability.updated,payout.created,payout.updated,payout.paid,payout.failed,payout.canceled,payout.reconciliation_completed" true
 
 hr "done"
 info "If secrets were written to .env, restart the control plane so it loads them:"

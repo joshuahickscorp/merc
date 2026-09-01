@@ -174,7 +174,7 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("GET /v1/billing/status", s.authBuyer(http.HandlerFunc(s.handleBillingStatus)))
 	mux.Handle("POST /v1/billing/topup", s.authBuyer(http.HandlerFunc(s.handleBillingTopup))) // the only way to fund an account; prepaid admission (prepaid.go) refuses jobs without it
 	mux.HandleFunc("POST /v1/stripe/webhook", s.handleStripeWebhook)                          // unauthed; verified by signature
-	mux.HandleFunc("POST /v1/stripe/connect-webhook", s.handleConnectWebhook)                 // Connect account.updated; verified by signature
+	mux.HandleFunc("POST /v1/stripe/connect-webhook", s.handleConnectWebhook)                 // Connect account/external-account/capability/payout facts; verified by signature
 
 	mux.Handle("POST /v1/keys", s.authBuyer(http.HandlerFunc(s.handleCreateKey)))
 	mux.Handle("GET /v1/keys", s.authBuyer(http.HandlerFunc(s.handleListKeys)))

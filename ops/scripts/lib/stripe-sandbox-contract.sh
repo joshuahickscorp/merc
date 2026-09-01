@@ -20,7 +20,7 @@ MERC_STRIPE_CANDIDATE_PAYOUT_FAILURE_ACCOUNT="000111111116"
 # shellcheck disable=SC2034 # consumed by scripts that source this authority
 MERC_STRIPE_CONNECT_ACCOUNT_TYPE="custom"
 # shellcheck disable=SC2034 # consumed by scripts that source this authority
-MERC_STRIPE_CONNECT_WEBHOOK_EVENTS="account.updated,capability.updated,payout.created,payout.updated,payout.paid,payout.failed,payout.canceled,payout.reconciliation_completed"
+MERC_STRIPE_CONNECT_WEBHOOK_EVENTS="account.updated,account.external_account.created,account.external_account.updated,account.external_account.deleted,capability.updated,payout.created,payout.updated,payout.paid,payout.failed,payout.canceled,payout.reconciliation_completed"
 # The operator command that drives every Connect-gated scenario after signup.
 # shellcheck disable=SC2034 # consumed by scripts that source this authority
 MERC_STRIPE_CONNECT_REMAINDER_COMMAND="ops/scripts/stripe-sandbox-connect.sh"

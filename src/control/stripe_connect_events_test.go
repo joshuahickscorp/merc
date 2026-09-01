@@ -276,6 +276,72 @@ func TestStripeConnectCapabilityParserBindsAccountIDAndStatus(t *testing.T) {
 	}
 }
 
+func TestStripeConnectExternalAccountParserBindsAccountAndObject(t *testing.T) {
+	acct := "acct_parser_external"
+	for _, tc := range []struct {
+		name      string
+		eventType string
+		object    map[string]any
+		wantID    string
+	}{
+		{
+			name:      "bank account created",
+			eventType: stripeConnectEventExternalAccountCreated,
+			object:    map[string]any{"object": "bank_account", "id": "ba_parser_external", "account": acct},
+			wantID:    "ba_parser_external",
+		},
+		{
+			name:      "card updated",
+			eventType: stripeConnectEventExternalAccountUpdated,
+			object:    map[string]any{"object": "card", "id": "card_parser_external", "account": acct},
+			wantID:    "card_parser_external",
+		},
+		{
+			name:      "bank account deleted",
+			eventType: stripeConnectEventExternalAccountDeleted,
+			object:    map[string]any{"object": "bank_account", "id": "ba_parser_external_deleted"},
+			wantID:    "ba_parser_external_deleted",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			event, err := parseStripeConnectEvent(
+				"evt_external_"+strings.ReplaceAll(tc.name, " ", "_"), tc.eventType, acct,
+				1_700_000_008, tc.object, []byte(`{"event":"external-account"}`))
+			mustf(t, err, "parse external-account event: %v")
+			if event.AccountID != acct || event.ObjectID != tc.wantID || event.PayoutsEnabled != nil {
+				t.Fatalf("external-account event=%+v, want account=%s object=%s and no readiness fact", event, acct, tc.wantID)
+			}
+		})
+	}
+
+	for _, tc := range []struct {
+		name   string
+		object map[string]any
+	}{
+		{
+			name:   "wrong object kind",
+			object: map[string]any{"object": "payment_method", "id": "pm_external", "account": acct},
+		},
+		{
+			name:   "wrong object id prefix",
+			object: map[string]any{"object": "bank_account", "id": "card_external", "account": acct},
+		},
+		{
+			name:   "wrong account binding",
+			object: map[string]any{"object": "bank_account", "id": "ba_external", "account": "acct_other"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := parseStripeConnectEvent(
+				"evt_external_bad_"+strings.ReplaceAll(tc.name, " ", "_"),
+				stripeConnectEventExternalAccountUpdated, acct, 1_700_000_009, tc.object,
+				[]byte(`{"event":"external-account"}`)); err == nil {
+				t.Fatal("accepted an invalid external-account object")
+			}
+		})
+	}
+}
+
 func TestStripeConnectEventsAreDurableMonotonicAndSeparateFromMercPayouts(t *testing.T) {
 	ctx, store, pool := openIsolatedTestStore(t)
 	supplierID, buyerID := uuid.New(), uuid.New()
@@ -370,6 +436,29 @@ func TestStripeConnectEventsAreDurableMonotonicAndSeparateFromMercPayouts(t *tes
 	mustf(t, err, "replay capability event: %v")
 	if !result.Duplicate || result.Applied || result.Stale {
 		t.Fatalf("capability replay result=%+v, want duplicate only", result)
+	}
+
+	externalPayload := []byte(`{"id":"evt_connect_external","type":"account.external_account.updated","created":1700000005}`)
+	externalEvent, err := parseStripeConnectEvent(
+		"evt_connect_external", stripeConnectEventExternalAccountUpdated, acct, 1_700_000_005,
+		map[string]any{"object": "bank_account", "id": "ba_connect_external", "account": acct}, externalPayload)
+	mustf(t, err, "parse external-account event: %v")
+	result, err = store.ApplyConnectWebhookEvent(ctx, externalEvent)
+	mustf(t, err, "apply external-account event: %v")
+	if !result.Applied || result.Duplicate || result.Stale {
+		t.Fatalf("external-account result=%+v, want recorded/applied only", result)
+	}
+	var externalType, externalID string
+	mustf(t, pool.QueryRow(ctx, `
+		SELECT event_type,object_id FROM stripe_connect_webhook_events WHERE event_id=$1`, externalEvent.EventID).
+		Scan(&externalType, &externalID), "read external-account event: %v")
+	if externalType != stripeConnectEventExternalAccountUpdated || externalID != "ba_connect_external" {
+		t.Fatalf("external-account row=(%q,%q), want updated/ba_connect_external", externalType, externalID)
+	}
+	mustf(t, pool.QueryRow(ctx, `SELECT payouts_enabled FROM suppliers WHERE id=$1`, supplierID).
+		Scan(&enabled), "read readiness after external-account event: %v")
+	if !enabled {
+		t.Fatal("external-account event changed supplier account readiness")
 	}
 
 	for i, eventType := range []string{

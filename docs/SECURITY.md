@@ -70,6 +70,9 @@ fenced by the retry-attempt epoch.
   monotonically; `capability.updated` and Connect `payout.*` deliveries are
   append-only provider observations and cannot settle or reverse a Merc
   supplier-credit ledger row.
+- `account.external_account.created`, `.updated`, and `.deleted` deliveries
+  are also retained as bound provider observations; they cannot alter supplier
+  readiness or settle/reverse a Merc ledger row.
 - `payment_intent.payment_failed` deliveries are retained as explicit provider
   failures but never mutate cash or retry state: a late failure can belong to an
   older PaymentIntent while a later attempt succeeds.

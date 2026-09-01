@@ -14,6 +14,9 @@ import (
 
 const (
 	stripeConnectEventAccountUpdated           = "account.updated"
+	stripeConnectEventExternalAccountCreated   = "account.external_account.created"
+	stripeConnectEventExternalAccountUpdated   = "account.external_account.updated"
+	stripeConnectEventExternalAccountDeleted   = "account.external_account.deleted"
 	stripeConnectEventCapabilityUpdated        = "capability.updated"
 	stripeConnectEventPayoutCreated            = "payout.created"
 	stripeConnectEventPayoutUpdated            = "payout.updated"
@@ -48,6 +51,9 @@ type stripeConnectEventResult struct {
 func isStripeConnectEventType(eventType string) bool {
 	switch eventType {
 	case stripeConnectEventAccountUpdated,
+		stripeConnectEventExternalAccountCreated,
+		stripeConnectEventExternalAccountUpdated,
+		stripeConnectEventExternalAccountDeleted,
 		stripeConnectEventCapabilityUpdated,
 		stripeConnectEventPayoutCreated,
 		stripeConnectEventPayoutUpdated,
@@ -126,6 +132,28 @@ func parseStripeConnectEvent(
 		if !isStripeCapabilityStatus(event.CapabilityStatus) {
 			return stripeConnectEvent{}, fmt.Errorf("%w: capability.updated has an invalid capability status", errInvalidStripeConnectEvent)
 		}
+	case stripeConnectEventExternalAccountCreated, stripeConnectEventExternalAccountUpdated,
+		stripeConnectEventExternalAccountDeleted:
+		objectType, _ := object["object"].(string)
+		objectType = strings.TrimSpace(objectType)
+		prefix, ok := stripeExternalAccountObjectPrefix(objectType)
+		if !ok {
+			return stripeConnectEvent{}, fmt.Errorf("%w: external-account event has an unsupported Stripe object kind", errInvalidStripeConnectEvent)
+		}
+		objectAccount, hasObjectAccount := object["account"]
+		if hasObjectAccount && objectAccount != nil {
+			account, ok := objectAccount.(string)
+			if !ok || !validStripeObjectID(strings.TrimSpace(account), "acct_") {
+				return stripeConnectEvent{}, fmt.Errorf("%w: external-account object has an invalid account id", errInvalidStripeConnectEvent)
+			}
+			if stripeConnectedAccountMismatch(strings.TrimSpace(envelopeAccount), strings.TrimSpace(account)) {
+				return stripeConnectEvent{}, fmt.Errorf("%w: envelope account does not match external-account object", errInvalidStripeConnectEvent)
+			}
+		}
+		event.AccountID = strings.TrimSpace(envelopeAccount)
+		if !validStripeObjectID(event.AccountID, "acct_") || !validStripeObjectID(objectID, prefix) {
+			return stripeConnectEvent{}, fmt.Errorf("%w: external-account event is missing its connected account or object id", errInvalidStripeConnectEvent)
+		}
 	case stripeConnectEventPayoutCreated, stripeConnectEventPayoutUpdated,
 		stripeConnectEventPayoutPaid, stripeConnectEventPayoutFailed,
 		stripeConnectEventPayoutCanceled, stripeConnectEventPayoutReconciliationDone:
@@ -153,6 +181,12 @@ func validateStripeConnectEvent(event stripeConnectEvent) error {
 		}
 		return nil
 	}
+	if isStripeExternalAccountEventType(event.EventType) {
+		if !validStripeExternalAccountID(event.ObjectID) {
+			return fmt.Errorf("%w: external-account event has an invalid object id", errInvalidStripeConnectEvent)
+		}
+		return nil
+	}
 	objectPrefix := "po_"
 	if event.EventType == stripeConnectEventAccountUpdated {
 		objectPrefix = "acct_"
@@ -164,6 +198,31 @@ func validateStripeConnectEvent(event stripeConnectEvent) error {
 		return fmt.Errorf("%w: account.updated has no payouts_enabled fact", errInvalidStripeConnectEvent)
 	}
 	return nil
+}
+
+func isStripeExternalAccountEventType(eventType string) bool {
+	switch eventType {
+	case stripeConnectEventExternalAccountCreated, stripeConnectEventExternalAccountUpdated,
+		stripeConnectEventExternalAccountDeleted:
+		return true
+	default:
+		return false
+	}
+}
+
+func stripeExternalAccountObjectPrefix(objectType string) (string, bool) {
+	switch strings.TrimSpace(objectType) {
+	case "bank_account":
+		return "ba_", true
+	case "card":
+		return "card_", true
+	default:
+		return "", false
+	}
+}
+
+func validStripeExternalAccountID(value string) bool {
+	return validStripeObjectID(value, "ba_") || validStripeObjectID(value, "card_")
 }
 
 func (s *Store) ApplyConnectWebhookEvent(ctx context.Context, event stripeConnectEvent) (stripeConnectEventResult, error) {
@@ -239,10 +298,10 @@ func (s *Store) ApplyConnectWebhookEvent(ctx context.Context, event stripeConnec
 			result.Stale = true
 		}
 	} else {
-		// capability.updated and payout.* are durable provider observations only:
-		// Merc's internal supplier credit, Stripe transfers, and connected-account
-		// bank payouts are different objects and must not be settled by this
-		// notification.
+		// External-account, capability.updated, and payout.* are durable provider
+		// observations only: Merc's internal supplier credit, Stripe transfers,
+		// connected-account bank payouts, and bank/card instrument changes are
+		// different objects and must not be settled by this notification.
 		result.Applied = true
 	}
 	if err := tx.Commit(ctx); err != nil {

@@ -207,7 +207,7 @@ merc_stripe_endpoint_contract \
   "setup_intent.succeeded,payment_method.attached,payment_intent.succeeded,payment_intent.payment_failed,charge.refunded,charge.dispute.created,charge.dispute.funds_withdrawn,charge.dispute.funds_reinstated,charge.dispute.closed,radar.early_fraud_warning.created,radar.early_fraud_warning.updated"
 merc_stripe_endpoint_contract \
   "$connect_endpoint" "$STRIPE_CONNECT_WEBHOOK_ENDPOINT_ID" "$expected_connect_url" \
-  "account.updated,capability.updated,payout.created,payout.updated,payout.paid,payout.failed,payout.canceled,payout.reconciliation_completed"
+  "account.updated,account.external_account.created,account.external_account.updated,account.external_account.deleted,capability.updated,payout.created,payout.updated,payout.paid,payout.failed,payout.canceled,payout.reconciliation_completed"
 
 if [ "$MODE" = check ]; then
   # A platform that cannot settle the reviewed runtime currency cannot complete

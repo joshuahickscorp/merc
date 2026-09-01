@@ -128,6 +128,9 @@ Compiled billing handlers:
 Compiled Connect handlers:
 
 - `account.updated`
+- `account.external_account.created`
+- `account.external_account.updated`
+- `account.external_account.deleted`
 - `capability.updated`
 - `payout.created`
 - `payout.updated`
@@ -138,12 +141,14 @@ Compiled Connect handlers:
 
 `account.updated` is the only Connect event that changes the supplier's bank-
 payout readiness, and its `payouts_enabled` fact is applied only in event-time
-order. `capability.updated` records the exact provider capability and status;
-it does not gate Merc's transfer path because the `transfers` capability and a
-connected account's bank-payout readiness are separate Stripe functions. The
-`payout.*` events are retained as append-only observations of Stripe's
-connected-account bank payout; they do not settle or reverse Merc's separate
-supplier-credit transfer.
+order. The three `account.external_account.*` events are retained as strictly
+bound bank-account/card observations; they do not change readiness or move
+money. `capability.updated` records the exact provider capability and status;
+it does not gate Merc's transfer path because the `transfers`
+capability and a connected account's bank-payout readiness are separate Stripe
+functions. The `payout.*` events are retained as append-only observations of
+Stripe's connected-account bank payout; they do not settle or reverse Merc's
+separate supplier-credit transfer.
 
 A live endpoint that omits a handled cash event will never deliver it.
 `ops/scripts/validate-stripe-endpoint-subscriptions.py` checks the compiled

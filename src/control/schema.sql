@@ -2390,7 +2390,9 @@ CREATE INDEX IF NOT EXISTS stripe_webhook_events_object_idx
 CREATE TABLE IF NOT EXISTS stripe_connect_webhook_events (
     event_id       TEXT PRIMARY KEY CHECK (btrim(event_id) <> ''),
     event_type     TEXT NOT NULL CHECK (event_type IN (
-                     'account.updated','capability.updated','payout.created',
+                     'account.updated','account.external_account.created',
+                     'account.external_account.updated','account.external_account.deleted',
+                     'capability.updated','payout.created',
                      'payout.updated','payout.paid','payout.failed','payout.canceled',
                      'payout.reconciliation_completed')),
     account_id     TEXT NOT NULL CHECK (account_id LIKE 'acct_%'),
@@ -2404,7 +2406,9 @@ CREATE TABLE IF NOT EXISTS stripe_connect_webhook_events (
 ALTER TABLE stripe_connect_webhook_events ADD COLUMN IF NOT EXISTS capability_status TEXT;
 ALTER TABLE stripe_connect_webhook_events DROP CONSTRAINT IF EXISTS stripe_connect_webhook_events_event_type_check;
 ALTER TABLE stripe_connect_webhook_events ADD CONSTRAINT stripe_connect_webhook_events_event_type_check
-    CHECK (event_type IN ('account.updated','capability.updated','payout.created',
+    CHECK (event_type IN ('account.updated','account.external_account.created',
+                          'account.external_account.updated','account.external_account.deleted',
+                          'capability.updated','payout.created',
                           'payout.updated','payout.paid','payout.failed','payout.canceled',
                           'payout.reconciliation_completed'));
 ALTER TABLE stripe_connect_webhook_events DROP CONSTRAINT IF EXISTS stripe_connect_webhook_events_capability_status_check;

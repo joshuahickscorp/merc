@@ -481,7 +481,7 @@ def _drive(
         ),
         (
             "connect_restriction_capability_events",
-            "account.updated updates bank-payout readiness; capability.updated and payout lifecycle events are retained as provider observations.",
+            "account.updated updates bank-payout readiness; external-account, capability, and payout lifecycle events are retained as provider observations.",
         ),
         (
             "connect_true_webhook_delivery",

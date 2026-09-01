@@ -79,7 +79,7 @@ wildcard_json="$(jq -nc \
   ')"
 merc_stripe_endpoint_contract \
   "$wildcard_json" we_connect "$connect_url" \
-  "account.updated,capability.updated,payout.created,payout.updated,payout.paid,payout.failed,payout.canceled,payout.reconciliation_completed" \
+  "account.updated,account.external_account.created,account.external_account.updated,account.external_account.deleted,capability.updated,payout.created,payout.updated,payout.paid,payout.failed,payout.canceled,payout.reconciliation_completed" \
   || die "explicit wildcard endpoint rejected"
 
 merc_stripe_distinct_endpoint_ids we_billing we_connect \
