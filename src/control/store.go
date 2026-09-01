@@ -1501,13 +1501,15 @@ func (s *Store) ClaimReversals(ctx context.Context, lease time.Duration, limit i
 		 WHERE le.payout_status IN ('reversal_required', 'reversing')
 		   AND op.status IN ('reversal_required', 'reversing')
 		   AND (op.cash_moved OR COALESCE(op.transfer_ref, le.payout_ref, '') <> '')
-		   AND NOT EXISTS (
-		       SELECT 1 FROM disputes d
-		        WHERE d.job_id=t.job_id
-		          AND d.status IN ('open','no_peer','reverifying','unresolvable'))
 		   AND (
-		     op.status = 'reversal_required'
-		     OR (op.status = 'reversing' AND op.updated_at <= $1)
+		     (op.status = 'reversing' AND op.updated_at <= $1)
+		     OR (
+		       op.status = 'reversal_required'
+		       AND NOT EXISTS (
+		           SELECT 1 FROM disputes d
+		            WHERE d.job_id=t.job_id
+		              AND d.status IN ('open','no_peer','reverifying','unresolvable'))
+		     )
 		   )
 		 ORDER BY op.updated_at, op.ledger_entry_id
 		 FOR UPDATE OF op, le SKIP LOCKED

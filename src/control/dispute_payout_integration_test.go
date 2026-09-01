@@ -219,6 +219,26 @@ func TestActiveDisputeDefersCashReversalUntilResolution(t *testing.T) {
 	if dueContainsReversal(claimed, f.entryID) {
 		t.Fatalf("active dispute exposed cash reversal before resolution: %+v", claimed)
 	}
+	// A reversal that crossed the provider boundary before the dispute became
+	// active must remain recoverable; only a fresh reversal_required claim is
+	// deferred by the dispute guard.
+	if _, err := pool.Exec(ctx, `
+		UPDATE supplier_payout_operations
+		   SET status='reversing',updated_at=now()-interval '2 minutes'
+		 WHERE ledger_entry_id=$1`, f.entryID); err != nil {
+		t.Fatalf("seed stale reversal operation: %v", err)
+	}
+	if _, err := pool.Exec(ctx,
+		`UPDATE ledger_entries SET payout_status='reversing' WHERE id=$1`, f.entryID); err != nil {
+		t.Fatalf("seed stale reversal ledger: %v", err)
+	}
+	claimed, err = store.ClaimReversals(ctx, time.Minute, 10)
+	mustf(t, err, "claim stale active-dispute reversal: %v")
+	if !dueContainsReversal(claimed, f.entryID) {
+		t.Fatalf("active dispute stranded stale provider reversal: %+v", claimed)
+	}
+	mustf(t, store.MarkReversalFailed(ctx, f.entryID, errors.New("test recovery retry")),
+		"restore test reversal after stale claim: %v")
 
 	mustf(t, store.SetDisputeStatus(ctx, disputeID, "rejected"), "reject cash dispute: %v")
 	var payoutStatus, operationStatus, storedTransfer string
