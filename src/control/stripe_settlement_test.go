@@ -53,7 +53,7 @@ func (t rewriteHostTransport) RoundTrip(r *http.Request) (*http.Response, error)
 func TestSettlementPreflightAcceptsPlatformThatCanHoldUSD(t *testing.T) {
 	installSettlementCurrencyForTest(t, "usd")
 	srv, version := stripeBalanceStub(t, http.StatusOK,
-		`{"available":[{"currency":"usd"},{"currency":"cad"}],"pending":[{"currency":"usd"}]}`)
+		`{"object":"balance","available":[{"currency":"usd"},{"currency":"cad"}],"pending":[{"currency":"usd"}]}`)
 	mustf(t, payoutAgainst(t, srv, "sk_test_x").verifySettlementCurrency(context.Background()), "USD bucket present but preflight rejected it: %v")
 	if *version != stripeAPIVersion {
 		t.Fatalf("probe did not pin the API version: got %q want %q", *version, stripeAPIVersion)
@@ -65,7 +65,7 @@ func TestSettlementPreflightAcceptsPlatformThatCanHoldUSD(t *testing.T) {
 // balance_insufficient once money is meant to move.
 func TestSettlementPreflightRejectsCADOnlyPlatform(t *testing.T) {
 	installSettlementCurrencyForTest(t, "usd")
-	srv, _ := stripeBalanceStub(t, http.StatusOK, `{"available":[{"currency":"cad"}],"pending":[]}`)
+	srv, _ := stripeBalanceStub(t, http.StatusOK, `{"object":"balance","available":[{"currency":"cad"}],"pending":[]}`)
 	err := payoutAgainst(t, srv, "sk_test_x").verifySettlementCurrency(context.Background())
 	if err == nil {
 		t.Fatal("CAD-only platform accepted; every payout would fail at transfer time")
@@ -87,7 +87,7 @@ func TestSettlementPreflightRejectsCADOnlyPlatform(t *testing.T) {
 // refuse to boot a correctly configured platform that simply has not been funded.
 func TestSettlementPreflightAcceptsZeroUSDBalance(t *testing.T) {
 	installSettlementCurrencyForTest(t, "usd")
-	srv, _ := stripeBalanceStub(t, http.StatusOK, `{"available":[{"currency":"usd"}],"pending":[]}`)
+	srv, _ := stripeBalanceStub(t, http.StatusOK, `{"object":"balance","available":[{"currency":"usd"}],"pending":[]}`)
 	mustf(t, payoutAgainst(t, srv, "sk_test_x").verifySettlementCurrency(context.Background()), "zero USD balance rejected: %v")
 }
 
@@ -108,6 +108,19 @@ func TestSettlementPreflightFailsClosedOnAPIError(t *testing.T) {
 				t.Fatal("preflight passed on an API failure; it must fail closed")
 			}
 		})
+	}
+}
+
+func TestSettlementPreflightRejectsWrongBalanceObject(t *testing.T) {
+	installSettlementCurrencyForTest(t, "usd")
+	for _, body := range []string{
+		`{"available":[{"currency":"usd"}],"pending":[]}`,
+		`{"object":"account","available":[{"currency":"usd"}],"pending":[]}`,
+	} {
+		srv, _ := stripeBalanceStub(t, http.StatusOK, body)
+		if err := payoutAgainst(t, srv, "sk_test_x").verifySettlementCurrency(context.Background()); err == nil {
+			t.Fatalf("balance response without exact balance object passed: %s", body)
+		}
 	}
 }
 

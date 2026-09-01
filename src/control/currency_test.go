@@ -192,11 +192,11 @@ func TestSettlementPreflightUsesConfiguredCurrencyBothDirections(t *testing.T) {
 	// Configured CAD + platform holds CAD → pass.
 	installSettlementCurrencyForTest(t, "cad")
 	srv, _ := stripeBalanceStub(t, http.StatusOK,
-		`{"available":[{"currency":"cad"}],"pending":[]}`)
+		`{"object":"balance","available":[{"currency":"cad"}],"pending":[]}`)
 	mustf(t, payoutAgainst(t, srv, "sk_test_x").verifySettlementCurrency(context.Background()), "CAD platform should pass under cad settlement: %v")
 	// Configured CAD + platform holds only USD → fail.
 	srvUSD, _ := stripeBalanceStub(t, http.StatusOK,
-		`{"available":[{"currency":"usd"}],"pending":[]}`)
+		`{"object":"balance","available":[{"currency":"usd"}],"pending":[]}`)
 	err := payoutAgainst(t, srvUSD, "sk_test_x").verifySettlementCurrency(context.Background())
 	if err == nil {
 		t.Fatal("USD-only platform must fail under cad settlement")
@@ -212,11 +212,11 @@ func TestSettlementPreflightUsesConfiguredCurrencyBothDirections(t *testing.T) {
 	// Configured USD + platform holds USD → pass (regression).
 	installSettlementCurrencyForTest(t, "usd")
 	srv2, _ := stripeBalanceStub(t, http.StatusOK,
-		`{"available":[{"currency":"usd"}],"pending":[]}`)
+		`{"object":"balance","available":[{"currency":"usd"}],"pending":[]}`)
 	mustf(t, payoutAgainst(t, srv2, "sk_test_x").verifySettlementCurrency(context.Background()), "USD platform should pass under usd settlement: %v")
 	// Configured USD + platform holds only CAD → fail (the original regression).
 	srvCAD, _ := stripeBalanceStub(t, http.StatusOK,
-		`{"available":[{"currency":"cad"}],"pending":[]}`)
+		`{"object":"balance","available":[{"currency":"cad"}],"pending":[]}`)
 	err = payoutAgainst(t, srvCAD, "sk_test_x").verifySettlementCurrency(context.Background())
 	if err == nil {
 		t.Fatal("CAD-only platform must fail under usd settlement")

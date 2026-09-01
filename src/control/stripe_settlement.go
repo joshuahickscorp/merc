@@ -23,6 +23,7 @@ import (
 // and its absence predicts the failure before any money is at stake.
 
 type stripeBalanceResponse struct {
+	Object    string `json:"object"`
 	Available []struct {
 		Currency string `json:"currency"`
 	} `json:"available"`
@@ -68,6 +69,9 @@ func (p StripePayout) settlementCurrencies(ctx context.Context) ([]string, error
 	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("stripe balance probe: HTTP %d", resp.StatusCode)
+	}
+	if parsed.Object != "balance" {
+		return nil, fmt.Errorf("stripe balance response contract: object %q, want balance", parsed.Object)
 	}
 
 	seen := map[string]bool{}
