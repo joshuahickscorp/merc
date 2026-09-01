@@ -337,7 +337,7 @@
       "live_mode": "PROHIBITED",
       "fixture_id": "evt_1U81LmEJJuRJWKfacDfBmeYF",
       "detail": "capabilities http=200; update http=200; capability.updated=evt_1U81LmEJJuRJWKfacDfBmeYF account.updated=evt_1U81LvEJJuRJWKfaX9Wl0eSW (listed with Stripe-Account=acct_1U81LhEJJuRJWKfa)",
-      "would_prove": "account.updated / capability restriction events on a connected account update supplier payout readiness.",
+      "would_prove": "account.updated updates bank-payout readiness; capability.updated and payout lifecycle events are retained as provider observations.",
       "dry_run_verified": true
     },
     {
@@ -706,7 +706,7 @@
     {
       "id": "connect_restriction_capability_events",
       "status": "PASS",
-      "would_prove": "account.updated / capability restriction events on a connected account update supplier payout readiness.",
+      "would_prove": "account.updated updates bank-payout readiness; capability.updated and payout lifecycle events are retained as provider observations.",
       "detail": "capabilities http=200; update http=200; capability.updated=evt_1U81LmEJJuRJWKfacDfBmeYF account.updated=evt_1U81LvEJJuRJWKfaX9Wl0eSW (listed with Stripe-Account=acct_1U81LhEJJuRJWKfa)",
       "fixture_id": "evt_1U81LmEJJuRJWKfacDfBmeYF",
       "dry_run_verified": true,
@@ -1105,7 +1105,7 @@
         "live_mode": "PROHIBITED",
         "fixture_id": "evt_1U81LmEJJuRJWKfacDfBmeYF",
         "detail": "capabilities http=200; update http=200; capability.updated=evt_1U81LmEJJuRJWKfacDfBmeYF account.updated=evt_1U81LvEJJuRJWKfaX9Wl0eSW (listed with Stripe-Account=acct_1U81LhEJJuRJWKfa)",
-        "would_prove": "account.updated / capability restriction events on a connected account update supplier payout readiness.",
+        "would_prove": "account.updated updates bank-payout readiness; capability.updated and payout lifecycle events are retained as provider observations.",
         "attempted": true,
         "capability_event": "evt_1U81LmEJJuRJWKfacDfBmeYF",
         "account_event": "evt_1U81LvEJJuRJWKfaX9Wl0eSW",

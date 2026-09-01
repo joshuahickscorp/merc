@@ -13,10 +13,14 @@ import (
 )
 
 const (
-	stripeConnectEventAccountUpdated = "account.updated"
-	stripeConnectEventPayoutCreated  = "payout.created"
-	stripeConnectEventPayoutPaid     = "payout.paid"
-	stripeConnectEventPayoutFailed   = "payout.failed"
+	stripeConnectEventAccountUpdated           = "account.updated"
+	stripeConnectEventCapabilityUpdated        = "capability.updated"
+	stripeConnectEventPayoutCreated            = "payout.created"
+	stripeConnectEventPayoutUpdated            = "payout.updated"
+	stripeConnectEventPayoutPaid               = "payout.paid"
+	stripeConnectEventPayoutFailed             = "payout.failed"
+	stripeConnectEventPayoutCanceled           = "payout.canceled"
+	stripeConnectEventPayoutReconciliationDone = "payout.reconciliation_completed"
 )
 
 var (
@@ -25,13 +29,14 @@ var (
 )
 
 type stripeConnectEvent struct {
-	EventID        string
-	EventType      string
-	AccountID      string
-	ObjectID       string
-	EventCreated   int64
-	PayloadSHA256  string
-	PayoutsEnabled *bool
+	EventID          string
+	EventType        string
+	AccountID        string
+	ObjectID         string
+	EventCreated     int64
+	PayloadSHA256    string
+	PayoutsEnabled   *bool
+	CapabilityStatus string
 }
 
 type stripeConnectEventResult struct {
@@ -43,9 +48,13 @@ type stripeConnectEventResult struct {
 func isStripeConnectEventType(eventType string) bool {
 	switch eventType {
 	case stripeConnectEventAccountUpdated,
+		stripeConnectEventCapabilityUpdated,
 		stripeConnectEventPayoutCreated,
+		stripeConnectEventPayoutUpdated,
 		stripeConnectEventPayoutPaid,
-		stripeConnectEventPayoutFailed:
+		stripeConnectEventPayoutFailed,
+		stripeConnectEventPayoutCanceled,
+		stripeConnectEventPayoutReconciliationDone:
 		return true
 	default:
 		return false
@@ -94,7 +103,32 @@ func parseStripeConnectEvent(
 			return stripeConnectEvent{}, fmt.Errorf("%w: account.updated omitted payouts_enabled", errInvalidStripeConnectEvent)
 		}
 		event.PayoutsEnabled = &payoutsEnabled
-	case stripeConnectEventPayoutCreated, stripeConnectEventPayoutPaid, stripeConnectEventPayoutFailed:
+	case stripeConnectEventCapabilityUpdated:
+		objectType, _ := object["object"].(string)
+		if strings.TrimSpace(objectType) != "capability" {
+			return stripeConnectEvent{}, fmt.Errorf("%w: capability.updated has the wrong Stripe object kind", errInvalidStripeConnectEvent)
+		}
+		objectAccount, _ := object["account"].(string)
+		objectAccount = strings.TrimSpace(objectAccount)
+		envelopeAccount = strings.TrimSpace(envelopeAccount)
+		if stripeConnectedAccountMismatch(envelopeAccount, objectAccount) {
+			return stripeConnectEvent{}, fmt.Errorf("%w: envelope account does not match capability account", errInvalidStripeConnectEvent)
+		}
+		event.AccountID = envelopeAccount
+		if event.AccountID == "" {
+			event.AccountID = objectAccount
+		}
+		if !validStripeObjectID(event.AccountID, "acct_") || !validStripeCapabilityID(event.ObjectID) {
+			return stripeConnectEvent{}, fmt.Errorf("%w: capability event is missing its connected account or capability id", errInvalidStripeConnectEvent)
+		}
+		status, _ := object["status"].(string)
+		event.CapabilityStatus = strings.TrimSpace(status)
+		if !isStripeCapabilityStatus(event.CapabilityStatus) {
+			return stripeConnectEvent{}, fmt.Errorf("%w: capability.updated has an invalid capability status", errInvalidStripeConnectEvent)
+		}
+	case stripeConnectEventPayoutCreated, stripeConnectEventPayoutUpdated,
+		stripeConnectEventPayoutPaid, stripeConnectEventPayoutFailed,
+		stripeConnectEventPayoutCanceled, stripeConnectEventPayoutReconciliationDone:
 		objectType, _ := object["object"].(string)
 		if strings.TrimSpace(objectType) != "payout" {
 			return stripeConnectEvent{}, fmt.Errorf("%w: payout event has the wrong Stripe object kind", errInvalidStripeConnectEvent)
@@ -112,6 +146,12 @@ func validateStripeConnectEvent(event stripeConnectEvent) error {
 		!validStripeObjectID(event.AccountID, "acct_") || event.EventCreated <= 0 ||
 		!isSHA256Hex(event.PayloadSHA256) {
 		return errInvalidStripeConnectEvent
+	}
+	if event.EventType == stripeConnectEventCapabilityUpdated {
+		if !validStripeCapabilityID(event.ObjectID) || !isStripeCapabilityStatus(event.CapabilityStatus) {
+			return fmt.Errorf("%w: capability event has an invalid id or status", errInvalidStripeConnectEvent)
+		}
+		return nil
 	}
 	objectPrefix := "po_"
 	if event.EventType == stripeConnectEventAccountUpdated {
@@ -149,28 +189,32 @@ func (s *Store) ApplyConnectWebhookEvent(ctx context.Context, event stripeConnec
 		return result, err
 	}
 
+	var capabilityStatus *string
+	if event.EventType == stripeConnectEventCapabilityUpdated {
+		capabilityStatus = &event.CapabilityStatus
+	}
 	tag, err := tx.Exec(ctx, `
 		INSERT INTO stripe_connect_webhook_events
-		  (event_id,event_type,account_id,object_id,event_created,payload_sha256)
-		VALUES ($1,$2,$3,$4,$5,$6)
+		  (event_id,event_type,account_id,object_id,capability_status,event_created,payload_sha256)
+		VALUES ($1,$2,$3,$4,$5,$6,$7)
 		ON CONFLICT (event_id) DO NOTHING`,
 		event.EventID, event.EventType, event.AccountID, event.ObjectID,
-		event.EventCreated, event.PayloadSHA256)
+		capabilityStatus, event.EventCreated, event.PayloadSHA256)
 	if err != nil {
 		return result, err
 	}
 	if tag.RowsAffected() == 0 {
-		var storedType, storedAccount, storedObject, storedHash string
+		var storedType, storedAccount, storedObject, storedCapabilityStatus, storedHash string
 		var storedCreated int64
 		if err := tx.QueryRow(ctx, `
-			SELECT event_type,account_id,object_id,event_created,payload_sha256
-			  FROM stripe_connect_webhook_events WHERE event_id=$1`, event.EventID).
-			Scan(&storedType, &storedAccount, &storedObject, &storedCreated, &storedHash); err != nil {
+				SELECT event_type,account_id,object_id,COALESCE(capability_status,''),event_created,payload_sha256
+				  FROM stripe_connect_webhook_events WHERE event_id=$1`, event.EventID).
+			Scan(&storedType, &storedAccount, &storedObject, &storedCapabilityStatus, &storedCreated, &storedHash); err != nil {
 			return result, err
 		}
 		if storedType != event.EventType || storedAccount != event.AccountID ||
 			storedObject != event.ObjectID || storedCreated != event.EventCreated ||
-			storedHash != event.PayloadSHA256 {
+			storedCapabilityStatus != event.CapabilityStatus || storedHash != event.PayloadSHA256 {
 			return result, fmt.Errorf("Stripe Connect event %s conflicts with its durable event binding", event.EventID)
 		}
 		result.Duplicate = true
@@ -195,9 +239,9 @@ func (s *Store) ApplyConnectWebhookEvent(ctx context.Context, event stripeConnec
 			result.Stale = true
 		}
 	} else {
-		// payout.* is the connected account's bank payout lifecycle. It is a
-		// durable observation only: Merc's internal supplier credit and its
-		// Stripe transfer are different objects and must not be settled by this
+		// capability.updated and payout.* are durable provider observations only:
+		// Merc's internal supplier credit, Stripe transfers, and connected-account
+		// bank payouts are different objects and must not be settled by this
 		// notification.
 		result.Applied = true
 	}
@@ -205,4 +249,27 @@ func (s *Store) ApplyConnectWebhookEvent(ctx context.Context, event stripeConnec
 		return stripeConnectEventResult{}, err
 	}
 	return result, nil
+}
+
+func validStripeCapabilityID(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" || len(value) > 100 {
+		return false
+	}
+	for i := 0; i < len(value); i++ {
+		c := value[i]
+		if !((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_') {
+			return false
+		}
+	}
+	return true
+}
+
+func isStripeCapabilityStatus(status string) bool {
+	switch strings.TrimSpace(status) {
+	case "active", "inactive", "pending", "unrequested":
+		return true
+	default:
+		return false
+	}
 }

@@ -176,7 +176,8 @@ See docs/ARCHITECTURE.md for which path you are on." \
 ask MERC_CONNECT_WEBHOOK_SECRET "whsec_… (DIFFERENT from the billing one)" \
 "https://dashboard.stripe.com/test/webhooks → 'Add endpoint' — a SECOND one
   URL:    https://YOUR-HOST/v1/stripe/connect-webhook
-  Events: account.updated, payout.created, payout.paid, payout.failed
+  Events: account.updated, capability.updated, payout.created, payout.updated,
+          payout.paid, payout.failed, payout.canceled, payout.reconciliation_completed
 Create it, then reveal its own signing secret." \
 "Signs the CONNECT webhook — account readiness and connected-account bank-payout observations. Merc transfer settlement remains on the internal payout operation path."
 

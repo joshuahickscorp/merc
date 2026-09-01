@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -226,6 +227,55 @@ func TestStripeConnectPayoutParserRequiresPayoutObject(t *testing.T) {
 	}
 }
 
+func TestStripeConnectCapabilityParserBindsAccountIDAndStatus(t *testing.T) {
+	acct := "acct_parser_capability"
+	event, err := parseStripeConnectEvent(
+		"evt_connect_capability", stripeConnectEventCapabilityUpdated, acct, 1_700_000_006,
+		map[string]any{
+			"object": "capability", "id": "transfers", "account": acct, "status": "active",
+		}, []byte(`{"event":"capability.updated"}`))
+	mustf(t, err, "parse capability event: %v")
+	if event.AccountID != acct || event.ObjectID != "transfers" || event.CapabilityStatus != "active" {
+		t.Fatalf("capability event=%+v, want bound account/id/status", event)
+	}
+
+	for _, tc := range []struct {
+		name string
+		acct string
+		obj  map[string]any
+	}{
+		{
+			name: "wrong object kind",
+			acct: acct,
+			obj:  map[string]any{"object": "account", "id": "transfers", "account": acct, "status": "active"},
+		},
+		{
+			name: "account mismatch",
+			acct: acct,
+			obj:  map[string]any{"object": "capability", "id": "transfers", "account": "acct_other", "status": "active"},
+		},
+		{
+			name: "invalid capability id",
+			acct: acct,
+			obj:  map[string]any{"object": "capability", "id": "transfers/other", "account": acct, "status": "active"},
+		},
+		{
+			name: "invalid status",
+			acct: acct,
+			obj:  map[string]any{"object": "capability", "id": "transfers", "account": acct, "status": "restricted"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := parseStripeConnectEvent("evt_connect_capability_"+tc.name,
+				stripeConnectEventCapabilityUpdated, tc.acct, 1_700_000_007, tc.obj,
+				[]byte(`{"event":"capability.updated"}`))
+			if !errors.Is(err, errInvalidStripeConnectEvent) {
+				t.Fatalf("parse error=%v, want %v", err, errInvalidStripeConnectEvent)
+			}
+		})
+	}
+}
+
 func TestStripeConnectEventsAreDurableMonotonicAndSeparateFromMercPayouts(t *testing.T) {
 	ctx, store, pool := openIsolatedTestStore(t)
 	supplierID, buyerID := uuid.New(), uuid.New()
@@ -296,6 +346,50 @@ func TestStripeConnectEventsAreDurableMonotonicAndSeparateFromMercPayouts(t *tes
 		Scan(&enabled), "read readiness after payout event: %v")
 	if !enabled {
 		t.Fatal("payout.created changed supplier account readiness")
+	}
+
+	capabilityPayload := []byte(`{"id":"evt_connect_capability","type":"capability.updated","created":1700000004}`)
+	capabilityEvent, err := parseStripeConnectEvent(
+		"evt_connect_capability", stripeConnectEventCapabilityUpdated, acct, 1_700_000_004,
+		map[string]any{"object": "capability", "id": "transfers", "account": acct, "status": "active"},
+		capabilityPayload)
+	mustf(t, err, "parse capability event: %v")
+	result, err = store.ApplyConnectWebhookEvent(ctx, capabilityEvent)
+	mustf(t, err, "apply capability event: %v")
+	if !result.Applied || result.Duplicate || result.Stale {
+		t.Fatalf("capability result=%+v, want recorded/applied only", result)
+	}
+	var capabilityStatus string
+	mustf(t, pool.QueryRow(ctx, `
+		SELECT capability_status FROM stripe_connect_webhook_events WHERE event_id=$1`, capabilityEvent.EventID).
+		Scan(&capabilityStatus), "read capability status: %v")
+	if capabilityStatus != "active" {
+		t.Fatalf("capability status=%q, want active", capabilityStatus)
+	}
+	result, err = store.ApplyConnectWebhookEvent(ctx, capabilityEvent)
+	mustf(t, err, "replay capability event: %v")
+	if !result.Duplicate || result.Applied || result.Stale {
+		t.Fatalf("capability replay result=%+v, want duplicate only", result)
+	}
+
+	for i, eventType := range []string{
+		stripeConnectEventPayoutUpdated,
+		stripeConnectEventPayoutPaid,
+		stripeConnectEventPayoutFailed,
+		stripeConnectEventPayoutCanceled,
+		stripeConnectEventPayoutReconciliationDone,
+	} {
+		eventID := "evt_connect_payout_lifecycle_" + eventType[strings.LastIndex(eventType, ".")+1:]
+		payload := []byte(`{"type":"` + eventType + `"}`)
+		lifecycleEvent, err := parseStripeConnectEvent(
+			eventID, eventType, acct, int64(1_700_000_010+i),
+			map[string]any{"object": "payout", "id": "po_connect_lifecycle_" + eventType[strings.LastIndex(eventType, ".")+1:]}, payload)
+		mustf(t, err, "parse %s: %v", eventType)
+		result, err = store.ApplyConnectWebhookEvent(ctx, lifecycleEvent)
+		mustf(t, err, "apply %s: %v", eventType)
+		if !result.Applied || result.Duplicate || result.Stale {
+			t.Fatalf("%s result=%+v, want recorded/applied only", eventType, result)
+		}
 	}
 	conflictPayload := []byte(`{"id":"evt_connect_new","type":"account.updated","created":1700000002,"changed":true}`)
 	conflictEvent, err := parseStripeConnectEvent(

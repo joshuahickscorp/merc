@@ -78,7 +78,7 @@ func TestEveryStripeOperatorScriptPinsSameVersion(t *testing.T) {
 				`endpoint_payload_version_matches "$existing_json"`,
 				`endpoint_payload_version_matches "$resp"`,
 				`select_endpoint_from_inventory "$inventory" "$url"`,
-				`account.updated,payout.created,payout.paid,payout.failed`,
+				`account.updated,capability.updated,payout.created,payout.updated,payout.paid,payout.failed,payout.canceled,payout.reconciliation_completed`,
 			} {
 				if !strings.Contains(string(body), required) {
 					t.Errorf("%s is missing webhook payload-version guard %q", entry.Name(), required)

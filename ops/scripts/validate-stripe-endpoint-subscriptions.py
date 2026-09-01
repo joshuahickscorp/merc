@@ -42,7 +42,7 @@ BILLING_SOURCES = ("src/control/billing.go", "src/control/stripe_cash_events.go"
 CONNECT_SOURCES = ("src/control/suppliers.go", "src/control/stripe_connect_events.go")
 
 EVENT_RE = re.compile(r'"((?:payment_intent|charge|customer|payment_method|setup_intent|radar)\.[a-z_.]+)"')
-CONNECT_EVENT_RE = re.compile(r'"((?:account|transfer|payout|application)\.[a-z_.]+)"')
+CONNECT_EVENT_RE = re.compile(r'"((?:account|capability|transfer|payout|application)\.[a-z_.]+)"')
 
 
 def handled_events(sources: tuple[str, ...], pattern: re.Pattern[str]) -> set[str]:

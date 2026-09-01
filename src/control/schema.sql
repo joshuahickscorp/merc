@@ -2390,13 +2390,27 @@ CREATE INDEX IF NOT EXISTS stripe_webhook_events_object_idx
 CREATE TABLE IF NOT EXISTS stripe_connect_webhook_events (
     event_id       TEXT PRIMARY KEY CHECK (btrim(event_id) <> ''),
     event_type     TEXT NOT NULL CHECK (event_type IN (
-                     'account.updated','payout.created','payout.paid','payout.failed')),
+                     'account.updated','capability.updated','payout.created',
+                     'payout.updated','payout.paid','payout.failed','payout.canceled',
+                     'payout.reconciliation_completed')),
     account_id     TEXT NOT NULL CHECK (account_id LIKE 'acct_%'),
     object_id      TEXT NOT NULL CHECK (btrim(object_id) <> ''),
+    capability_status TEXT CHECK (capability_status IS NULL OR capability_status IN
+                     ('active','inactive','pending','unrequested')),
     event_created  BIGINT NOT NULL CHECK (event_created > 0),
     payload_sha256 TEXT NOT NULL CHECK (payload_sha256 ~ '^[0-9a-f]{64}$'),
     recorded_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE stripe_connect_webhook_events ADD COLUMN IF NOT EXISTS capability_status TEXT;
+ALTER TABLE stripe_connect_webhook_events DROP CONSTRAINT IF EXISTS stripe_connect_webhook_events_event_type_check;
+ALTER TABLE stripe_connect_webhook_events ADD CONSTRAINT stripe_connect_webhook_events_event_type_check
+    CHECK (event_type IN ('account.updated','capability.updated','payout.created',
+                          'payout.updated','payout.paid','payout.failed','payout.canceled',
+                          'payout.reconciliation_completed'));
+ALTER TABLE stripe_connect_webhook_events DROP CONSTRAINT IF EXISTS stripe_connect_webhook_events_capability_status_check;
+ALTER TABLE stripe_connect_webhook_events ADD CONSTRAINT stripe_connect_webhook_events_capability_status_check
+    CHECK (capability_status IS NULL OR capability_status IN
+           ('active','inactive','pending','unrequested'));
 CREATE INDEX IF NOT EXISTS stripe_connect_webhook_events_account_idx
     ON stripe_connect_webhook_events (account_id,event_created DESC);
 

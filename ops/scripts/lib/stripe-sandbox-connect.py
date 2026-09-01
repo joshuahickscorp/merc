@@ -44,7 +44,7 @@ CONNECT_EVENTS = [
     for item in (
         os.environ.get(
             "MERC_STRIPE_CONNECT_WEBHOOK_EVENTS",
-            "account.updated,payout.created,payout.paid,payout.failed",
+            "account.updated,capability.updated,payout.created,payout.updated,payout.paid,payout.failed,payout.canceled,payout.reconciliation_completed",
         ).split(",")
     )
     if item
@@ -123,7 +123,7 @@ CONNECT_SCENARIOS: tuple[tuple[str, str], ...] = (
     ),
     (
         "connect_restriction_capability_events",
-        "account.updated / capability restriction events on a connected account update supplier payout readiness.",
+        "account.updated updates bank-payout readiness; capability.updated and payout lifecycle events are retained as provider observations.",
     ),
     (
         "connect_true_webhook_delivery",

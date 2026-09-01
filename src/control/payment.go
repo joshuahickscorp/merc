@@ -363,6 +363,80 @@ func parseStripeMoneyObject(body []byte, objectName, prefix string, cents int64,
 	return out, nil
 }
 
+// parseStripeTransferObject binds a successful transfer response to the
+// connected account that Merc looked up for this supplier.  The transfer ID,
+// amount, and currency alone are insufficient evidence: a provider response
+// for a different destination would otherwise release the wrong supplier's
+// ledger row before reconciliation gets a chance to notice.
+func parseStripeTransferObject(body []byte, cents int64, currency, expectedDestination string) (stripeMoneyObject, error) {
+	out, err := parseStripeMoneyObject(body, "transfer", "tr_", cents, currency)
+	if err != nil {
+		return stripeMoneyObject{}, err
+	}
+	var raw struct {
+		Destination json.RawMessage `json:"destination"`
+	}
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return stripeMoneyObject{}, fmt.Errorf("stripe transfer %s has an unreadable destination: %w", out.ID, err)
+	}
+	expectedDestination = strings.TrimSpace(expectedDestination)
+	destination, err := stripeExpandableID(raw.Destination, "account")
+	if err != nil || !validStripeObjectID(destination, "acct_") || destination != expectedDestination {
+		return stripeMoneyObject{}, fmt.Errorf(
+			"stripe transfer %s destination mismatch: expected %q, got %q",
+			out.ID, expectedDestination, destination)
+	}
+	return out, nil
+}
+
+// parseStripeTransferReversalObject binds a reversal to the exact transfer
+// whose provider cash is being recovered.  The reversal reference itself is
+// not enough to prove that relationship.
+func parseStripeTransferReversalObject(body []byte, cents int64, currency, expectedTransfer string) (stripeMoneyObject, error) {
+	out, err := parseStripeMoneyObject(body, "transfer reversal", "trr_", cents, currency)
+	if err != nil {
+		return stripeMoneyObject{}, err
+	}
+	var raw struct {
+		Transfer json.RawMessage `json:"transfer"`
+	}
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return stripeMoneyObject{}, fmt.Errorf("stripe transfer reversal %s has an unreadable transfer: %w", out.ID, err)
+	}
+	expectedTransfer = strings.TrimSpace(expectedTransfer)
+	transfer, err := stripeExpandableID(raw.Transfer, "transfer")
+	if err != nil || !validStripeObjectID(transfer, "tr_") || transfer != expectedTransfer {
+		return stripeMoneyObject{}, fmt.Errorf(
+			"stripe transfer reversal %s transfer mismatch: expected %q, got %q",
+			out.ID, expectedTransfer, transfer)
+	}
+	return out, nil
+}
+
+// parseStripeRefundObject binds a successful refund to the exact PaymentIntent
+// that the recovery path requested.  A refund ID with matching money fields
+// must not be allowed to finalize a different buyer obligation.
+func parseStripeRefundObject(body []byte, cents int64, currency, expectedPaymentIntent string) (stripeMoneyObject, error) {
+	out, err := parseStripeMoneyObject(body, "refund", "re_", cents, currency)
+	if err != nil {
+		return stripeMoneyObject{}, err
+	}
+	var raw struct {
+		PaymentIntent json.RawMessage `json:"payment_intent"`
+	}
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return stripeMoneyObject{}, fmt.Errorf("stripe refund %s has an unreadable PaymentIntent: %w", out.ID, err)
+	}
+	expectedPaymentIntent = strings.TrimSpace(expectedPaymentIntent)
+	paymentIntent, err := stripeExpandableID(raw.PaymentIntent, "payment_intent")
+	if err != nil || !validStripeObjectID(paymentIntent, "pi_") || paymentIntent != expectedPaymentIntent {
+		return stripeMoneyObject{}, fmt.Errorf(
+			"stripe refund %s PaymentIntent mismatch: expected %q, got %q",
+			out.ID, expectedPaymentIntent, paymentIntent)
+	}
+	return out, nil
+}
+
 func (p StripePayout) Send(ctx context.Context, supplierID uuid.UUID, cents int64, currency, payoutKey string) (PayoutResult, error) {
 	if p.secret == "" {
 		return PayoutResult{}, payoutDefinitelyNotSent(errPayoutUnconfigured)
@@ -370,6 +444,12 @@ func (p StripePayout) Send(ctx context.Context, supplierID uuid.UUID, cents int6
 	payoutKey = strings.TrimSpace(payoutKey)
 	if payoutKey == "" {
 		return PayoutResult{}, payoutDefinitelyNotSent(errors.New("Stripe payout requires a durable payout key"))
+	}
+	if p.store == nil {
+		return PayoutResult{}, payoutDefinitelyNotSent(errors.New("Stripe payout store is unavailable"))
+	}
+	if p.http == nil {
+		return PayoutResult{}, payoutDefinitelyNotSent(errors.New("Stripe payout HTTP client is unavailable"))
 	}
 	if _, err := authorizePaymentOperation(
 		paymentOperationPayout, cents, currency, p.secret,
@@ -421,7 +501,7 @@ func (p StripePayout) Send(ctx context.Context, supplierID uuid.UUID, cents int6
 		}
 		return PayoutResult{}, payoutDefinitelyNotSent(err)
 	}
-	out, err := parseStripeMoneyObject(body, "transfer", "tr_", cents, currency)
+	out, err := parseStripeTransferObject(body, cents, currency, acct)
 	if err != nil {
 		return PayoutResult{}, payoutOutcomeUnknown(err)
 	}
@@ -455,6 +535,9 @@ func stripeReversalIdempotencyKey(reverseKey string) string {
 func (p StripePayout) ReverseTransfer(ctx context.Context, transferRef string, cents int64, currency, reverseKey string) (ReversalResult, error) {
 	if p.secret == "" {
 		return ReversalResult{}, payoutDefinitelyNotSent(errPayoutUnconfigured)
+	}
+	if p.http == nil {
+		return ReversalResult{}, payoutDefinitelyNotSent(errors.New("Stripe payout HTTP client is unavailable"))
 	}
 	if _, err := authorizePaymentOperation(
 		paymentOperationReversal, cents, currency, p.secret,
@@ -503,7 +586,7 @@ func (p StripePayout) ReverseTransfer(ctx context.Context, transferRef string, c
 		}
 		return ReversalResult{}, payoutDefinitelyNotSent(err)
 	}
-	out, err := parseStripeMoneyObject(body, "transfer reversal", "trr_", cents, currency)
+	out, err := parseStripeTransferReversalObject(body, cents, currency, transferRef)
 	if err != nil {
 		return ReversalResult{}, payoutOutcomeUnknown(err)
 	}
@@ -516,6 +599,9 @@ func (p StripePayout) ReverseTransfer(ctx context.Context, transferRef string, c
 func (p StripePayout) RefundCharge(ctx context.Context, paymentIntent string, cents int64, currency, reverseKey string) (ReversalResult, error) {
 	if p.secret == "" {
 		return ReversalResult{}, payoutDefinitelyNotSent(errPayoutUnconfigured)
+	}
+	if p.http == nil {
+		return ReversalResult{}, payoutDefinitelyNotSent(errors.New("Stripe payout HTTP client is unavailable"))
 	}
 	if _, err := authorizePaymentOperation(
 		paymentOperationRefund, cents, currency, p.secret,
@@ -564,7 +650,7 @@ func (p StripePayout) RefundCharge(ctx context.Context, paymentIntent string, ce
 		}
 		return ReversalResult{}, payoutDefinitelyNotSent(err)
 	}
-	out, err := parseStripeMoneyObject(body, "refund", "re_", cents, currency)
+	out, err := parseStripeRefundObject(body, cents, currency, paymentIntent)
 	if err != nil {
 		return ReversalResult{}, payoutOutcomeUnknown(err)
 	}

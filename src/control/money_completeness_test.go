@@ -103,6 +103,7 @@ func TestStripeTransferReversalHTTPIdempotentShape(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"object": "transfer_reversal", "id": "trr_sim_1", "amount": 125, "currency": "usd",
+			"transfer": "tr_sim",
 		})
 	}))
 	defer srv.Close()
@@ -157,6 +158,7 @@ func TestStripeChargeRefundHTTPShape(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"object": "refund", "id": "re_sim_1", "amount": 50, "currency": "usd",
+			"payment_intent": "pi_sim",
 		})
 	}))
 	defer srv.Close()
@@ -207,6 +209,130 @@ func TestStripeMoneyObjectRequiresExpectedObjectKind(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			if _, err := parseStripeMoneyObject([]byte(tc.body), tc.name, tc.prefix, 50, "usd"); err == nil {
 				t.Fatal("wrong Stripe object kind was accepted")
+			}
+		})
+	}
+}
+
+func TestStripeProviderRecoveryBindsRelatedObjects(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		body  string
+		parse func([]byte) error
+	}{
+		{
+			name: "transfer destination",
+			body: `{"object":"transfer","id":"tr_bind_1","amount":50,"currency":"usd","destination":"acct_bind_1"}`,
+			parse: func(body []byte) error {
+				_, err := parseStripeTransferObject(body, 50, "usd", "acct_bind_1")
+				return err
+			},
+		},
+		{
+			name: "expanded transfer destination",
+			body: `{"object":"transfer","id":"tr_bind_2","amount":50,"currency":"usd","destination":{"object":"account","id":"acct_bind_2"}}`,
+			parse: func(body []byte) error {
+				_, err := parseStripeTransferObject(body, 50, "usd", "acct_bind_2")
+				return err
+			},
+		},
+		{
+			name: "transfer reversal",
+			body: `{"object":"transfer_reversal","id":"trr_bind_1","amount":50,"currency":"usd","transfer":"tr_bind_3"}`,
+			parse: func(body []byte) error {
+				_, err := parseStripeTransferReversalObject(body, 50, "usd", "tr_bind_3")
+				return err
+			},
+		},
+		{
+			name: "expanded transfer reversal",
+			body: `{"object":"transfer_reversal","id":"trr_bind_2","amount":50,"currency":"usd","transfer":{"object":"transfer","id":"tr_bind_4"}}`,
+			parse: func(body []byte) error {
+				_, err := parseStripeTransferReversalObject(body, 50, "usd", "tr_bind_4")
+				return err
+			},
+		},
+		{
+			name: "refund PaymentIntent",
+			body: `{"object":"refund","id":"re_bind_1","amount":50,"currency":"usd","payment_intent":"pi_bind_1"}`,
+			parse: func(body []byte) error {
+				_, err := parseStripeRefundObject(body, 50, "usd", "pi_bind_1")
+				return err
+			},
+		},
+		{
+			name: "expanded refund PaymentIntent",
+			body: `{"object":"refund","id":"re_bind_2","amount":50,"currency":"usd","payment_intent":{"object":"payment_intent","id":"pi_bind_2"}}`,
+			parse: func(body []byte) error {
+				_, err := parseStripeRefundObject(body, 50, "usd", "pi_bind_2")
+				return err
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := tc.parse([]byte(tc.body)); err != nil {
+				t.Fatalf("valid related-object response rejected: %v", err)
+			}
+		})
+	}
+
+	for _, tc := range []struct {
+		name  string
+		body  string
+		parse func([]byte) error
+	}{
+		{
+			name: "wrong transfer destination",
+			body: `{"object":"transfer","id":"tr_bind_bad_destination","amount":50,"currency":"usd","destination":"acct_other"}`,
+			parse: func(body []byte) error {
+				_, err := parseStripeTransferObject(body, 50, "usd", "acct_bind_expected")
+				return err
+			},
+		},
+		{
+			name: "missing transfer destination",
+			body: `{"object":"transfer","id":"tr_bind_missing_destination","amount":50,"currency":"usd"}`,
+			parse: func(body []byte) error {
+				_, err := parseStripeTransferObject(body, 50, "usd", "acct_bind_expected")
+				return err
+			},
+		},
+		{
+			name: "wrong reversal transfer",
+			body: `{"object":"transfer_reversal","id":"trr_bind_bad_transfer","amount":50,"currency":"usd","transfer":"tr_other"}`,
+			parse: func(body []byte) error {
+				_, err := parseStripeTransferReversalObject(body, 50, "usd", "tr_bind_expected")
+				return err
+			},
+		},
+		{
+			name: "missing reversal transfer",
+			body: `{"object":"transfer_reversal","id":"trr_bind_missing_transfer","amount":50,"currency":"usd"}`,
+			parse: func(body []byte) error {
+				_, err := parseStripeTransferReversalObject(body, 50, "usd", "tr_bind_expected")
+				return err
+			},
+		},
+		{
+			name: "wrong refund PaymentIntent",
+			body: `{"object":"refund","id":"re_bind_bad_pi","amount":50,"currency":"usd","payment_intent":"pi_other"}`,
+			parse: func(body []byte) error {
+				_, err := parseStripeRefundObject(body, 50, "usd", "pi_bind_expected")
+				return err
+			},
+		},
+		{
+			name: "missing refund PaymentIntent",
+			body: `{"object":"refund","id":"re_bind_missing_pi","amount":50,"currency":"usd"}`,
+			parse: func(body []byte) error {
+				_, err := parseStripeRefundObject(body, 50, "usd", "pi_bind_expected")
+				return err
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := tc.parse([]byte(tc.body)); err == nil {
+				t.Fatal("unbound provider response was accepted")
 			}
 		})
 	}
@@ -291,6 +417,12 @@ func TestStripePayoutRequiresDurableKeyBeforeProvider(t *testing.T) {
 	}
 	if calls != 0 {
 		t.Fatalf("provider calls = %d, want 0", calls)
+	}
+	if _, err := p.Send(context.Background(), uuid.New(), 50, "usd", "durable-key"); !errors.Is(err, errPayoutDefinitelyNotSent) {
+		t.Fatalf("nil payout store error = %v, want definite refusal", err)
+	}
+	if calls != 0 {
+		t.Fatalf("provider calls after nil store = %d, want 0", calls)
 	}
 }
 
