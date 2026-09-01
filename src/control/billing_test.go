@@ -316,7 +316,7 @@ func TestVerifyStripeSigRejectsReplayOutsideTolerance(t *testing.T) {
 
 func TestStripeWebhookRetriesSavedCardDatabaseFailures(t *testing.T) {
 	const secret = "whsec_webhook_test"
-	payload := []byte(`{"type":"setup_intent.succeeded","api_version":"2025-06-30.basil","livemode":false,"data":{"object":{"customer":"cus_known","payment_method":"pm_new"}}}`)
+	payload := []byte(`{"type":"setup_intent.succeeded","api_version":"2025-06-30.basil","livemode":false,"data":{"object":{"id":"seti_new","customer":"cus_known","payment_method":"pm_new"}}}`)
 	now := time.Now()
 	ts := fmt.Sprint(now.Unix())
 	mac := hmac.New(sha256.New, []byte(secret))
@@ -360,6 +360,58 @@ func TestStripeWebhookRetriesSavedCardDatabaseFailures(t *testing.T) {
 				t.Fatalf("500 response leaked customer/database detail: %s", rec.Body.String())
 			}
 		})
+	}
+}
+
+func TestSavedCardWebhookRejectsWrongProviderObjectKinds(t *testing.T) {
+	const secret = "whsec_saved_card_object_kind"
+	for _, tc := range []struct {
+		name    string
+		payload string
+	}{
+		{
+			name:    "setup intent with payment method id",
+			payload: `{"id":"evt_wrong_setup","type":"setup_intent.succeeded","api_version":"2025-06-30.basil","livemode":false,"data":{"object":{"id":"pm_not_a_setup_intent","customer":"cus_known","payment_method":"pm_new"}}}`,
+		},
+		{
+			name:    "setup intent missing object id",
+			payload: `{"id":"evt_missing_setup","type":"setup_intent.succeeded","api_version":"2025-06-30.basil","livemode":false,"data":{"object":{"customer":"cus_known","payment_method":"pm_new"}}}`,
+		},
+		{
+			name:    "attached payment method with setup intent id",
+			payload: `{"id":"evt_wrong_attached","type":"payment_method.attached","api_version":"2025-06-30.basil","livemode":false,"data":{"object":{"id":"seti_not_a_payment_method","customer":"cus_known"}}}`,
+		},
+		{
+			name:    "attached payment method with malformed customer",
+			payload: `{"id":"evt_bad_customer","type":"payment_method.attached","api_version":"2025-06-30.basil","livemode":false,"data":{"object":{"id":"pm_new","customer":"pi_not_a_customer"}}}`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := 0
+			req := signedStripeCashRequest(t, []byte(tc.payload), secret)
+			rec := httptest.NewRecorder()
+			handleStripeWebhookWithAllHandlersAtMode(rec, req, secret,
+				func(context.Context, string, string) error {
+					calls++
+					return nil
+				}, nil, nil, false)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("status=%d body=%s, want 400", rec.Code, rec.Body.String())
+			}
+			if calls != 0 {
+				t.Fatalf("saved-card setter calls=%d, want 0", calls)
+			}
+		})
+	}
+}
+
+func TestRecordStripeFeeBindsPaymentIntentResponse(t *testing.T) {
+	withStripeTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"id":"pi_other"}`)
+	}))
+	if err := recordStripeFee(context.Background(), nil, uuid.New(), "pi_expected"); err == nil {
+		t.Fatal("accepted a fee response for a different PaymentIntent")
 	}
 }
 

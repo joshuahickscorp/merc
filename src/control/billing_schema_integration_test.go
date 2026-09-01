@@ -97,6 +97,7 @@ func TestSavedCardWebhookOrderingAndExpandableReferences(t *testing.T) {
 		"id": "evt_card_new", "type": "setup_intent.succeeded",
 		"api_version": stripeAPIVersion, "livemode": false, "created": int64(1_700_000_002),
 		"data": map[string]any{"object": map[string]any{
+			"id":             "seti_card_new",
 			"customer":       map[string]any{"id": customerID},
 			"payment_method": map[string]any{"id": "pm_card_new"},
 		}},

@@ -199,31 +199,31 @@ func TestSignedStripeWebhookRejectsContractDriftBeforeEffect(t *testing.T) {
 		{
 			name: "exact test event",
 			envelope: `{"type":"setup_intent.succeeded","api_version":"2025-06-30.basil","livemode":false,` +
-				`"data":{"object":{"customer":"cus_exact","payment_method":"pm_exact"}}}`,
+				`"data":{"object":{"id":"seti_exact","customer":"cus_exact","payment_method":"pm_exact"}}}`,
 			wantStatus: http.StatusOK, wantCalls: 1,
 		},
 		{
 			name: "version absent",
 			envelope: `{"type":"setup_intent.succeeded","livemode":false,` +
-				`"data":{"object":{"customer":"cus_missing","payment_method":"pm_missing"}}}`,
+				`"data":{"object":{"id":"seti_missing","customer":"cus_missing","payment_method":"pm_missing"}}}`,
 			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name: "version drift",
 			envelope: `{"type":"setup_intent.succeeded","api_version":"2026-02-25.clover","livemode":false,` +
-				`"data":{"object":{"customer":"cus_drift","payment_method":"pm_drift"}}}`,
+				`"data":{"object":{"id":"seti_drift","customer":"cus_drift","payment_method":"pm_drift"}}}`,
 			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name: "test event into live",
 			envelope: `{"type":"setup_intent.succeeded","api_version":"2025-06-30.basil","livemode":false,` +
-				`"data":{"object":{"customer":"cus_test","payment_method":"pm_test"}}}`,
+				`"data":{"object":{"id":"seti_test","customer":"cus_test","payment_method":"pm_test"}}}`,
 			expectedLive: true, wantStatus: http.StatusBadRequest,
 		},
 		{
 			name: "exact live event",
 			envelope: `{"type":"setup_intent.succeeded","api_version":"2025-06-30.basil","livemode":true,` +
-				`"data":{"object":{"customer":"cus_live","payment_method":"pm_live"}}}`,
+				`"data":{"object":{"id":"seti_live","customer":"cus_live","payment_method":"pm_live"}}}`,
 			expectedLive: true, wantStatus: http.StatusOK, wantCalls: 1,
 		},
 	} {

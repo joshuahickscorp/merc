@@ -717,18 +717,10 @@ func handleStripeWebhookWithAllHandlersAtModeAndRiskAndPaymentFailureAndPMEvent(
 			writeErr(w, http.StatusBadRequest, "unparseable webhook object")
 			return
 		}
-		cust, err := stripeExpandableMapID(obj, "customer")
+		cust, pm, err := stripeSavedCardWebhookReferences(ev.Type, obj)
 		if err != nil {
-			writeErr(w, http.StatusBadRequest, "invalid webhook customer reference")
+			writeErr(w, http.StatusBadRequest, "invalid saved payment-method webhook object")
 			return
-		}
-		pm, err := stripeExpandableMapID(obj, "payment_method")
-		if err != nil {
-			writeErr(w, http.StatusBadRequest, "invalid webhook payment-method reference")
-			return
-		}
-		if pm == "" {
-			pm, _ = obj["id"].(string) // payment_method.attached: the object IS the PM
 		}
 		if cust != "" && pm != "" {
 			var err error
@@ -875,6 +867,51 @@ func handleStripeWebhookWithAllHandlersAtModeAndRiskAndPaymentFailureAndPMEvent(
 	w.WriteHeader(http.StatusOK)
 }
 
+// stripeSavedCardWebhookReferences binds a saved-card mutation to the Stripe
+// object kind named by the event. A valid HMAC only proves that Stripe signed
+// the bytes; accepting a different provider object with the right customer and
+// payment_method fields could still replace the buyer's card. Keep unrelated
+// customer-less events acknowledgeable, but fail closed before any local
+// payment-method setter sees a malformed identity.
+func stripeSavedCardWebhookReferences(eventType string, object map[string]any) (string, string, error) {
+	if object == nil {
+		return "", "", errors.New("saved-card webhook object is absent")
+	}
+	objectID, _ := object["id"].(string)
+	objectID = strings.TrimSpace(objectID)
+	var pm string
+	switch eventType {
+	case "setup_intent.succeeded":
+		if !validStripeObjectID(objectID, "seti_") {
+			return "", "", errors.New("setup_intent.succeeded object is not a SetupIntent")
+		}
+		var err error
+		pm, err = stripeExpandableMapID(object, "payment_method")
+		if err != nil {
+			return "", "", fmt.Errorf("decode setup-intent payment method: %w", err)
+		}
+	case "payment_method.attached":
+		if !validStripeObjectID(objectID, "pm_") {
+			return "", "", errors.New("payment_method.attached object is not a PaymentMethod")
+		}
+		pm = objectID
+	default:
+		return "", "", errors.New("unsupported saved-card event type")
+	}
+	cust, err := stripeExpandableMapID(object, "customer")
+	if err != nil {
+		return "", "", fmt.Errorf("decode saved-card customer: %w", err)
+	}
+	cust, pm = strings.TrimSpace(cust), strings.TrimSpace(pm)
+	if cust != "" && !validStripeObjectID(cust, "cus_") {
+		return "", "", errors.New("saved-card customer is not a Customer")
+	}
+	if !validStripeObjectID(pm, "pm_") {
+		return "", "", errors.New("saved-card payment method is not a PaymentMethod")
+	}
+	return cust, pm, nil
+}
+
 func (s *Server) handleStripeWebhook(w http.ResponseWriter, r *http.Request) {
 	if !s.requireOperationalControlActive(w, r, controlWebhooks) ||
 		!s.requireOperationalControlActive(w, r, controlPayments) {
@@ -957,12 +994,18 @@ func chargeOrDeferJob(ctx context.Context, store *Store, jobID uuid.UUID) {
 }
 
 func recordStripeFee(ctx context.Context, store *Store, buyerID uuid.UUID, pi string) error {
-	if pi == "" {
+	pi = strings.TrimSpace(pi)
+	if !validStripeObjectID(pi, "pi_") {
 		return fmt.Errorf("no payment intent id to fetch a fee for")
 	}
 	out, err := stripeGet(ctx, "payment_intents/"+url.PathEscape(pi)+"?expand[]=latest_charge.balance_transaction")
 	if err != nil {
 		return err
+	}
+	returnedID, _ := out["id"].(string)
+	returnedID = strings.TrimSpace(returnedID)
+	if !validStripeObjectID(returnedID, "pi_") || returnedID != pi {
+		return fmt.Errorf("payment intent fee response has an unexpected object id")
 	}
 	feeMinorUnits, currency, err := stripePaymentIntentFeeCash(out)
 	if err != nil {
