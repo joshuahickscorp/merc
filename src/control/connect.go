@@ -61,7 +61,7 @@ func onboardingLink(ctx context.Context, acct string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	link, err := parseStripeAccountLinkResponse(out)
+	link, err := parseStripeAccountLinkResponseForAccount(out, acct)
 	if err != nil {
 		return "", err
 	}
@@ -82,6 +82,26 @@ func parseStripeAccountLinkResponse(out map[string]any) (string, error) {
 	if strings.ToLower(strings.TrimSuffix(u.Hostname(), ".")) != "connect.stripe.com" ||
 		(u.Port() != "" && u.Port() != "443") {
 		return "", errors.New("stripe account_link: provider URL is not hosted by connect.stripe.com")
+	}
+	return link, nil
+}
+
+func parseStripeAccountLinkResponseForAccount(out map[string]any, expectedAcct string) (string, error) {
+	expectedAcct = strings.TrimSpace(expectedAcct)
+	if !validStripeObjectID(expectedAcct, "acct_") {
+		return "", errors.New("stripe account_link: expected connected account id is invalid")
+	}
+	link, err := parseStripeAccountLinkResponse(out)
+	if err != nil {
+		return "", err
+	}
+	u, err := url.Parse(link)
+	if err != nil {
+		return "", errors.New("stripe account_link: provider returned an invalid URL")
+	}
+	path := strings.Split(strings.Trim(u.Path, "/"), "/")
+	if len(path) < 4 || path[0] != "setup" || path[1] != "c" || path[2] != expectedAcct || path[3] == "" {
+		return "", errors.New("stripe account_link: provider URL is not bound to the requested account")
 	}
 	return link, nil
 }

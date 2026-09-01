@@ -174,6 +174,49 @@ func TestStripeAccountLinkResponseRequiresStripeHostedSingleUseURL(t *testing.T)
 	}
 }
 
+func TestStripeAccountLinkResponseBindsRequestedAccount(t *testing.T) {
+	acct := "acct_requested_link"
+	good := map[string]any{
+		"object": "account_link",
+		"url":    "https://connect.stripe.com/setup/c/" + acct + "/token",
+	}
+	link, err := parseStripeAccountLinkResponseForAccount(good, acct)
+	mustf(t, err, "parse account-bound link: %v")
+	if link != good["url"] {
+		t.Fatalf("link=%q, want %q", link, good["url"])
+	}
+
+	for _, tc := range []struct {
+		name string
+		acct string
+		url  string
+	}{
+		{
+			name: "different account",
+			acct: acct,
+			url:  "https://connect.stripe.com/setup/c/acct_other/token",
+		},
+		{
+			name: "wrong setup path",
+			acct: acct,
+			url:  "https://connect.stripe.com/setup/s/" + acct + "/token",
+		},
+		{
+			name: "missing account path segment",
+			acct: acct,
+			url:  "https://connect.stripe.com/setup/c/token",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := parseStripeAccountLinkResponseForAccount(
+				map[string]any{"object": "account_link", "url": tc.url}, tc.acct,
+			); err == nil {
+				t.Fatal("accepted an account link not bound to the requested account")
+			}
+		})
+	}
+}
+
 func TestStripeConnectEventParserRequiresBoundAccountReadiness(t *testing.T) {
 	for _, tc := range []struct {
 		name string
