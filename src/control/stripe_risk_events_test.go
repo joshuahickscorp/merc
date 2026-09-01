@@ -99,3 +99,15 @@ func TestStripeRiskWebhookRejectsIncompleteWarning(t *testing.T) {
 		t.Fatalf("incomplete risk event status=%d body=%s, want 400", rec.Code, rec.Body.String())
 	}
 }
+
+func TestStripeRiskParserRejectsWrongWarningObjectKind(t *testing.T) {
+	_, err := parseStripeRiskEvent(
+		"evt_risk_wrong_object", stripeRiskEventEarlyFraudWarningCreated, 1_700_000_200,
+		map[string]any{
+			"id": "ch_not_a_warning", "charge": "ch_risk_wrong", "fraud_type": "misc", "actionable": false,
+		}, []byte(`{"signed":"risk"}`),
+	)
+	if err == nil {
+		t.Fatal("accepted a non-issfr Stripe object as an early-fraud warning")
+	}
+}

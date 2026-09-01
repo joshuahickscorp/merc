@@ -72,6 +72,9 @@ func parseStripeRiskEvent(
 	if _, ok := object["actionable"].(bool); !ok {
 		return stripeRiskEvent{}, errors.New("early-fraud warning is missing its actionable fact")
 	}
+	if err := validateStripeRiskEvent(event); err != nil {
+		return stripeRiskEvent{}, err
+	}
 	return event, nil
 }
 
@@ -89,7 +92,7 @@ func stripeExpandableMapID(object map[string]any, field string) (string, error) 
 
 func validateStripeRiskEvent(event stripeRiskEvent) error {
 	if strings.TrimSpace(event.EventID) == "" || !isStripeRiskEventType(event.EventType) ||
-		strings.TrimSpace(event.WarningID) == "" || !validStripeObjectID(event.ChargeID, "ch_") ||
+		!validStripeObjectID(event.WarningID, "issfr_") || !validStripeObjectID(event.ChargeID, "ch_") ||
 		(event.PaymentIntent != "" && !validStripeObjectID(event.PaymentIntent, "pi_")) ||
 		strings.TrimSpace(event.FraudType) == "" || event.EventCreated <= 0 ||
 		!isSHA256Hex(event.PayloadSHA256) {
