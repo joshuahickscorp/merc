@@ -184,6 +184,40 @@ func TestStripeSetupIntentIdempotencyKeyIsBuyerScoped(t *testing.T) {
 	}
 }
 
+func TestStripeSetupIntentResponseRequiresExpectedObjectAndCustomer(t *testing.T) {
+	const customer = "cus_setup_contract"
+	for _, tc := range []struct {
+		name string
+		out  map[string]any
+		want string
+	}{
+		{
+			name: "exact setup intent",
+			out:  map[string]any{"object": "setup_intent", "id": "seti_setup_contract", "customer": customer, "client_secret": "seti_setup_contract_secret"},
+			want: "seti_setup_contract_secret",
+		},
+		{name: "wrong object", out: map[string]any{"object": "payment_intent", "id": "seti_setup_contract", "customer": customer, "client_secret": "secret"}},
+		{name: "wrong id prefix", out: map[string]any{"object": "setup_intent", "id": "pi_setup_contract", "customer": customer, "client_secret": "secret"}},
+		{name: "wrong customer", out: map[string]any{"object": "setup_intent", "id": "seti_setup_contract", "customer": "cus_other", "client_secret": "secret"}},
+		{name: "missing customer", out: map[string]any{"object": "setup_intent", "id": "seti_setup_contract", "client_secret": "secret"}},
+		{name: "missing client secret", out: map[string]any{"object": "setup_intent", "id": "seti_setup_contract", "customer": customer}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := parseStripeSetupIntentResponse(tc.out, customer)
+			if tc.want == "" {
+				if err == nil {
+					t.Fatalf("accepted malformed SetupIntent response: %#v", tc.out)
+				}
+				return
+			}
+			mustf(t, err, "parse SetupIntent response: %v")
+			if got != tc.want {
+				t.Fatalf("client secret=%q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 type failingStripeReader struct{}
 
 func (failingStripeReader) Read([]byte) (int, error) {

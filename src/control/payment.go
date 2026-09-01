@@ -360,6 +360,10 @@ func (p StripePayout) Send(ctx context.Context, supplierID uuid.UUID, cents int6
 	if p.secret == "" {
 		return PayoutResult{}, payoutDefinitelyNotSent(errPayoutUnconfigured)
 	}
+	payoutKey = strings.TrimSpace(payoutKey)
+	if payoutKey == "" {
+		return PayoutResult{}, payoutDefinitelyNotSent(errors.New("Stripe payout requires a durable payout key"))
+	}
 	if _, err := authorizePaymentOperation(
 		paymentOperationPayout, cents, currency, p.secret,
 	); err != nil {

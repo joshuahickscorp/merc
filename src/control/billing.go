@@ -253,6 +253,19 @@ func setupIntentIdempotencyKey(buyerID uuid.UUID, requestKey string) string {
 	return "cx-setup-" + buyerID.String() + "-" + requestKey
 }
 
+func parseStripeSetupIntentResponse(out map[string]any, customer string) (string, error) {
+	object, _ := out["object"].(string)
+	id, _ := out["id"].(string)
+	returnedCustomer, _ := out["customer"].(string)
+	clientSecret, _ := out["client_secret"].(string)
+	customer = strings.TrimSpace(customer)
+	if !validStripeObjectID(customer, "cus_") || object != "setup_intent" || !validStripeObjectID(id, "seti_") ||
+		returnedCustomer != customer || strings.TrimSpace(clientSecret) == "" {
+		return "", errors.New("stripe setup_intent: response is not the requested SetupIntent")
+	}
+	return strings.TrimSpace(clientSecret), nil
+}
+
 func setupIntent(ctx context.Context, store *Store, buyerID uuid.UUID, requestKey string) (string, error) {
 	cust, err := ensureStripeCustomer(ctx, store, buyerID)
 	if err != nil {
@@ -262,11 +275,7 @@ func setupIntent(ctx context.Context, store *Store, buyerID uuid.UUID, requestKe
 	if err != nil {
 		return "", err
 	}
-	cs, _ := out["client_secret"].(string)
-	if cs == "" {
-		return "", fmt.Errorf("stripe setup_intent: no client_secret in response")
-	}
-	return cs, nil
+	return parseStripeSetupIntentResponse(out, cust)
 }
 
 type ChargeResult struct {

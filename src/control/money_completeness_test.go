@@ -232,6 +232,26 @@ func TestStripePayoutRecoveryRejectsWrongProviderInputBeforeHTTP(t *testing.T) {
 	}
 }
 
+func TestStripePayoutRequiresDurableKeyBeforeProvider(t *testing.T) {
+	configureStripeHTTPShapeAuthority(t, "sk_test_payout_key_shape")
+	calls := 0
+	p := StripePayout{
+		secret: "sk_test_payout_key_shape",
+		http: &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			calls++
+			return nil, errors.New("provider must not be reached")
+		})},
+	}
+	for _, key := range []string{"", "   "} {
+		if _, err := p.Send(context.Background(), uuid.New(), 50, "usd", key); !errors.Is(err, errPayoutDefinitelyNotSent) {
+			t.Fatalf("empty payout key %q error=%v, want definite refusal", key, err)
+		}
+	}
+	if calls != 0 {
+		t.Fatalf("provider calls = %d, want 0", calls)
+	}
+}
+
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
