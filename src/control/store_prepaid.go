@@ -147,6 +147,9 @@ func (s *Store) CreditPrepaidTopup(ctx context.Context, operationKey string, buy
 		return err
 	}
 	defer tx.Rollback(ctx)
+	if err := lockStripeCashBinding(ctx, tx, charge.ChargeID); err != nil {
+		return err
+	}
 
 	var status string
 	var storedBuyer uuid.UUID

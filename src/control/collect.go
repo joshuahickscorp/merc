@@ -106,6 +106,9 @@ func recordBuyerCashCollection(
 	default:
 		return fmt.Errorf("invalid buyer cash source kind %q", sourceKind)
 	}
+	if err := lockStripeCashBinding(ctx, tx, charge.ChargeID); err != nil {
+		return err
+	}
 	var recorded string
 	err := tx.QueryRow(ctx, `
 		INSERT INTO buyer_cash_collections

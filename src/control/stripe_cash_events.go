@@ -232,6 +232,22 @@ func nullableStripeID(value string) any {
 	return strings.TrimSpace(value)
 }
 
+// lockStripeCashBinding serializes every local writer that can first discover
+// or bind a charge's cash evidence. The durable rows are split across several
+// tables, so row locks alone cannot protect the gap where a direct charge
+// confirmation and a webhook both observe the charge before either commits.
+func lockStripeCashBinding(ctx context.Context, tx pgx.Tx, chargeID string) error {
+	chargeID = strings.TrimSpace(chargeID)
+	if chargeID == "" {
+		return errors.New("Stripe cash binding requires a charge id")
+	}
+	_, err := tx.Exec(ctx,
+		`SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`,
+		"merc:stripe-cash:"+chargeID,
+	)
+	return err
+}
+
 func (s *Store) ApplyPaymentEventTx(ctx context.Context, event stripeCashEvent) (stripeCashEventResult, error) {
 	var result stripeCashEventResult
 	if err := validateStripeCashEvent(event); err != nil {
@@ -242,6 +258,9 @@ func (s *Store) ApplyPaymentEventTx(ctx context.Context, event stripeCashEvent) 
 		return result, err
 	}
 	defer tx.Rollback(ctx)
+	if err := lockStripeCashBinding(ctx, tx, event.ChargeID); err != nil {
+		return result, err
+	}
 
 	tag, err := tx.Exec(ctx, `
 		INSERT INTO stripe_webhook_events

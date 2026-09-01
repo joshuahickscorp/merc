@@ -55,6 +55,52 @@ func TestStripeExpandableReferenceBindsExpandedObjectKind(t *testing.T) {
 	}
 }
 
+func TestStripeCashBindingLockSerializesWriters(t *testing.T) {
+	ctx, _, pool := openIsolatedTestStore(t)
+	first, err := pool.Begin(ctx)
+	mustf(t, err, "begin first cash transaction: %v")
+	defer first.Rollback(ctx)
+	mustf(t, lockStripeCashBinding(ctx, first, "ch_lock_order"),
+		"lock first cash transaction: %v")
+
+	second, err := pool.Begin(ctx)
+	mustf(t, err, "begin second cash transaction: %v")
+	defer second.Rollback(ctx)
+	var secondPID int
+	mustf(t, second.QueryRow(ctx, "SELECT pg_backend_pid()").Scan(&secondPID),
+		"read second backend pid: %v")
+
+	lockCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	locked := make(chan error, 1)
+	go func() {
+		locked <- lockStripeCashBinding(lockCtx, second, "ch_lock_order")
+	}()
+
+	waiting := false
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		var rowWaiting bool
+		if err := pool.QueryRow(ctx, `
+			SELECT EXISTS(
+			  SELECT 1 FROM pg_locks
+			   WHERE pid=$1 AND locktype='advisory' AND NOT granted)`, secondPID).
+			Scan(&rowWaiting); err != nil {
+			t.Fatalf("inspect advisory lock wait: %v", err)
+		}
+		if rowWaiting {
+			waiting = true
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if !waiting {
+		t.Fatal("second cash writer did not wait for the first charge binding lock")
+	}
+	mustf(t, first.Commit(ctx), "commit first cash transaction: %v")
+	mustf(t, <-locked, "second cash transaction lock: %v")
+}
+
 func TestStripeCashParserRequiresExpectedObjectKinds(t *testing.T) {
 	for _, tc := range []struct {
 		name, eventType, object string
