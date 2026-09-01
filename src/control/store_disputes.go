@@ -144,7 +144,7 @@ func (s *Store) RecordDispute(ctx context.Context, jobID, buyerID uuid.UUID, rea
 			}
 			if _, err := tx.Exec(ctx, `
 				UPDATE supplier_payout_operations
-				   SET status='reversal_required',updated_at=now(),
+				   SET status='reversal_required',outcome_unknown=true,updated_at=now(),
 				       last_error='buyer dispute filed while payout was in flight'
 				 WHERE ledger_entry_id=$1`, credit.id); err != nil {
 				return uuid.Nil, err
@@ -384,6 +384,163 @@ type disputeResolveResult struct {
 	MoneyEffect          string
 }
 
+type disputePayoutResolutionRow struct {
+	entryID            uuid.UUID
+	filingStatus       string
+	ledgerStatus       string
+	ledgerPayoutRef    string
+	operationStatus    string
+	cashMoved          bool
+	transferRef        string
+	outcomeUnknown     bool
+	fundingCompromised bool
+}
+
+// reconcileDisputePayoutHoldsTx closes the payout side of a dispute without
+// manufacturing or discarding provider evidence. Filing an internal dispute
+// can move an in-flight operation to reversal_required, but that state is not
+// itself proof that cash moved. A rejected dispute therefore re-arms an
+// evidence-unknown operation for the same idempotent provider instruction;
+// an upheld dispute keeps it in recovery until the provider outcome is known.
+// Cash that actually moved is released on rejection only when no independent
+// Stripe funding impairment still requires recovery.
+func reconcileDisputePayoutHoldsTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	disputeID uuid.UUID,
+	resolution string,
+) error {
+	rows, err := tx.Query(ctx, `
+		SELECT h.ledger_entry_id,h.payout_status_at_filing,
+		       le.payout_status,COALESCE(le.payout_ref,''),
+		       COALESCE(op.status,''),COALESCE(op.cash_moved,false),
+		       COALESCE(op.transfer_ref,''),COALESCE(op.outcome_unknown,false),
+		       EXISTS (
+		         SELECT 1
+		           FROM supplier_payout_funding f
+		           JOIN supplier_payout_funding_state fs ON fs.funding_id=f.id
+		          WHERE f.ledger_entry_id=h.ledger_entry_id
+		            AND fs.status='compromised')
+		  FROM dispute_payout_holds h
+		  JOIN ledger_entries le ON le.id=h.ledger_entry_id
+		  LEFT JOIN supplier_payout_operations op ON op.ledger_entry_id=le.id
+		 WHERE h.dispute_id=$1
+		 ORDER BY h.ledger_entry_id
+		 FOR UPDATE OF le`, disputeID)
+	if err != nil {
+		return err
+	}
+	var held []disputePayoutResolutionRow
+	for rows.Next() {
+		var row disputePayoutResolutionRow
+		if err := rows.Scan(&row.entryID, &row.filingStatus, &row.ledgerStatus,
+			&row.ledgerPayoutRef, &row.operationStatus, &row.cashMoved,
+			&row.transferRef, &row.outcomeUnknown, &row.fundingCompromised); err != nil {
+			rows.Close()
+			return err
+		}
+		held = append(held, row)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+
+	for _, row := range held {
+		if row.operationStatus == "" {
+			// Held credits normally have no operation. Any in-flight/recovery
+			// status without its operation is a broken money binding; preserve
+			// the hold rather than guessing a terminal outcome.
+			if row.ledgerStatus == PayoutReversalRequired || row.ledgerStatus == PayoutReversing {
+				return fmt.Errorf("%w: payout %s has no durable operation row", errDisputePayoutRecoveryInFlight, row.entryID)
+			}
+			continue
+		}
+		if resolution == "rejected" {
+			if row.ledgerStatus == PayoutReversing || row.operationStatus == PayoutReversing {
+				return fmt.Errorf("%w: payout %s is already reversing", errDisputePayoutRecoveryInFlight, row.entryID)
+			}
+			if row.ledgerStatus == PayoutReversed || row.operationStatus == PayoutReversed {
+				return fmt.Errorf("%w: payout %s was reversed before dispute rejection", errDisputePayoutRecoveryInFlight, row.entryID)
+			}
+
+			providerCash := row.cashMoved || strings.TrimSpace(row.transferRef) != "" ||
+				strings.TrimSpace(row.ledgerPayoutRef) != ""
+			if providerCash {
+				if row.fundingCompromised {
+					// A separate Stripe charge dispute still impairs the
+					// funding source. Keep the provider cash recovery queued;
+					// do not turn a real transfer into outcome_unknown.
+					continue
+				}
+				payoutRef := strings.TrimSpace(row.ledgerPayoutRef)
+				if payoutRef == "" {
+					payoutRef = strings.TrimSpace(row.transferRef)
+				}
+				if payoutRef == "" {
+					return fmt.Errorf("%w: payout %s has cash evidence without a durable provider reference", errDisputePayoutRecoveryInFlight, row.entryID)
+				}
+				if _, err := tx.Exec(ctx, `
+					UPDATE supplier_payout_operations
+					   SET status='released',outcome_unknown=false,last_error=NULL,updated_at=now()
+					 WHERE ledger_entry_id=$1 AND status='reversal_required'`, row.entryID); err != nil {
+					return err
+				}
+				if _, err := tx.Exec(ctx, `
+					UPDATE ledger_entries
+					   SET payout_status='released',payout_ref=$2
+					 WHERE id=$1 AND payout_status='reversal_required'`, row.entryID, payoutRef); err != nil {
+					return err
+				}
+				continue
+			}
+
+			// No provider cash is evidenced. Keep the operation retryable under
+			// its original idempotency key; a concurrent or lost send can then
+			// settle exactly once after the dispute is rejected. This also moves
+			// an external-funding impairment out of the global reversal pause
+			// until Stripe makes the funding usable again.
+			if row.ledgerStatus == PayoutReversalRequired || row.operationStatus == PayoutReversalRequired {
+				if _, err := tx.Exec(ctx, `
+					UPDATE supplier_payout_operations
+					   SET status='outcome_unknown',outcome_unknown=true,
+					       last_error='dispute rejected; provider payout outcome requires idempotent retry',updated_at=now()
+					 WHERE ledger_entry_id=$1 AND status='reversal_required'
+					   AND NOT cash_moved AND transfer_ref IS NULL`, row.entryID); err != nil {
+					return err
+				}
+				if _, err := tx.Exec(ctx, `
+					UPDATE ledger_entries SET payout_status='outcome_unknown'
+					 WHERE id=$1 AND payout_status='reversal_required'`, row.entryID); err != nil {
+					return err
+				}
+			}
+			continue
+		}
+
+		// Upheld disputes remain recovery-required whenever a provider result
+		// could still have moved cash. Mark a no-evidence in-flight operation as
+		// outcome_unknown so the worker can re-drive the same idempotent request;
+		// a successful result will retain reversal_required and enter reversal.
+		if row.ledgerStatus == PayoutReversalRequired || row.operationStatus == PayoutReversalRequired {
+			providerCash := row.cashMoved || strings.TrimSpace(row.transferRef) != "" ||
+				strings.TrimSpace(row.ledgerPayoutRef) != ""
+			if !providerCash && !row.outcomeUnknown {
+				if _, err := tx.Exec(ctx, `
+					UPDATE supplier_payout_operations
+					   SET status='reversal_required',outcome_unknown=true,
+					       last_error='upheld dispute; provider payout outcome requires recovery',updated_at=now()
+					 WHERE ledger_entry_id=$1 AND status='reversal_required'
+					   AND NOT cash_moved AND transfer_ref IS NULL`, row.entryID); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}
+
 func (s *Store) resolveDispute(ctx context.Context, id uuid.UUID, resolution string) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -581,6 +738,9 @@ func resolveDisputeInTx(
 				return out, fmt.Errorf("consume risk reserve for upheld dispute %s: %w", id, err)
 			}
 		}
+	}
+	if err := reconcileDisputePayoutHoldsTx(ctx, tx, id, resolution); err != nil {
+		return out, err
 	}
 	if _, err := tx.Exec(ctx, `
 		UPDATE dispute_payout_holds

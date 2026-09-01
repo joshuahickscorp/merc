@@ -1177,10 +1177,12 @@ func (s *Store) ClaimOutcomeUnknownPayouts(
 		       settlement.remainder_microusd,settlement.policy,op.currency
 		  FROM supplier_payout_operations op
 		  JOIN ledger_entries le ON le.id=op.ledger_entry_id
+		  LEFT JOIN supplier_payout_funding_state fs ON fs.funding_id=op.funding_id
 		  JOIN supplier_minor_unit_settlements settlement
 		    ON settlement.ledger_entry_id=le.id
 		 WHERE op.outcome_unknown=true AND NOT op.cash_moved
 		   AND op.transfer_ref IS NULL
+		   AND COALESCE(fs.status,'available') <> 'compromised'
 		   AND op.status IN ('outcome_unknown','reversal_required')
 		   AND le.payout_status IN ('outcome_unknown','reversal_required')
 		   AND op.updated_at <= $1 AND op.created_at >= $2
@@ -1288,16 +1290,34 @@ func (s *Store) DeferPayout(ctx context.Context, entryID uuid.UUID, cause error)
 	}
 	defer tx.Rollback(ctx)
 	var status string
-	var outcomeUnknown bool
+	var outcomeUnknown, cashMoved bool
+	var transferRef *string
 	if err := tx.QueryRow(ctx, `
-		SELECT le.payout_status,COALESCE(op.outcome_unknown,false)
+		SELECT le.payout_status,COALESCE(op.outcome_unknown,false),COALESCE(op.cash_moved,false),op.transfer_ref
 		  FROM ledger_entries le
 		  LEFT JOIN supplier_payout_operations op ON op.ledger_entry_id=le.id
-		 WHERE le.id=$1 FOR UPDATE OF le`, entryID).Scan(&status, &outcomeUnknown); err != nil {
+		 WHERE le.id=$1 FOR UPDATE OF le`, entryID).
+		Scan(&status, &outcomeUnknown, &cashMoved, &transferRef); err != nil {
 		return "", err
 	}
+	if cashMoved || transferRef != nil {
+		return status, fmt.Errorf("payout %s already has provider cash evidence", entryID)
+	}
 	if outcomeUnknown {
+		if status == PayoutReversalRequired {
+			// A first-send worker may race with dispute filing. The operation is
+			// already held in recovery; never demote it to ready or erase the
+			// unknown-outcome marker just because this attempt was definite-fail.
+			return status, tx.Commit(ctx)
+		}
 		return status, fmt.Errorf("payout %s has an unresolved provider outcome and cannot be deferred to ready", entryID)
+	}
+	if status == PayoutReversalRequired {
+		// Filing a dispute can move an in-flight operation here before the
+		// original worker receives a definite-not-sent response. There is no
+		// cash to reverse, but the active dispute still owns the hold; leave the
+		// recovery state for resolution to re-arm safely.
+		return status, tx.Commit(ctx)
 	}
 	if status != PayoutSending {
 		return status, tx.Commit(ctx)

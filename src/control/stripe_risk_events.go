@@ -15,6 +15,7 @@ import (
 const (
 	stripeRiskEventEarlyFraudWarningCreated = "radar.early_fraud_warning.created"
 	stripeRiskEventEarlyFraudWarningUpdated = "radar.early_fraud_warning.updated"
+	stripeRiskObjectEarlyFraudWarning       = "radar.early_fraud_warning"
 )
 
 type stripeRiskEvent struct {
@@ -53,7 +54,7 @@ func parseStripeRiskEvent(
 		return stripeRiskEvent{}, errors.New("invalid Stripe risk event")
 	}
 	objectType, _ := object["object"].(string)
-	if strings.TrimSpace(objectType) != "early_fraud_warning" {
+	if strings.TrimSpace(objectType) != stripeRiskObjectEarlyFraudWarning {
 		return stripeRiskEvent{}, errors.New("early-fraud warning has the wrong Stripe object kind")
 	}
 	event.WarningID, _ = object["id"].(string)

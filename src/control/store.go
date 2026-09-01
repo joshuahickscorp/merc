@@ -205,9 +205,10 @@ var (
 	// Operator resolution is only for the terminal operator queue. Automatic
 	// re-verification still owns open/no_peer/reverifying; unresolvable is the
 	// human queue (no silent auto-award to either party).
-	errDisputeNotOperatorQueue  = errors.New("dispute_not_operator_queue: only unresolvable disputes may be operator-resolved")
-	errDisputeResolutionInvalid = errors.New("dispute_resolution_invalid: resolution must be upheld or rejected")
-	errDisputeAlreadyResolved   = errors.New("dispute_already_resolved: dispute is already terminal")
+	errDisputeNotOperatorQueue       = errors.New("dispute_not_operator_queue: only unresolvable disputes may be operator-resolved")
+	errDisputeResolutionInvalid      = errors.New("dispute_resolution_invalid: resolution must be upheld or rejected")
+	errDisputeAlreadyResolved        = errors.New("dispute_already_resolved: dispute is already terminal")
+	errDisputePayoutRecoveryInFlight = errors.New("dispute_payout_recovery_in_flight: provider payout recovery must settle before rejection")
 )
 
 var errOAuthLinkStateInvalid = errors.New("invalid or expired OAuth link state")
@@ -1495,10 +1496,15 @@ func (s *Store) ClaimReversals(ctx context.Context, lease time.Duration, limit i
 		       op.requested_cents, op.currency, op.cash_moved
 		  FROM supplier_payout_operations op
 		  JOIN ledger_entries le ON le.id = op.ledger_entry_id
+		  LEFT JOIN tasks t ON t.id=le.task_id
 		  LEFT JOIN supplier_payout_funding f ON f.id = op.funding_id
 		 WHERE le.payout_status IN ('reversal_required', 'reversing')
 		   AND op.status IN ('reversal_required', 'reversing')
 		   AND (op.cash_moved OR COALESCE(op.transfer_ref, le.payout_ref, '') <> '')
+		   AND NOT EXISTS (
+		       SELECT 1 FROM disputes d
+		        WHERE d.job_id=t.job_id
+		          AND d.status IN ('open','no_peer','reverifying','unresolvable'))
 		   AND (
 		     op.status = 'reversal_required'
 		     OR (op.status = 'reversing' AND op.updated_at <= $1)

@@ -151,6 +151,98 @@ func TestDisputeFilingAtomicallyFreezesAndTerminalResolutionControlsPayout(t *te
 	}
 }
 
+func TestRejectedDisputeRearmsInFlightPayoutWithoutCash(t *testing.T) {
+	ctx, store, pool := openIsolatedTestStore(t)
+	t.Setenv("MERC_CANARY_MODE", "false")
+	t.Setenv("MERC_CANARY_DISABLE_DECISION_REF", "test:dispute-inflight-reject")
+	f := seedPayoutFixture(t, ctx, pool, payoutFixtureOpts{creditUSD: 1.25})
+	if _, sent, err := store.ClaimPayout(ctx, f.entryID); err != nil || !sent {
+		t.Fatalf("claim in-flight fixture: sent=%v err=%v", sent, err)
+	}
+	disputeID, err := store.RecordDispute(ctx, f.jobID, f.buyerID, "provider outcome must survive a rejected dispute")
+	mustf(t, err, "file in-flight dispute: %v")
+
+	var heldStatus, heldOperation string
+	var outcomeUnknown bool
+	mustf(t, pool.QueryRow(ctx, `
+		SELECT le.payout_status,op.status,op.outcome_unknown
+		  FROM ledger_entries le JOIN supplier_payout_operations op ON op.ledger_entry_id=le.id
+		 WHERE le.id=$1`, f.entryID).Scan(&heldStatus, &heldOperation, &outcomeUnknown),
+		"inspect filed in-flight payout: %v")
+	if heldStatus != PayoutReversalRequired || heldOperation != PayoutReversalRequired || !outcomeUnknown {
+		t.Fatalf("filed in-flight payout=%s/%s unknown=%v, want reversal_required/reversal_required/true",
+			heldStatus, heldOperation, outcomeUnknown)
+	}
+
+	mustf(t, store.SetDisputeStatus(ctx, disputeID, "rejected"), "reject in-flight dispute: %v")
+	var payoutStatus, operationStatus string
+	var retryable bool
+	mustf(t, pool.QueryRow(ctx, `
+		SELECT le.payout_status,op.status,op.outcome_unknown
+		  FROM ledger_entries le JOIN supplier_payout_operations op ON op.ledger_entry_id=le.id
+		 WHERE le.id=$1`, f.entryID).Scan(&payoutStatus, &operationStatus, &retryable),
+		"inspect rejected in-flight payout: %v")
+	if payoutStatus != PayoutOutcomeUnknown || operationStatus != PayoutOutcomeUnknown || !retryable {
+		t.Fatalf("rejected in-flight payout=%s/%s unknown=%v, want outcome_unknown/outcome_unknown/true",
+			payoutStatus, operationStatus, retryable)
+	}
+	if n, err := store.CountReversalRequired(ctx); err != nil || n != 0 {
+		t.Fatalf("rejected no-cash payout left reversal pause count=%d err=%v", n, err)
+	}
+	unknown, err := store.ClaimOutcomeUnknownPayouts(ctx, 0, 24*time.Hour, 10)
+	mustf(t, err, "claim rearmed outcome-unknown payout: %v")
+	if !dueContains(unknown, f.entryID) {
+		t.Fatalf("rejected in-flight payout was not rearmed for idempotent retry: %+v", unknown)
+	}
+}
+
+func TestActiveDisputeDefersCashReversalUntilResolution(t *testing.T) {
+	ctx, store, pool := openIsolatedTestStore(t)
+	t.Setenv("MERC_CANARY_MODE", "false")
+	t.Setenv("MERC_CANARY_DISABLE_DECISION_REF", "test:dispute-inflight-cash")
+	f := seedPayoutFixture(t, ctx, pool, payoutFixtureOpts{creditUSD: 1.25})
+	if _, sent, err := store.ClaimPayout(ctx, f.entryID); err != nil || !sent {
+		t.Fatalf("claim cash fixture: sent=%v err=%v", sent, err)
+	}
+	disputeID, err := store.RecordDispute(ctx, f.jobID, f.buyerID, "hold cash until the dispute is resolved")
+	mustf(t, err, "file cash dispute: %v")
+	transferRef := "tr_dispute_" + uuid.NewString()
+	state, err := store.FinalizePayout(ctx, f.entryID, PayoutResult{
+		Ref: transferRef, SentCents: f.creditCents, Currency: f.currency, CashMoved: true,
+	})
+	if err != nil || state != PayoutReversalRequired {
+		t.Fatalf("finalize cash during active dispute: state=%q err=%v", state, err)
+	}
+
+	claimed, err := store.ClaimReversals(ctx, time.Minute, 10)
+	mustf(t, err, "claim active-dispute reversal: %v")
+	if dueContainsReversal(claimed, f.entryID) {
+		t.Fatalf("active dispute exposed cash reversal before resolution: %+v", claimed)
+	}
+
+	mustf(t, store.SetDisputeStatus(ctx, disputeID, "rejected"), "reject cash dispute: %v")
+	var payoutStatus, operationStatus, storedTransfer string
+	var cashMoved bool
+	mustf(t, pool.QueryRow(ctx, `
+		SELECT le.payout_status,op.status,op.cash_moved,op.transfer_ref
+		  FROM ledger_entries le JOIN supplier_payout_operations op ON op.ledger_entry_id=le.id
+		 WHERE le.id=$1`, f.entryID).Scan(&payoutStatus, &operationStatus, &cashMoved, &storedTransfer),
+		"inspect released cash payout: %v")
+	if payoutStatus != PayoutReleased || operationStatus != PayoutReleased || !cashMoved || storedTransfer != transferRef {
+		t.Fatalf("rejected cash payout=%s/%s cash=%v transfer=%q, want released/released/true/%q",
+			payoutStatus, operationStatus, cashMoved, storedTransfer, transferRef)
+	}
+}
+
+func dueContainsReversal(entries []DueReversal, id uuid.UUID) bool {
+	for _, entry := range entries {
+		if entry.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
 func TestDisputeFilingOwnershipTerminalReasonAndWindowBoundaries(t *testing.T) {
 	ctx, store, pool := openAdminMutationTestStore(t)
 	f := seedDisputePayoutFixture(t, ctx, pool, "running")

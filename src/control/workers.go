@@ -432,16 +432,6 @@ func (wk *Workers) releasePayouts(ctx context.Context) error {
 	if err := wk.processReversals(ctx); err != nil {
 		return err
 	}
-	outstanding, err := wk.store.CountReversalRequired(ctx)
-	if err != nil {
-		return err
-	}
-	if outstanding > 0 {
-		metrics.payoutsPausedReversalRequired.Add(1)
-		log.Printf("workers: supplier payouts paused: %d ledger row(s) in reversal_required/reversing; refusing new payout claims until recovered",
-			outstanding)
-		return nil
-	}
 	finishAttempt := func(claimed DueHeldEntry, resolvingUnknown bool) error {
 		result, sendErr := wk.payout.Send(ctx, claimed.SupplierID, claimed.RequestedCents,
 			claimed.Currency, claimed.ID.String())
@@ -487,6 +477,16 @@ func (wk *Workers) releasePayouts(ctx context.Context) error {
 		if err := finishAttempt(claimed, true); err != nil {
 			return err
 		}
+	}
+	outstanding, err := wk.store.CountReversalRequired(ctx)
+	if err != nil {
+		return err
+	}
+	if outstanding > 0 {
+		metrics.payoutsPausedReversalRequired.Add(1)
+		log.Printf("workers: supplier payouts paused: %d ledger row(s) in reversal_required/reversing; refusing new payout claims until recovered",
+			outstanding)
+		return nil
 	}
 	due, err := wk.store.DuePayouts(ctx, sweepBatch)
 	if err != nil {

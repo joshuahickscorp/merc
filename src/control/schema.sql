@@ -3017,6 +3017,7 @@ INSERT INTO lifecycle_transitions (entity,from_state,to_state) VALUES
 ('payout','carried','held'),('payout','carried','awaiting_funding'),
 ('payout','carried','clawed_back'),('payout','carried','reversal_required'),
 ('payout','reversal_required','reversing'),
+('payout','reversal_required','released'),('payout','reversal_required','outcome_unknown'),
 ('payout','reversing','reversed'),('payout','reversing','reversal_required'),
 ('webhook','pending','leased'),('webhook','pending','delivered'),('webhook','pending','dead'),
 ('webhook','leased','pending'),('webhook','leased','delivered'),('webhook','leased','dead');
