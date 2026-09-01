@@ -726,35 +726,31 @@ for case_index in "${MUTATION_CASE_ORDER[@]}"; do
   sed -i '' "$expr" "$src" 2>/dev/null || sed -i "$expr" "$src" 2>/dev/null
 
   if ! cmp -s "$src" "$BACKUP/${file//\//__}.bak"; then
-    # Build first: a mutation that does not compile is not a useful test.
-    if ! (cd "$CONTROL" && go build ./... >/dev/null 2>&1); then
-      printf '%-58s %s\n' "$desc" "INFRASTRUCTURE (mutation does not compile)"
-      infrastructure=$((infrastructure+1))
-      INFRASTRUCTURE+=("$desc — injected source does not compile")
-      result="infrastructure"
-    else
-      run_mutation_tests "$file"
-      mutation_status=$?
-      case "$mutation_status" in
-        0)
-          printf '%-58s %s\n' "$desc" "SURVIVED"
-          survived=$((survived+1))
-          SURVIVORS+=("$desc")
-          result="survived"
-          ;;
-        10)
-          printf '%-58s %s\n' "$desc" "caught"
-          caught=$((caught+1))
-          result="caught"
-          ;;
-        *)
-          printf '%-58s %s\n' "$desc" "INFRASTRUCTURE (run did not prove a legitimate catch)"
-          infrastructure=$((infrastructure+1))
-          INFRASTRUCTURE+=("$desc — suite/contract execution failed closed")
-          result="infrastructure"
-          ;;
-      esac
-    fi
+    # go test compiles the complete control package before running its
+    # selector.  Let the contract/oracle observer classify a compile failure
+    # as infrastructure; a separate go build here would compile the same
+    # mutation twice and add avoidable work to every case.
+    run_mutation_tests "$file"
+    mutation_status=$?
+    case "$mutation_status" in
+      0)
+        printf '%-58s %s\n' "$desc" "SURVIVED"
+        survived=$((survived+1))
+        SURVIVORS+=("$desc")
+        result="survived"
+        ;;
+      10)
+        printf '%-58s %s\n' "$desc" "caught"
+        caught=$((caught+1))
+        result="caught"
+        ;;
+      *)
+        printf '%-58s %s\n' "$desc" "INFRASTRUCTURE (run did not prove a legitimate catch)"
+        infrastructure=$((infrastructure+1))
+        INFRASTRUCTURE+=("$desc — suite/contract execution failed closed")
+        result="infrastructure"
+        ;;
+    esac
   else
     printf '%-58s %s\n' "$desc" "STALE (pattern did not apply)"
     stale=$((stale+1)); STALE+=("$desc — sed pattern no longer matches src/control/$file")
