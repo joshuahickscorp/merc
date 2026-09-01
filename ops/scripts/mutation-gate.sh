@@ -31,7 +31,6 @@ esac
   echo "mutation gate requires ops/scripts/mutation-manifest.json" >&2
   exit 2
 }
-python3 ops/scripts/mutation-manifest.py --root . --validate >/dev/null
 
 base="${MERC_MUTATION_BASE:-HEAD~1}"
 if [ "$mode" = "fast" ] || [ "$mode" = "authority" ]; then
@@ -84,6 +83,10 @@ case_ids="$(printf '%s\n' "$selection" | sed -n '1p')"
 reason="$(printf '%s\n' "$selection" | sed -n '2p')"
 
 if [ -z "$case_ids" ]; then
+  # A nonempty selection is validated by the parallel runner's --weights pass.
+  # Preserve the standalone validation for an empty fast/authority selection,
+  # which exits before the runner would have a chance to validate it.
+  python3 ops/scripts/mutation-manifest.py --root . --validate >/dev/null
   printf 'mutation-%s: PASS no declared mutations affected (%s); not a full certification\n' "$mode" "$reason"
   exit 0
 fi
