@@ -209,7 +209,6 @@ if [ ! -f ops/scripts/mutation-manifest.json ]; then
   echo "parallel mutation test requires ops/scripts/mutation-manifest.json" >&2
   exit 2
 fi
-python3 ops/scripts/mutation-manifest.py --root . --validate >/dev/null
 
 # First-fit decreasing on measured p90s keeps a slow database contract from
 # being stranded at the end of one shard. On the first calibrated run every
@@ -217,6 +216,8 @@ python3 ops/scripts/mutation-manifest.py --root . --validate >/dev/null
 # plan without inventing performance data. Each bin then begins with its
 # cheapest pure mutation when it has one: that warms its independent checkout
 # before an expensive database fallback, without changing membership or load.
+# The --weights invocation rebuilds and validates the manifest, so do not pay
+# for a separate identical validation pass here.
 case_weight_json="$(python3 - "${case_ids[@]}" <<'PY'
 import json
 import subprocess

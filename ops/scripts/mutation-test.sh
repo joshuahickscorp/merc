@@ -45,6 +45,11 @@ MUTATION_LOCK=""
 BACKUP=""
 MUTATION_OBSERVATION=""
 MUTATION_PATHWAY=""
+MERC_MUTATION_CANDIDATE=""
+
+if [ -n "$MERC_MUTATION_TIMINGS_FILE" ]; then
+  MERC_MUTATION_CANDIDATE="$(git rev-parse HEAD)" || exit 2
+fi
 
 if ! [[ "$MERC_MUTATION_SUITE_TIMEOUT" =~ ^[1-9][0-9]*$ ]]; then
   echo "MERC_MUTATION_SUITE_TIMEOUT must be a positive integer number of seconds" >&2
@@ -652,12 +657,11 @@ PY
 record_mutation_timing() {
   local case_id="$1" source="$2" description="$3" result="$4" pathway="$5" started="$6" finished="$7"
   [ -n "$MERC_MUTATION_TIMINGS_FILE" ] || return 0
-  python3 - "$MERC_MUTATION_TIMINGS_FILE" "$case_id" "$source" "$description" "$result" "$pathway" "$started" "$finished" <<'PY'
+  python3 - "$MERC_MUTATION_TIMINGS_FILE" "$case_id" "$source" "$description" "$result" "$pathway" "$started" "$finished" "$MERC_MUTATION_CANDIDATE" <<'PY'
 import json
-import os
 import sys
 
-path, case_id, source, description, result, pathway, started, finished = sys.argv[1:]
+path, case_id, source, description, result, pathway, started, finished, candidate = sys.argv[1:]
 start = float(started)
 end = float(finished)
 record = {
@@ -667,7 +671,7 @@ record = {
     "result": result,
     "pathway": pathway or "UNKNOWN",
     "duration_seconds": round(max(0.0, end - start), 6),
-    "candidate": os.popen("git rev-parse HEAD").read().strip(),
+    "candidate": candidate,
 }
 with open(path, "a", encoding="utf-8") as handle:
     handle.write(json.dumps(record, sort_keys=True, separators=(",", ":")) + "\n")
