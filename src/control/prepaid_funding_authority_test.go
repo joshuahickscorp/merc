@@ -113,7 +113,7 @@ func newFundingHarness(t *testing.T) *fundingHarness {
 			amount := r.Form.Get("amount")
 			currency := r.Form.Get("currency")
 			charge.set(amount, currency)
-			fmt.Fprintf(w, `{"id":"pi_live_%d","latest_charge":{"id":"ch_live_%d"},`+
+			fmt.Fprintf(w, `{"object":"payment_intent","id":"pi_live_%d","latest_charge":{"object":"charge","id":"ch_live_%d"},`+
 				`"status":"succeeded","currency":%q,"amount":%s,"amount_received":%s}`,
 				charges.Load(), charges.Load(), currency, amount, amount)
 		case strings.HasSuffix(r.URL.Path, "/refunds"):

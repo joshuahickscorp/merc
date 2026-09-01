@@ -183,19 +183,25 @@ func TestStripeConnectEventParserRequiresBoundAccountReadiness(t *testing.T) {
 		{
 			name: "missing readiness fact",
 			acct: "acct_parser_missing",
-			obj:  map[string]any{"id": "acct_parser_missing"},
+			obj:  map[string]any{"object": "account", "id": "acct_parser_missing"},
 			want: errInvalidStripeConnectEvent,
 		},
 		{
 			name: "envelope object mismatch",
 			acct: "acct_parser_envelope",
-			obj:  map[string]any{"id": "acct_parser_object", "payouts_enabled": true},
+			obj:  map[string]any{"object": "account", "id": "acct_parser_object", "payouts_enabled": true},
 			want: errInvalidStripeConnectEvent,
 		},
 		{
 			name: "payout object prefix",
 			acct: "acct_parser_payout",
-			obj:  map[string]any{"id": "not_a_payout"},
+			obj:  map[string]any{"object": "account", "id": "not_a_payout"},
+			want: errInvalidStripeConnectEvent,
+		},
+		{
+			name: "account wrong object kind",
+			acct: "acct_parser_wrong_kind",
+			obj:  map[string]any{"object": "payout", "id": "acct_parser_wrong_kind", "payouts_enabled": true},
 			want: errInvalidStripeConnectEvent,
 		},
 	} {
@@ -206,6 +212,17 @@ func TestStripeConnectEventParserRequiresBoundAccountReadiness(t *testing.T) {
 				t.Fatalf("parse error=%v, want %v", err, tc.want)
 			}
 		})
+	}
+}
+
+func TestStripeConnectPayoutParserRequiresPayoutObject(t *testing.T) {
+	_, err := parseStripeConnectEvent(
+		"evt_connect_wrong_payout_object", stripeConnectEventPayoutCreated, "acct_parser_payout_kind",
+		1_700_000_005, map[string]any{"object": "account", "id": "po_parser_payout_kind", "status": "pending"},
+		[]byte(`{"event":"connect"}`),
+	)
+	if !errors.Is(err, errInvalidStripeConnectEvent) {
+		t.Fatalf("parse error=%v, want %v", err, errInvalidStripeConnectEvent)
 	}
 }
 
@@ -224,7 +241,7 @@ func TestStripeConnectEventsAreDurableMonotonicAndSeparateFromMercPayouts(t *tes
 	payload := []byte(`{"id":"evt_connect_new","type":"account.updated","created":1700000002}`)
 	newEvent, err := parseStripeConnectEvent(
 		"evt_connect_new", stripeConnectEventAccountUpdated, acct, 1_700_000_002,
-		map[string]any{"id": acct, "payouts_enabled": true}, payload)
+		map[string]any{"object": "account", "id": acct, "payouts_enabled": true}, payload)
 	mustf(t, err, "parse new account event: %v")
 	result, err := store.ApplyConnectWebhookEvent(ctx, newEvent)
 	mustf(t, err, "apply new account event: %v")
@@ -246,7 +263,7 @@ func TestStripeConnectEventsAreDurableMonotonicAndSeparateFromMercPayouts(t *tes
 	stalePayload := []byte(`{"id":"evt_connect_old","type":"account.updated","created":1700000001}`)
 	staleEvent, err := parseStripeConnectEvent(
 		"evt_connect_old", stripeConnectEventAccountUpdated, acct, 1_700_000_001,
-		map[string]any{"id": acct, "payouts_enabled": false}, stalePayload)
+		map[string]any{"object": "account", "id": acct, "payouts_enabled": false}, stalePayload)
 	mustf(t, err, "parse stale account event: %v")
 	result, err = store.ApplyConnectWebhookEvent(ctx, staleEvent)
 	mustf(t, err, "apply stale account event: %v")
@@ -268,7 +285,7 @@ func TestStripeConnectEventsAreDurableMonotonicAndSeparateFromMercPayouts(t *tes
 	payoutPayload := []byte(`{"id":"evt_connect_payout","type":"payout.created","created":1700000003}`)
 	payoutEvent, err := parseStripeConnectEvent(
 		"evt_connect_payout", stripeConnectEventPayoutCreated, acct, 1_700_000_003,
-		map[string]any{"id": "po_connect_1", "status": "pending"}, payoutPayload)
+		map[string]any{"object": "payout", "id": "po_connect_1", "status": "pending"}, payoutPayload)
 	mustf(t, err, "parse payout event: %v")
 	result, err = store.ApplyConnectWebhookEvent(ctx, payoutEvent)
 	mustf(t, err, "apply payout event: %v")
@@ -283,7 +300,7 @@ func TestStripeConnectEventsAreDurableMonotonicAndSeparateFromMercPayouts(t *tes
 	conflictPayload := []byte(`{"id":"evt_connect_new","type":"account.updated","created":1700000002,"changed":true}`)
 	conflictEvent, err := parseStripeConnectEvent(
 		"evt_connect_new", stripeConnectEventAccountUpdated, acct, 1_700_000_002,
-		map[string]any{"id": acct, "payouts_enabled": false}, conflictPayload)
+		map[string]any{"object": "account", "id": acct, "payouts_enabled": false}, conflictPayload)
 	mustf(t, err, "parse conflicting event: %v")
 	if _, err := store.ApplyConnectWebhookEvent(ctx, conflictEvent); err == nil {
 		t.Fatal("same Connect event id with different payload was accepted")
@@ -291,7 +308,7 @@ func TestStripeConnectEventsAreDurableMonotonicAndSeparateFromMercPayouts(t *tes
 
 	unknown, err := parseStripeConnectEvent(
 		"evt_connect_unknown", stripeConnectEventPayoutPaid, "acct_missing",
-		1_700_000_004, map[string]any{"id": "po_connect_2"}, []byte(`{"x":1}`))
+		1_700_000_004, map[string]any{"object": "payout", "id": "po_connect_2"}, []byte(`{"x":1}`))
 	mustf(t, err, "parse unknown-account event: %v")
 	if _, err := store.ApplyConnectWebhookEvent(ctx, unknown); !errors.Is(err, errUnknownConnectAccount) {
 		t.Fatalf("unknown account error=%v, want %v", err, errUnknownConnectAccount)

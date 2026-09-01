@@ -126,6 +126,7 @@ func parseStripeCashEvent(
 	switch out.EventType {
 	case stripeEventChargeRefunded:
 		var charge struct {
+			Object         string          `json:"object"`
 			ID             string          `json:"id"`
 			PaymentIntent  json.RawMessage `json:"payment_intent"`
 			Amount         int64           `json:"amount"`
@@ -134,6 +135,9 @@ func parseStripeCashEvent(
 		}
 		if err := json.Unmarshal(object, &charge); err != nil {
 			return stripeCashEvent{}, fmt.Errorf("decode charge.refunded object: %w", err)
+		}
+		if strings.TrimSpace(charge.Object) != "charge" {
+			return stripeCashEvent{}, errors.New("charge.refunded has the wrong Stripe object kind")
 		}
 		pi, err := stripeExpandableID(charge.PaymentIntent)
 		if err != nil {
@@ -148,6 +152,7 @@ func parseStripeCashEvent(
 	case stripeEventDisputeCreated, stripeEventDisputeFundsWithdrawn,
 		stripeEventDisputeFundsReinstated, stripeEventDisputeClosed:
 		var dispute struct {
+			Object        string          `json:"object"`
 			ID            string          `json:"id"`
 			Charge        json.RawMessage `json:"charge"`
 			PaymentIntent json.RawMessage `json:"payment_intent"`
@@ -157,6 +162,9 @@ func parseStripeCashEvent(
 		}
 		if err := json.Unmarshal(object, &dispute); err != nil {
 			return stripeCashEvent{}, fmt.Errorf("decode Stripe dispute object: %w", err)
+		}
+		if strings.TrimSpace(dispute.Object) != "dispute" {
+			return stripeCashEvent{}, errors.New("Stripe dispute event has the wrong object kind")
 		}
 		chargeID, err := stripeExpandableID(dispute.Charge)
 		if err != nil {

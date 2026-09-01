@@ -184,7 +184,7 @@ func (s *Store) AttemptingChargeBatches(ctx context.Context, limit int) ([]Charg
 }
 
 func (s *Store) MarkChargeBatchCharged(ctx context.Context, batchID uuid.UUID, charge ChargeResult) error {
-	if err := validateChargeResult(charge); err != nil {
+	if err := validateChargeResultShape(charge); err != nil {
 		return fmt.Errorf("refusing invalid batch charge confirmation: %w", err)
 	}
 	tx, err := s.pool.Begin(ctx)
@@ -205,10 +205,8 @@ func (s *Store) MarkChargeBatchCharged(ctx context.Context, batchID uuid.UUID, c
 	).Scan(&buyerID, &status, &authorityCurrency, &existingPI, &requested, &received, &chargeCurrency); err != nil {
 		return err
 	}
-	if err := RequireSettlementCurrency(authorityCurrency); err != nil ||
-		charge.Currency != authorityCurrency {
-		return fmt.Errorf("%w: batch %s authority %s cannot confirm %s",
-			errCurrencyMismatch, batchID, authorityCurrency, charge.Currency)
+	if err := normalizeChargeCurrencyForAuthority(&charge, authorityCurrency); err != nil {
+		return fmt.Errorf("batch %s cannot confirm %s: %w", batchID, charge.Currency, err)
 	}
 	if status == "charged" {
 		if existingPI != charge.PaymentIntentID || requested != charge.RequestedCents ||
@@ -529,7 +527,7 @@ func (s *Store) BumpChargeBatchRetry(ctx context.Context, batchID uuid.UUID, bac
 }
 
 func (s *Store) SetJobCharged(ctx context.Context, jobID uuid.UUID, charge ChargeResult) error {
-	if err := validateChargeResult(charge); err != nil {
+	if err := validateChargeResultShape(charge); err != nil {
 		return fmt.Errorf("refusing invalid job charge confirmation: %w", err)
 	}
 	tx, err := s.pool.Begin(ctx)
@@ -551,10 +549,8 @@ func (s *Store) SetJobCharged(ctx context.Context, jobID uuid.UUID, charge Charg
 	).Scan(&buyerID, &status, &authorityCurrency, &existingPI, &requested, &received, &chargeCurrency); err != nil {
 		return err
 	}
-	if err := RequireSettlementCurrency(authorityCurrency); err != nil ||
-		charge.Currency != authorityCurrency {
-		return fmt.Errorf("%w: job %s authority %s cannot confirm %s",
-			errCurrencyMismatch, jobID, authorityCurrency, charge.Currency)
+	if err := normalizeChargeCurrencyForAuthority(&charge, authorityCurrency); err != nil {
+		return fmt.Errorf("job %s cannot confirm %s: %w", jobID, charge.Currency, err)
 	}
 	if status == "charged" {
 		if existingPI != charge.PaymentIntentID || requested != charge.RequestedCents ||

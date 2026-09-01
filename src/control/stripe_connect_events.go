@@ -72,6 +72,10 @@ func parseStripeConnectEvent(
 	event.ObjectID = objectID
 	switch event.EventType {
 	case stripeConnectEventAccountUpdated:
+		objectType, _ := object["object"].(string)
+		if strings.TrimSpace(objectType) != "account" {
+			return stripeConnectEvent{}, fmt.Errorf("%w: account.updated has the wrong Stripe object kind", errInvalidStripeConnectEvent)
+		}
 		objectAccount, _ := object["id"].(string)
 		objectAccount = strings.TrimSpace(objectAccount)
 		envelopeAccount = strings.TrimSpace(envelopeAccount)
@@ -91,6 +95,10 @@ func parseStripeConnectEvent(
 		}
 		event.PayoutsEnabled = &payoutsEnabled
 	case stripeConnectEventPayoutCreated, stripeConnectEventPayoutPaid, stripeConnectEventPayoutFailed:
+		objectType, _ := object["object"].(string)
+		if strings.TrimSpace(objectType) != "payout" {
+			return stripeConnectEvent{}, fmt.Errorf("%w: payout event has the wrong Stripe object kind", errInvalidStripeConnectEvent)
+		}
 		event.AccountID = strings.TrimSpace(envelopeAccount)
 		if !validStripeObjectID(event.AccountID, "acct_") || !validStripeObjectID(objectID, "po_") {
 			return stripeConnectEvent{}, fmt.Errorf("%w: payout event is missing its connected account or object id", errInvalidStripeConnectEvent)

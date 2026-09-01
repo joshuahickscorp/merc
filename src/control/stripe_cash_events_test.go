@@ -16,7 +16,7 @@ import (
 
 func TestParseStripeChargeRefundedUsesCumulativeExactMinorUnits(t *testing.T) {
 	payload := []byte(`{"id":"evt_refund","type":"charge.refunded"}`)
-	object := []byte(`{"id":"ch_exact","payment_intent":{"id":"pi_exact"},"amount":1200,"amount_refunded":275,"currency":"USD"}`)
+	object := []byte(`{"object":"charge","id":"ch_exact","payment_intent":{"id":"pi_exact"},"amount":1200,"amount_refunded":275,"currency":"USD"}`)
 	event, err := parseStripeCashEvent(
 		"evt_refund", stripeEventChargeRefunded, 1_700_000_000, object, payload,
 	)
@@ -32,23 +32,44 @@ func TestParseStripeChargeRefundedUsesCumulativeExactMinorUnits(t *testing.T) {
 	}
 }
 
+func TestStripeCashParserRequiresExpectedObjectKinds(t *testing.T) {
+	for _, tc := range []struct {
+		name, eventType, object string
+	}{
+		{name: "refund must be charge", eventType: stripeEventChargeRefunded, object: `{"object":"dispute"}`},
+		{name: "dispute must be dispute", eventType: stripeEventDisputeCreated, object: `{"object":"charge"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := parseStripeCashEvent("evt_wrong_cash_object", tc.eventType, 1_700_000_001,
+				[]byte(tc.object), []byte(`{"payload":"cash"}`)); err == nil {
+				t.Fatal("accepted a Stripe object with the wrong kind")
+			}
+		})
+	}
+}
+
 func TestParseStripeSucceededPaymentIntentRequiresOwnedExactCash(t *testing.T) {
 	operationKey, charge, owned, err := parseStripeSucceededPaymentIntent([]byte(
-		`{"id":"pi_1","latest_charge":{"id":"ch_1"},"status":"succeeded","amount":99,"amount_received":99,"currency":"usd","metadata":{"cx_operation_key":"job-1"}}`,
+		`{"object":"payment_intent","id":"pi_1","latest_charge":{"id":"ch_1"},"status":"succeeded","amount":99,"amount_received":99,"currency":"usd","metadata":{"cx_operation_key":"job-1"}}`,
 	))
 	if err != nil || !owned || operationKey != "job-1" ||
 		charge.PaymentIntentID != "pi_1" || charge.ChargeID != "ch_1" || charge.ReceivedCents != 99 {
 		t.Fatalf("parsed successful PI: key=%q owned=%v charge=%+v err=%v", operationKey, owned, charge, err)
 	}
 	if _, _, owned, err := parseStripeSucceededPaymentIntent([]byte(
-		`{"id":"pi_other","status":"succeeded","metadata":{}}`,
+		`{"object":"payment_intent","id":"pi_other","status":"succeeded","metadata":{}}`,
 	)); err != nil || owned {
 		t.Fatalf("unowned PaymentIntent should be ignored: owned=%v err=%v", owned, err)
 	}
 	if _, _, owned, err := parseStripeSucceededPaymentIntent([]byte(
-		`{"id":"pi_bad","latest_charge":"ch_bad","status":"succeeded","amount":99,"amount_received":98,"currency":"usd","metadata":{"cx_operation_key":"job-bad"}}`,
+		`{"object":"payment_intent","id":"pi_bad","latest_charge":"ch_bad","status":"succeeded","amount":99,"amount_received":98,"currency":"usd","metadata":{"cx_operation_key":"job-bad"}}`,
 	)); err == nil || !owned {
 		t.Fatalf("owned amount mismatch accepted: owned=%v err=%v", owned, err)
+	}
+	if _, _, owned, err := parseStripeSucceededPaymentIntent([]byte(
+		`{"object":"charge","id":"pi_wrong_kind","latest_charge":"ch_wrong_kind","status":"succeeded","amount":99,"amount_received":99,"currency":"usd","metadata":{"cx_operation_key":"job-wrong-kind"}}`,
+	)); err == nil || owned {
+		t.Fatalf("wrong object kind was accepted: owned=%v err=%v", owned, err)
 	}
 }
 
@@ -99,7 +120,7 @@ func signedStripeCashRequest(t *testing.T, payload []byte, secret string) *http.
 
 func TestStripeCashWebhookVerifiesThenApplies(t *testing.T) {
 	const secret = "whsec_cash_test"
-	payload := []byte(`{"id":"evt_cash","type":"charge.refunded","api_version":"2025-06-30.basil","livemode":false,"created":1700000000,"data":{"object":{"id":"ch_cash","payment_intent":"pi_cash","amount":500,"amount_refunded":125,"currency":"usd"}}}`)
+	payload := []byte(`{"id":"evt_cash","type":"charge.refunded","api_version":"2025-06-30.basil","livemode":false,"created":1700000000,"data":{"object":{"object":"charge","id":"ch_cash","payment_intent":"pi_cash","amount":500,"amount_refunded":125,"currency":"usd"}}}`)
 
 	for _, tc := range []struct {
 		name       string
@@ -143,7 +164,7 @@ func TestStripeCashWebhookReturnsSafeApplicationOutcomeHeaders(t *testing.T) {
 	const secret = "whsec_cash_outcome_test"
 	payload := []byte(`{"id":"evt_outcome","type":"charge.dispute.closed",` +
 		`"api_version":"2025-06-30.basil","livemode":false,"created":1700000002,` +
-		`"data":{"object":{"id":"dp_outcome","charge":"ch_outcome",` +
+		`"data":{"object":{"object":"dispute","id":"dp_outcome","charge":"ch_outcome",` +
 		`"amount":500,"currency":"cad","status":"lost"}}}`)
 
 	for _, tc := range []struct {

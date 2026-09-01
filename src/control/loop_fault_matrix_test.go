@@ -384,7 +384,7 @@ func TestLoopFaultWebhookRetries(t *testing.T) {
 
 	secret := "whsec_loop_fault_retry"
 	payload := []byte(fmt.Sprintf(
-		`{"id":"evt_loop_fault_%s","type":"payment_intent.succeeded","api_version":"%s","livemode":false,"created":1700000100,"data":{"object":{"id":"%s","latest_charge":{"id":"%s"},"status":"succeeded","amount":%d,"amount_received":%d,"currency":"%s","metadata":{"cx_operation_key":"%s"}}}}`,
+		`{"id":"evt_loop_fault_%s","type":"payment_intent.succeeded","api_version":"%s","livemode":false,"created":1700000100,"data":{"object":{"object":"payment_intent","id":"%s","latest_charge":{"id":"%s"},"status":"succeeded","amount":%d,"amount_received":%d,"currency":"%s","metadata":{"cx_operation_key":"%s"}}}}`,
 		suffix, stripeAPIVersion, charge.PaymentIntentID, charge.ChargeID,
 		charge.RequestedCents, charge.ReceivedCents, charge.Currency, opKey))
 
@@ -423,7 +423,7 @@ func TestLoopFaultWebhookRetries(t *testing.T) {
 	// Duplicate (a no-op), never a conflict error.
 	eventID := "evt_loop_fault_cash_" + suffix
 	object := []byte(fmt.Sprintf(
-		`{"id":%q,"charge":%q,"payment_intent":%q,"amount":1500,"currency":%q,"status":"needs_response"}`,
+		`{"object":"dispute","id":%q,"charge":%q,"payment_intent":%q,"amount":1500,"currency":%q,"status":"needs_response"}`,
 		"dp_loop_fault_"+suffix, charge.ChargeID, charge.PaymentIntentID, charge.Currency))
 	cashPayload := []byte(fmt.Sprintf(
 		`{"id":%q,"type":%q,"created":1700000101,"data":{"object":%s}}`,

@@ -23,7 +23,7 @@ func TestStripePaymentFailureWebhookIsRecordedReplaySafeAndNonCash(t *testing.T)
 		"livemode":    false,
 		"created":     int64(1_700_000_200),
 		"data": map[string]any{"object": map[string]any{
-			"id": "pi_payment_failed", "status": "requires_payment_method",
+			"object": "payment_intent", "id": "pi_payment_failed", "status": "requires_payment_method",
 			"customer": "cus_payment_failed",
 			"metadata": map[string]any{"cx_operation_key": "job-payment-failed"},
 			"last_payment_error": map[string]any{
@@ -64,9 +64,20 @@ func TestStripePaymentFailureWebhookIsRecordedReplaySafeAndNonCash(t *testing.T)
 func TestStripePaymentFailureParserRejectsContradictorySuccess(t *testing.T) {
 	_, err := parseStripePaymentFailureEvent(
 		"evt_contradictory_failure", 1_700_000_201,
-		map[string]any{"id": "pi_contradictory", "status": "succeeded"}, []byte("payload"),
+		map[string]any{"object": "payment_intent", "id": "pi_contradictory", "status": "succeeded"}, []byte("payload"),
 	)
 	if err == nil {
 		t.Fatal("accepted payment_intent.payment_failed with status=succeeded")
+	}
+}
+
+func TestStripePaymentFailureParserRejectsWrongObjectKind(t *testing.T) {
+	_, err := parseStripePaymentFailureEvent(
+		"evt_wrong_failure_object", 1_700_000_202,
+		map[string]any{"object": "charge", "id": "pi_wrong_failure_object", "status": "requires_payment_method"},
+		[]byte("payload"),
+	)
+	if err == nil {
+		t.Fatal("accepted a non-payment_intent Stripe object")
 	}
 }

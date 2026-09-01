@@ -173,7 +173,7 @@ func runL2StripeWebhookHandlerMatrix(t *testing.T, billingSecret, connectSecret 
 
 	// Account mismatch: envelope account != object id
 	mismatch := []byte(fmt.Sprintf(
-		`{"id":"evt_cx_mismatch_%s","type":"account.updated","account":"acct_OTHERACCOUNT99","api_version":"2025-06-30.basil","livemode":false,"created":%d,"data":{"object":{"id":"acct_CONFIGUREDACCT1","payouts_enabled":true}}}`,
+		`{"id":"evt_cx_mismatch_%s","type":"account.updated","account":"acct_OTHERACCOUNT99","api_version":"2025-06-30.basil","livemode":false,"created":%d,"data":{"object":{"object":"account","id":"acct_CONFIGUREDACCT1","payouts_enabled":true}}}`,
 		runID, time.Now().Unix(),
 	))
 	if rec := l2Post(connect, "/v1/stripe/connect-webhook", connectSecret, mismatch); rec.Code != http.StatusBadRequest {
@@ -184,7 +184,7 @@ func runL2StripeWebhookHandlerMatrix(t *testing.T, billingSecret, connectSecret 
 	}
 
 	unknown := []byte(fmt.Sprintf(
-		`{"id":"evt_cx_unknown_%s","type":"account.updated","account":"acct_NOTCONFIGURED01","api_version":"2025-06-30.basil","livemode":false,"created":%d,"data":{"object":{"id":"acct_NOTCONFIGURED01","payouts_enabled":true}}}`,
+		`{"id":"evt_cx_unknown_%s","type":"account.updated","account":"acct_NOTCONFIGURED01","api_version":"2025-06-30.basil","livemode":false,"created":%d,"data":{"object":{"object":"account","id":"acct_NOTCONFIGURED01","payouts_enabled":true}}}`,
 		runID, time.Now().Unix(),
 	))
 	rec = l2Post(connect, "/v1/stripe/connect-webhook", connectSecret, unknown)
@@ -201,7 +201,7 @@ func runL2StripeWebhookHandlerMatrix(t *testing.T, billingSecret, connectSecret 
 		"id": "evt_cx_closed_" + runID, "type": "charge.dispute.closed",
 		"api_version": "2025-06-30.basil", "livemode": false, "created": created + 2,
 		"data": map[string]any{"object": map[string]any{
-			"id": "dp_cx_probe_" + runID, "charge": "ch_cx_probe_" + runID,
+			"object": "dispute", "id": "dp_cx_probe_" + runID, "charge": "ch_cx_probe_" + runID,
 			"amount": 100, "currency": "cad", "status": "lost",
 		}},
 	})
@@ -209,7 +209,7 @@ func runL2StripeWebhookHandlerMatrix(t *testing.T, billingSecret, connectSecret 
 		"id": "evt_cx_opened_" + runID, "type": "charge.dispute.created",
 		"api_version": "2025-06-30.basil", "livemode": false, "created": created + 1,
 		"data": map[string]any{"object": map[string]any{
-			"id": "dp_cx_probe_" + runID, "charge": "ch_cx_probe_" + runID,
+			"object": "dispute", "id": "dp_cx_probe_" + runID, "charge": "ch_cx_probe_" + runID,
 			"amount": 100, "currency": "cad", "status": "needs_response",
 		}},
 	})

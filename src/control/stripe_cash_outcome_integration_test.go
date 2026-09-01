@@ -17,7 +17,7 @@ func TestStripeCashOutcomeProvesOutOfOrderNonRegressionAndReplay(t *testing.T) {
 	makeEvent := func(eventID, eventType, status string, created int64) stripeCashEvent {
 		t.Helper()
 		object := []byte(fmt.Sprintf(
-			`{"id":%q,"charge":%q,"payment_intent":%q,"amount":500,"currency":"cad","status":%q}`,
+			`{"object":"dispute","id":%q,"charge":%q,"payment_intent":%q,"amount":500,"currency":"cad","status":%q}`,
 			disputeID, chargeID, paymentIntent, status,
 		))
 		payload := []byte(fmt.Sprintf(

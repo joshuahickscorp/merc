@@ -227,14 +227,24 @@ func ensureStripeCustomer(ctx context.Context, store *Store, buyerID uuid.UUID) 
 	if err != nil {
 		return "", err
 	}
-	cust, _ := out["id"].(string)
-	if !validStripeObjectID(cust, "cus_") {
-		return "", fmt.Errorf("stripe customer: provider returned an invalid customer id")
+	cust, err := parseStripeProviderObjectID(out, "customer", "customer", "cus_")
+	if err != nil {
+		return "", err
 	}
 	if err := store.UpsertBillingCustomer(ctx, buyerID, cust); err != nil {
 		return "", err
 	}
 	return cust, nil
+}
+
+func parseStripeProviderObjectID(out map[string]any, objectName, expectedObject, prefix string) (string, error) {
+	objectType, _ := out["object"].(string)
+	id, _ := out["id"].(string)
+	objectType, id = strings.TrimSpace(objectType), strings.TrimSpace(id)
+	if objectType != expectedObject || !validStripeObjectID(id, prefix) {
+		return "", fmt.Errorf("stripe %s: provider returned an invalid %s object", objectName, objectName)
+	}
+	return id, nil
 }
 
 func stripeCustomerIdempotencyKey(buyerID uuid.UUID) string {
@@ -287,12 +297,41 @@ type ChargeResult struct {
 }
 
 func validateChargeResult(charge ChargeResult) error {
-	if !validStripeObjectID(charge.PaymentIntentID, "pi_") ||
-		!validStripeObjectID(charge.ChargeID, "ch_") ||
-		charge.RequestedCents <= 0 || charge.ReceivedCents != charge.RequestedCents ||
-		RequireSettlementCurrency(charge.Currency) != nil {
+	if err := validateChargeResultShape(charge); err != nil {
+		return err
+	}
+	if RequireSettlementCurrency(charge.Currency) != nil {
 		return errors.New("charge result has invalid Stripe identities, amount, or settlement currency")
 	}
+	return nil
+}
+
+func validateChargeResultShape(charge ChargeResult) error {
+	if !validStripeObjectID(charge.PaymentIntentID, "pi_") ||
+		!validStripeObjectID(charge.ChargeID, "ch_") ||
+		charge.RequestedCents <= 0 || charge.ReceivedCents != charge.RequestedCents {
+		return errors.New("charge result has invalid Stripe identities or amount")
+	}
+	if _, err := ParseCurrency(charge.Currency); err != nil {
+		return errors.New("charge result has invalid settlement currency")
+	}
+	return nil
+}
+
+func normalizeChargeCurrencyForAuthority(charge *ChargeResult, authority string) error {
+	if charge == nil {
+		return fmt.Errorf("%w: charge result is nil", errCurrencyMismatch)
+	}
+	want, err := ParseCurrency(authority)
+	if err != nil {
+		return fmt.Errorf("%w: stored authority currency %q is invalid", errCurrencyMismatch, authority)
+	}
+	got, err := ParseCurrency(charge.Currency)
+	if err != nil || !got.Equal(want) {
+		return fmt.Errorf("%w: charge currency %q does not match stored authority %q",
+			errCurrencyMismatch, charge.Currency, want.Code())
+	}
+	charge.Currency = got.Code()
 	return nil
 }
 
@@ -349,16 +388,19 @@ func chargePaymentIntentWithKeys(
 	if raw, exists := out["error"]; exists && raw != nil {
 		return ChargeResult{}, fmt.Errorf("payment intent returned an error-shaped 2xx response: %v", raw)
 	}
-	id, _ := out["id"].(string)
-	id = strings.TrimSpace(id)
-	if !validStripeObjectID(id, "pi_") {
-		return ChargeResult{}, fmt.Errorf("payment intent: successful response has an invalid id")
+	id, err := parseStripeProviderObjectID(out, "payment intent", "payment_intent", "pi_")
+	if err != nil {
+		return ChargeResult{}, err
 	}
 	chargeID := ""
 	switch latest := out["latest_charge"].(type) {
 	case string:
 		chargeID = strings.TrimSpace(latest)
 	case map[string]any:
+		objectType, _ := latest["object"].(string)
+		if strings.TrimSpace(objectType) != "charge" {
+			return ChargeResult{}, fmt.Errorf("payment intent %s: successful response has a latest charge with the wrong object kind", id)
+		}
 		chargeID, _ = latest["id"].(string)
 		chargeID = strings.TrimSpace(chargeID)
 	}
@@ -400,6 +442,7 @@ func chargePaymentIntentWithKeys(
 
 func parseStripeSucceededPaymentIntent(object json.RawMessage) (string, ChargeResult, bool, error) {
 	var pi struct {
+		Object         string            `json:"object"`
 		ID             string            `json:"id"`
 		LatestCharge   json.RawMessage   `json:"latest_charge"`
 		Status         string            `json:"status"`
@@ -411,9 +454,16 @@ func parseStripeSucceededPaymentIntent(object json.RawMessage) (string, ChargeRe
 	if err := json.Unmarshal(object, &pi); err != nil {
 		return "", ChargeResult{}, false, err
 	}
+	if strings.TrimSpace(pi.Object) != "payment_intent" {
+		return "", ChargeResult{}, false, errors.New("successful PaymentIntent event has the wrong Stripe object kind")
+	}
 	operationKey := strings.TrimSpace(pi.Metadata["cx_operation_key"])
 	if operationKey == "" {
 		return "", ChargeResult{}, false, nil
+	}
+	currency, err := ParseCurrency(pi.Currency)
+	if err != nil {
+		return "", ChargeResult{}, true, errors.New("owned successful PaymentIntent has an unsupported currency")
 	}
 	chargeID, err := stripeExpandableID(pi.LatestCharge)
 	if err != nil {
@@ -421,12 +471,12 @@ func parseStripeSucceededPaymentIntent(object json.RawMessage) (string, ChargeRe
 	}
 	pi.ID, chargeID = strings.TrimSpace(pi.ID), strings.TrimSpace(chargeID)
 	if !validStripeObjectID(pi.ID, "pi_") || !validStripeObjectID(chargeID, "ch_") || pi.Status != "succeeded" ||
-		pi.Amount <= 0 || pi.AmountReceived != pi.Amount || RequireSettlementCurrency(pi.Currency) != nil {
+		pi.Amount <= 0 || pi.AmountReceived != pi.Amount {
 		return "", ChargeResult{}, true, errors.New("owned successful PaymentIntent has invalid cash evidence")
 	}
 	return operationKey, ChargeResult{
 		PaymentIntentID: pi.ID, ChargeID: chargeID, RequestedCents: pi.Amount,
-		ReceivedCents: pi.AmountReceived, Currency: pi.Currency,
+		ReceivedCents: pi.AmountReceived, Currency: currency.Code(),
 	}, true, nil
 }
 

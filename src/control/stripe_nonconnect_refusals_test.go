@@ -97,7 +97,7 @@ func TestNonconnectWebhookRefusals(t *testing.T) {
 				"id": "evt_cx_closed_" + runID, "type": "charge.dispute.closed",
 				"api_version": "2025-06-30.basil", "livemode": false, "created": created + 2,
 				"data": map[string]any{"object": map[string]any{
-					"id": "dp_cx_probe_" + runID, "charge": "ch_cx_probe_" + runID,
+					"object": "dispute", "id": "dp_cx_probe_" + runID, "charge": "ch_cx_probe_" + runID,
 					"amount": 100, "currency": "cad", "status": "lost",
 				}},
 			})
@@ -105,7 +105,7 @@ func TestNonconnectWebhookRefusals(t *testing.T) {
 				"id": "evt_cx_opened_" + runID, "type": "charge.dispute.created",
 				"api_version": "2025-06-30.basil", "livemode": false, "created": created + 1,
 				"data": map[string]any{"object": map[string]any{
-					"id": "dp_cx_probe_" + runID, "charge": "ch_cx_probe_" + runID,
+					"object": "dispute", "id": "dp_cx_probe_" + runID, "charge": "ch_cx_probe_" + runID,
 					"amount": 100, "currency": "cad", "status": "needs_response",
 				}},
 			})

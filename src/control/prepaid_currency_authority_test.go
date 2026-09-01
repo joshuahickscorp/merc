@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -43,7 +44,20 @@ func TestPrepaidBalancesRemainCurrencyKeyedAcrossCutoverAndHistoricalWebhook(t *
 	if current != 0 {
 		t.Fatalf("CAD balance inherited USD numerics: got %d, want 0", current)
 	}
-	credit(usdLate, "usd", 100)
+	latePayload, err := json.Marshal(map[string]any{
+		"object": "payment_intent", "id": "pi_usd_late", "latest_charge": map[string]any{
+			"object": "charge", "id": "ch_usd_late",
+		}, "status": "succeeded", "amount": 100, "amount_received": 100,
+		"currency": "usd", "metadata": map[string]string{"cx_operation_key": usdLate},
+	})
+	must(t, err)
+	parsedKey, charge, owned, err := parseStripeSucceededPaymentIntent(latePayload)
+	mustf(t, err, "parse historical USD payment_intent webhook: %v")
+	if !owned || parsedKey != usdLate {
+		t.Fatalf("historical webhook parse key=%q owned=%v, want %q/true", parsedKey, owned, usdLate)
+	}
+	mustf(t, store.ReconcileBuyerChargeOperation(ctx, parsedKey, charge),
+		"reconcile historical USD payment_intent webhook: %v")
 	if _, err := store.BeginPrepaidTopup(ctx, usdSettled, buyerID, 100); !errors.Is(err, errPrepaidTopupConflict) {
 		t.Fatalf("cross-currency idempotency reuse err=%v, want conflict", err)
 	}

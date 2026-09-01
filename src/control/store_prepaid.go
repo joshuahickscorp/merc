@@ -135,16 +135,12 @@ func (s *Store) CreditPrepaidTopup(ctx context.Context, operationKey string, buy
 	if operationKey == "" || buyerID == uuid.Nil {
 		return fmt.Errorf("invalid prepaid top-up credit")
 	}
-	if err := validateChargeResult(charge); err != nil {
+	if err := validateChargeResultShape(charge); err != nil {
 		return fmt.Errorf("invalid prepaid top-up credit: %w", err)
 	}
-	settlement, err := ParseCurrency(charge.Currency)
+	chargeCurrency, err := ParseCurrency(charge.Currency)
 	if err != nil {
-		return err
-	}
-	micros, err := settlement.MinorToMicros(charge.ReceivedCents)
-	if err != nil {
-		return err
+		return fmt.Errorf("invalid prepaid top-up credit currency: %w", err)
 	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -166,10 +162,10 @@ func (s *Store) CreditPrepaidTopup(ctx context.Context, operationKey string, buy
 			INSERT INTO prepaid_topup_operations
 			  (operation_key,buyer_id,amount_cents,currency,status)
 			VALUES ($1,$2,$3,$4,'pending')`,
-			operationKey, buyerID, charge.ReceivedCents, settlement.Code()); err != nil {
+			operationKey, buyerID, charge.ReceivedCents, chargeCurrency.Code()); err != nil {
 			return err
 		}
-		storedBuyer, amountCents, storedCurrency, status = buyerID, charge.ReceivedCents, settlement.Code(), "pending"
+		storedBuyer, amountCents, storedCurrency, status = buyerID, charge.ReceivedCents, chargeCurrency.Code(), "pending"
 	} else if err != nil {
 		return err
 	}
@@ -179,8 +175,16 @@ func (s *Store) CreditPrepaidTopup(ctx context.Context, operationKey string, buy
 	if amountCents != charge.ReceivedCents {
 		return fmt.Errorf("top-up %s amount mismatch: stored=%d charge=%d", operationKey, amountCents, charge.ReceivedCents)
 	}
-	if storedCurrency != settlement.Code() {
-		return fmt.Errorf("top-up %s currency mismatch: stored=%s charge=%s", operationKey, storedCurrency, settlement.Code())
+	settlement, err := ParseCurrency(storedCurrency)
+	if err != nil {
+		return fmt.Errorf("top-up %s has invalid stored currency: %w", operationKey, err)
+	}
+	if chargeCurrency.Code() != settlement.Code() {
+		return fmt.Errorf("top-up %s currency mismatch: stored=%s charge=%s", operationKey, settlement.Code(), charge.Currency)
+	}
+	micros, err := settlement.MinorToMicros(charge.ReceivedCents)
+	if err != nil {
+		return err
 	}
 	if status == "succeeded" {
 		return tx.Commit(ctx)

@@ -63,7 +63,7 @@ func TestBuyerChargeExplicitDeclineRearmsWithFreshProviderKey(t *testing.T) {
 			return
 		}
 		_, _ = fmt.Fprintf(w,
-			`{"id":"pi_decline_recovery","latest_charge":{"id":"ch_decline_recovery"},"status":"succeeded","currency":%q,"amount":%d,"amount_received":%d}`,
+			`{"object":"payment_intent","id":"pi_decline_recovery","latest_charge":{"object":"charge","id":"ch_decline_recovery"},"status":"succeeded","currency":%q,"amount":%d,"amount_received":%d}`,
 			currency, cents, cents)
 	}))
 

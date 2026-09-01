@@ -42,6 +42,10 @@ func parseStripePaymentFailureEvent(
 	if event.EventID == "" || event.EventCreated <= 0 || object == nil {
 		return stripePaymentFailureEvent{}, errors.New("invalid Stripe payment-failure event")
 	}
+	objectType, _ := object["object"].(string)
+	if strings.TrimSpace(objectType) != "payment_intent" {
+		return stripePaymentFailureEvent{}, errors.New("payment-failure event has the wrong Stripe object kind")
+	}
 	event.PaymentIntent, _ = object["id"].(string)
 	event.PaymentIntent = strings.TrimSpace(event.PaymentIntent)
 	event.Status, _ = object["status"].(string)

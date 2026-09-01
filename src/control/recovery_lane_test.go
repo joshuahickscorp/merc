@@ -568,7 +568,7 @@ func TestRecoveryLaneDuplicateStripeEvent(t *testing.T) {
 
 	refunded := int64(75)
 	object := []byte(fmt.Sprintf(
-		`{"id":%q,"payment_intent":%q,"amount":%d,"amount_refunded":%d,"currency":%q}`,
+		`{"object":"charge","id":%q,"payment_intent":%q,"amount":%d,"amount_refunded":%d,"currency":%q}`,
 		f.chargeID, f.paymentIntent, f.collectionCents, refunded, f.currency,
 	))
 	payload := []byte(fmt.Sprintf(

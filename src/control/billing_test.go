@@ -68,7 +68,7 @@ func TestStripePayoutUsesBoundedIdlePool(t *testing.T) {
 }
 
 func TestChargePaymentIntentRequiresExactTerminalCashFact(t *testing.T) {
-	const good = `{"id":"pi_exact","latest_charge":{"id":"ch_exact"},"status":"succeeded","currency":"usd","amount":123,"amount_received":123}`
+	const good = `{"object":"payment_intent","id":"pi_exact","latest_charge":{"object":"charge","id":"ch_exact"},"status":"succeeded","currency":"usd","amount":123,"amount_received":123}`
 	cases := []struct {
 		name string
 		body string
@@ -133,6 +133,34 @@ func TestChargePaymentIntentRequiresExactTerminalCashFact(t *testing.T) {
 			t.Fatalf("result = %+v, want %+v", got, want)
 		}
 	})
+}
+
+func TestStripeProviderObjectIDRequiresExactShape(t *testing.T) {
+	for _, tc := range []struct {
+		name, objectName, expectedObject, prefix string
+		out                                      map[string]any
+		want                                     string
+		good                                     bool
+	}{
+		{name: "customer", objectName: "customer", expectedObject: "customer", prefix: "cus_", out: map[string]any{"object": "customer", "id": "cus_exact"}, want: "cus_exact", good: true},
+		{name: "account", objectName: "account", expectedObject: "account", prefix: "acct_", out: map[string]any{"object": "account", "id": "acct_exact"}, want: "acct_exact", good: true},
+		{name: "wrong object", objectName: "customer", expectedObject: "customer", prefix: "cus_", out: map[string]any{"object": "charge", "id": "cus_wrong_object"}},
+		{name: "missing object", objectName: "account", expectedObject: "account", prefix: "acct_", out: map[string]any{"id": "acct_missing_object"}},
+		{name: "wrong id prefix", objectName: "payment intent", expectedObject: "payment_intent", prefix: "pi_", out: map[string]any{"object": "payment_intent", "id": "ch_not_a_payment_intent"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := parseStripeProviderObjectID(tc.out, tc.objectName, tc.expectedObject, tc.prefix)
+			if tc.good {
+				if err != nil || got != tc.want {
+					t.Fatalf("result=%q err=%v, want %q", got, err, tc.want)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("malformed %s provider response was accepted", tc.name)
+			}
+		})
+	}
 }
 
 func TestStripeChargeErrorClassificationKeepsAmbiguousOutcomesUnknown(t *testing.T) {
@@ -286,7 +314,7 @@ func TestChargePaymentIntentResponseLossKeepsIdempotencyKey(t *testing.T) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = fmt.Fprint(w, `{"id":"pi_replayed","latest_charge":"ch_replayed","status":"succeeded","currency":"usd","amount":321,"amount_received":321}`)
+		_, _ = fmt.Fprint(w, `{"object":"payment_intent","id":"pi_replayed","latest_charge":"ch_replayed","status":"succeeded","currency":"usd","amount":321,"amount_received":321}`)
 	}))
 
 	const key = "job-response-loss"
