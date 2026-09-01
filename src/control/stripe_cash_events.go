@@ -185,14 +185,22 @@ func validateStripeCashEvent(event stripeCashEvent) error {
 	if strings.TrimSpace(event.EventID) == "" || strings.TrimSpace(event.ObjectID) == "" ||
 		strings.TrimSpace(event.ChargeID) == "" || event.EventCreated <= 0 ||
 		event.AmountCents <= 0 || strings.TrimSpace(event.Currency) == "" ||
-		len(event.PayloadSHA256) != sha256.Size*2 || !isStripeCashEventType(event.EventType) {
+		!isSHA256Hex(event.PayloadSHA256) || !isStripeCashEventType(event.EventType) {
 		return errors.New("stripe cash event has invalid identifiers, amount, currency, timestamp, or digest")
 	}
 	if event.EventType == stripeEventChargeRefunded {
+		if !validStripeObjectID(event.ObjectID, "ch_") || !validStripeObjectID(event.ChargeID, "ch_") ||
+			(event.PaymentIntent != "" && !validStripeObjectID(event.PaymentIntent, "pi_")) {
+			return errors.New("charge.refunded has invalid Stripe object identifiers")
+		}
 		if event.RefundedCents <= 0 || event.RefundedCents > event.AmountCents {
 			return errors.New("charge.refunded has an invalid cumulative amount_refunded")
 		}
 		return nil
+	}
+	if !validStripeObjectID(event.ObjectID, "dp_") || !validStripeObjectID(event.ChargeID, "ch_") ||
+		(event.PaymentIntent != "" && !validStripeObjectID(event.PaymentIntent, "pi_")) {
+		return errors.New("Stripe dispute has invalid object identifiers")
 	}
 	if event.Status == "" {
 		return errors.New("stripe dispute event is missing status")

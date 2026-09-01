@@ -1356,5 +1356,12 @@ func (s *Store) SupplierStripeAcct(ctx context.Context, supplierID uuid.UUID) (s
 	if acct == nil {
 		return "", nil
 	}
-	return *acct, nil
+	value := strings.TrimSpace(*acct)
+	if value == "" {
+		return "", nil
+	}
+	if !validStripeObjectID(value, "acct_") {
+		return "", errors.New("stored Stripe connected account id is not an acct_* identifier")
+	}
+	return value, nil
 }

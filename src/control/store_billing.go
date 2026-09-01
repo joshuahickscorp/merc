@@ -30,6 +30,15 @@ func (s *Store) GetBillingCustomer(ctx context.Context, buyerID uuid.UUID) (cust
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", "", errNotFound
 	}
+	if err != nil {
+		return "", "", err
+	}
+	if custID != "" && !validStripeObjectID(custID, "cus_") {
+		return "", "", errors.New("stored billing customer id is not a cus_* identifier")
+	}
+	if pm != "" && !validStripeObjectID(pm, "pm_") {
+		return "", "", errors.New("stored payment method id is not a pm_* identifier")
+	}
 	return custID, pm, err
 }
 
@@ -66,7 +75,7 @@ func (s *Store) UpsertBillingCustomer(ctx context.Context, buyerID uuid.UUID, cu
 
 func (s *Store) SetBillingPMByCustomer(ctx context.Context, custID, pm string) error {
 	custID, pm = strings.TrimSpace(custID), strings.TrimSpace(pm)
-	if custID == "" || pm == "" || !strings.HasPrefix(pm, "pm_") {
+	if !validStripeObjectID(custID, "cus_") || !validStripeObjectID(pm, "pm_") {
 		return errors.New("billing customer and payment method are required")
 	}
 	tag, err := s.pool.Exec(ctx,
@@ -107,8 +116,8 @@ func (s *Store) SetBillingPMByCustomerEvent(
 	event.CustomerID = strings.TrimSpace(event.CustomerID)
 	event.PaymentMethod = strings.TrimSpace(event.PaymentMethod)
 	if event.EventID == "" || !isStripePaymentMethodEventType(event.EventType) ||
-		!strings.HasPrefix(event.CustomerID, "cus_") ||
-		!strings.HasPrefix(event.PaymentMethod, "pm_") || event.EventCreated <= 0 ||
+		!validStripeObjectID(event.CustomerID, "cus_") ||
+		!validStripeObjectID(event.PaymentMethod, "pm_") || event.EventCreated <= 0 ||
 		!isSHA256Hex(event.PayloadSHA256) {
 		return errors.New("billing payment-method event is missing its identity or ordering tuple")
 	}

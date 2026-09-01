@@ -58,6 +58,12 @@ func TestStripeConnectEventParserRequiresBoundAccountReadiness(t *testing.T) {
 			obj:  map[string]any{"id": "acct_parser_object", "payouts_enabled": true},
 			want: errInvalidStripeConnectEvent,
 		},
+		{
+			name: "payout object prefix",
+			acct: "acct_parser_payout",
+			obj:  map[string]any{"id": "not_a_payout"},
+			want: errInvalidStripeConnectEvent,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := parseStripeConnectEvent("evt_parser_"+tc.name, stripeConnectEventAccountUpdated,

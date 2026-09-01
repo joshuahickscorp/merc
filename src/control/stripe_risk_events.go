@@ -89,9 +89,10 @@ func stripeExpandableMapID(object map[string]any, field string) (string, error) 
 
 func validateStripeRiskEvent(event stripeRiskEvent) error {
 	if strings.TrimSpace(event.EventID) == "" || !isStripeRiskEventType(event.EventType) ||
-		strings.TrimSpace(event.WarningID) == "" || strings.TrimSpace(event.ChargeID) == "" ||
+		strings.TrimSpace(event.WarningID) == "" || !validStripeObjectID(event.ChargeID, "ch_") ||
+		(event.PaymentIntent != "" && !validStripeObjectID(event.PaymentIntent, "pi_")) ||
 		strings.TrimSpace(event.FraudType) == "" || event.EventCreated <= 0 ||
-		len(event.PayloadSHA256) != sha256.Size*2 {
+		!isSHA256Hex(event.PayloadSHA256) {
 		return errors.New("invalid Stripe risk event")
 	}
 	return nil

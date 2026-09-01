@@ -82,7 +82,7 @@ func parseStripeConnectEvent(
 		if event.AccountID == "" {
 			event.AccountID = envelopeAccount
 		}
-		if !strings.HasPrefix(event.AccountID, "acct_") {
+		if !validStripeObjectID(event.AccountID, "acct_") {
 			return stripeConnectEvent{}, fmt.Errorf("%w: account id is not an acct_* identifier", errInvalidStripeConnectEvent)
 		}
 		payoutsEnabled, ok := object["payouts_enabled"].(bool)
@@ -92,7 +92,7 @@ func parseStripeConnectEvent(
 		event.PayoutsEnabled = &payoutsEnabled
 	case stripeConnectEventPayoutCreated, stripeConnectEventPayoutPaid, stripeConnectEventPayoutFailed:
 		event.AccountID = strings.TrimSpace(envelopeAccount)
-		if !strings.HasPrefix(event.AccountID, "acct_") || objectID == "" {
+		if !validStripeObjectID(event.AccountID, "acct_") || !validStripeObjectID(objectID, "po_") {
 			return stripeConnectEvent{}, fmt.Errorf("%w: payout event is missing its connected account or object id", errInvalidStripeConnectEvent)
 		}
 	}
@@ -101,10 +101,16 @@ func parseStripeConnectEvent(
 
 func validateStripeConnectEvent(event stripeConnectEvent) error {
 	if strings.TrimSpace(event.EventID) == "" || !isStripeConnectEventType(event.EventType) ||
-		!strings.HasPrefix(strings.TrimSpace(event.AccountID), "acct_") ||
-		strings.TrimSpace(event.ObjectID) == "" || event.EventCreated <= 0 ||
-		len(event.PayloadSHA256) != sha256.Size*2 {
+		!validStripeObjectID(event.AccountID, "acct_") || event.EventCreated <= 0 ||
+		!isSHA256Hex(event.PayloadSHA256) {
 		return errInvalidStripeConnectEvent
+	}
+	objectPrefix := "po_"
+	if event.EventType == stripeConnectEventAccountUpdated {
+		objectPrefix = "acct_"
+	}
+	if !validStripeObjectID(event.ObjectID, objectPrefix) {
+		return fmt.Errorf("%w: event object id has the wrong Stripe prefix", errInvalidStripeConnectEvent)
 	}
 	if event.EventType == stripeConnectEventAccountUpdated && event.PayoutsEnabled == nil {
 		return fmt.Errorf("%w: account.updated has no payouts_enabled fact", errInvalidStripeConnectEvent)

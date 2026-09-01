@@ -199,6 +199,8 @@ func stripeForm(ctx context.Context, path string, form url.Values, idemKey strin
 func ensureStripeCustomer(ctx context.Context, store *Store, buyerID uuid.UUID) (string, error) {
 	if cust, _, err := store.GetBillingCustomer(ctx, buyerID); err == nil && cust != "" {
 		return cust, nil
+	} else if err != nil && !errors.Is(err, errNotFound) {
+		return "", err
 	}
 	out, err := stripeForm(ctx, "customers", url.Values{"metadata[buyer_id]": {buyerID.String()}},
 		stripeCustomerIdempotencyKey(buyerID))

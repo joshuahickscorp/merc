@@ -15,6 +15,8 @@ import (
 func ensureConnectAccount(ctx context.Context, store *Store, supplierID uuid.UUID) (string, error) {
 	if acct, err := store.SupplierStripeAcct(ctx, supplierID); err == nil && acct != "" {
 		return acct, nil
+	} else if err != nil && !errors.Is(err, errNotFound) {
+		return "", err
 	}
 	out, err := stripeForm(ctx, "accounts", url.Values{
 		"type":                               {"express"},

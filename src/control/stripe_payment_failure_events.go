@@ -49,7 +49,7 @@ func parseStripePaymentFailureEvent(
 	if event.Status == "" {
 		event.Status = "unknown"
 	}
-	if event.PaymentIntent == "" || !strings.HasPrefix(event.PaymentIntent, "pi_") || event.Status == "succeeded" {
+	if !validStripeObjectID(event.PaymentIntent, "pi_") || event.Status == "succeeded" {
 		return stripePaymentFailureEvent{}, errors.New("payment-failure event has an invalid PaymentIntent or status")
 	}
 	if metadata, ok := object["metadata"].(map[string]any); ok {
@@ -74,9 +74,9 @@ func parseStripePaymentFailureEvent(
 
 func validateStripePaymentFailureEvent(event stripePaymentFailureEvent) error {
 	if strings.TrimSpace(event.EventID) == "" || event.EventType != stripePaymentIntentFailedEvent ||
-		!strings.HasPrefix(strings.TrimSpace(event.PaymentIntent), "pi_") ||
+		!validStripeObjectID(event.PaymentIntent, "pi_") ||
 		strings.TrimSpace(event.Status) == "" || event.Status == "succeeded" || event.EventCreated <= 0 ||
-		len(event.PayloadSHA256) != sha256.Size*2 {
+		!isSHA256Hex(event.PayloadSHA256) {
 		return errors.New("invalid Stripe payment-failure event")
 	}
 	return nil
