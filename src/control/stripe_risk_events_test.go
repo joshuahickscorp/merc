@@ -30,7 +30,7 @@ func TestStripeRiskWebhookIsRecordedReplaySafeAndNonCash(t *testing.T) {
 		"livemode":    false,
 		"created":     int64(1_700_000_100),
 		"data": map[string]any{"object": map[string]any{
-			"id": "issfr_risk_1", "charge": "ch_risk_1", "payment_intent": "pi_risk_1",
+			"object": "early_fraud_warning", "id": "issfr_risk_1", "charge": "ch_risk_1", "payment_intent": "pi_risk_1",
 			"fraud_type": "made_with_stolen_card", "actionable": true,
 		}},
 	})
@@ -53,7 +53,7 @@ func TestStripeRiskWebhookIsRecordedReplaySafeAndNonCash(t *testing.T) {
 		"livemode":    false,
 		"created":     int64(1_700_000_101),
 		"data": map[string]any{"object": map[string]any{
-			"id": "issfr_risk_1", "charge": "ch_risk_1",
+			"object": "early_fraud_warning", "id": "issfr_risk_1", "charge": "ch_risk_1",
 			"fraud_type": "made_with_stolen_card", "actionable": false,
 		}},
 	})
@@ -88,7 +88,7 @@ func TestStripeRiskWebhookIsRecordedReplaySafeAndNonCash(t *testing.T) {
 
 func TestStripeRiskWebhookRejectsIncompleteWarning(t *testing.T) {
 	secret := "whsec_risk_incomplete_" + strings.Repeat("r", 28)
-	payload := []byte(`{"id":"evt_risk_incomplete","type":"radar.early_fraud_warning.created","api_version":"` + stripeAPIVersion + `","livemode":false,"created":1700000100,"data":{"object":{"id":"issfr_incomplete","charge":"ch_incomplete","fraud_type":"misc"}}}`)
+	payload := []byte(`{"id":"evt_risk_incomplete","type":"radar.early_fraud_warning.created","api_version":"` + stripeAPIVersion + `","livemode":false,"created":1700000100,"data":{"object":{"object":"early_fraud_warning","id":"issfr_incomplete","charge":"ch_incomplete","fraud_type":"misc"}}}`)
 	rec := l2Post(func(w http.ResponseWriter, r *http.Request) {
 		handleStripeWebhookWithAllHandlersAtModeAndRisk(w, r, secret, nil, nil, nil, false,
 			func(_ context.Context, _ stripeRiskEvent) (stripeRiskEventResult, error) {
@@ -104,10 +104,10 @@ func TestStripeRiskParserRejectsWrongWarningObjectKind(t *testing.T) {
 	_, err := parseStripeRiskEvent(
 		"evt_risk_wrong_object", stripeRiskEventEarlyFraudWarningCreated, 1_700_000_200,
 		map[string]any{
-			"id": "ch_not_a_warning", "charge": "ch_risk_wrong", "fraud_type": "misc", "actionable": false,
+			"object": "charge", "id": "issfr_wrong_kind", "charge": "ch_risk_wrong", "fraud_type": "misc", "actionable": false,
 		}, []byte(`{"signed":"risk"}`),
 	)
 	if err == nil {
-		t.Fatal("accepted a non-issfr Stripe object as an early-fraud warning")
+		t.Fatal("accepted a non-early-fraud-warning Stripe object")
 	}
 }

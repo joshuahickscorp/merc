@@ -52,6 +52,10 @@ func parseStripeRiskEvent(
 	if event.EventID == "" || event.EventCreated <= 0 || !isStripeRiskEventType(event.EventType) || object == nil {
 		return stripeRiskEvent{}, errors.New("invalid Stripe risk event")
 	}
+	objectType, _ := object["object"].(string)
+	if strings.TrimSpace(objectType) != "early_fraud_warning" {
+		return stripeRiskEvent{}, errors.New("early-fraud warning has the wrong Stripe object kind")
+	}
 	event.WarningID, _ = object["id"].(string)
 	event.WarningID = strings.TrimSpace(event.WarningID)
 	var err error
