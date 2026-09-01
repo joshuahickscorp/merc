@@ -237,6 +237,9 @@ func TestStripePrepaidRefundResponseBindsDurableSlice(t *testing.T) {
 		{name: "wrong amount", mutate: func(out map[string]any) { out["amount"] = float64(49) }},
 		{name: "wrong currency", mutate: func(out map[string]any) { out["currency"] = "cad" }},
 		{name: "wrong payment intent", mutate: func(out map[string]any) { out["payment_intent"] = "pi_other" }},
+		{name: "wrong expanded payment intent kind", mutate: func(out map[string]any) {
+			out["payment_intent"] = map[string]any{"object": "charge", "id": "pi_sim_1"}
+		}},
 		{name: "missing payment intent", mutate: func(out map[string]any) { delete(out, "payment_intent") }},
 		{name: "pending status", mutate: func(out map[string]any) { out["status"] = "pending" }},
 	} {

@@ -199,7 +199,7 @@ func TestSignedStripeWebhookRejectsContractDriftBeforeEffect(t *testing.T) {
 		{
 			name: "exact test event",
 			envelope: `{"type":"setup_intent.succeeded","api_version":"2025-06-30.basil","livemode":false,` +
-				`"data":{"object":{"id":"seti_exact","customer":"cus_exact","payment_method":"pm_exact"}}}`,
+				`"data":{"object":{"object":"setup_intent","id":"seti_exact","customer":"cus_exact","payment_method":"pm_exact"}}}`,
 			wantStatus: http.StatusOK, wantCalls: 1,
 		},
 		{
@@ -223,7 +223,7 @@ func TestSignedStripeWebhookRejectsContractDriftBeforeEffect(t *testing.T) {
 		{
 			name: "exact live event",
 			envelope: `{"type":"setup_intent.succeeded","api_version":"2025-06-30.basil","livemode":true,` +
-				`"data":{"object":{"id":"seti_live","customer":"cus_live","payment_method":"pm_live"}}}`,
+				`"data":{"object":{"object":"setup_intent","id":"seti_live","customer":"cus_live","payment_method":"pm_live"}}}`,
 			expectedLive: true, wantStatus: http.StatusOK, wantCalls: 1,
 		},
 	} {

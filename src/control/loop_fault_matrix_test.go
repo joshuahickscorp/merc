@@ -384,7 +384,7 @@ func TestLoopFaultWebhookRetries(t *testing.T) {
 
 	secret := "whsec_loop_fault_retry"
 	payload := []byte(fmt.Sprintf(
-		`{"id":"evt_loop_fault_%s","type":"payment_intent.succeeded","api_version":"%s","livemode":false,"created":1700000100,"data":{"object":{"object":"payment_intent","id":"%s","latest_charge":{"id":"%s"},"status":"succeeded","amount":%d,"amount_received":%d,"currency":"%s","metadata":{"cx_operation_key":"%s"}}}}`,
+		`{"id":"evt_loop_fault_%s","type":"payment_intent.succeeded","api_version":"%s","livemode":false,"created":1700000100,"data":{"object":{"object":"payment_intent","id":"%s","latest_charge":{"object":"charge","id":"%s"},"status":"succeeded","amount":%d,"amount_received":%d,"currency":"%s","metadata":{"cx_operation_key":"%s"}}}}`,
 		suffix, stripeAPIVersion, charge.PaymentIntentID, charge.ChargeID,
 		charge.RequestedCents, charge.ReceivedCents, charge.Currency, opKey))
 

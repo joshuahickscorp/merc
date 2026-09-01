@@ -5,6 +5,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -16,7 +17,7 @@ import (
 
 func TestParseStripeChargeRefundedUsesCumulativeExactMinorUnits(t *testing.T) {
 	payload := []byte(`{"id":"evt_refund","type":"charge.refunded"}`)
-	object := []byte(`{"object":"charge","id":"ch_exact","payment_intent":{"id":"pi_exact"},"amount":1200,"amount_refunded":275,"currency":"USD"}`)
+	object := []byte(`{"object":"charge","id":"ch_exact","payment_intent":{"object":"payment_intent","id":"pi_exact"},"amount":1200,"amount_refunded":275,"currency":"USD"}`)
 	event, err := parseStripeCashEvent(
 		"evt_refund", stripeEventChargeRefunded, 1_700_000_000, object, payload,
 	)
@@ -29,6 +30,28 @@ func TestParseStripeChargeRefundedUsesCumulativeExactMinorUnits(t *testing.T) {
 	wantHash := sha256.Sum256(payload)
 	if event.PayloadSHA256 != hex.EncodeToString(wantHash[:]) {
 		t.Fatalf("payload hash=%q, want %x", event.PayloadSHA256, wantHash)
+	}
+}
+
+func TestStripeExpandableReferenceBindsExpandedObjectKind(t *testing.T) {
+	for _, tc := range []struct {
+		name, raw, expected, want string
+		wantErr                   bool
+	}{
+		{name: "string reference", raw: `"pi_string"`, expected: "payment_intent", want: "pi_string"},
+		{name: "matching expanded reference", raw: `{"object":"charge","id":"ch_expanded"}`, expected: "charge", want: "ch_expanded"},
+		{name: "wrong expanded reference", raw: `{"object":"payment_intent","id":"ch_wrong"}`, expected: "charge", wantErr: true},
+		{name: "expanded reference missing object kind", raw: `{"id":"ch_missing_kind"}`, expected: "charge", wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := stripeExpandableID(json.RawMessage(tc.raw), tc.expected)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("stripeExpandableID() error=%v, wantErr=%t", err, tc.wantErr)
+			}
+			if err == nil && got != tc.want {
+				t.Fatalf("stripeExpandableID()=%q, want %q", got, tc.want)
+			}
+		})
 	}
 }
 
@@ -50,7 +73,7 @@ func TestStripeCashParserRequiresExpectedObjectKinds(t *testing.T) {
 
 func TestParseStripeSucceededPaymentIntentRequiresOwnedExactCash(t *testing.T) {
 	operationKey, charge, owned, err := parseStripeSucceededPaymentIntent([]byte(
-		`{"object":"payment_intent","id":"pi_1","latest_charge":{"id":"ch_1"},"status":"succeeded","amount":99,"amount_received":99,"currency":"usd","metadata":{"cx_operation_key":"job-1"}}`,
+		`{"object":"payment_intent","id":"pi_1","latest_charge":{"object":"charge","id":"ch_1"},"status":"succeeded","amount":99,"amount_received":99,"currency":"usd","metadata":{"cx_operation_key":"job-1"}}`,
 	))
 	if err != nil || !owned || operationKey != "job-1" ||
 		charge.PaymentIntentID != "pi_1" || charge.ChargeID != "ch_1" || charge.ReceivedCents != 99 {
@@ -65,6 +88,11 @@ func TestParseStripeSucceededPaymentIntentRequiresOwnedExactCash(t *testing.T) {
 		`{"object":"payment_intent","id":"pi_bad","latest_charge":"ch_bad","status":"succeeded","amount":99,"amount_received":98,"currency":"usd","metadata":{"cx_operation_key":"job-bad"}}`,
 	)); err == nil || !owned {
 		t.Fatalf("owned amount mismatch accepted: owned=%v err=%v", owned, err)
+	}
+	if _, _, owned, err := parseStripeSucceededPaymentIntent([]byte(
+		`{"object":"payment_intent","id":"pi_bad_expanded","latest_charge":{"object":"payment_intent","id":"ch_bad_expanded"},"status":"succeeded","amount":99,"amount_received":99,"currency":"usd","metadata":{"cx_operation_key":"job-bad-expanded"}}`,
+	)); err == nil || !owned {
+		t.Fatalf("wrong expanded latest charge kind accepted: owned=%v err=%v", owned, err)
 	}
 	if _, _, owned, err := parseStripeSucceededPaymentIntent([]byte(
 		`{"object":"charge","id":"pi_wrong_kind","latest_charge":"ch_wrong_kind","status":"succeeded","amount":99,"amount_received":99,"currency":"usd","metadata":{"cx_operation_key":"job-wrong-kind"}}`,

@@ -117,7 +117,7 @@ func TestReconcileBuyerChargeOperationAcceptsCompletedPrepaidWebhook(t *testing.
 	// top-up response has committed.  The actual webhook handler must replay it
 	// as success and never double-credit the balance or leave Stripe retrying a
 	// 500.
-	payload := []byte(fmt.Sprintf(`{"type":"payment_intent.succeeded","api_version":"%s","livemode":false,"data":{"object":{"object":"payment_intent","id":"%s","latest_charge":{"id":"%s"},"status":"succeeded","amount":%d,"amount_received":%d,"currency":"%s","metadata":{"cx_operation_key":"%s"}}}}`,
+	payload := []byte(fmt.Sprintf(`{"type":"payment_intent.succeeded","api_version":"%s","livemode":false,"data":{"object":{"object":"payment_intent","id":"%s","latest_charge":{"object":"charge","id":"%s"},"status":"succeeded","amount":%d,"amount_received":%d,"currency":"%s","metadata":{"cx_operation_key":"%s"}}}}`,
 		stripeAPIVersion, charge.PaymentIntentID, charge.ChargeID,
 		charge.RequestedCents, charge.ReceivedCents, charge.Currency, opKey))
 	req := signedStripeCashRequest(t, payload, "whsec_completed_prepaid")

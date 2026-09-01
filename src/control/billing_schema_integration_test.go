@@ -97,9 +97,10 @@ func TestSavedCardWebhookOrderingAndExpandableReferences(t *testing.T) {
 		"id": "evt_card_new", "type": "setup_intent.succeeded",
 		"api_version": stripeAPIVersion, "livemode": false, "created": int64(1_700_000_002),
 		"data": map[string]any{"object": map[string]any{
+			"object":         "setup_intent",
 			"id":             "seti_card_new",
-			"customer":       map[string]any{"id": customerID},
-			"payment_method": map[string]any{"id": "pm_card_new"},
+			"customer":       map[string]any{"object": "customer", "id": customerID},
+			"payment_method": map[string]any{"object": "payment_method", "id": "pm_card_new"},
 		}},
 	})
 	mustf(t, err, "marshal new card event: %v")
@@ -111,7 +112,8 @@ func TestSavedCardWebhookOrderingAndExpandableReferences(t *testing.T) {
 		"id": "evt_card_old", "type": "payment_method.attached",
 		"api_version": stripeAPIVersion, "livemode": false, "created": int64(1_700_000_001),
 		"data": map[string]any{"object": map[string]any{
-			"id": "pm_card_old", "customer": map[string]any{"id": customerID},
+			"object": "payment_method", "id": "pm_card_old",
+			"customer": map[string]any{"object": "customer", "id": customerID},
 		}},
 	})
 	mustf(t, err, "marshal old card event: %v")
@@ -122,7 +124,8 @@ func TestSavedCardWebhookOrderingAndExpandableReferences(t *testing.T) {
 		"id": "evt_card_old", "type": "payment_method.attached",
 		"api_version": stripeAPIVersion, "livemode": false, "created": int64(1_700_000_001),
 		"data": map[string]any{"object": map[string]any{
-			"id": "pm_card_conflict", "customer": map[string]any{"id": customerID},
+			"object": "payment_method", "id": "pm_card_conflict",
+			"customer": map[string]any{"object": "customer", "id": customerID},
 		}},
 	})
 	mustf(t, err, "marshal conflicting card event: %v")

@@ -465,7 +465,7 @@ func parseStripeSucceededPaymentIntent(object json.RawMessage) (string, ChargeRe
 	if err != nil {
 		return "", ChargeResult{}, true, errors.New("owned successful PaymentIntent has an unsupported currency")
 	}
-	chargeID, err := stripeExpandableID(pi.LatestCharge)
+	chargeID, err := stripeExpandableID(pi.LatestCharge, "charge")
 	if err != nil {
 		return "", ChargeResult{}, true, err
 	}
@@ -936,28 +936,30 @@ func stripeSavedCardWebhookReferences(eventType string, object map[string]any) (
 	if object == nil {
 		return "", "", errors.New("saved-card webhook object is absent")
 	}
+	objectKind, _ := object["object"].(string)
+	objectKind = strings.TrimSpace(objectKind)
 	objectID, _ := object["id"].(string)
 	objectID = strings.TrimSpace(objectID)
 	var pm string
 	switch eventType {
 	case "setup_intent.succeeded":
-		if !validStripeObjectID(objectID, "seti_") {
+		if objectKind != "setup_intent" || !validStripeObjectID(objectID, "seti_") {
 			return "", "", errors.New("setup_intent.succeeded object is not a SetupIntent")
 		}
 		var err error
-		pm, err = stripeExpandableMapID(object, "payment_method")
+		pm, err = stripeExpandableMapID(object, "payment_method", "payment_method")
 		if err != nil {
 			return "", "", fmt.Errorf("decode setup-intent payment method: %w", err)
 		}
 	case "payment_method.attached":
-		if !validStripeObjectID(objectID, "pm_") {
+		if objectKind != "payment_method" || !validStripeObjectID(objectID, "pm_") {
 			return "", "", errors.New("payment_method.attached object is not a PaymentMethod")
 		}
 		pm = objectID
 	default:
 		return "", "", errors.New("unsupported saved-card event type")
 	}
-	cust, err := stripeExpandableMapID(object, "customer")
+	cust, err := stripeExpandableMapID(object, "customer", "customer")
 	if err != nil {
 		return "", "", fmt.Errorf("decode saved-card customer: %w", err)
 	}
@@ -1061,9 +1063,8 @@ func recordStripeFee(ctx context.Context, store *Store, buyerID uuid.UUID, pi st
 	if err != nil {
 		return err
 	}
-	returnedID, _ := out["id"].(string)
-	returnedID = strings.TrimSpace(returnedID)
-	if !validStripeObjectID(returnedID, "pi_") || returnedID != pi {
+	returnedID, err := parseStripeProviderObjectID(out, "payment intent fee", "payment_intent", "pi_")
+	if err != nil || returnedID != pi {
 		return fmt.Errorf("payment intent fee response has an unexpected object id")
 	}
 	feeMinorUnits, currency, err := stripePaymentIntentFeeCash(out)

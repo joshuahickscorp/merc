@@ -89,7 +89,7 @@ func disputeCashEffect(eventType, status string) (stripeDisputeCashEffect, int) 
 	}
 }
 
-func stripeExpandableID(raw json.RawMessage) (string, error) {
+func stripeExpandableID(raw json.RawMessage, expectedObject string) (string, error) {
 	if len(raw) == 0 || string(raw) == "null" {
 		return "", nil
 	}
@@ -98,10 +98,15 @@ func stripeExpandableID(raw json.RawMessage) (string, error) {
 		return strings.TrimSpace(id), nil
 	}
 	var expanded struct {
-		ID string `json:"id"`
+		Object string `json:"object"`
+		ID     string `json:"id"`
 	}
 	if err := json.Unmarshal(raw, &expanded); err != nil {
 		return "", errors.New("stripe expandable reference is neither an id nor an object")
+	}
+	if strings.TrimSpace(expanded.Object) != expectedObject {
+		return "", fmt.Errorf("stripe expandable reference has object kind %q, want %q",
+			strings.TrimSpace(expanded.Object), expectedObject)
 	}
 	return strings.TrimSpace(expanded.ID), nil
 }
@@ -139,7 +144,7 @@ func parseStripeCashEvent(
 		if strings.TrimSpace(charge.Object) != "charge" {
 			return stripeCashEvent{}, errors.New("charge.refunded has the wrong Stripe object kind")
 		}
-		pi, err := stripeExpandableID(charge.PaymentIntent)
+		pi, err := stripeExpandableID(charge.PaymentIntent, "payment_intent")
 		if err != nil {
 			return stripeCashEvent{}, err
 		}
@@ -166,11 +171,11 @@ func parseStripeCashEvent(
 		if strings.TrimSpace(dispute.Object) != "dispute" {
 			return stripeCashEvent{}, errors.New("Stripe dispute event has the wrong object kind")
 		}
-		chargeID, err := stripeExpandableID(dispute.Charge)
+		chargeID, err := stripeExpandableID(dispute.Charge, "charge")
 		if err != nil {
 			return stripeCashEvent{}, err
 		}
-		pi, err := stripeExpandableID(dispute.PaymentIntent)
+		pi, err := stripeExpandableID(dispute.PaymentIntent, "payment_intent")
 		if err != nil {
 			return stripeCashEvent{}, err
 		}

@@ -374,7 +374,7 @@ func parseStripePrepaidRefundResponse(
 	if err != nil || !gotCurrency.Equal(wantCurrency) {
 		return "", fmt.Errorf("stripe refund %s currency %q does not match requested %q", id, returnedCurrency, wantCurrency.Code())
 	}
-	returnedPI, err := stripeExpandableMapID(out, "payment_intent")
+	returnedPI, err := stripeExpandableMapID(out, "payment_intent", "payment_intent")
 	if err != nil || strings.TrimSpace(returnedPI) != paymentIntent {
 		return "", fmt.Errorf("stripe refund %s PaymentIntent does not match requested %s", id, paymentIntent)
 	}

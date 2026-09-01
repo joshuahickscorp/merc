@@ -59,11 +59,11 @@ func parseStripeRiskEvent(
 	event.WarningID, _ = object["id"].(string)
 	event.WarningID = strings.TrimSpace(event.WarningID)
 	var err error
-	event.ChargeID, err = stripeExpandableMapID(object, "charge")
+	event.ChargeID, err = stripeExpandableMapID(object, "charge", "charge")
 	if err != nil {
 		return stripeRiskEvent{}, fmt.Errorf("decode early-fraud charge: %w", err)
 	}
-	event.PaymentIntent, err = stripeExpandableMapID(object, "payment_intent")
+	event.PaymentIntent, err = stripeExpandableMapID(object, "payment_intent", "payment_intent")
 	if err != nil {
 		return stripeRiskEvent{}, fmt.Errorf("decode early-fraud PaymentIntent: %w", err)
 	}
@@ -82,7 +82,7 @@ func parseStripeRiskEvent(
 	return event, nil
 }
 
-func stripeExpandableMapID(object map[string]any, field string) (string, error) {
+func stripeExpandableMapID(object map[string]any, field, expectedObject string) (string, error) {
 	raw, ok := object[field]
 	if !ok || raw == nil {
 		return "", nil
@@ -91,7 +91,7 @@ func stripeExpandableMapID(object map[string]any, field string) (string, error) 
 	if err != nil {
 		return "", err
 	}
-	return stripeExpandableID(encoded)
+	return stripeExpandableID(encoded, expectedObject)
 }
 
 func validateStripeRiskEvent(event stripeRiskEvent) error {

@@ -61,7 +61,7 @@ func parseStripePaymentFailureEvent(
 		event.OperationKey = strings.TrimSpace(event.OperationKey)
 	}
 	var err error
-	event.CustomerID, err = stripeExpandableMapID(object, "customer")
+	event.CustomerID, err = stripeExpandableMapID(object, "customer", "customer")
 	if err != nil {
 		return stripePaymentFailureEvent{}, fmt.Errorf("decode payment-failure customer: %w", err)
 	}

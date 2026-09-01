@@ -111,3 +111,47 @@ func TestStripeRiskParserRejectsWrongWarningObjectKind(t *testing.T) {
 		t.Fatal("accepted a non-early-fraud-warning Stripe object")
 	}
 }
+
+func TestStripeRiskParserRejectsWrongExpandedReferenceKinds(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		set  func(map[string]any)
+	}{
+		{
+			name: "charge field",
+			set: func(object map[string]any) {
+				object["charge"] = map[string]any{"object": "payment_intent", "id": "ch_wrong_kind"}
+			},
+		},
+		{
+			name: "payment intent field",
+			set: func(object map[string]any) {
+				object["payment_intent"] = map[string]any{"object": "charge", "id": "pi_wrong_kind"}
+			},
+		},
+		{
+			name: "missing expanded object kind",
+			set: func(object map[string]any) {
+				object["charge"] = map[string]any{"id": "ch_missing_kind"}
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			object := map[string]any{
+				"object":         "early_fraud_warning",
+				"id":             "issfr_expanded_kind",
+				"charge":         "ch_risk_expanded",
+				"payment_intent": "pi_risk_expanded",
+				"fraud_type":     "misc",
+				"actionable":     false,
+			}
+			tc.set(object)
+			if _, err := parseStripeRiskEvent(
+				"evt_risk_expanded_"+strings.ReplaceAll(tc.name, " ", "_"),
+				stripeRiskEventEarlyFraudWarningCreated, 1_700_000_300, object, []byte(`{"signed":"risk"}`),
+			); err == nil {
+				t.Fatal("accepted a wrong expanded Stripe object kind")
+			}
+		})
+	}
+}

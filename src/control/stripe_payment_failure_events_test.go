@@ -81,3 +81,16 @@ func TestStripePaymentFailureParserRejectsWrongObjectKind(t *testing.T) {
 		t.Fatal("accepted a non-payment_intent Stripe object")
 	}
 }
+
+func TestStripePaymentFailureParserRejectsWrongExpandedCustomerKind(t *testing.T) {
+	_, err := parseStripePaymentFailureEvent(
+		"evt_wrong_failure_customer", 1_700_000_203,
+		map[string]any{
+			"object": "payment_intent", "id": "pi_wrong_failure_customer", "status": "requires_payment_method",
+			"customer": map[string]any{"object": "payment_method", "id": "cus_wrong_kind"},
+		}, []byte("payload"),
+	)
+	if err == nil {
+		t.Fatal("accepted a customer expanded as a different Stripe object kind")
+	}
+}
