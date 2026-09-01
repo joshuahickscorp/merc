@@ -52,6 +52,110 @@ func TestReservePayoutFundingUnderfundingFailsClosed(t *testing.T) {
 	if n != 0 || reserved != 0 {
 		t.Fatalf("underfunding still reserved funding rows=%d reserved=%d", n, reserved)
 	}
+	due, err := store.DuePayouts(ctx, 100)
+	mustf(t, err, "DuePayouts after underfunding: %v")
+	if !dueContains(due, f.entryID) {
+		t.Fatal("awaiting_funding payout disappeared from the retry queue")
+	}
+}
+
+func TestAwaitingFundingPayoutRetriesAfterLatePrepaidTopup(t *testing.T) {
+	installSettlementCurrencyForTest(t, "usd")
+	t.Setenv("MERC_CANARY_MODE", "false")
+	t.Setenv("MERC_CANARY_DISABLE_DECISION_REF", "TEST-late-topup-payout-retry")
+	ctx, store, pool := openIsolatedTestStore(t)
+
+	buyerID, supplierID := uuid.New(), uuid.New()
+	jobID, taskID, entryID := uuid.New(), uuid.New(), uuid.New()
+	if _, err := pool.Exec(ctx, `INSERT INTO buyers (id,email) VALUES ($1,$2)`,
+		buyerID, buyerID.String()+"@late-topup.invalid"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO suppliers (id,email,status) VALUES ($1,$2,'active')`,
+		supplierID, supplierID.String()+"@late-topup.invalid"); err != nil {
+		t.Fatal(err)
+	}
+
+	creditTopup := func(cents int64) string {
+		t.Helper()
+		key := "late-topup-" + uuid.NewString()
+		if _, err := store.BeginPrepaidTopup(ctx, key, buyerID, cents); err != nil {
+			t.Fatalf("BeginPrepaidTopup: %v", err)
+		}
+		paymentIntent := "pi_late_topup_" + uuid.NewString()
+		mustf(t, store.CreditPrepaidTopup(ctx, key, buyerID, ChargeResult{
+			PaymentIntentID: paymentIntent,
+			ChargeID:        "ch_late_topup_" + uuid.NewString(),
+			RequestedCents:  cents,
+			ReceivedCents:   cents,
+			Currency:        "usd",
+		}), "CreditPrepaidTopup: %v")
+		return paymentIntent
+	}
+	creditTopup(50)
+
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO jobs
+		  (id,buyer_id,status,job_type,input_ref,prepaid_required,charge_status,currency,terminal_at)
+		VALUES ($1,$2,'complete','embed','late-topup/job',true,'not_attempted','usd',now())`,
+		jobID, buyerID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO tasks (id,job_id,status,verification_outcome,completed_at)
+		VALUES ($1,$2,'complete','pass',now())`, taskID, jobID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO ledger_entries
+		  (id,kind,supplier_id,task_id,amount_usd,currency,payout_status,release_at)
+		VALUES ($1,'supplier_credit',$2,$3,1.00,'usd','held',now()-interval '1 minute')`,
+		entryID, supplierID, taskID); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, sent, err := store.ClaimPayout(ctx, entryID); err != nil || sent {
+		t.Fatalf("underfunded first claim sent=%v err=%v", sent, err)
+	}
+	var status string
+	if err := pool.QueryRow(ctx, `SELECT payout_status FROM ledger_entries WHERE id=$1`, entryID).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if status != PayoutAwaitingFunding {
+		t.Fatalf("first claim status=%q, want %q", status, PayoutAwaitingFunding)
+	}
+	due, err := store.DuePayouts(ctx, 100)
+	mustf(t, err, "DuePayouts while awaiting: %v")
+	if !dueContains(due, entryID) {
+		t.Fatal("awaiting_funding entry was not visible to the retry sweep")
+	}
+
+	latePaymentIntent := creditTopup(100)
+	due, err = store.DuePayouts(ctx, 100)
+	mustf(t, err, "DuePayouts after late top-up: %v")
+	if !dueContains(due, entryID) {
+		t.Fatal("late top-up did not keep the awaiting payout claimable")
+	}
+	claimed, sent, err := store.ClaimPayout(ctx, entryID)
+	mustf(t, err, "retry ClaimPayout: %v")
+	if !sent || claimed.RequestedCents != 100 {
+		t.Fatalf("late top-up retry sent=%v requested=%d", sent, claimed.RequestedCents)
+	}
+	if err := pool.QueryRow(ctx, `SELECT payout_status FROM ledger_entries WHERE id=$1`, entryID).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if status != PayoutSending {
+		t.Fatalf("late top-up retry status=%q, want %q", status, PayoutSending)
+	}
+	var fundingPI string
+	if err := pool.QueryRow(ctx, `
+		SELECT collection_payment_intent FROM supplier_payout_funding WHERE ledger_entry_id=$1`, entryID).
+		Scan(&fundingPI); err != nil {
+		t.Fatal(err)
+	}
+	if fundingPI != latePaymentIntent {
+		t.Fatalf("late top-up funding payment intent=%q, want %q", fundingPI, latePaymentIntent)
+	}
 }
 
 func TestReservePayoutFundingIdempotentDoesNotDoubleReserve(t *testing.T) {

@@ -458,8 +458,9 @@ var productionReachability = []reachabilityClaim{
 		From:   "Store.ClaimPayout",
 		Target: "reserveBuyerTopupPayoutFunding",
 		Consequence: "realtime execution-contract supplier credits and fully-prepaid job credits would " +
-			"remain awaiting_funding forever even though the buyer already settled top-up cash that should " +
-			"back those liabilities.",
+			"enter awaiting_funding on every retry even though the buyer already settled top-up cash that " +
+			"should back those liabilities; the retry queue is live, but without this exact funding bridge " +
+			"the supplier still never receives a provider-bound payout operation.",
 	},
 	{
 		From:   "Workers.Run",

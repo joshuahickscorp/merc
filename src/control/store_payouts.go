@@ -792,7 +792,9 @@ func (s *Store) DuePayouts(ctx context.Context, limit int) ([]DueHeldEntry, erro
 	rows, err := s.pool.Query(ctx,
 		`SELECT le.id, le.supplier_id, le.amount_usd
 		 FROM ledger_entries le LEFT JOIN tasks t ON t.id=le.task_id
-		 WHERE le.kind = 'supplier_credit' AND le.payout_status = 'held'
+		 -- A failed funding attempt is recoverable: a later prepaid top-up or
+		 -- authorized subsidy must make the same immutable liability claimable.
+		 WHERE le.kind = 'supplier_credit' AND le.payout_status IN ('held','awaiting_funding')
 		   AND le.release_at IS NOT NULL AND le.release_at <= now()
 		   AND NOT EXISTS (
 		       SELECT 1 FROM disputes d
@@ -886,7 +888,9 @@ func (s *Store) ClaimPayout(ctx context.Context, entryID uuid.UUID) (DueHeldEntr
 	if err != nil {
 		return out, false, err
 	}
-	if status != PayoutHeld || releaseAt == nil || releaseAt.After(time.Now()) ||
+	// awaiting_funding is a retryable hold, not a terminal payout state.  Keep
+	// the exact liability/accrual and retry its funding source on a later sweep.
+	if (status != PayoutHeld && status != PayoutAwaitingFunding) || releaseAt == nil || releaseAt.After(time.Now()) ||
 		(taskID != nil && verdict != string(OutcomePass)) {
 		return out, false, nil
 	}
@@ -961,8 +965,8 @@ func (s *Store) ClaimPayout(ctx context.Context, entryID uuid.UUID) (DueHeldEntr
 	if !funded {
 		if _, err := tx.Exec(ctx,
 			`UPDATE ledger_entries SET payout_status=$2
-			  WHERE id=$1 AND payout_status=$3`,
-			entryID, PayoutAwaitingFunding, PayoutHeld); err != nil {
+			  WHERE id=$1 AND payout_status IN ($3,$4)`,
+			entryID, PayoutAwaitingFunding, PayoutHeld, PayoutAwaitingFunding); err != nil {
 			return out, false, err
 		}
 		if err := tx.Commit(ctx); err != nil {
@@ -992,8 +996,9 @@ func (s *Store) ClaimPayout(ctx context.Context, entryID uuid.UUID) (DueHeldEntr
 		return out, false, err
 	}
 	ct, err := tx.Exec(ctx,
-		`UPDATE ledger_entries SET payout_status=$2 WHERE id=$1 AND payout_status=$3`,
-		entryID, PayoutSending, PayoutHeld)
+		`UPDATE ledger_entries SET payout_status=$2
+		  WHERE id=$1 AND payout_status IN ($3,$4)`,
+		entryID, PayoutSending, PayoutHeld, PayoutAwaitingFunding)
 	if err != nil {
 		return out, false, err
 	}
