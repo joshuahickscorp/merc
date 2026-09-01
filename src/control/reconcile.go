@@ -277,17 +277,15 @@ func fetchStripeTransferSnapshot(ctx context.Context, acct string) (stripeTransf
 			if !ok || !validStripeObjectID(id, "tr_") {
 				return stripeTransferSnapshot{}, fmt.Errorf("stripe transfers: entry has an invalid transfer id")
 			}
-			if rawObject, present := t["object"]; present {
-				object, ok := rawObject.(string)
-				if !ok || object != "transfer" {
-					return stripeTransferSnapshot{}, fmt.Errorf("stripe transfers: entry %s is not a transfer object", id)
-				}
+			rawObject, present := t["object"]
+			object, ok := rawObject.(string)
+			if !present || !ok || object != "transfer" {
+				return stripeTransferSnapshot{}, fmt.Errorf("stripe transfers: entry %s is not a transfer object", id)
 			}
-			if rawDestination, present := t["destination"]; present {
-				destination, ok := rawDestination.(string)
-				if !ok || strings.TrimSpace(destination) != acct {
-					return stripeTransferSnapshot{}, fmt.Errorf("stripe transfers: entry %s has an unexpected destination", id)
-				}
+			rawDestination, present := t["destination"]
+			destination, ok := rawDestination.(string)
+			if !present || !ok || strings.TrimSpace(destination) != acct {
+				return stripeTransferSnapshot{}, fmt.Errorf("stripe transfers: entry %s has an unexpected destination", id)
 			}
 			currency, _ := t["currency"].(string)
 			currency = strings.ToLower(strings.TrimSpace(currency))

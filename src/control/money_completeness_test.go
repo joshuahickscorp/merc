@@ -102,7 +102,7 @@ func TestStripeTransferReversalHTTPIdempotentShape(t *testing.T) {
 		_ = r.ParseForm()
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"id": "trr_sim_1", "amount": 125, "currency": "usd",
+			"object": "transfer_reversal", "id": "trr_sim_1", "amount": 125, "currency": "usd",
 		})
 	}))
 	defer srv.Close()
@@ -156,7 +156,7 @@ func TestStripeChargeRefundHTTPShape(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"id": "re_sim_1", "amount": 50, "currency": "usd",
+			"object": "refund", "id": "re_sim_1", "amount": 50, "currency": "usd",
 		})
 	}))
 	defer srv.Close()
@@ -182,9 +182,9 @@ func TestStripeMoneyObjectRequiresExpectedObjectKind(t *testing.T) {
 		prefix string
 		wantID string
 	}{
-		{name: "transfer", body: `{"id":"tr_sim_1","amount":50,"currency":"USD"}`, prefix: "tr_", wantID: "tr_sim_1"},
-		{name: "reversal", body: `{"id":"trr_sim_1","amount":50,"currency":"usd"}`, prefix: "trr_", wantID: "trr_sim_1"},
-		{name: "refund", body: `{"id":"re_sim_1","amount":50,"currency":"usd"}`, prefix: "re_", wantID: "re_sim_1"},
+		{name: "transfer", body: `{"object":"transfer","id":"tr_sim_1","amount":50,"currency":"USD"}`, prefix: "tr_", wantID: "tr_sim_1"},
+		{name: "reversal", body: `{"object":"transfer_reversal","id":"trr_sim_1","amount":50,"currency":"usd"}`, prefix: "trr_", wantID: "trr_sim_1"},
+		{name: "refund", body: `{"object":"refund","id":"re_sim_1","amount":50,"currency":"usd"}`, prefix: "re_", wantID: "re_sim_1"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got, err := parseStripeMoneyObject([]byte(tc.body), tc.name, tc.prefix, 50, "usd")
@@ -202,6 +202,7 @@ func TestStripeMoneyObjectRequiresExpectedObjectKind(t *testing.T) {
 		{name: "transfer rejects refund", body: `{"id":"re_wrong","amount":50,"currency":"usd"}`, prefix: "tr_"},
 		{name: "reversal rejects transfer", body: `{"id":"tr_wrong","amount":50,"currency":"usd"}`, prefix: "trr_"},
 		{name: "refund rejects payment intent", body: `{"id":"pi_wrong","amount":50,"currency":"usd"}`, prefix: "re_"},
+		{name: "missing object kind", body: `{"id":"tr_missing_object","amount":50,"currency":"usd"}`, prefix: "tr_"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if _, err := parseStripeMoneyObject([]byte(tc.body), tc.name, tc.prefix, 50, "usd"); err == nil {

@@ -336,6 +336,7 @@ func readStripePayoutResponseBody(r io.Reader) ([]byte, error) {
 }
 
 type stripeMoneyObject struct {
+	Object   string `json:"object"`
 	ID       string `json:"id"`
 	Amount   int64  `json:"amount"`
 	Currency string `json:"currency"`
@@ -345,6 +346,10 @@ func parseStripeMoneyObject(body []byte, objectName, prefix string, cents int64,
 	var out stripeMoneyObject
 	if err := json.Unmarshal(body, &out); err != nil || !validStripeObjectID(out.ID, prefix) {
 		return stripeMoneyObject{}, fmt.Errorf("stripe %s: unparseable success response: %s", objectName, strings.TrimSpace(string(body)))
+	}
+	expectedObject := map[string]string{"tr_": "transfer", "trr_": "transfer_reversal", "re_": "refund"}[prefix]
+	if expectedObject == "" || out.Object != expectedObject {
+		return stripeMoneyObject{}, fmt.Errorf("stripe %s %s has object kind %q, want %q", objectName, out.ID, out.Object, expectedObject)
 	}
 	if out.Amount != cents || !strings.EqualFold(out.Currency, currency) {
 		return stripeMoneyObject{}, fmt.Errorf(
