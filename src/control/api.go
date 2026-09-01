@@ -4050,28 +4050,14 @@ func (s *Server) handleJobReceipt(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, terr.Error())
 		return
 	}
-	workload, werr := s.store.JobWorkloadDecision(r.Context(), id)
-	if werr != nil {
-		writeErr(w, http.StatusInternalServerError, werr.Error())
-		return
-	}
-	computePlan, perr := s.store.JobComputePlan(r.Context(), id)
-	if perr != nil {
-		writeErr(w, http.StatusInternalServerError, perr.Error())
-		return
-	}
-	placement, plerr := s.store.JobPlacementRequirement(r.Context(), id)
-	if plerr != nil {
-		writeErr(w, http.StatusInternalServerError, plerr.Error())
-		return
-	}
-	pricing, prerr := s.store.JobPricingDecision(r.Context(), id)
-	if prerr != nil {
-		writeErr(w, http.StatusInternalServerError, prerr.Error())
+	authority, aerr := s.store.loadJobReceiptAuthority(r.Context(), id)
+	if aerr != nil {
+		writeErr(w, http.StatusInternalServerError, aerr.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, assembleClearingReceipt(
-		id, inv.Status, workload, computePlan, placement, pricing,
+		id, inv.Status, authority.workload, authority.compute,
+		authority.placement, authority.pricing,
 		inv, verif, classes, tasks,
 	))
 }

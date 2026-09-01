@@ -1032,6 +1032,59 @@ func (s *Store) loadJobReceiptComputeAuthority(
 	return workload, plan, nil
 }
 
+type jobReceiptAuthority struct {
+	workload  *WorkloadDecision
+	compute   *ComputePlan
+	placement *PlacementRequirement
+	pricing   *PricingDecision
+}
+
+// loadJobReceiptAuthority loads the four frozen documents needed to assemble a
+// clearing receipt from the same authority row. The receipt endpoint used to
+// issue one database read per accessor, even though these values are immutable
+// acceptance-time inputs. Validation order mirrors the endpoint's former
+// workload, compute, placement, pricing sequence.
+func (s *Store) loadJobReceiptAuthority(
+	ctx context.Context,
+	jobID uuid.UUID,
+) (*jobReceiptAuthority, error) {
+	inputs, err := s.loadJobComputeAuthorityInputs(ctx, jobID)
+	if err != nil {
+		return nil, err
+	}
+	workload, err := decodeJobWorkloadDecision(
+		jobID, inputs.workloadBlob, inputs.workloadSHA256,
+	)
+	if err != nil {
+		return nil, err
+	}
+	compute, err := decodeJobComputePlan(
+		jobID, inputs.computePlanBlob, inputs.computePlanSHA256,
+		workload, inputs.economicPlanBlob,
+	)
+	if err != nil {
+		return nil, err
+	}
+	placement, err := decodeJobPlacementRequirement(
+		jobID, inputs.placementBlob, inputs.placementSHA256, workload,
+	)
+	if err != nil {
+		return nil, err
+	}
+	pricing, err := s.decodeJobPricingDecision(
+		ctx, jobID, inputs.pricingBlob, inputs.pricingSHA256,
+		inputs.placementBlob, inputs.placementSHA256,
+		workload, compute, inputs.economicPlanBlob,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &jobReceiptAuthority{
+		workload: workload, compute: compute,
+		placement: placement, pricing: pricing,
+	}, nil
+}
+
 // The former per-document implementations are intentionally represented by the
 // shared decoders above. All callers still receive the same validation and
 // digest checks, but the immutable dependency row is fetched once.

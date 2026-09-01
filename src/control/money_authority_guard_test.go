@@ -354,6 +354,7 @@ var declaredMoneyAuthority = []string{
 	"Store.JobPrimaryChunkCount",                          // store_jobs.go
 	"Store.JobTaskReceipts",                               // store_tasks.go
 	"Store.loadJobReceiptComputeAuthority",                // store_jobs.go
+	"Store.loadJobReceiptAuthority",                       // store_jobs.go
 	"Store.LoadCataloguePriceAuthority",                   // pricing_decision.go
 	"Store.MarkPayout",                                    // store_payouts.go
 	"Store.MarkPayoutOutcomeUnknown",                      // store_payouts.go
