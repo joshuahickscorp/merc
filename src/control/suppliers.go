@@ -279,11 +279,17 @@ func (s *Server) handleSupplierStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if stripeKey() != "" && acct != "" {
-		if out, gerr := stripeGet(r.Context(), "accounts/"+url.PathEscape(acct)); gerr == nil {
-			if pe, ok := out["payouts_enabled"].(bool); ok {
-				payoutsEnabled = pe
-			}
+		out, gerr := stripeGet(r.Context(), "accounts/"+url.PathEscape(acct))
+		if gerr != nil {
+			writeErr(w, http.StatusServiceUnavailable, "reading Stripe connected account status")
+			return
 		}
+		pe, gerr := parseStripeConnectAccountStatus(out, acct)
+		if gerr != nil {
+			writeErr(w, http.StatusServiceUnavailable, "Stripe connected account status is unavailable")
+			return
+		}
+		payoutsEnabled = pe
 	}
 
 	status := "none"

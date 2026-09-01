@@ -42,6 +42,71 @@ func TestStripeExternalIdentityIDsFailClosedOnWrongOrEmptyPrefix(t *testing.T) {
 	}
 }
 
+func TestStripeConnectAccountStatusRequiresExactProviderResponse(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		acct string
+		out  map[string]any
+		want bool
+		good bool
+	}{
+		{
+			name: "enabled exact account",
+			acct: "acct_status_exact",
+			out:  map[string]any{"object": "account", "id": "acct_status_exact", "payouts_enabled": true},
+			want: true,
+			good: true,
+		},
+		{
+			name: "disabled exact account",
+			acct: "acct_status_disabled",
+			out:  map[string]any{"object": "account", "id": "acct_status_disabled", "payouts_enabled": false},
+			good: true,
+		},
+		{
+			name: "wrong object type",
+			acct: "acct_status_object",
+			out:  map[string]any{"object": "person", "id": "acct_status_object", "payouts_enabled": true},
+		},
+		{
+			name: "missing object type",
+			acct: "acct_status_missing_object",
+			out:  map[string]any{"id": "acct_status_missing_object", "payouts_enabled": true},
+		},
+		{
+			name: "wrong account",
+			acct: "acct_status_expected",
+			out:  map[string]any{"object": "account", "id": "acct_status_other", "payouts_enabled": true},
+		},
+		{
+			name: "missing readiness",
+			acct: "acct_status_missing_readiness",
+			out:  map[string]any{"object": "account", "id": "acct_status_missing_readiness"},
+		},
+		{
+			name: "wrong readiness type",
+			acct: "acct_status_wrong_readiness",
+			out:  map[string]any{"object": "account", "id": "acct_status_wrong_readiness", "payouts_enabled": "true"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := parseStripeConnectAccountStatus(tc.out, tc.acct)
+			if tc.good {
+				if err != nil {
+					t.Fatalf("parse error=%v", err)
+				}
+				if got != tc.want {
+					t.Fatalf("payouts_enabled=%v, want %v", got, tc.want)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatal("malformed provider response was accepted")
+			}
+		})
+	}
+}
+
 func TestStripeConnectEventParserRequiresBoundAccountReadiness(t *testing.T) {
 	for _, tc := range []struct {
 		name string

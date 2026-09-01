@@ -87,6 +87,27 @@ func validateConnectURLPair(returnURL, refreshURL, siteHost string) error {
 	return nil
 }
 
+func parseStripeConnectAccountStatus(out map[string]any, expectedAcct string) (bool, error) {
+	expectedAcct = strings.TrimSpace(expectedAcct)
+	if !validStripeObjectID(expectedAcct, "acct_") {
+		return false, errors.New("stripe connected account: expected account id is invalid")
+	}
+	objectType, ok := out["object"].(string)
+	if !ok || strings.TrimSpace(objectType) != "account" {
+		return false, errors.New("stripe connected account: provider returned the wrong object type")
+	}
+	returnedAcct, _ := out["id"].(string)
+	returnedAcct = strings.TrimSpace(returnedAcct)
+	if !validStripeObjectID(returnedAcct, "acct_") || returnedAcct != expectedAcct {
+		return false, errors.New("stripe connected account: provider returned the wrong account")
+	}
+	payoutsEnabled, ok := out["payouts_enabled"].(bool)
+	if !ok {
+		return false, errors.New("stripe connected account: provider omitted payouts_enabled")
+	}
+	return payoutsEnabled, nil
+}
+
 func (s *Server) handleWorkerConnectStatus(w http.ResponseWriter, r *http.Request) {
 	auth := r.Context().Value(ctxWorker).(*WorkerAuth)
 	acct, err := s.store.SupplierStripeAcct(r.Context(), auth.SupplierID)
@@ -104,10 +125,14 @@ func (s *Server) handleWorkerConnectStatus(w http.ResponseWriter, r *http.Reques
 	}
 	out, err := stripeGet(r.Context(), "accounts/"+url.PathEscape(acct))
 	if err != nil {
-		writeErr(w, http.StatusServiceUnavailable, err.Error())
+		writeErr(w, http.StatusServiceUnavailable, "reading Stripe connected account status")
 		return
 	}
-	pe, _ := out["payouts_enabled"].(bool)
+	pe, err := parseStripeConnectAccountStatus(out, acct)
+	if err != nil {
+		writeErr(w, http.StatusServiceUnavailable, "Stripe connected account status is unavailable")
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"configured": true, "connected": true, "payouts_enabled": pe,
 		"credential_id": auth.CredentialID, "enrollment_device_bound": auth.EnrollmentDeviceBound,
