@@ -11,6 +11,7 @@ the data.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import math
 import statistics
@@ -52,17 +53,21 @@ def source_inventory(root: Path) -> list[tuple[int, str, str]]:
     return entries
 
 
-def invariant_tests(root: Path, source: str) -> list[str]:
-    result = subprocess.run(
-        ["python3", "ops/scripts/mutation-test-contracts.py", "--root", ".", "--source", source],
-        cwd=root,
-        check=False,
-        text=True,
-        capture_output=True,
-    )
-    if result.returncode:
-        raise SystemExit(f"cannot resolve mutation contract for {source}: {result.stderr.strip()}")
-    names = [line for line in result.stdout.splitlines() if line]
+def contract_resolver(root: Path) -> Any:
+    path = root / "ops" / "scripts" / "mutation-test-contracts.py"
+    spec = importlib.util.spec_from_file_location("merc_mutation_test_contracts", path)
+    if spec is None or spec.loader is None:
+        raise SystemExit(f"cannot load mutation contract resolver {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def invariant_tests(root: Path, source: str, resolver: Any, contracts: dict[str, list[str]]) -> list[str]:
+    tests = contracts.get(source)
+    if tests is None:
+        raise SystemExit(f"cannot resolve mutation contract for {source}: no contract is declared")
+    names = resolver.test_names(root, source, tests)
     if not names or len(names) != len(set(names)):
         raise SystemExit(f"invalid invariant contract set for {source}")
     return names
@@ -148,10 +153,16 @@ def validate(manifest: dict[str, Any], inventory: list[tuple[int, str, str]]) ->
 
 def build(root: Path, existing: dict[str, Any] | None) -> dict[str, Any]:
     inventory = source_inventory(root)
+    resolver = contract_resolver(root)
+    contracts = resolver.load_contracts(root)
     source_policy = policy(root)
     sources = {source for _, source, _ in inventory}
     if set(source_policy) != sources:
         raise SystemExit(f"mutation source policy drift: missing={sorted(sources - set(source_policy))} extra={sorted(set(source_policy) - sources)}")
+    invariant_contracts = {
+        source: invariant_tests(root, source, resolver, contracts)
+        for source in sources
+    }
     prior = {item["id"]: item for item in (existing or {}).get("mutations", []) if isinstance(item, dict) and isinstance(item.get("id"), int)}
     mutations: list[dict[str, Any]] = []
     for case_id, source, description in inventory:
@@ -168,7 +179,7 @@ def build(root: Path, existing: dict[str, Any] | None) -> dict[str, Any]:
             "description": description,
             "authority_domain": source_policy[source]["authority_domain"],
             "class": chosen_class,
-            "required_invariant_contracts": invariant_tests(root, source),
+            "required_invariant_contracts": invariant_contracts[source],
             "historical": {
                 "samples_seconds": [round(float(value), 6) for value in samples],
                 "p50_seconds": percentile([float(value) for value in samples], 0.50),
