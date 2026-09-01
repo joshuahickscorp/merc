@@ -241,7 +241,9 @@ type prepaidRefundSlice struct {
 	OperationKey  string
 	PaymentIntent string
 	Cents         int64
+	Currency      string
 	RefundID      string
+	Status        string
 }
 
 type prepaidRefundPlan struct {
@@ -446,7 +448,8 @@ func planPrepaidRefundSlicesTx(
 		SELECT t.payment_intent,
 		       t.amount_cents - COALESCE((
 		         SELECT SUM(r.amount_cents) FROM prepaid_refund_operations r
-		          WHERE r.payment_intent = t.payment_intent AND r.currency=t.currency), 0) AS refundable
+		          WHERE r.payment_intent = t.payment_intent AND r.currency=t.currency
+		            AND r.status IN ('pending','succeeded')), 0) AS refundable
 		  FROM prepaid_topup_operations t
 		 WHERE t.buyer_id=$1 AND t.currency=$2
 		   AND t.status='succeeded' AND t.payment_intent IS NOT NULL
@@ -473,7 +476,11 @@ func planPrepaidRefundSlicesTx(
 			take = remaining
 		}
 		slices = append(slices, prepaidRefundSlice{
-			OperationKey: operationKey + "-" + intentID, PaymentIntent: intentID, Cents: take,
+			OperationKey:  operationKey + "-" + intentID,
+			PaymentIntent: intentID,
+			Cents:         take,
+			Currency:      currency,
+			Status:        "pending",
 		})
 		remaining -= take
 	}
@@ -495,7 +502,7 @@ func planPrepaidRefundSlicesTx(
 func prepaidRefundSlicesTx(ctx context.Context, tx pgx.Tx, operationKey string) ([]prepaidRefundSlice, int64, string, error) {
 	rows, err := tx.Query(ctx, `
 		SELECT operation_key, COALESCE(payment_intent,''), amount_cents,
-		       COALESCE(stripe_refund_id,''), currency
+		       COALESCE(stripe_refund_id,''), currency, status
 		  FROM prepaid_refund_operations
 		 WHERE refund_key = $1
 		 ORDER BY operation_key`, operationKey)
@@ -510,13 +517,18 @@ func prepaidRefundSlicesTx(ctx context.Context, tx pgx.Tx, operationKey string) 
 	)
 	for rows.Next() {
 		var slice prepaidRefundSlice
-		var rowCurrency string
-		if err := rows.Scan(&slice.OperationKey, &slice.PaymentIntent, &slice.Cents, &slice.RefundID, &rowCurrency); err != nil {
+		if err := rows.Scan(&slice.OperationKey, &slice.PaymentIntent, &slice.Cents, &slice.RefundID, &slice.Currency, &slice.Status); err != nil {
 			return nil, 0, "", err
 		}
+		if slice.Status == "failed" {
+			return nil, 0, "", fmt.Errorf("prepaid refund %s has a failed slice; use a new request reference", operationKey)
+		}
+		if slice.Status != "pending" && slice.Status != "succeeded" {
+			return nil, 0, "", fmt.Errorf("prepaid refund %s has unsupported slice status %q", operationKey, slice.Status)
+		}
 		if currency == "" {
-			currency = rowCurrency
-		} else if currency != rowCurrency {
+			currency = slice.Currency
+		} else if currency != slice.Currency {
 			return nil, 0, "", fmt.Errorf("prepaid refund %s mixes currencies", operationKey)
 		}
 		slices = append(slices, slice)
@@ -534,18 +546,195 @@ func prepaidRefundSlicesTx(ctx context.Context, tx pgx.Tx, operationKey string) 
 	return slices, total, currency, nil
 }
 
+// PendingPrepaidRefunds returns the provider slices that still hold a local
+// refund debit. The worker may safely retry each row: its operation key is the
+// same idempotency key used by the admin path, and provider IDs are immutable
+// once observed.
+func (s *Store) PendingPrepaidRefunds(ctx context.Context, limit int) ([]prepaidRefundSlice, error) {
+	if limit <= 0 || limit > 200 {
+		return nil, fmt.Errorf("prepaid refund recovery limit must be between 1 and 200")
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT operation_key, COALESCE(payment_intent,''), amount_cents, currency,
+		       COALESCE(stripe_refund_id,''), status
+		  FROM prepaid_refund_operations
+		 WHERE status='pending'
+		 ORDER BY created_at, operation_key
+		 LIMIT $1`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []prepaidRefundSlice
+	for rows.Next() {
+		var slice prepaidRefundSlice
+		if err := rows.Scan(&slice.OperationKey, &slice.PaymentIntent, &slice.Cents,
+			&slice.Currency, &slice.RefundID, &slice.Status); err != nil {
+			return nil, err
+		}
+		out = append(out, slice)
+	}
+	return out, rows.Err()
+}
+
+// RecordPrepaidRefundProviderID binds a durable provider object to exactly one
+// pending slice. It closes the crash window between a successful Stripe call
+// and local completion without allowing a later response to replace the ID.
+func (s *Store) RecordPrepaidRefundProviderID(
+	ctx context.Context, operationKey, paymentIntent, refundID string,
+) error {
+	operationKey = strings.TrimSpace(operationKey)
+	paymentIntent = strings.TrimSpace(paymentIntent)
+	refundID = strings.TrimSpace(refundID)
+	if operationKey == "" || !validStripeObjectID(paymentIntent, "pi_") || !validStripeObjectID(refundID, "re_") {
+		return fmt.Errorf("prepaid refund provider binding has invalid identity")
+	}
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE prepaid_refund_operations
+		   SET stripe_refund_id=$3
+		 WHERE operation_key=$1 AND payment_intent=$2 AND status='pending'
+		   AND (stripe_refund_id IS NULL OR stripe_refund_id=$3)`,
+		operationKey, paymentIntent, refundID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 1 {
+		return nil
+	}
+	var storedPI, storedRefundID, status string
+	err = s.pool.QueryRow(ctx, `
+		SELECT COALESCE(payment_intent,''), COALESCE(stripe_refund_id,''), status
+		  FROM prepaid_refund_operations WHERE operation_key=$1`, operationKey).
+		Scan(&storedPI, &storedRefundID, &status)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("prepaid refund slice %s is missing", operationKey)
+	}
+	if err != nil {
+		return err
+	}
+	if storedPI != paymentIntent || storedRefundID != refundID || (status != "pending" && status != "succeeded") {
+		return fmt.Errorf("prepaid refund slice %s has a conflicting provider binding", operationKey)
+	}
+	return nil
+}
+
+func prepaidRefundFailureRef(operationKey string) string {
+	return "prepaid-refund-failed-" + strings.TrimSpace(operationKey)
+}
+
+// FailPrepaidRefund closes a provider-terminal non-success state. Stripe has
+// not returned buyer cash in this state, so the local prepaid debit is
+// compensated exactly once and the failed slice cannot be mistaken for a
+// successful refund on a later replay.
+func (s *Store) FailPrepaidRefund(ctx context.Context, slice prepaidRefundSlice) error {
+	operationKey := strings.TrimSpace(slice.OperationKey)
+	refundID := strings.TrimSpace(slice.RefundID)
+	if operationKey == "" || !validStripeObjectID(refundID, "re_") {
+		return fmt.Errorf("failed prepaid refund requires an operation and provider refund id")
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var (
+		buyer          uuid.UUID
+		paymentIntent  string
+		amountCents    int64
+		currency       string
+		storedRefundID string
+		status         string
+	)
+	err = tx.QueryRow(ctx, `
+		SELECT buyer_id, COALESCE(payment_intent,''), amount_cents, currency,
+		       COALESCE(stripe_refund_id,''), status
+		  FROM prepaid_refund_operations
+		 WHERE operation_key=$1 FOR UPDATE`, operationKey).
+		Scan(&buyer, &paymentIntent, &amountCents, &currency, &storedRefundID, &status)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("prepaid refund slice %s is missing", operationKey)
+	}
+	if err != nil {
+		return err
+	}
+	identityMatches := storedRefundID == refundID && paymentIntent == slice.PaymentIntent &&
+		amountCents == slice.Cents && currency == slice.Currency
+	if status == "failed" {
+		if !identityMatches {
+			return fmt.Errorf("prepaid refund slice %s has a conflicting failure identity", operationKey)
+		}
+		return tx.Commit(ctx)
+	}
+	if status == "succeeded" {
+		return fmt.Errorf("prepaid refund slice %s already succeeded", operationKey)
+	}
+	if status != "pending" || !identityMatches {
+		return fmt.Errorf("prepaid refund slice %s has a conflicting failure identity", operationKey)
+	}
+	settlement, err := ParseCurrency(currency)
+	if err != nil {
+		return err
+	}
+	refundMicros, err := settlement.MinorToMicros(amountCents)
+	if err != nil {
+		return err
+	}
+	buyerCopy := buyer
+	inserted, err := insertLedgerEntryIfAbsentByRefTx(ctx, tx, ledgerInsert{
+		Kind: KindPrepaidBalanceReturn, BuyerID: &buyerCopy,
+		AmountMicros: refundMicros, Currency: currency,
+		CurrencyAuthority: ledgerCurrencyAuthorityPrepaid,
+		PayoutStatus:      PayoutReleased, PayoutRef: prepaidRefundFailureRef(operationKey),
+	})
+	if err != nil {
+		return err
+	}
+	if inserted.RowsAffected() == 1 {
+		if err := creditPrepaidBalanceTx(ctx, tx, buyer, refundMicros, currency); err != nil {
+			return err
+		}
+	}
+	updated, err := tx.Exec(ctx, `
+		UPDATE prepaid_refund_operations
+		   SET status='failed'
+		 WHERE operation_key=$1 AND status='pending' AND stripe_refund_id=$2`,
+		operationKey, refundID)
+	if err != nil {
+		return err
+	}
+	if updated.RowsAffected() != 1 {
+		return fmt.Errorf("prepaid refund slice %s failed status CAS", operationKey)
+	}
+	return tx.Commit(ctx)
+}
+
 // CompletePrepaidRefund records the provider's refund identifiers. It is the
 // only step allowed to run after the Stripe call, because it moves no money.
 func (s *Store) CompletePrepaidRefund(ctx context.Context, slices []prepaidRefundSlice) error {
 	for _, slice := range slices {
-		if strings.TrimSpace(slice.RefundID) == "" {
+		if !validStripeObjectID(slice.RefundID, "re_") {
 			return fmt.Errorf("prepaid refund %s has no provider refund id", slice.OperationKey)
 		}
-		if _, err := s.pool.Exec(ctx, `
+		tag, err := s.pool.Exec(ctx, `
 			UPDATE prepaid_refund_operations
 			   SET status='succeeded', stripe_refund_id=$2
-			 WHERE operation_key=$1 AND status='pending'`, slice.OperationKey, slice.RefundID); err != nil {
+			 WHERE operation_key=$1 AND status='pending'
+			   AND (stripe_refund_id IS NULL OR stripe_refund_id=$2)`, slice.OperationKey, slice.RefundID)
+		if err != nil {
 			return err
+		}
+		if tag.RowsAffected() == 1 {
+			continue
+		}
+		var storedID, status string
+		if err := s.pool.QueryRow(ctx, `
+			SELECT COALESCE(stripe_refund_id,''), status
+			  FROM prepaid_refund_operations WHERE operation_key=$1`, slice.OperationKey).
+			Scan(&storedID, &status); err != nil {
+			return err
+		}
+		if status != "succeeded" || storedID != strings.TrimSpace(slice.RefundID) {
+			return fmt.Errorf("prepaid refund %s has a conflicting completion identity", slice.OperationKey)
 		}
 	}
 	return nil
@@ -1244,9 +1433,9 @@ func debitPrepaidForServiceLeaseTx(ctx context.Context, tx pgx.Tx, buyerID, leas
 // Callers that reverse a prepaid_debit after spent has been zeroed MUST go
 // through restorePrepaidByDebitRefTx / restorePrepaidForTaskDebitTx (which
 // write KindPrepaidRestore and then call this). Bare credit without a restore
-// receipt is how phantom realtime capacity is minted. SLA materialisation is
-// the documented exception and uses KindPrepaidBalanceReturn via
-// restorePrepaidForSLAPremiumRefundTx.
+// receipt is how phantom realtime capacity is minted. Balance-only returns
+// such as SLA materialisation and failed external prepaid refunds use
+// KindPrepaidBalanceReturn through their own idempotent paths.
 func creditPrepaidBalanceTx(ctx context.Context, tx pgx.Tx, buyerID uuid.UUID, amountMicros int64, currency string) error {
 	if amountMicros <= 0 {
 		return fmt.Errorf("prepaid credit requires positive micro-units, got %d", amountMicros)

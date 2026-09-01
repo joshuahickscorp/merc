@@ -3151,7 +3151,7 @@ CREATE TABLE IF NOT EXISTS prepaid_refund_operations (
     buyer_id        UUID NOT NULL REFERENCES buyers(id) ON DELETE RESTRICT,
     amount_cents    BIGINT NOT NULL CHECK (amount_cents > 0),
     currency        TEXT NOT NULL CHECK (currency IN ('usd','cad','jpy')),
-    status          TEXT NOT NULL CHECK (status IN ('succeeded')),
+    status          TEXT NOT NULL CHECK (status IN ('pending','succeeded','failed')),
     stripe_refund_id TEXT UNIQUE,
     payment_intent  TEXT,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -3258,9 +3258,11 @@ BEGIN
 END $$;
 ALTER TABLE prepaid_refund_operations
     ADD CONSTRAINT prepaid_refund_status_supported
-    CHECK (status IN ('pending','succeeded'));
+    CHECK (status IN ('pending','succeeded','failed'));
 CREATE INDEX IF NOT EXISTS prepaid_refund_payment_intent_idx
     ON prepaid_refund_operations (payment_intent);
+CREATE INDEX IF NOT EXISTS prepaid_refund_pending_idx
+    ON prepaid_refund_operations (status, created_at, operation_key);
 
 -- refund_key names the refund a slice belongs to.  Membership used to be
 -- recovered with LIKE over the synthesised composite operation_key, and the

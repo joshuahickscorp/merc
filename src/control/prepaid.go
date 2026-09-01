@@ -291,16 +291,45 @@ func (s *Server) refundPrepaidRemainder(
 	}
 	refundIDs := make([]string, 0, len(plan.Slices))
 	for i, slice := range plan.Slices {
-		if slice.RefundID == "" {
-			// Deterministic per-slice key: a replay of this operation makes Stripe
-			// return the original refund rather than sending the cash a second time.
-			id, err := stripeCreateRefund(ctx, slice.PaymentIntent, slice.Cents, plan.Currency,
-				plan.OperationKey+"-"+slice.PaymentIntent)
-			if err != nil {
-				return nil, fmt.Errorf("refund %s is recorded but not transferred for %s; replay the same request_id: %w",
-					plan.OperationKey, slice.PaymentIntent, err)
+		if slice.Status == "succeeded" {
+			if !validStripeObjectID(slice.RefundID, "re_") {
+				return nil, fmt.Errorf("prepaid refund %s has a succeeded slice without a provider refund id", slice.OperationKey)
 			}
-			plan.Slices[i].RefundID = id
+			// A completed replay is answered from the durable row. Do not GET it
+			// again: the local success fact is already bound to this exact provider
+			// ID, and a provider read outage must not turn a completed refund into
+			// an apparent failure.
+			plan.Slices[i].RefundID = slice.RefundID
+			refundIDs = append(refundIDs, slice.RefundID)
+			continue
+		}
+		// A successful POST can be followed by a process crash before the local
+		// completion write. Persist the provider ID before doing anything else so
+		// the recovery path retrieves that exact refund instead of relying on a
+		// possibly cached idempotent POST response.
+		state, err := resolveStripePrepaidRefund(ctx, slice, plan.Currency)
+		if err != nil {
+			return nil, fmt.Errorf("refund %s is recorded but not transferred for %s; replay the same request_id: %w",
+				plan.OperationKey, slice.PaymentIntent, err)
+		}
+		if err := s.store.RecordPrepaidRefundProviderID(
+			ctx, slice.OperationKey, slice.PaymentIntent, state.ID,
+		); err != nil {
+			return nil, err
+		}
+		plan.Slices[i].RefundID = state.ID
+		if state.Status == "failed" || state.Status == "canceled" {
+			if err := s.store.FailPrepaidRefund(ctx, plan.Slices[i]); err != nil {
+				return nil, err
+			}
+			return nil, fmt.Errorf(
+				"stripe refund %s is %s; the prepaid balance was restored, use a new request_id to retry",
+				state.ID, state.Status)
+		}
+		if state.Status != "succeeded" {
+			return nil, fmt.Errorf(
+				"stripe refund %s remains %s; replay the same request_id or wait for refund recovery",
+				state.ID, state.Status)
 		}
 		refundIDs = append(refundIDs, plan.Slices[i].RefundID)
 	}
@@ -328,16 +357,32 @@ func (s *Server) refundPrepaidRemainder(
 	}, nil
 }
 
+type stripePrepaidRefundState struct {
+	ID     string
+	Status string
+}
+
+func resolveStripePrepaidRefund(
+	ctx context.Context, slice prepaidRefundSlice, currency string,
+) (stripePrepaidRefundState, error) {
+	if slice.RefundID != "" {
+		return stripeRetrievePrepaidRefund(ctx, slice, currency)
+	}
+	// Deterministic per-slice key: a replay of this operation makes Stripe
+	// return the original refund rather than sending the cash a second time.
+	return stripeCreateRefund(ctx, slice.PaymentIntent, slice.Cents, currency, slice.OperationKey)
+}
+
 func stripeCreateRefund(
 	ctx context.Context, paymentIntent string, minorUnits int64, currency, idemKey string,
-) (string, error) {
+) (stripePrepaidRefundState, error) {
 	paymentIntent = strings.TrimSpace(paymentIntent)
 	currency = strings.TrimSpace(currency)
 	if minorUnits <= 0 || !validStripeObjectID(paymentIntent, "pi_") {
-		return "", fmt.Errorf("invalid refund request")
+		return stripePrepaidRefundState{}, fmt.Errorf("invalid refund request")
 	}
 	if _, err := ParseCurrency(currency); err != nil {
-		return "", fmt.Errorf("invalid refund currency: %w", err)
+		return stripePrepaidRefundState{}, fmt.Errorf("invalid refund currency: %w", err)
 	}
 	form := url.Values{
 		"payment_intent": {paymentIntent},
@@ -345,44 +390,82 @@ func stripeCreateRefund(
 	}
 	out, err := stripeForm(ctx, "refunds", form, idemKey)
 	if err != nil {
-		return "", err
+		return stripePrepaidRefundState{}, err
 	}
-	return parseStripePrepaidRefundResponse(out, paymentIntent, minorUnits, currency)
+	return parseStripePrepaidRefundState(out, paymentIntent, minorUnits, currency)
+}
+
+func stripeRetrievePrepaidRefund(
+	ctx context.Context, slice prepaidRefundSlice, currency string,
+) (stripePrepaidRefundState, error) {
+	if !validStripeObjectID(slice.RefundID, "re_") {
+		return stripePrepaidRefundState{}, fmt.Errorf("invalid stored Stripe refund id")
+	}
+	out, err := stripeGet(ctx, "refunds/"+url.PathEscape(strings.TrimSpace(slice.RefundID)))
+	if err != nil {
+		return stripePrepaidRefundState{}, err
+	}
+	state, err := parseStripePrepaidRefundState(out, slice.PaymentIntent, slice.Cents, currency)
+	if err != nil {
+		return stripePrepaidRefundState{}, err
+	}
+	if state.ID != strings.TrimSpace(slice.RefundID) {
+		return stripePrepaidRefundState{}, fmt.Errorf(
+			"retrieved Stripe refund %s does not match stored refund %s",
+			state.ID, strings.TrimSpace(slice.RefundID))
+	}
+	return state, nil
+}
+
+func parseStripePrepaidRefundState(
+	out map[string]any, paymentIntent string, minorUnits int64, currency string,
+) (stripePrepaidRefundState, error) {
+	paymentIntent = strings.TrimSpace(paymentIntent)
+	wantCurrency, err := ParseCurrency(currency)
+	if minorUnits <= 0 || !validStripeObjectID(paymentIntent, "pi_") || err != nil {
+		return stripePrepaidRefundState{}, fmt.Errorf("stripe refund response does not match the requested durable slice")
+	}
+	id, err := parseStripeProviderObjectID(out, "refund", "refund", "re_")
+	if err != nil {
+		return stripePrepaidRefundState{}, err
+	}
+	amount, err := stripeIntegerField(out, "amount")
+	if err != nil {
+		return stripePrepaidRefundState{}, fmt.Errorf("stripe refund %s has an invalid amount: %w", id, err)
+	}
+	if amount != minorUnits {
+		return stripePrepaidRefundState{}, fmt.Errorf("stripe refund %s amount %d does not match requested %d", id, amount, minorUnits)
+	}
+	returnedCurrency, _ := out["currency"].(string)
+	gotCurrency, err := ParseCurrency(returnedCurrency)
+	if err != nil || !gotCurrency.Equal(wantCurrency) {
+		return stripePrepaidRefundState{}, fmt.Errorf("stripe refund %s currency %q does not match requested %q", id, returnedCurrency, wantCurrency.Code())
+	}
+	returnedPI, err := stripeExpandableMapID(out, "payment_intent", "payment_intent")
+	if err != nil || strings.TrimSpace(returnedPI) != paymentIntent {
+		return stripePrepaidRefundState{}, fmt.Errorf("stripe refund %s PaymentIntent does not match requested %s", id, paymentIntent)
+	}
+	status, _ := out["status"].(string)
+	status = strings.TrimSpace(status)
+	switch status {
+	case "pending", "requires_action", "succeeded", "failed", "canceled":
+	default:
+		return stripePrepaidRefundState{}, fmt.Errorf("stripe refund %s has unsupported status %q", id, status)
+	}
+	return stripePrepaidRefundState{ID: id, Status: status}, nil
 }
 
 func parseStripePrepaidRefundResponse(
 	out map[string]any, paymentIntent string, minorUnits int64, currency string,
 ) (string, error) {
-	paymentIntent = strings.TrimSpace(paymentIntent)
-	wantCurrency, err := ParseCurrency(currency)
-	if minorUnits <= 0 || !validStripeObjectID(paymentIntent, "pi_") || err != nil {
-		return "", fmt.Errorf("stripe refund response does not match the requested durable slice")
-	}
-	id, err := parseStripeProviderObjectID(out, "refund", "refund", "re_")
+	state, err := parseStripePrepaidRefundState(out, paymentIntent, minorUnits, currency)
 	if err != nil {
 		return "", err
 	}
-	amount, err := stripeIntegerField(out, "amount")
-	if err != nil {
-		return "", fmt.Errorf("stripe refund %s has an invalid amount: %w", id, err)
+	if state.Status != "succeeded" {
+		return "", fmt.Errorf("stripe refund %s is not complete (status %q); leave the durable slice pending", state.ID, state.Status)
 	}
-	if amount != minorUnits {
-		return "", fmt.Errorf("stripe refund %s amount %d does not match requested %d", id, amount, minorUnits)
-	}
-	returnedCurrency, _ := out["currency"].(string)
-	gotCurrency, err := ParseCurrency(returnedCurrency)
-	if err != nil || !gotCurrency.Equal(wantCurrency) {
-		return "", fmt.Errorf("stripe refund %s currency %q does not match requested %q", id, returnedCurrency, wantCurrency.Code())
-	}
-	returnedPI, err := stripeExpandableMapID(out, "payment_intent", "payment_intent")
-	if err != nil || strings.TrimSpace(returnedPI) != paymentIntent {
-		return "", fmt.Errorf("stripe refund %s PaymentIntent does not match requested %s", id, paymentIntent)
-	}
-	status, _ := out["status"].(string)
-	if status != "succeeded" {
-		return "", fmt.Errorf("stripe refund %s is not complete (status %q); leave the durable slice pending", id, status)
-	}
-	return id, nil
+	return state.ID, nil
 }
 
 // reconcilePrepaidTopup is the webhook path for payment_intent.succeeded when

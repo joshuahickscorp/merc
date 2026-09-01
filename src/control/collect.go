@@ -846,6 +846,9 @@ func (wk *Workers) collectCharges(ctx context.Context) error {
 		log.Print("workers: charge-collect: skipped  -  billing not configured (STRIPE_SECRET_KEY unset), nothing charged or faked")
 		return nil
 	}
+	if err := wk.recoverPrepaidRefunds(ctx); err != nil {
+		return err
+	}
 
 	batches, err := wk.store.AttemptingChargeBatches(ctx, sweepBatch)
 	if err != nil {
@@ -926,6 +929,49 @@ func (wk *Workers) collectCharges(ctx context.Context) error {
 	for _, pi := range pendingAllocations {
 		if _, aerr := wk.store.AllocateBatchStripeFee(ctx, pi); aerr != nil {
 			log.Printf("workers: charge-collect: batch fee allocation for pi %s: %v (retried next tick)", pi, aerr)
+		}
+	}
+	return nil
+}
+
+// recoverPrepaidRefunds converges provider state for every locally debited
+// prepaid refund slice. The provider ID is persisted before any terminal local
+// transition, so a crash after a successful Stripe response can only leave a
+// pending row that the next sweep retrieves by exact ID. Failed/canceled
+// refunds compensate the local debit once; pending states remain owed and are
+// retried on a later sweep.
+func (wk *Workers) recoverPrepaidRefunds(ctx context.Context) error {
+	slices, err := wk.store.PendingPrepaidRefunds(ctx, sweepBatch)
+	if err != nil {
+		return err
+	}
+	for _, slice := range slices {
+		state, err := resolveStripePrepaidRefund(ctx, slice, slice.Currency)
+		if err != nil {
+			log.Printf("workers: charge-collect: prepaid refund recovery %s (%s): %v; row remains pending", slice.OperationKey, slice.PaymentIntent, err)
+			continue
+		}
+		if err := wk.store.RecordPrepaidRefundProviderID(
+			ctx, slice.OperationKey, slice.PaymentIntent, state.ID,
+		); err != nil {
+			log.Printf("workers: charge-collect: binding prepaid refund recovery %s to %s: %v; row remains pending", slice.OperationKey, state.ID, err)
+			continue
+		}
+		slice.RefundID = state.ID
+		switch state.Status {
+		case "succeeded":
+			if err := wk.store.CompletePrepaidRefund(ctx, []prepaidRefundSlice{slice}); err != nil {
+				log.Printf("workers: charge-collect: completing prepaid refund recovery %s: %v; row remains pending", slice.OperationKey, err)
+			}
+		case "failed", "canceled":
+			if err := wk.store.FailPrepaidRefund(ctx, slice); err != nil {
+				log.Printf("workers: charge-collect: compensating terminal prepaid refund %s: %v; row remains pending", slice.OperationKey, err)
+				continue
+			}
+			log.Printf("workers: charge-collect: Stripe prepaid refund %s is %s; restored the local prepaid balance", state.ID, state.Status)
+		case "pending", "requires_action":
+			// The exact provider ID is now durable. A later sweep will retrieve
+			// it rather than issuing another create request.
 		}
 	}
 	return nil

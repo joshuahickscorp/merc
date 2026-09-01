@@ -552,6 +552,153 @@ func TestPrepaidRefundIsDurableBeforeStripe(t *testing.T) {
 	}
 }
 
+// TestPrepaidRefundPendingConvergesByProviderID pins the provider state
+// machine: Stripe may accept a refund as pending, so local cash stays debited
+// while the provider ID is recorded. The charge sweep later retrieves that
+// exact refund and completes the durable slice without another create call.
+func TestPrepaidRefundPendingConvergesByProviderID(t *testing.T) {
+	store, pool, ctx := prepaidTestStore(t)
+	buyerID := insertTestBuyer(t, pool, ctx)
+	actor := insertTestAdminActor(t, pool, ctx)
+	var posts, gets atomic.Int64
+	var status atomic.Value
+	var paymentIntent atomic.Value
+	status.Store("pending")
+	withStripeTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/refunds":
+			posts.Add(1)
+			_ = r.ParseForm()
+			paymentIntent.Store(r.Form.Get("payment_intent"))
+			fmt.Fprintf(w, `{"object":"refund","id":"re_pending","amount":%s,"currency":%q,"payment_intent":%q,"status":%q}`,
+				r.Form.Get("amount"), SettlementCurrencyCode(), r.Form.Get("payment_intent"), status.Load().(string))
+		case r.Method == http.MethodGet && r.URL.Path == "/refunds/re_pending":
+			gets.Add(1)
+			fmt.Fprintf(w, `{"object":"refund","id":"re_pending","amount":2500,"currency":%q,"payment_intent":%q,"status":%q}`,
+				SettlementCurrencyCode(), paymentIntent.Load().(string), status.Load().(string))
+		default:
+			t.Fatalf("unexpected Stripe request %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	fundPrepaidViaTopup(t, ctx, store, buyerID, 2500)
+	server := &Server{store: store}
+	correlation := adminTestRef("INC-pending")
+	if _, err := server.refundPrepaidRemainder(ctx, actor, buyerID, "closed", correlation); err == nil {
+		t.Fatal("pending Stripe refund reported success")
+	} else if !strings.Contains(err.Error(), "remains pending") {
+		t.Fatalf("pending Stripe refund error = %v, want pending state", err)
+	}
+	if got := posts.Load(); got != 1 {
+		t.Fatalf("Stripe refund POSTs after pending response = %d, want 1", got)
+	}
+	bal, err := store.BuyerPrepaidBalanceMicros(ctx, buyerID)
+	mustf(t, err, "pending balance: %v")
+	if bal != 0 {
+		t.Fatalf("balance after pending refund = %d, want 0 until provider success", bal)
+	}
+	var storedID, storedStatus string
+	if err := pool.QueryRow(ctx, `
+		SELECT COALESCE(stripe_refund_id,''), status
+		  FROM prepaid_refund_operations
+		 WHERE buyer_id=$1`, buyerID).Scan(&storedID, &storedStatus); err != nil {
+		t.Fatal(err)
+	}
+	if storedID != "re_pending" || storedStatus != "pending" {
+		t.Fatalf("durable pending refund = id %q status %q, want re_pending/pending", storedID, storedStatus)
+	}
+
+	status.Store("succeeded")
+	if err := (&Workers{store: store}).recoverPrepaidRefunds(ctx); err != nil {
+		t.Fatalf("recover pending refund: %v", err)
+	}
+	if got := posts.Load(); got != 1 {
+		t.Fatalf("Stripe refund POSTs after recovery = %d, want 1", got)
+	}
+	if got := gets.Load(); got != 1 {
+		t.Fatalf("Stripe refund GETs after recovery = %d, want 1", got)
+	}
+	if err := pool.QueryRow(ctx, `
+		SELECT status FROM prepaid_refund_operations WHERE buyer_id=$1`, buyerID).Scan(&storedStatus); err != nil {
+		t.Fatal(err)
+	}
+	if storedStatus != "succeeded" {
+		t.Fatalf("recovered refund status = %q, want succeeded", storedStatus)
+	}
+
+	// A replay after local completion is answered from the durable success row;
+	// it does not depend on Stripe availability or issue another read/create.
+	result, err := server.refundPrepaidRemainder(ctx, actor, buyerID, "closed", correlation)
+	mustf(t, err, "completed pending replay: %v")
+	if replayed, _ := result["replayed"].(bool); !replayed {
+		t.Fatalf("completed pending refund was not reported as replayed: %v", result)
+	}
+	if got := gets.Load(); got != 1 {
+		t.Fatalf("Stripe refund GETs after completed replay = %d, want 1", got)
+	}
+}
+
+// TestPrepaidRefundFailureRestoresBalanceOnce ensures a provider-terminal
+// failure does not leave the buyer's local liability stranded or silently
+// retry the same failed incident. The compensation has its own typed ledger
+// receipt and a new request reference is required for a fresh provider call.
+func TestPrepaidRefundFailureRestoresBalanceOnce(t *testing.T) {
+	store, pool, ctx := prepaidTestStore(t)
+	buyerID := insertTestBuyer(t, pool, ctx)
+	actor := insertTestAdminActor(t, pool, ctx)
+	var posts atomic.Int64
+	withStripeTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/refunds" {
+			t.Fatalf("unexpected Stripe request %s %s", r.Method, r.URL.Path)
+		}
+		posts.Add(1)
+		_ = r.ParseForm()
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"object":"refund","id":"re_failed","amount":%s,"currency":%q,"payment_intent":%q,"status":"failed"}`,
+			r.Form.Get("amount"), SettlementCurrencyCode(), r.Form.Get("payment_intent"))
+	}))
+	fundPrepaidViaTopup(t, ctx, store, buyerID, 2500)
+	server := &Server{store: store}
+	correlation := adminTestRef("INC-failed")
+	if _, err := server.refundPrepaidRemainder(ctx, actor, buyerID, "closed", correlation); err == nil {
+		t.Fatal("failed Stripe refund reported success")
+	} else if !strings.Contains(err.Error(), "balance was restored") {
+		t.Fatalf("failed Stripe refund error = %v, want restored-balance message", err)
+	}
+	bal, err := store.BuyerPrepaidBalanceMicros(ctx, buyerID)
+	mustf(t, err, "failed balance: %v")
+	if bal != 25_000_000 {
+		t.Fatalf("balance after failed refund = %d, want 25000000", bal)
+	}
+	var status string
+	if err := pool.QueryRow(ctx, `
+		SELECT status FROM prepaid_refund_operations WHERE buyer_id=$1`, buyerID).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if status != "failed" {
+		t.Fatalf("failed refund row status = %q, want failed", status)
+	}
+	var returns int
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*) FROM ledger_entries
+		 WHERE buyer_id=$1 AND kind=$2 AND payout_ref LIKE 'prepaid-refund-failed-%'`,
+		buyerID, KindPrepaidBalanceReturn).Scan(&returns); err != nil {
+		t.Fatal(err)
+	}
+	if returns != 1 {
+		t.Fatalf("failed refund balance-return receipts = %d, want 1", returns)
+	}
+
+	if _, err := server.refundPrepaidRemainder(ctx, actor, buyerID, "closed", correlation); err == nil {
+		t.Fatal("failed refund replay reported success")
+	} else if !strings.Contains(err.Error(), "failed slice") {
+		t.Fatalf("failed refund replay error = %v, want failed-slice refusal", err)
+	}
+	if got := posts.Load(); got != 1 {
+		t.Fatalf("Stripe refund POSTs after failed replay = %d, want 1", got)
+	}
+}
+
 // TestPrepaidRefundReplayCannotAdoptAnotherRefundsSlices pins the money bug in
 // slice recovery. Correlation references are operator-typed and only
 // length-checked (admin_mutation_audit.go), so "INC-100%" is an accepted

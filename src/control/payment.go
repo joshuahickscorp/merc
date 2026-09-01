@@ -34,13 +34,15 @@ const (
 	// buyer_charge — the formula matches the kind, not a payout_ref prefix.
 	// Not a cash top-up.
 	KindPrepaidRestore = "prepaid_restore"
-	// KindPrepaidBalanceReturn re-materialises prepaid cash when the matching
-	// buyer_charge remains inside the spent sum (SLA premium miss: sla_refund
-	// is not in buyer spent). Positive amount. Does NOT enter capacity
-	// prepaidDebited netting — the debit must keep cancelling the still-present
-	// charge. Not a cash top-up. Typed distinctly from KindPrepaidRestore so a
-	// future writer cannot silently fail to net (or incorrectly net) by
-	// forgetting a string prefix.
+	// KindPrepaidBalanceReturn re-materialises prepaid cash when no
+	// prepaid-debit capacity netting is needed: for example, an SLA premium
+	// miss where sla_refund is outside buyer spent, or a terminal external
+	// prepaid-refund failure where the original debit must be returned locally.
+	// Positive amount. Does NOT enter capacity prepaidDebited netting — the
+	// debit must keep cancelling any still-present buyer_charge. Not a cash
+	// top-up. Typed distinctly from KindPrepaidRestore so a future writer
+	// cannot silently fail to net (or incorrectly net) by forgetting a string
+	// prefix.
 	KindPrepaidBalanceReturn = "prepaid_balance_return"
 	KindPrepaidRefund        = "prepaid_refund"
 	KindStripeFee            = "stripe_fee"

@@ -303,6 +303,8 @@ var declaredMoneyAuthority = []string{
 	"Server.loadCurrentPublicCatalogue",                   // api.go
 	"Server.normalizeWorkloadRequest",                     // job_submit_validate.go
 	"Server.refundPrepaidRemainder",                       // prepaid.go
+	"resolveStripePrepaidRefund",                          // prepaid.go
+	"stripeRetrievePrepaidRefund",                         // prepaid.go
 	"Server.tryRealtimeCoalescedDelivery",                 // realtime.go
 	"Server.tryRealtimeExactReuse",                        // realtime.go
 	"SettleRealtimeReuseHitMoney",                         // exact_reuse.go
@@ -331,6 +333,7 @@ var declaredMoneyAuthority = []string{
 	"Store.DebitPrepaidForTask",                           // store_prepaid.go
 	"Store.DeferPayout",                                   // store_payouts.go
 	"Store.EvaluateCellPromotion",                         // runtime_cell_promotion.go
+	"Store.FailPrepaidRefund",                             // store_prepaid.go
 	"Store.FailoverPendingServiceLeases",                  // service_leases.go
 	"Store.FinalizeExpiredServiceLeases",                  // service_leases.go
 	"Store.FinalizeJobTx",                                 // store_jobs.go
@@ -426,6 +429,7 @@ var declaredMoneyAuthority = []string{
 	"Workers.processReversals",                            // workers.go
 	"Workers.reconcileLedger",                             // reconcile.go
 	"Workers.recoverOrphanEnvelopeSpends",                 // workers.go
+	"Workers.recoverPrepaidRefunds",                       // collect.go
 	"Workers.recoverRealtimeContracts",                    // workers.go
 	"Workers.recoverServiceLeases",                        // workers.go
 	"Workers.recoverVerification",                         // workers.go

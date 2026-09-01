@@ -140,9 +140,10 @@ func evaluateRealtimeBuyerFunding(ctx context.Context, tx pgx.Tx, buyerID uuid.U
 	// +prepaidDebited undoes double-count: spent includes buyer_charge while
 	// balance already fell on prepaid_debit. Every KindPrepaidRestore nets that
 	// add-back when buyer_refund has zeroed spent (realtime refund, dispute
-	// refund). SLA premium materialisation uses KindPrepaidBalanceReturn and
-	// deliberately does not enter this sum — sla_refund is outside spent, so
-	// the debit must keep cancelling the still-present premium charge.
+	// refund). SLA premium materialisation and terminal external-refund
+	// compensation use KindPrepaidBalanceReturn and deliberately do not enter
+	// this sum — sla_refund is outside spent, and the external refund has no
+	// settled buyer_charge to net, so this kind must remain balance-only.
 	availableMicros := usdToMicros(freeCredit) + prepaidMicros -
 		usdToMicros(spent) + usdToMicros(prepaidDebited) -
 		committedMicros
