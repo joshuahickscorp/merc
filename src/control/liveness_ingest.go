@@ -380,7 +380,7 @@ func (s *Store) flushLivenessHeartbeatBatch(ctx context.Context, batch []*livene
 	// The key matches the UPDATE's WHERE clause, supplier included: keying on
 	// (worker, profile) alone would let a wrong-supplier item evict the
 	// legitimate one for the same offer and fail them both.
-	winner := make(map[string]int, len(batch))
+	winner := make(map[updatedOfferKey]int, len(batch))
 	for i, item := range batch {
 		key := updatedRowKey(item.worker.WorkerID, item.worker.SupplierID, item.hb.RuntimeProfileID)
 		if prev, ok := winner[key]; ok && batch[prev].observedAt.After(item.observedAt) {
@@ -469,7 +469,7 @@ func (s *Store) flushLivenessHeartbeatBatch(ctx context.Context, batch []*livene
 		outputRate float64
 		status     string
 	}
-	updated := make(map[string]updatedRow, len(batch))
+	updated := make(map[updatedOfferKey]updatedRow, len(batch))
 	for rows.Next() {
 		var u updatedRow
 		if err := rows.Scan(&u.workerID, &u.supplierID, &u.profileID, &u.profileSHA,
@@ -559,9 +559,18 @@ func (s *Store) flushLivenessHeartbeatBatch(ctx context.Context, batch []*livene
 // updatedRowKey identifies a successfully updated offer. supplier_id is part of
 // the key because the UPDATE matches on it: without it, a batch containing a
 // correct-supplier and a wrong-supplier heartbeat for the same
-// (worker, profile) would report success to both.
-func updatedRowKey(workerID, supplierID uuid.UUID, profileID string) string {
-	return workerID.String() + "|" + supplierID.String() + "|" + profileID
+// (worker, profile) would report success to both. Keep this comparable value
+// typed rather than formatting UUIDs into a string: every heartbeat in a batch
+// takes this path twice, and the string form allocates for both the map key and
+// its concatenated components.
+type updatedOfferKey struct {
+	workerID   uuid.UUID
+	supplierID uuid.UUID
+	profileID  string
+}
+
+func updatedRowKey(workerID, supplierID uuid.UUID, profileID string) updatedOfferKey {
+	return updatedOfferKey{workerID: workerID, supplierID: supplierID, profileID: profileID}
 }
 
 // heartbeatRealtimeOfferOne is the single-device durable write. last_seen_at is

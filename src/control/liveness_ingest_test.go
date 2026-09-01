@@ -56,6 +56,19 @@ func TestResolveHeartbeatObservationClampAndReject(t *testing.T) {
 	}
 }
 
+var benchmarkUpdatedOfferKeySink updatedOfferKey
+
+func BenchmarkUpdatedRowKey(b *testing.B) {
+	workerID := uuid.MustParse("00000000-0000-0000-0000-000000000001")
+	supplierID := uuid.MustParse("00000000-0000-0000-0000-000000000002")
+	profileID := "vllm-cx-chat-1b"
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		benchmarkUpdatedOfferKeySink = updatedRowKey(workerID, supplierID, profileID)
+	}
+}
+
 func TestRealtimeHeartbeatHTTPRequiresWorkerAuth(t *testing.T) {
 	// Prove there is no unauthenticated liveness write path on the production
 	// HTTP surface. Building device-supplied timestamps on top of an open
