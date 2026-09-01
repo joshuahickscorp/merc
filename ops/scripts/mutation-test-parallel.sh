@@ -609,8 +609,24 @@ baseline_started="$(date +%s)"
   cd "$candidate_baseline_worktree/$control_module_rel" &&
     exec env -u MERC_TEST_DATABASE_URL MERC_ALLOW_SKIPPING_DB_TESTS=1 \
       go test -count=1 -timeout="${baseline_measure_timeout}s" ./...
-) >"$run_root/candidate-unit-baseline.log" 2>&1
-baseline_status=$?
+) >"$run_root/candidate-unit-baseline.log" 2>&1 &
+candidate_baseline_pid="$!"
+
+# Worktree and LFS hydration have no mutable state in common with the clean
+# baseline. Materialize every exact worker checkout while that baseline runs;
+# keep PostgreSQL and all contract execution after the baseline so its timing
+# remains a useful suite-budget measurement rather than a loaded DB probe.
+for ((worker = 1; worker <= workers; worker++)); do
+  prepare_worker_worktree "$worker"
+done
+prepare_exact_worktree "$aggregate_unit_worktree" "aggregate unit proof"
+
+if wait "$candidate_baseline_pid"; then
+  baseline_status=0
+else
+  baseline_status=$?
+fi
+candidate_baseline_pid=""
 baseline_finished="$(date +%s)"
 measured_baseline_seconds=$((baseline_finished - baseline_started))
 if [ "$baseline_status" -ne 0 ]; then
@@ -629,17 +645,6 @@ fi
 export MERC_MUTATION_SUITE_TIMEOUT="$suite_timeout_seconds"
 printf 'parallel-mutation-test: measured baseline B=%ss; suite timeout=%ss (explicit=%s, multiplier=3, floor=120s)\n' \
   "$measured_baseline_seconds" "$suite_timeout_seconds" "$suite_timeout_explicit"
-
-# Materialize the database-preflight workers plus the aggregate unit proof
-# worktree. The candidate unit baseline already completed above; remaining clean
-# proofs run under the derived suite budget. Dedicated worktrees are essential:
-# some contract tests can write repository evidence when explicitly armed, so
-# concurrent Go processes never share one checkout even under a hostile
-# inherited environment.
-for ((worker = 1; worker <= preflight_db_lanes; worker++)); do
-  prepare_worker_worktree "$worker"
-done
-prepare_exact_worktree "$aggregate_unit_worktree" "aggregate unit proof"
 
 aggregate_selector="$(cd "${worktrees[0]}" && python3 ops/scripts/mutation-preflight-cache.py \
   --root . --sources "$preflight_sources_file" --selector)" || exit 1
@@ -712,9 +717,6 @@ done
 
 # Finish the worker fleet while all four default proof lanes are already live.
 for ((worker = preflight_db_lanes + 1; worker <= workers; worker++)); do
-  prepare_worker_worktree "$worker"
-done
-for ((worker = preflight_db_lanes + 1; worker <= workers; worker++)); do
   start_worker_cluster "$worker"
   restore_template_snapshot "$worker" &
   template_pids+=("$!")
@@ -736,10 +738,9 @@ if [ "$template_failed" -ne 0 ]; then
 fi
 
 # No mutation starts until every exact-candidate prerequisite has completed.
-# The candidate unit baseline already completed (and derived the suite budget)
+# The candidate unit baseline and every exact worker checkout already completed
 # before these parallel proofs were launched.
 preflight_failed=0
-candidate_baseline_pid=""
 if ! wait "$aggregate_unit_pid"; then
   echo "parallel-mutation-test: aggregate unit contract preflight failed" >&2
   cat "$run_root/preflight-unit.json" >&2 || true
