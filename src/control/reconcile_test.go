@@ -12,12 +12,15 @@ import (
 
 func TestStripePayoutReconciliationRequiresExactTransferReferences(t *testing.T) {
 	expected := []StripePayoutTransferExpectation{
-		{TransferRef: "tr_expected", SentCents: 100, Currency: "usd"},
+		{TransferRef: "tr_expected", SentCents: 100, Currency: "usd", PayoutKey: "payout-expected"},
 	}
 
 	t.Run("exact reference and amount", func(t *testing.T) {
 		actual := stripeTransferSnapshot{Transfers: map[string]stripeTransferObservation{
-			"tr_expected": {ID: "tr_expected", AmountCents: 100, Currency: "usd"},
+			"tr_expected": {
+				ID: "tr_expected", AmountCents: 100, Currency: "usd",
+				TransferGroup: "cxpo_payout-expected", PayoutKey: "payout-expected",
+			},
 		}}
 		if err := compareStripePayoutTransfers(expected, actual); err != nil {
 			t.Fatalf("exact transfer set rejected: %v", err)
@@ -44,17 +47,58 @@ func TestStripePayoutReconciliationRequiresExactTransferReferences(t *testing.T)
 	})
 
 	for name, provider := range map[string]stripeTransferObservation{
-		"amount drift":   {ID: "tr_expected", AmountCents: 101, Currency: "usd"},
-		"currency drift": {ID: "tr_expected", AmountCents: 100, Currency: "cad"},
+		"amount drift":   {ID: "tr_expected", AmountCents: 101, Currency: "usd", TransferGroup: "cxpo_payout-expected", PayoutKey: "payout-expected"},
+		"currency drift": {ID: "tr_expected", AmountCents: 100, Currency: "cad", TransferGroup: "cxpo_payout-expected", PayoutKey: "payout-expected"},
+		"transfer group drift": {
+			ID: "tr_expected", AmountCents: 100, Currency: "usd",
+			TransferGroup: "cxpo_other", PayoutKey: "payout-expected",
+		},
+		"payout metadata drift": {
+			ID: "tr_expected", AmountCents: 100, Currency: "usd",
+			TransferGroup: "cxpo_payout-expected", PayoutKey: "payout-other",
+		},
+		"missing payout binding": {
+			ID: "tr_expected", AmountCents: 100, Currency: "usd",
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			err := compareStripePayoutTransfers(expected, stripeTransferSnapshot{
 				Transfers: map[string]stripeTransferObservation{"tr_expected": provider},
 			})
-			if err == nil || !strings.Contains(err.Error(), "differs") {
+			if err == nil {
+				t.Fatalf("provider %s accepted: %v", name, err)
+			}
+			if (strings.Contains(name, "amount") || strings.Contains(name, "currency")) &&
+				!strings.Contains(err.Error(), "differs") {
+				t.Fatalf("provider %s returned the wrong error: %v", name, err)
+			}
+			if (strings.Contains(name, "group") || strings.Contains(name, "metadata") || strings.Contains(name, "binding")) &&
+				!strings.Contains(err.Error(), "binding") {
 				t.Fatalf("provider %s accepted: %v", name, err)
 			}
 		})
+	}
+}
+
+func TestStripePayoutReconciliationReadsTransferBinding(t *testing.T) {
+	installSettlementCurrencyForTest(t, "usd")
+	withStripeTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/transfers" || r.URL.Query().Get("destination") != "acct_bound" {
+			t.Errorf("request = %s", r.URL.String())
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"object":"list","data":[{"object":"transfer","id":"tr_bound","destination":"acct_bound","amount":100,"currency":"usd","transfer_group":"cxpo_payout-expected","metadata":{"cx_payout_key":"payout-expected"}}],"has_more":false}`)
+	}))
+	snapshot, err := fetchStripeTransferSnapshot(context.Background(), "acct_bound")
+	if err != nil {
+		t.Fatalf("fetch transfer snapshot: %v", err)
+	}
+	err = compareStripePayoutTransfers(
+		[]StripePayoutTransferExpectation{{TransferRef: "tr_bound", SentCents: 100, Currency: "usd", PayoutKey: "payout-expected"}},
+		snapshot,
+	)
+	if err != nil {
+		t.Fatalf("provider transfer binding rejected: %v", err)
 	}
 }
 
@@ -89,7 +133,8 @@ func TestStoreStripePayoutReconciliationInputsIncludeIdleAccounts(t *testing.T) 
 	var expected bool
 	for _, expectation := range expectations {
 		if expectation.SupplierID == f.supplierID && expectation.TransferRef == transferRef &&
-			expectation.SentCents == f.creditCents && expectation.Currency == f.currency {
+			expectation.SentCents == f.creditCents && expectation.Currency == f.currency &&
+			expectation.PayoutKey == f.entryID.String() {
 			expected = true
 			break
 		}

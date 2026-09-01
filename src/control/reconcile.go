@@ -175,9 +175,11 @@ func (wk *Workers) reconcileLedger(ctx context.Context) error {
 }
 
 type stripeTransferObservation struct {
-	ID          string
-	AmountCents int64
-	Currency    string
+	ID            string
+	AmountCents   int64
+	Currency      string
+	TransferGroup string
+	PayoutKey     string
 }
 
 type stripeTransferSnapshot struct {
@@ -214,6 +216,12 @@ func compareStripePayoutTransfers(expected []StripePayoutTransferExpectation, ac
 			return fmt.Errorf("Stripe transfer %s differs from Merc payout: provider=%d %s ledger=%d %s",
 				id, providerTransfer.AmountCents, providerTransfer.Currency,
 				expectedTransfer.SentCents, expectedTransfer.Currency)
+		}
+		if expectedTransfer.PayoutKey != "" &&
+			(providerTransfer.TransferGroup != "cxpo_"+expectedTransfer.PayoutKey ||
+				providerTransfer.PayoutKey != expectedTransfer.PayoutKey) {
+			return fmt.Errorf("Stripe transfer %s has a mismatched Merc payout binding: group=%q payout_key=%q expected=%q",
+				id, providerTransfer.TransferGroup, providerTransfer.PayoutKey, expectedTransfer.PayoutKey)
 		}
 	}
 
@@ -309,9 +317,17 @@ func fetchStripeTransferSnapshot(ctx context.Context, acct string) (stripeTransf
 			if amt > math.MaxInt64-snapshot.TotalMinorUnits {
 				return stripeTransferSnapshot{}, fmt.Errorf("stripe transfers: amount total overflows settlement range")
 			}
+			transferGroup, _ := t["transfer_group"].(string)
+			payoutKey := ""
+			if rawMetadata, ok := t["metadata"].(map[string]any); ok {
+				if rawPayoutKey, ok := rawMetadata["cx_payout_key"].(string); ok {
+					payoutKey = strings.TrimSpace(rawPayoutKey)
+				}
+			}
 			snapshot.TotalMinorUnits += amt
 			snapshot.Transfers[id] = stripeTransferObservation{
 				ID: id, AmountCents: amt, Currency: currency,
+				TransferGroup: strings.TrimSpace(transferGroup), PayoutKey: payoutKey,
 			}
 			lastID = id
 		}

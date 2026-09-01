@@ -41,13 +41,15 @@ type StripeSupplierAccount struct {
 
 // StripePayoutTransferExpectation is the exact provider evidence Merc expects
 // for one cash-moving supplier payout. Aggregate amounts are useful for a
-// dashboard, but an exact reference set is what prevents an equal-sized rogue
-// transfer from masking a missing or replaced payout.
+// dashboard, but an exact reference set plus the durable payout binding is
+// what prevents an equal-sized or same-reference mutation from masking a
+// missing or replaced payout.
 type StripePayoutTransferExpectation struct {
 	SupplierID  uuid.UUID
 	TransferRef string
 	SentCents   int64
 	Currency    string
+	PayoutKey   string
 }
 
 func (s *Store) ListPayoutsAdmin(ctx context.Context) ([]AdminPayout, error) {
@@ -122,10 +124,11 @@ func (s *Store) ListSupplierStripeAccounts(ctx context.Context) ([]StripeSupplie
 
 // ListStripePayoutTransferExpectations returns the durable set of Stripe
 // transfers that Merc has recorded as cash moved. The provider reconciliation
-// path compares this set by reference, amount, and currency—not just by sum.
+// path compares this set by reference, amount, currency, and durable payout
+// binding—not just by sum.
 func (s *Store) ListStripePayoutTransferExpectations(ctx context.Context) ([]StripePayoutTransferExpectation, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT op.supplier_id,op.transfer_ref,op.sent_cents,op.currency
+		SELECT op.supplier_id,op.transfer_ref,op.sent_cents,op.currency,le.id::text
 		  FROM supplier_payout_operations op
 		  JOIN ledger_entries le ON le.id=op.ledger_entry_id
 		 WHERE le.kind='supplier_credit'
@@ -140,11 +143,12 @@ func (s *Store) ListStripePayoutTransferExpectations(ctx context.Context) ([]Str
 	for rows.Next() {
 		var expectation StripePayoutTransferExpectation
 		if err := rows.Scan(&expectation.SupplierID, &expectation.TransferRef,
-			&expectation.SentCents, &expectation.Currency); err != nil {
+			&expectation.SentCents, &expectation.Currency, &expectation.PayoutKey); err != nil {
 			return nil, err
 		}
 		expectation.TransferRef = strings.TrimSpace(expectation.TransferRef)
 		expectation.Currency = strings.ToLower(strings.TrimSpace(expectation.Currency))
+		expectation.PayoutKey = strings.TrimSpace(expectation.PayoutKey)
 		if !validStripeObjectID(expectation.TransferRef, "tr_") {
 			return nil, fmt.Errorf("supplier %s has an invalid cash-moving Stripe transfer reference", expectation.SupplierID)
 		}
@@ -153,6 +157,9 @@ func (s *Store) ListStripePayoutTransferExpectations(ctx context.Context) ([]Str
 		}
 		if err := RequireSettlementCurrency(expectation.Currency); err != nil {
 			return nil, fmt.Errorf("Stripe transfer %s currency refused: %w", expectation.TransferRef, err)
+		}
+		if _, err := uuid.Parse(expectation.PayoutKey); err != nil {
+			return nil, fmt.Errorf("Stripe transfer %s has an invalid durable payout key: %w", expectation.TransferRef, err)
 		}
 		out = append(out, expectation)
 	}
