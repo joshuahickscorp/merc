@@ -59,14 +59,69 @@ func (s *Store) BeginBuyerChargeOperation(
 
 	var actualBuyer uuid.UUID
 	var sourceStatus string
+	var insertedRows, sourceUpdatedRows, dependentUpdatedRows int64
 	if sourceKind == "job" {
-		err = tx.QueryRow(ctx,
-			`SELECT buyer_id,charge_status FROM jobs WHERE id=$1 FOR UPDATE`, sourceID,
-		).Scan(&actualBuyer, &sourceStatus)
+		err = tx.QueryRow(ctx, `
+			WITH source AS MATERIALIZED (
+				SELECT buyer_id,charge_status AS source_status
+				  FROM jobs WHERE id=$2 FOR UPDATE
+			), inserted AS MATERIALIZED (
+				INSERT INTO buyer_charge_operations
+				  (operation_key,source_kind,job_id,charge_batch_id,buyer_id,
+				   stripe_customer,stripe_payment_method,amount_cents,currency,status)
+				SELECT $1,'job',$2,NULL,$3,$4,$5,$6,$7,'outcome_unknown'
+				  FROM source
+				 WHERE source.buyer_id=$3 AND source.source_status<>'charged'
+				ON CONFLICT (operation_key) DO NOTHING
+				RETURNING operation_key
+			), marked AS (
+				UPDATE jobs j
+				   SET charge_status='outcome_unknown'
+				  FROM inserted
+				 WHERE j.id=$2 AND j.charge_status<>'charged'
+				RETURNING j.id
+			)
+			SELECT source.buyer_id,source.source_status,
+			       COALESCE((SELECT count(*) FROM inserted),0)::bigint,
+			       COALESCE((SELECT count(*) FROM marked),0)::bigint,
+			       0::bigint
+			  FROM source`,
+			operationKey, sourceID, buyerID, customerID, paymentMethodID, amountCents, currency,
+		).Scan(&actualBuyer, &sourceStatus, &insertedRows, &sourceUpdatedRows, &dependentUpdatedRows)
 	} else {
-		err = tx.QueryRow(ctx,
-			`SELECT buyer_id,status FROM charge_batches WHERE id=$1 FOR UPDATE`, sourceID,
-		).Scan(&actualBuyer, &sourceStatus)
+		err = tx.QueryRow(ctx, `
+			WITH source AS MATERIALIZED (
+				SELECT buyer_id,status AS source_status
+				  FROM charge_batches WHERE id=$2 FOR UPDATE
+			), inserted AS MATERIALIZED (
+				INSERT INTO buyer_charge_operations
+				  (operation_key,source_kind,job_id,charge_batch_id,buyer_id,
+				   stripe_customer,stripe_payment_method,amount_cents,currency,status)
+				SELECT $1,'batch',NULL,$2,$3,$4,$5,$6,$7,'outcome_unknown'
+				  FROM source
+				 WHERE source.buyer_id=$3 AND source.source_status<>'charged'
+				ON CONFLICT (operation_key) DO NOTHING
+				RETURNING operation_key
+			), marked AS (
+				UPDATE charge_batches b
+				   SET status='outcome_unknown'
+				  FROM inserted
+				 WHERE b.id=$2 AND b.status='attempting'
+				RETURNING b.id
+			), dependent_marked AS (
+				UPDATE jobs j
+				   SET charge_status='outcome_unknown'
+				  FROM marked
+				 WHERE j.charge_batch_id=$2 AND j.charge_status<>'charged'
+				RETURNING j.id
+			)
+			SELECT source.buyer_id,source.source_status,
+			       COALESCE((SELECT count(*) FROM inserted),0)::bigint,
+			       COALESCE((SELECT count(*) FROM marked),0)::bigint,
+			       COALESCE((SELECT count(*) FROM dependent_marked),0)::bigint
+			  FROM source`,
+			operationKey, sourceID, buyerID, customerID, paymentMethodID, amountCents, currency,
+		).Scan(&actualBuyer, &sourceStatus, &insertedRows, &sourceUpdatedRows, &dependentUpdatedRows)
 	}
 	if err != nil {
 		return false, "", err
@@ -77,19 +132,21 @@ func (s *Store) BeginBuyerChargeOperation(
 	if sourceStatus == "charged" {
 		return false, "", fmt.Errorf("buyer charge %s source is already charged", operationKey)
 	}
-
-	tag, err := tx.Exec(ctx, `
-		INSERT INTO buyer_charge_operations
-		  (operation_key,source_kind,job_id,charge_batch_id,buyer_id,
-		   stripe_customer,stripe_payment_method,amount_cents,currency,status)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'outcome_unknown')
-		ON CONFLICT (operation_key) DO NOTHING`,
-		operationKey, sourceKind, jobID, batchID, buyerID, customerID,
-		paymentMethodID, amountCents, currency)
-	if err != nil {
-		return false, "", err
+	if insertedRows == 1 {
+		if sourceUpdatedRows != 1 {
+			return false, "", fmt.Errorf("buyer charge %s source lost its request-boundary CAS", operationKey)
+		}
+		// dependentUpdatedRows is deliberately returned by the batch CTE so
+		// its write remains part of this one statement. The update is allowed
+		// to affect zero rows when every dependent job is already charged.
+		_ = dependentUpdatedRows
+		if err := tx.Commit(ctx); err != nil {
+			return false, "", err
+		}
+		return true, operationKey, nil
 	}
-	if tag.RowsAffected() == 0 {
+
+	if insertedRows == 0 {
 		var storedKind, storedCustomer, storedPM, storedCurrency, storedStatus string
 		var storedJob, storedBatch *uuid.UUID
 		var storedBuyer uuid.UUID
@@ -156,31 +213,7 @@ func (s *Store) BeginBuyerChargeOperation(
 		}
 		return false, "", nil
 	}
-
-	if sourceKind == "job" {
-		tag, err = tx.Exec(ctx, `
-			UPDATE jobs SET charge_status='outcome_unknown'
-			 WHERE id=$1 AND charge_status<>'charged'`, sourceID)
-	} else {
-		tag, err = tx.Exec(ctx, `
-			UPDATE charge_batches SET status='outcome_unknown'
-			 WHERE id=$1 AND status='attempting'`, sourceID)
-		if err == nil && tag.RowsAffected() == 1 {
-			_, err = tx.Exec(ctx, `
-				UPDATE jobs SET charge_status='outcome_unknown'
-				 WHERE charge_batch_id=$1 AND charge_status<>'charged'`, sourceID)
-		}
-	}
-	if err != nil {
-		return false, "", err
-	}
-	if tag.RowsAffected() != 1 {
-		return false, "", fmt.Errorf("buyer charge %s source lost its request-boundary CAS", operationKey)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return false, "", err
-	}
-	return true, operationKey, nil
+	return false, "", fmt.Errorf("buyer charge %s source operation insert returned an invalid row count", operationKey)
 }
 
 func (s *Store) NoteBuyerChargeOutcomeUnknown(ctx context.Context, operationKey string, cause error) error {
