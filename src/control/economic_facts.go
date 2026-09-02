@@ -227,17 +227,33 @@ func (s *Store) AllocateBatchStripeFee(ctx context.Context, pi string) (bool, er
 		return false, err
 	}
 	if len(existing) == 0 {
+		// The allocation is already a complete immutable snapshot in memory. Send
+		// it as one set-based INSERT instead of paying one client/server round trip
+		// per job in the batch. The surrounding transaction still makes the whole
+		// snapshot atomic, and the existing-row branch below continues to verify
+		// legacy/replayed facts rather than rewriting them.
+		jobIDs := make([]uuid.UUID, len(allocations))
+		ordinals := make([]int32, len(allocations))
+		weightsMicros := make([]int64, len(allocations))
+		allocatedMicros := make([]int64, len(allocations))
 		for i, allocation := range allocations {
-			_, err := tx.Exec(ctx, `INSERT INTO charge_batch_fee_allocations
-				(charge_batch_id,job_id,stripe_pi,allocation_ordinal,
-				 billed_weight_usd,allocated_fee_usd,allocation_method)
-				VALUES ($1,$2,$3,$4,$5::numeric/1000000,$6::numeric/1000000,$7)`,
-				batchID, allocation.JobID, pi, i,
-				allocation.WeightMicros, allocation.AllocatedMicros,
-				batchFeeAllocationHamiltonV1)
-			if err != nil {
-				return false, err
-			}
+			jobIDs[i] = allocation.JobID
+			ordinals[i] = int32(i)
+			weightsMicros[i] = allocation.WeightMicros
+			allocatedMicros[i] = allocation.AllocatedMicros
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO charge_batch_fee_allocations
+			  (charge_batch_id,job_id,stripe_pi,allocation_ordinal,
+			   billed_weight_usd,allocated_fee_usd,allocation_method)
+			SELECT $1,rows.job_id,$2,rows.allocation_ordinal,
+			       rows.weight_micros::numeric/1000000,
+			       rows.allocated_micros::numeric/1000000,$7
+			  FROM unnest($3::uuid[],$4::int[],$5::bigint[],$6::bigint[])
+			       AS rows(job_id,allocation_ordinal,weight_micros,allocated_micros)`,
+			batchID, pi, jobIDs, ordinals, weightsMicros, allocatedMicros,
+			batchFeeAllocationHamiltonV1); err != nil {
+			return false, err
 		}
 	} else {
 		if len(existing) != len(allocations) {

@@ -54,6 +54,40 @@ func TestChargeMaxAttemptsIsFinite(t *testing.T) {
 	}
 }
 
+func TestFailedChargeRetryAdvanceSchedulesAndCapsAtomically(t *testing.T) {
+	ctx, store, pool := openPayoutTestStore(t)
+	f := seedPayoutFixture(t, ctx, pool, payoutFixtureOpts{creditUSD: 1.00, noBuyerCash: true})
+	if _, err := pool.Exec(ctx, `UPDATE jobs
+		SET charge_status='failed',charge_attempts=0,charge_next_at=NULL WHERE id=$1`, f.jobID); err != nil {
+		t.Fatalf("seed failed charge: %v", err)
+	}
+
+	attempts, next, manual, err := store.AdvanceFailedChargeRetry(ctx, f.jobID)
+	mustf(t, err, "advance first failed retry: %v")
+	if attempts != 1 || manual || next == nil {
+		t.Fatalf("first retry transition=(attempts=%d,next=%v,manual=%v), want scheduled attempt 1", attempts, next, manual)
+	}
+	if next.Before(time.Now().Add(chargeRetryStep - time.Second)) {
+		t.Fatalf("next retry=%s is earlier than the atomic backoff", next.UTC().Format(time.RFC3339Nano))
+	}
+
+	if _, err := pool.Exec(ctx, `UPDATE jobs
+		SET charge_status='failed',charge_attempts=$2,charge_next_at=NULL WHERE id=$1`,
+		f.jobID, chargeMaxAttempts-1); err != nil {
+		t.Fatalf("seed retry cap: %v", err)
+	}
+	attempts, next, manual, err = store.AdvanceFailedChargeRetry(ctx, f.jobID)
+	mustf(t, err, "advance capped failed retry: %v")
+	if attempts != chargeMaxAttempts || !manual || next != nil {
+		t.Fatalf("capped retry transition=(attempts=%d,next=%v,manual=%v), want manual review", attempts, next, manual)
+	}
+	status, err := store.JobChargeStatus(ctx, f.jobID)
+	mustf(t, err, "read capped retry status: %v")
+	if status != chargeStatusManualReview {
+		t.Fatalf("charge status=%q, want %q", status, chargeStatusManualReview)
+	}
+}
+
 func TestManualReviewEndsTheAutomaticLoop(t *testing.T) {
 	ctx, store, pool := openPayoutTestStore(t)
 

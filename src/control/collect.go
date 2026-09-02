@@ -462,6 +462,42 @@ func (s *Store) SetChargeNextAt(ctx context.Context, jobID uuid.UUID, at time.Ti
 	return err
 }
 
+// AdvanceFailedChargeRetry records the failed provider attempt and schedules
+// the next retry as one atomic state transition. Keeping the increment,
+// backoff, and manual-review cap in the same UPDATE removes a race where two
+// sweepers could both observe the same failed job and overwrite each other's
+// schedule. It also removes the extra database commute from the normal retry
+// path.
+func (s *Store) AdvanceFailedChargeRetry(ctx context.Context, jobID uuid.UUID) (attempts int, nextAt *time.Time, manual bool, err error) {
+	var status string
+	err = s.pool.QueryRow(ctx, `
+		UPDATE jobs
+		   SET charge_attempts=charge_attempts+1,
+		       charge_status=CASE WHEN charge_attempts+1 >= $2
+		                          THEN 'manual_review' ELSE charge_status END,
+		       charge_next_at=CASE WHEN charge_attempts+1 >= $2
+		                          THEN NULL
+		                     ELSE now() + make_interval(secs => LEAST(
+		                              $3::float8,
+		                              GREATEST($4::float8,
+		                                       (charge_attempts+1)*$4::float8))) END
+		 WHERE id=$1 AND charge_status='failed'
+		 RETURNING charge_attempts,charge_status,charge_next_at`,
+		jobID, chargeMaxAttempts, chargeRetryMax.Seconds(), chargeRetryStep.Seconds()).
+		Scan(&attempts, &status, &nextAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, nil, false, fmt.Errorf("job %s was not in charge_status=failed", jobID)
+	}
+	if err != nil {
+		return 0, nil, false, err
+	}
+	manual = status == chargeStatusManualReview
+	if !manual && nextAt == nil {
+		return 0, nil, false, fmt.Errorf("job %s retry transition produced no next retry time", jobID)
+	}
+	return attempts, nextAt, manual, nil
+}
+
 func (s *Store) JobChargeStatus(ctx context.Context, jobID uuid.UUID) (string, error) {
 	var st string
 	err := s.pool.QueryRow(ctx, `SELECT charge_status FROM jobs WHERE id = $1`, jobID).Scan(&st)
@@ -1036,27 +1072,18 @@ func (wk *Workers) retryFailedSingle(ctx context.Context, jobID uuid.UUID) {
 			log.Printf("workers: charge-collect: job %s outcome unknown; automatic re-charge is blocked pending Stripe reconciliation: %v", jobID, err)
 			return
 		}
-		attempts, aerr := wk.store.IncrementChargeAttempts(ctx, jobID)
+		attempts, next, manual, aerr := wk.store.AdvanceFailedChargeRetry(ctx, jobID)
 		if aerr != nil {
 			log.Printf("workers: charge-collect: bumping charge attempts for job %s: %v", jobID, aerr)
 			return
 		}
-		if attempts >= chargeMaxAttempts {
+		if manual {
 			// Stop burning Stripe attempts on a card that is not going to work.
 			// FailedChargesDue selects only charge_status='failed', so moving the
 			// job out of that status ends the automatic loop by construction.
-			if merr := wk.store.MarkChargeManualReview(ctx, jobID); merr != nil {
-				log.Printf("workers: charge-collect: job %s hit %d attempts but could not be moved to manual review: %v",
-					jobID, attempts, merr)
-				return
-			}
 			log.Printf("workers: charge-collect: job %s abandoned automatic retry after %d attempts; charge_status=manual_review",
 				jobID, attempts)
 			return
-		}
-		next := time.Now().Add(chargeRetryBackoff(attempts))
-		if serr := wk.store.SetChargeNextAt(ctx, jobID, next); serr != nil {
-			log.Printf("workers: charge-collect: scheduling next retry for job %s: %v", jobID, serr)
 		}
 		log.Printf("workers: charge-collect: retry %d for job %s ($%.6f) failed, next at %s (still owed): %v",
 			attempts, jobID, usd, next.UTC().Format(time.RFC3339), err)
