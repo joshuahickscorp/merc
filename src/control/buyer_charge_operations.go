@@ -229,60 +229,89 @@ func (s *Store) NoteBuyerChargeOutcomeUnknown(ctx context.Context, operationKey 
 
 // MarkBuyerChargeDefinitelyFailed closes a provider-confirmed rejection. It
 // moves the source back onto its ordinary retry queue while retaining the
-// immutable operation row and the failed reason. If this transaction cannot
-// commit, callers must treat the provider outcome as unknown instead.
+// immutable operation row and the failed reason. The single data-modifying
+// statement is the transaction boundary: if it cannot commit, callers must
+// treat the provider outcome as unknown instead.
 func (s *Store) MarkBuyerChargeDefinitelyFailed(ctx context.Context, operationKey string, cause error) error {
 	reason := "Stripe explicitly rejected the charge before cash movement"
 	if cause != nil {
 		reason = truncate(cause.Error(), 500)
 	}
-	tx, err := s.pool.Begin(ctx)
+	var sourceKind, status string
+	var jobID, batchID *uuid.UUID
+	var sourceUpdatedRows, operationUpdatedRows int64
+	err := s.pool.QueryRow(ctx, `
+		WITH operation AS MATERIALIZED (
+			SELECT source_kind,job_id,charge_batch_id,status
+			  FROM buyer_charge_operations
+			 WHERE operation_key=$1
+			 FOR UPDATE
+		), job_updated AS MATERIALIZED (
+			UPDATE jobs j
+			   SET charge_status='failed',charge_next_at=NULL
+			  FROM operation
+			 WHERE operation.status='outcome_unknown'
+			   AND operation.source_kind='job'
+			   AND operation.job_id IS NOT NULL
+			   AND j.id=operation.job_id
+			   AND j.charge_status IN ('outcome_unknown','failed')
+			RETURNING j.id
+		), batch_updated AS MATERIALIZED (
+			UPDATE charge_batches b
+			   SET status='attempting',next_at=NULL
+			  FROM operation
+			 WHERE operation.status='outcome_unknown'
+			   AND operation.source_kind='batch'
+			   AND operation.charge_batch_id IS NOT NULL
+			   AND b.id=operation.charge_batch_id
+			   AND b.status IN ('attempting','outcome_unknown')
+			RETURNING b.id
+		), source_updated AS MATERIALIZED (
+			SELECT 'job'::text AS source_kind,id FROM job_updated
+			 UNION ALL
+			SELECT 'batch'::text AS source_kind,id FROM batch_updated
+		), updated AS MATERIALIZED (
+			UPDATE buyer_charge_operations o
+			   SET status='failed',last_error=$2,updated_at=now()
+			  FROM operation
+			  JOIN source_updated
+			    ON source_updated.source_kind=operation.source_kind
+			   AND ((operation.source_kind='job' AND source_updated.id=operation.job_id)
+			        OR (operation.source_kind='batch' AND source_updated.id=operation.charge_batch_id))
+			 WHERE o.operation_key=$1
+			   AND operation.status='outcome_unknown'
+			RETURNING o.operation_key
+		)
+		SELECT operation.source_kind,operation.job_id,operation.charge_batch_id,operation.status,
+		       COALESCE((SELECT count(*) FROM source_updated),0)::bigint,
+		       COALESCE((SELECT count(*) FROM updated),0)::bigint
+		  FROM operation`, operationKey, reason).
+		Scan(&sourceKind, &jobID, &batchID, &status, &sourceUpdatedRows, &operationUpdatedRows)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx)
-
-	var sourceKind, status string
-	var jobID, batchID *uuid.UUID
-	if err := tx.QueryRow(ctx, `
-		SELECT source_kind,job_id,charge_batch_id,status
-		  FROM buyer_charge_operations WHERE operation_key=$1 FOR UPDATE`, operationKey,
-	).Scan(&sourceKind, &jobID, &batchID, &status); err != nil {
-		return err
-	}
 	if status == "failed" {
-		return tx.Commit(ctx)
+		return nil
 	}
 	if status != "outcome_unknown" {
 		return fmt.Errorf("buyer charge %s cannot become failed from status %q", operationKey, status)
 	}
-	if _, err := tx.Exec(ctx, `
-		UPDATE buyer_charge_operations
-		   SET status='failed',last_error=$2,updated_at=now()
-		 WHERE operation_key=$1 AND status='outcome_unknown'`, operationKey, reason); err != nil {
-		return err
-	}
 	switch {
 	case sourceKind == "job" && jobID != nil:
-		if tag, err := tx.Exec(ctx, `
-			UPDATE jobs SET charge_status='failed',charge_next_at=NULL
-			 WHERE id=$1 AND charge_status IN ('outcome_unknown','failed')`, *jobID); err != nil {
-			return err
-		} else if tag.RowsAffected() != 1 {
+		if sourceUpdatedRows != 1 {
 			return fmt.Errorf("buyer charge %s source job lost its failure-state CAS", operationKey)
 		}
 	case sourceKind == "batch" && batchID != nil:
-		if tag, err := tx.Exec(ctx, `
-			UPDATE charge_batches SET status='attempting',next_at=NULL
-			 WHERE id=$1 AND status IN ('attempting','outcome_unknown')`, *batchID); err != nil {
-			return err
-		} else if tag.RowsAffected() != 1 {
+		if sourceUpdatedRows != 1 {
 			return fmt.Errorf("buyer charge %s source batch lost its failure-state CAS", operationKey)
 		}
 	default:
 		return fmt.Errorf("buyer charge %s has invalid source binding", operationKey)
 	}
-	return tx.Commit(ctx)
+	if operationUpdatedRows != 1 {
+		return fmt.Errorf("buyer charge %s lost its failure-state operation CAS", operationKey)
+	}
+	return nil
 }
 
 func sameChargeOptionalUUID(a, b *uuid.UUID) bool {

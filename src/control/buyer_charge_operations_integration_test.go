@@ -166,3 +166,45 @@ func TestBuyerChargeExplicitDeclineRearmsBatchBoundary(t *testing.T) {
 		t.Fatalf("rearmed batch=(%v,%q), want true and retry-2 key", armed, providerKey)
 	}
 }
+
+func TestBuyerChargeFailureTransitionDoesNotCommitAfterSourceCASLoss(t *testing.T) {
+	ctx, store, pool := openIsolatedTestStore(t)
+	buyerID, jobID := uuid.New(), uuid.New()
+	operationKey := "job-cas-" + jobID.String()
+	currency := SettlementCurrencyCode()
+
+	_, err := pool.Exec(ctx, `INSERT INTO buyers (id,email) VALUES ($1,$2)`,
+		buyerID, buyerID.String()+"@charge-cas.invalid")
+	mustf(t, err, "insert buyer: %v")
+	_, err = pool.Exec(ctx, `
+		INSERT INTO jobs (id,buyer_id,status,job_type,input_ref,actual_usd,currency,charge_status)
+		VALUES ($1,$2,'complete','embed','charge-cas/input',5.00,$3,'not_attempted')`,
+		jobID, buyerID, currency)
+	mustf(t, err, "insert job: %v")
+
+	armed, providerKey, err := store.BeginBuyerChargeOperation(
+		ctx, operationKey, "job", jobID, buyerID,
+		"cus_charge_cas", "pm_charge_cas", 500, currency,
+	)
+	mustf(t, err, "begin charge: %v")
+	if !armed || providerKey != operationKey {
+		t.Fatalf("charge arm=(%v,%q), want true and stable key", armed, providerKey)
+	}
+	_, err = pool.Exec(ctx, `UPDATE jobs SET charge_status='charged' WHERE id=$1`, jobID)
+	mustf(t, err, "cross source charge boundary: %v")
+
+	err = store.MarkBuyerChargeDefinitelyFailed(ctx, operationKey, errors.New("late decline"))
+	if err == nil || !strings.Contains(err.Error(), "source job lost its failure-state CAS") {
+		t.Fatalf("failure transition error=%v, want source CAS error", err)
+	}
+	var operationStatus, jobStatus string
+	mustf(t, pool.QueryRow(ctx, `
+		SELECT status FROM buyer_charge_operations WHERE operation_key=$1`, operationKey).
+		Scan(&operationStatus), "read operation after rejected transition: %v")
+	mustf(t, pool.QueryRow(ctx, `SELECT charge_status FROM jobs WHERE id=$1`, jobID).
+		Scan(&jobStatus), "read job after rejected transition: %v")
+	if operationStatus != "outcome_unknown" || jobStatus != "charged" {
+		t.Fatalf("after rejected transition operation=%s job=%s, want outcome_unknown/charged",
+			operationStatus, jobStatus)
+	}
+}
