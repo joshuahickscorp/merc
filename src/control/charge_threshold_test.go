@@ -92,3 +92,62 @@ func TestBalanceAtThresholdIsCharged(t *testing.T) {
 		t.Fatalf("a balance at the $%.2f threshold should be collected", defaultChargeMinUSD)
 	}
 }
+
+func TestFormChargeBatchAtomicallyAggregatesAndAssigns(t *testing.T) {
+	t.Parallel()
+	ctx, store, pool := openIsolatedTestStore(t)
+	currency := SettlementCurrencyCode()
+	buyer := uuid.New()
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO buyers (id,email,password_hash,free_credit_usd)
+		 VALUES ($1,$2,'x',0)`, buyer, buyer.String()+"@batch-form.invalid"); err != nil {
+		t.Fatalf("seed buyer: %v", err)
+	}
+	for index, amount := range []float64{2.25, 3.25} {
+		inputRef := "batch-form/" + uuid.NewString()
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO jobs (id,buyer_id,status,job_type,input_ref,charge_status,actual_usd,currency)
+			VALUES ($1,$2,'complete','embed',$3,'deferred',$4,$5)`,
+			uuid.New(), buyer, inputRef, amount, currency); err != nil {
+			t.Fatalf("seed deferred job %d: %v", index, err)
+		}
+	}
+
+	batch, formed, err := store.FormChargeBatch(ctx, buyer)
+	mustf(t, err, "FormChargeBatch: %v")
+	if !formed || batch.BuyerID != buyer || batch.Currency != currency || batch.AmountUSD != 5.50 {
+		t.Fatalf("formed batch=%+v formed=%v, want buyer/currency/5.50", batch, formed)
+	}
+	var amountMicros int64
+	var assigned, billed int
+	mustf(t, pool.QueryRow(ctx, `
+		SELECT (amount_usd*1000000)::bigint FROM charge_batches WHERE id=$1`, batch.ID).
+		Scan(&amountMicros), "read formed amount: %v")
+	mustf(t, pool.QueryRow(ctx, `
+		SELECT count(*),count(*) FILTER (WHERE billed_usd IS NOT NULL)
+		  FROM jobs WHERE charge_batch_id=$1`, batch.ID).
+		Scan(&assigned, &billed), "read assigned jobs: %v")
+	if amountMicros != 5_500_000 || assigned != 2 || billed != 2 {
+		t.Fatalf("formed batch amount=%d assigned=%d billed=%d, want 5500000/2/2",
+			amountMicros, assigned, billed)
+	}
+	if _, formed, err := store.FormChargeBatch(ctx, buyer); err != nil || formed {
+		t.Fatalf("second FormChargeBatch=(%v,%v), want nil/false", err, formed)
+	}
+
+	smallBuyer := uuid.New()
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO buyers (id,email,password_hash,free_credit_usd)
+		 VALUES ($1,$2,'x',0)`, smallBuyer, smallBuyer.String()+"@batch-form-small.invalid"); err != nil {
+		t.Fatalf("seed small buyer: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO jobs (id,buyer_id,status,job_type,input_ref,charge_status,actual_usd,currency)
+		VALUES ($1,$2,'complete','embed','batch-form-small','deferred',0.40,$3)`,
+		uuid.New(), smallBuyer, currency); err != nil {
+		t.Fatalf("seed sub-floor job: %v", err)
+	}
+	if _, formed, err := store.FormChargeBatch(ctx, smallBuyer); err != nil || formed {
+		t.Fatalf("sub-floor FormChargeBatch=(%v,%v), want nil/false", err, formed)
+	}
+}

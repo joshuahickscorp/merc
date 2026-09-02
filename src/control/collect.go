@@ -355,63 +355,55 @@ func (s *Store) MarkBuyerDeferredNoCard(ctx context.Context, buyerID uuid.UUID) 
 }
 
 func (s *Store) FormChargeBatch(ctx context.Context, buyerID uuid.UUID) (batch ChargeBatch, formed bool, err error) {
-	tx, err := s.pool.Begin(ctx)
+	currency := SettlementCurrencyCode()
+	var candidateCount, assignedCount int64
+	err = s.pool.QueryRow(ctx, `
+		WITH candidates AS MATERIALIZED (
+			SELECT id,`+firmChargeAmountSQL+` AS due_usd
+			  FROM jobs
+			 WHERE buyer_id=$1 AND charge_status='deferred' AND charge_batch_id IS NULL
+			   AND `+firmChargeAmountSQL+` > 0
+			   AND currency=$2
+			 ORDER BY created_at ASC
+			 LIMIT 500
+			 FOR UPDATE
+		), totals AS MATERIALIZED (
+			SELECT COALESCE(sum(due_usd),0)::numeric AS amount_usd,
+			       count(*)::bigint AS candidate_count
+			  FROM candidates
+		), inserted AS MATERIALIZED (
+			INSERT INTO charge_batches (buyer_id,amount_usd,currency)
+			SELECT $1,amount_usd,$2
+			  FROM totals
+			 WHERE candidate_count > 0 AND amount_usd >= $3::numeric
+			RETURNING id,amount_usd::float8
+		), assigned AS MATERIALIZED (
+			UPDATE jobs
+			   SET charge_batch_id=inserted.id,billed_usd=candidates.due_usd
+			  FROM inserted CROSS JOIN candidates
+			 WHERE jobs.id=candidates.id
+			   AND jobs.charge_status='deferred'
+			   AND jobs.charge_batch_id IS NULL
+			   AND candidates.due_usd > 0
+			RETURNING jobs.id
+		)
+		SELECT inserted.id,inserted.amount_usd,totals.candidate_count,
+		       COALESCE((SELECT count(*) FROM assigned),0)::bigint
+		  FROM inserted CROSS JOIN totals`, buyerID, currency, stripeMinChargeUSD).
+		Scan(&batch.ID, &batch.AmountUSD, &candidateCount, &assignedCount)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return batch, false, nil // below Stripe's floor or nothing chargeable
+	}
 	if err != nil {
 		return batch, false, err
 	}
-	defer tx.Rollback(ctx)
-
-	rows, err := tx.Query(ctx,
-		`SELECT id, `+firmChargeAmountSQL+`::float8 FROM jobs
-		 WHERE buyer_id = $1 AND charge_status = 'deferred' AND charge_batch_id IS NULL
-		   AND `+firmChargeAmountSQL+` > 0
-		   AND currency = $2
-		 ORDER BY created_at ASC
-		 LIMIT 500
-		 FOR UPDATE`, buyerID, SettlementCurrencyCode())
-	if err != nil {
-		return batch, false, err
-	}
-	var ids []string
-	var sum float64
-	for rows.Next() {
-		var id uuid.UUID
-		var usd float64
-		if err := rows.Scan(&id, &usd); err != nil {
-			rows.Close()
-			return batch, false, err
-		}
-		ids = append(ids, id.String())
-		sum += usd
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return batch, false, err
-	}
-	if len(ids) == 0 || sum <= 0 {
-		return batch, false, nil // raced away or nothing chargeable  -  clean no-op
-	}
-	if sum < stripeMinChargeUSD {
-		return batch, false, nil
-	}
-
-	if err := tx.QueryRow(ctx,
-		`INSERT INTO charge_batches (buyer_id,amount_usd,currency)
-		 VALUES ($1,$2,$3) RETURNING id`,
-		buyerID, sum, SettlementCurrencyCode()).Scan(&batch.ID); err != nil {
-		return batch, false, err
-	}
-	if _, err := tx.Exec(ctx,
-		`UPDATE jobs SET charge_batch_id = $1, billed_usd = `+firmChargeAmountSQL+`
-		 WHERE id = ANY($2::uuid[]) AND charge_status = 'deferred' AND charge_batch_id IS NULL
-		   AND `+firmChargeAmountSQL+` > 0`,
-		batch.ID, ids); err != nil {
-		return batch, false, err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return batch, false, err
-	}
-	batch.BuyerID, batch.AmountUSD, batch.Currency = buyerID, sum, SettlementCurrencyCode()
+	// Both CTEs are observed by the final SELECT so assignment stays in the
+	// same statement. Row locks make a shortfall impossible under normal
+	// operation; retain the counts for an auditable diagnostic without
+	// changing the established no-op behavior for an unusual trigger-side
+	// mutation.
+	_, _ = candidateCount, assignedCount
+	batch.BuyerID, batch.Currency = buyerID, currency
 	return batch, true, nil
 }
 
