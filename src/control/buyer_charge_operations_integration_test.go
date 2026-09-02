@@ -218,7 +218,8 @@ func TestBatchChargeConfirmationIsAtomicAndReplaySafe(t *testing.T) {
 		t.Fatalf("armed batch=(%v,%q), want true and stable provider key", armed, providerKey)
 	}
 
-	mustf(t, store.MarkChargeBatchCharged(ctx, batchID, charge), "confirm batch charge: %v")
+	mustf(t, store.ReconcileBuyerChargeOperation(ctx, "cxbatch-"+batchID.String(), charge),
+		"reconcile batch charge: %v")
 	var batchStatus, jobStatus, operationStatus, payoutStatus string
 	var collectionCount int
 	mustf(t, pool.QueryRow(ctx, `

@@ -15,6 +15,8 @@ var errBuyerChargeOutcomeUnknown = errors.New("buyer charge outcome unknown")
 
 var errBuyerChargeDefinitelyFailed = errors.New("buyer charge definitely failed")
 
+var errBuyerChargeOperationNotFound = errors.New("buyer charge operation not found")
+
 // buyerChargeProviderKey is stable for the first request and changes only
 // after Stripe has explicitly rejected a prior request. The durable operation
 // key remains unchanged in metadata, so a later payment_intent.succeeded event
@@ -362,6 +364,18 @@ func finalizeBuyerChargeOperation(
 }
 
 func (s *Store) ReconcileBuyerChargeOperation(ctx context.Context, operationKey string, charge ChargeResult) error {
+	if sourceKind, sourceID, ok := parseCanonicalBuyerChargeOperationKey(operationKey); ok {
+		err := s.confirmReconciledBuyerCharge(ctx, sourceKind, sourceID, charge)
+		if !errors.Is(err, errBuyerChargeOperationNotFound) {
+			return err
+		}
+		// The canonical job/batch namespace is also a valid caller-supplied
+		// reference for a prepaid top-up. If no job/batch operation exists, keep
+		// the historical top-up fallback rather than turning a webhook into a
+		// new charge authority.
+		return s.reconcilePrepaidTopup(ctx, operationKey, charge)
+	}
+
 	var sourceKind string
 	var jobID, batchID *uuid.UUID
 	if err := s.pool.QueryRow(ctx, `
@@ -384,4 +398,66 @@ func (s *Store) ReconcileBuyerChargeOperation(ctx context.Context, operationKey 
 		return s.MarkChargeBatchCharged(ctx, *batchID, charge)
 	}
 	return fmt.Errorf("buyer charge operation %s has an invalid source binding", operationKey)
+}
+
+// parseCanonicalBuyerChargeOperationKey extracts only the two operation-key
+// formats Merc itself emits. The exact spelling check prevents a provider
+// metadata value such as job-cas-<uuid> from being treated as an authority to
+// address an arbitrary source; those legacy/operator references use the
+// durable lookup below.
+func parseCanonicalBuyerChargeOperationKey(operationKey string) (string, uuid.UUID, bool) {
+	operationKey = strings.TrimSpace(operationKey)
+	for _, prefix := range []struct {
+		key  string
+		kind string
+	}{
+		{key: "job-", kind: "job"},
+		{key: "cxbatch-", kind: "batch"},
+	} {
+		if !strings.HasPrefix(operationKey, prefix.key) {
+			continue
+		}
+		rawID := strings.TrimPrefix(operationKey, prefix.key)
+		id, err := uuid.Parse(rawID)
+		if err != nil || id == uuid.Nil || operationKey != prefix.key+id.String() {
+			return "", uuid.Nil, false
+		}
+		return prefix.kind, id, true
+	}
+	return "", uuid.Nil, false
+}
+
+// confirmReconciledBuyerCharge uses the same locked confirmation CTE as the
+// direct charge path, but requires the durable buyer_charge_operations row to
+// exist. The statement's require-operation predicate makes an absent operation
+// a zero-write result, so ReconcileBuyerChargeOperation can preserve the
+// prepaid/legacy fallback without committing a cash fact from provider metadata
+// alone.
+func (s *Store) confirmReconciledBuyerCharge(
+	ctx context.Context, sourceKind string, sourceID uuid.UUID, charge ChargeResult,
+) error {
+	if err := validateChargeResultShape(charge); err != nil {
+		return fmt.Errorf("refusing invalid reconciled charge confirmation: %w", err)
+	}
+	out, err := s.confirmChargeInOneStatement(ctx, s.pool, sourceKind, sourceID, &charge, true)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return errBuyerChargeOperationNotFound
+	}
+	if err != nil {
+		if out.authorityCurrency != "" {
+			return fmt.Errorf("%s %s cannot confirm %s: %w", sourceKind, sourceID, charge.Currency, err)
+		}
+		return err
+	}
+	if !out.operationPresent {
+		return errBuyerChargeOperationNotFound
+	}
+	label := "job"
+	if sourceKind == "batch" {
+		label = "charge batch"
+	}
+	if err := validateChargeConfirmation(label, sourceKind, sourceID, charge, out); err != nil {
+		return err
+	}
+	return nil
 }

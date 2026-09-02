@@ -93,9 +93,8 @@ type ChargeBatch struct {
 // single-statement confirmation paths below. The statement locks the source,
 // records canonical buyer cash, repairs any provider-before-canonical binding,
 // finalizes the durable provider operation, and moves the source/dependent
-// payout rows. Go validates the returned authority and identity before the
-// surrounding transaction commits, so a malformed or conflicting result still
-// rolls back every write.
+// payout rows. Every condition that can make the Go-side authority check fail
+// is also a write predicate, so the statement itself is the atomic boundary.
 type chargeConfirmationResult struct {
 	buyerID                uuid.UUID
 	sourceStatus           string
@@ -133,32 +132,42 @@ const confirmJobChargeSQL = `
 		       COALESCE(charge_currency,'') AS existing_currency
 		  FROM jobs WHERE id=$1 FOR UPDATE
 	), operation AS MATERIALIZED (
-		SELECT source_kind,job_id,charge_batch_id,buyer_id,amount_cents,currency,
+		SELECT operation_key,source_kind,job_id,charge_batch_id,buyer_id,amount_cents,currency,
 		       status,COALESCE(payment_intent,'') AS payment_intent,
 		       COALESCE(charge_id,'') AS charge_id
 		  FROM buyer_charge_operations
 		 WHERE operation_key=$2 FOR UPDATE
+	), authority AS MATERIALIZED (
+		SELECT s.buyer_id,s.source_status,s.authority_currency,s.existing_pi,
+		       s.existing_requested,s.existing_received,s.existing_currency,
+		       (op.operation_key IS NOT NULL) AS operation_present,
+		       COALESCE(op.source_kind,'') AS operation_source_kind,
+		       op.job_id AS operation_job_id,op.charge_batch_id AS operation_batch_id,
+		       op.buyer_id AS operation_buyer_id,COALESCE(op.amount_cents,0) AS operation_amount,
+		       COALESCE(op.currency,'') AS operation_currency,COALESCE(op.status,'') AS operation_status,
+		       COALESCE(op.payment_intent,'') AS operation_payment_intent,
+		       COALESCE(op.charge_id,'') AS operation_charge_id
+		  FROM source s LEFT JOIN operation op ON TRUE
+	), eligible AS MATERIALIZED (
+		SELECT a.*,
+		       lower(btrim(a.authority_currency))=$8
+		       AND (NOT $11 OR a.operation_present)
+		       AND (NOT a.operation_present OR (
+			       a.operation_source_kind='job' AND a.operation_job_id=$1
+			   AND a.operation_batch_id IS NULL AND a.operation_buyer_id=a.buyer_id
+			   AND a.operation_amount=$6 AND a.operation_currency=$8
+			   AND a.operation_status IN ('outcome_unknown','succeeded')
+			   AND (a.operation_status<>'succeeded'
+			        OR (a.operation_payment_intent=$4 AND a.operation_charge_id=$5))
+		       ))
+		       AND ((a.source_status='charged'
+			       AND a.existing_pi=$4 AND a.existing_requested=$6
+			       AND a.existing_received=$7 AND a.existing_currency=$8)
+			    OR a.source_status<>'charged') AS eligible
+		  FROM authority a
 	), cash_lock AS MATERIALIZED (
 		SELECT pg_advisory_xact_lock(hashtextextended($3,0)) AS locked
-	), recorded AS MATERIALIZED (
-		INSERT INTO buyer_cash_collections
-		  (payment_intent,charge_id,buyer_id,source_kind,job_id,charge_batch_id,
-		   requested_cents,received_cents,currency)
-		SELECT $4,$5,s.buyer_id,'job',$1,NULL,$6,$7,$8
-		  FROM source s CROSS JOIN cash_lock
-		 WHERE lower(btrim(s.authority_currency))=$8
-		ON CONFLICT (payment_intent) DO UPDATE SET
-			payment_intent=EXCLUDED.payment_intent
-		 WHERE buyer_cash_collections.charge_id=EXCLUDED.charge_id
-		   AND buyer_cash_collections.buyer_id=EXCLUDED.buyer_id
-		   AND buyer_cash_collections.source_kind=EXCLUDED.source_kind
-		   AND buyer_cash_collections.job_id IS NOT DISTINCT FROM EXCLUDED.job_id
-		   AND buyer_cash_collections.charge_batch_id IS NOT DISTINCT FROM EXCLUDED.charge_batch_id
-		   AND buyer_cash_collections.requested_cents=EXCLUDED.requested_cents
-		   AND buyer_cash_collections.received_cents=EXCLUDED.received_cents
-		   AND buyer_cash_collections.currency=EXCLUDED.currency
-		RETURNING payment_intent
-	), binding AS MATERIALIZED (
+	), binding_check AS MATERIALIZED (
 		SELECT EXISTS(
 			SELECT 1 FROM stripe_charge_cash_state
 			 WHERE charge_id=$5 AND (
@@ -173,24 +182,42 @@ const confirmJobChargeSQL = `
 			SELECT 1 FROM stripe_risk_events
 			 WHERE charge_id=$5 AND payment_intent IS NOT NULL AND payment_intent<>$4
 		) AS conflicting
-		  FROM recorded
+		  FROM cash_lock
+	), recorded AS MATERIALIZED (
+		INSERT INTO buyer_cash_collections
+		  (payment_intent,charge_id,buyer_id,source_kind,job_id,charge_batch_id,
+		   requested_cents,received_cents,currency)
+		SELECT $4,$5,e.buyer_id,'job',$1,NULL,$6,$7,$8
+		  FROM eligible e CROSS JOIN binding_check b
+		 WHERE e.eligible AND NOT b.conflicting
+		ON CONFLICT (payment_intent) DO UPDATE SET
+			payment_intent=EXCLUDED.payment_intent
+		 WHERE buyer_cash_collections.charge_id=EXCLUDED.charge_id
+		   AND buyer_cash_collections.buyer_id=EXCLUDED.buyer_id
+		   AND buyer_cash_collections.source_kind=EXCLUDED.source_kind
+		   AND buyer_cash_collections.job_id IS NOT DISTINCT FROM EXCLUDED.job_id
+		   AND buyer_cash_collections.charge_batch_id IS NOT DISTINCT FROM EXCLUDED.charge_batch_id
+		   AND buyer_cash_collections.requested_cents=EXCLUDED.requested_cents
+		   AND buyer_cash_collections.received_cents=EXCLUDED.received_cents
+		   AND buyer_cash_collections.currency=EXCLUDED.currency
+		RETURNING payment_intent
 	), bound_charge AS MATERIALIZED (
 		UPDATE stripe_charge_cash_state s
 		   SET payment_intent=r.payment_intent,updated_at=now()
-		  FROM recorded r,binding b
+		  FROM recorded r,binding_check b
 		 WHERE NOT b.conflicting AND s.charge_id=$5 AND s.payment_intent IS NULL
 		RETURNING s.charge_id
 	), bound_dispute AS MATERIALIZED (
 		UPDATE stripe_dispute_cash_state s
 		   SET payment_intent=r.payment_intent,updated_at=now()
-		  FROM recorded r,binding b
+		  FROM recorded r,binding_check b
 		 WHERE NOT b.conflicting AND s.charge_id=$5 AND s.payment_intent IS NULL
 		RETURNING s.charge_id
 	), operation_updated AS MATERIALIZED (
 		UPDATE buyer_charge_operations o
 		   SET status='succeeded',payment_intent=$4,charge_id=$5,
 		       last_error=NULL,updated_at=now()
-		  FROM source s,operation op,recorded r,binding b
+		  FROM source s,operation op,recorded r,binding_check b
 		 WHERE NOT b.conflicting AND o.operation_key=$2
 		   AND op.source_kind='job' AND op.job_id=$1 AND op.buyer_id=s.buyer_id
 		   AND op.amount_cents=$6 AND op.currency=$8
@@ -201,7 +228,7 @@ const confirmJobChargeSQL = `
 		   SET charge_status='charged',stripe_pi=$4,
 		       charge_requested_cents=$6,charge_received_cents=$7,
 		       charge_currency=$8
-		  FROM source s,recorded r,binding b
+		  FROM source s,recorded r,binding_check b
 		 WHERE NOT b.conflicting AND j.id=$1 AND s.source_status<>'charged'
 		RETURNING j.id
 	), ledger_updated AS MATERIALIZED (
@@ -214,7 +241,7 @@ const confirmJobChargeSQL = `
 	SELECT s.buyer_id,s.source_status,s.authority_currency,s.existing_pi,
 	       s.existing_requested,s.existing_received,s.existing_currency,
 	       COALESCE((SELECT count(*) FROM recorded),0)::bigint,
-	       COALESCE((SELECT conflicting FROM binding),false),
+	       COALESCE((SELECT conflicting FROM binding_check),false),
 	       COALESCE((SELECT true FROM operation LIMIT 1),false),
 	       COALESCE((SELECT source_kind FROM operation),''),
 	       COALESCE((SELECT job_id::text FROM operation),''),
@@ -242,32 +269,42 @@ const confirmBatchChargeSQL = `
 		       COALESCE(charge_currency,'') AS existing_currency
 		  FROM charge_batches WHERE id=$1 FOR UPDATE
 	), operation AS MATERIALIZED (
-		SELECT source_kind,job_id,charge_batch_id,buyer_id,amount_cents,currency,
+		SELECT operation_key,source_kind,job_id,charge_batch_id,buyer_id,amount_cents,currency,
 		       status,COALESCE(payment_intent,'') AS payment_intent,
 		       COALESCE(charge_id,'') AS charge_id
 		  FROM buyer_charge_operations
 		 WHERE operation_key=$2 FOR UPDATE
+	), authority AS MATERIALIZED (
+		SELECT s.buyer_id,s.source_status,s.authority_currency,s.existing_pi,
+		       s.existing_requested,s.existing_received,s.existing_currency,
+		       (op.operation_key IS NOT NULL) AS operation_present,
+		       COALESCE(op.source_kind,'') AS operation_source_kind,
+		       op.job_id AS operation_job_id,op.charge_batch_id AS operation_batch_id,
+		       op.buyer_id AS operation_buyer_id,COALESCE(op.amount_cents,0) AS operation_amount,
+		       COALESCE(op.currency,'') AS operation_currency,COALESCE(op.status,'') AS operation_status,
+		       COALESCE(op.payment_intent,'') AS operation_payment_intent,
+		       COALESCE(op.charge_id,'') AS operation_charge_id
+		  FROM source s LEFT JOIN operation op ON TRUE
+	), eligible AS MATERIALIZED (
+		SELECT a.*,
+		       lower(btrim(a.authority_currency))=$8
+		       AND (NOT $11 OR a.operation_present)
+		       AND (NOT a.operation_present OR (
+			       a.operation_source_kind='batch' AND a.operation_job_id IS NULL
+			   AND a.operation_batch_id=$1 AND a.operation_buyer_id=a.buyer_id
+			   AND a.operation_amount=$6 AND a.operation_currency=$8
+			   AND a.operation_status IN ('outcome_unknown','succeeded')
+			   AND (a.operation_status<>'succeeded'
+			        OR (a.operation_payment_intent=$4 AND a.operation_charge_id=$5))
+		       ))
+		       AND ((a.source_status='charged'
+			       AND a.existing_pi=$4 AND a.existing_requested=$6
+			       AND a.existing_received=$7 AND a.existing_currency=$8)
+			    OR a.source_status IN ('attempting','outcome_unknown')) AS eligible
+		  FROM authority a
 	), cash_lock AS MATERIALIZED (
 		SELECT pg_advisory_xact_lock(hashtextextended($3,0)) AS locked
-	), recorded AS MATERIALIZED (
-		INSERT INTO buyer_cash_collections
-		  (payment_intent,charge_id,buyer_id,source_kind,job_id,charge_batch_id,
-		   requested_cents,received_cents,currency)
-		SELECT $4,$5,s.buyer_id,'batch',NULL,$1,$6,$7,$8
-		  FROM source s CROSS JOIN cash_lock
-		 WHERE lower(btrim(s.authority_currency))=$8
-		ON CONFLICT (payment_intent) DO UPDATE SET
-			payment_intent=EXCLUDED.payment_intent
-		 WHERE buyer_cash_collections.charge_id=EXCLUDED.charge_id
-		   AND buyer_cash_collections.buyer_id=EXCLUDED.buyer_id
-		   AND buyer_cash_collections.source_kind=EXCLUDED.source_kind
-		   AND buyer_cash_collections.job_id IS NOT DISTINCT FROM EXCLUDED.job_id
-		   AND buyer_cash_collections.charge_batch_id IS NOT DISTINCT FROM EXCLUDED.charge_batch_id
-		   AND buyer_cash_collections.requested_cents=EXCLUDED.requested_cents
-		   AND buyer_cash_collections.received_cents=EXCLUDED.received_cents
-		   AND buyer_cash_collections.currency=EXCLUDED.currency
-		RETURNING payment_intent
-	), binding AS MATERIALIZED (
+	), binding_check AS MATERIALIZED (
 		SELECT EXISTS(
 			SELECT 1 FROM stripe_charge_cash_state
 			 WHERE charge_id=$5 AND (
@@ -282,24 +319,42 @@ const confirmBatchChargeSQL = `
 			SELECT 1 FROM stripe_risk_events
 			 WHERE charge_id=$5 AND payment_intent IS NOT NULL AND payment_intent<>$4
 		) AS conflicting
-		  FROM recorded
+		  FROM cash_lock
+	), recorded AS MATERIALIZED (
+		INSERT INTO buyer_cash_collections
+		  (payment_intent,charge_id,buyer_id,source_kind,job_id,charge_batch_id,
+		   requested_cents,received_cents,currency)
+		SELECT $4,$5,e.buyer_id,'batch',NULL,$1,$6,$7,$8
+		  FROM eligible e CROSS JOIN binding_check b
+		 WHERE e.eligible AND NOT b.conflicting
+		ON CONFLICT (payment_intent) DO UPDATE SET
+			payment_intent=EXCLUDED.payment_intent
+		 WHERE buyer_cash_collections.charge_id=EXCLUDED.charge_id
+		   AND buyer_cash_collections.buyer_id=EXCLUDED.buyer_id
+		   AND buyer_cash_collections.source_kind=EXCLUDED.source_kind
+		   AND buyer_cash_collections.job_id IS NOT DISTINCT FROM EXCLUDED.job_id
+		   AND buyer_cash_collections.charge_batch_id IS NOT DISTINCT FROM EXCLUDED.charge_batch_id
+		   AND buyer_cash_collections.requested_cents=EXCLUDED.requested_cents
+		   AND buyer_cash_collections.received_cents=EXCLUDED.received_cents
+		   AND buyer_cash_collections.currency=EXCLUDED.currency
+		RETURNING payment_intent
 	), bound_charge AS MATERIALIZED (
 		UPDATE stripe_charge_cash_state s
 		   SET payment_intent=r.payment_intent,updated_at=now()
-		  FROM recorded r,binding b
+		  FROM recorded r,binding_check b
 		 WHERE NOT b.conflicting AND s.charge_id=$5 AND s.payment_intent IS NULL
 		RETURNING s.charge_id
 	), bound_dispute AS MATERIALIZED (
 		UPDATE stripe_dispute_cash_state s
 		   SET payment_intent=r.payment_intent,updated_at=now()
-		  FROM recorded r,binding b
+		  FROM recorded r,binding_check b
 		 WHERE NOT b.conflicting AND s.charge_id=$5 AND s.payment_intent IS NULL
 		RETURNING s.charge_id
 	), operation_updated AS MATERIALIZED (
 		UPDATE buyer_charge_operations o
 		   SET status='succeeded',payment_intent=$4,charge_id=$5,
 		       last_error=NULL,updated_at=now()
-		  FROM source s,operation op,recorded r,binding b
+		  FROM source s,operation op,recorded r,binding_check b
 		 WHERE NOT b.conflicting AND o.operation_key=$2
 		   AND op.source_kind='batch' AND op.charge_batch_id=$1 AND op.buyer_id=s.buyer_id
 		   AND op.amount_cents=$6 AND op.currency=$8
@@ -310,7 +365,7 @@ const confirmBatchChargeSQL = `
 		   SET status='charged',stripe_pi=$4,charged_at=now(),
 		       charge_requested_cents=$6,charge_received_cents=$7,
 		       charge_currency=$8
-		  FROM source s,recorded r,binding x
+		  FROM source s,recorded r,binding_check x
 		 WHERE NOT x.conflicting AND b.id=$1 AND s.source_status<>'charged'
 		RETURNING b.id
 	), dependent_updated AS MATERIALIZED (
@@ -329,7 +384,7 @@ const confirmBatchChargeSQL = `
 	SELECT s.buyer_id,s.source_status,s.authority_currency,s.existing_pi,
 	       s.existing_requested,s.existing_received,s.existing_currency,
 	       COALESCE((SELECT count(*) FROM recorded),0)::bigint,
-	       COALESCE((SELECT conflicting FROM binding),false),
+	       COALESCE((SELECT conflicting FROM binding_check),false),
 	       COALESCE((SELECT true FROM operation LIMIT 1),false),
 	       COALESCE((SELECT source_kind FROM operation),''),
 	       COALESCE((SELECT job_id::text FROM operation),''),
@@ -348,8 +403,13 @@ const confirmBatchChargeSQL = `
 	       COALESCE((SELECT count(*) FROM bound_dispute),0)::bigint
 	  FROM source s`
 
+type chargeConfirmationQueryer interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}
+
 func (s *Store) confirmChargeInOneStatement(
-	ctx context.Context, tx pgx.Tx, sourceKind string, sourceID uuid.UUID, charge *ChargeResult,
+	ctx context.Context, q chargeConfirmationQueryer, sourceKind string, sourceID uuid.UUID,
+	charge *ChargeResult, requireOperation bool,
 ) (chargeConfirmationResult, error) {
 	var out chargeConfirmationResult
 	currency, err := ParseCurrency(charge.Currency)
@@ -365,10 +425,11 @@ func (s *Store) confirmChargeInOneStatement(
 	if sourceKind == "batch" {
 		sql = confirmBatchChargeSQL
 	}
-	err = tx.QueryRow(ctx, sql,
+	err = q.QueryRow(ctx, sql,
 		sourceID, operationKey, "merc:stripe-cash:"+charge.ChargeID,
 		charge.PaymentIntentID, charge.ChargeID, charge.RequestedCents,
 		charge.ReceivedCents, charge.Currency, PayoutHeld, PayoutAwaitingFunding,
+		requireOperation,
 	).Scan(
 		&out.buyerID, &out.sourceStatus, &out.authorityCurrency,
 		&out.existingPaymentIntent, &out.existingRequested, &out.existingReceived,
@@ -560,12 +621,7 @@ func (s *Store) MarkChargeBatchCharged(ctx context.Context, batchID uuid.UUID, c
 	if err := validateChargeResultShape(charge); err != nil {
 		return fmt.Errorf("refusing invalid batch charge confirmation: %w", err)
 	}
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-	out, err := s.confirmChargeInOneStatement(ctx, tx, "batch", batchID, &charge)
+	out, err := s.confirmChargeInOneStatement(ctx, s.pool, "batch", batchID, &charge, false)
 	if err != nil {
 		if out.authorityCurrency != "" {
 			return fmt.Errorf("batch %s cannot confirm %s: %w", batchID, charge.Currency, err)
@@ -575,7 +631,7 @@ func (s *Store) MarkChargeBatchCharged(ctx context.Context, batchID uuid.UUID, c
 	if err := validateChargeConfirmation("charge batch", "batch", batchID, charge, out); err != nil {
 		return err
 	}
-	return tx.Commit(ctx)
+	return nil
 }
 
 func (s *Store) ReflipNoCardJobs(ctx context.Context) (int64, error) {
@@ -878,12 +934,7 @@ func (s *Store) SetJobCharged(ctx context.Context, jobID uuid.UUID, charge Charg
 	if err := validateChargeResultShape(charge); err != nil {
 		return fmt.Errorf("refusing invalid job charge confirmation: %w", err)
 	}
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-	out, err := s.confirmChargeInOneStatement(ctx, tx, "job", jobID, &charge)
+	out, err := s.confirmChargeInOneStatement(ctx, s.pool, "job", jobID, &charge, false)
 	if err != nil {
 		if out.authorityCurrency != "" {
 			return fmt.Errorf("job %s cannot confirm %s: %w", jobID, charge.Currency, err)
@@ -893,7 +944,7 @@ func (s *Store) SetJobCharged(ctx context.Context, jobID uuid.UUID, charge Charg
 	if err := validateChargeConfirmation("job", "job", jobID, charge, out); err != nil {
 		return err
 	}
-	return tx.Commit(ctx)
+	return nil
 }
 
 // InsertStripeFee records an observed Stripe balance-transaction fee.  The
@@ -1309,9 +1360,10 @@ func (wk *Workers) chargeBatch(ctx context.Context, b ChargeBatch) {
 		log.Printf("workers: charge-collect: batch %s charged (%s %s received, buyer %s, pi %s)",
 			b.ID, settlement.Code(), formatMinorAmount(charge.ReceivedCents, settlement), b.BuyerID, charge.PaymentIntentID)
 	}
-	if ferr := recordStripeFee(ctx, wk.store, b.BuyerID, charge.PaymentIntentID); ferr != nil {
-		log.Printf("workers: charge-collect: stripe fee for batch %s (pi %s) not recorded yet: %v (backfilled next tick)", b.ID, charge.PaymentIntentID, ferr)
-	}
+	// Processor-fee reconciliation is deliberately off the charge success
+	// critical path. The charged batch is durable above; ChargesMissingFeeRows
+	// will fetch the exact settled balance-transaction fee on the next sweep and
+	// BatchStripeFeesMissingAllocations will then attribute it immutably.
 }
 
 func (wk *Workers) retryFailedSingle(ctx context.Context, jobID uuid.UUID) {
@@ -1354,9 +1406,9 @@ func (wk *Workers) retryFailedSingle(ctx context.Context, jobID uuid.UUID) {
 		log.Printf("workers: charge-collect: job %s charged on retry (%s %s received, pi %s)",
 			jobID, settlement.Code(), formatMinorAmount(charge.ReceivedCents, settlement), charge.PaymentIntentID)
 	}
-	if ferr := recordStripeFee(ctx, wk.store, buyerID, charge.PaymentIntentID); ferr != nil {
-		log.Printf("workers: charge-collect: stripe fee for job %s (pi %s) not recorded yet: %v (backfilled next tick)", jobID, charge.PaymentIntentID, ferr)
-	}
+	// Processor-fee reconciliation is deliberately off the charge success
+	// critical path. The charged job is durable above; ChargesMissingFeeRows
+	// will fetch the exact settled balance-transaction fee on the next sweep.
 }
 
 // MarkChargeManualReview ends automatic re-charging for a job and hands it to an

@@ -1059,9 +1059,9 @@ func chargeOrDeferJob(ctx context.Context, store *Store, jobID uuid.UUID) {
 		log.Printf("billing: marking job %s charged (pi %s): %v", jobID, charge.PaymentIntentID, serr)
 		return
 	}
-	if ferr := recordStripeFee(ctx, store, buyerID, charge.PaymentIntentID); ferr != nil {
-		log.Printf("billing: stripe fee for job %s (pi %s) not recorded yet: %v (backfilled by the charge-collect sweep)", jobID, charge.PaymentIntentID, ferr)
-	}
+	// Processor-fee reconciliation is deliberately off the charge success
+	// critical path. The charged job is durable above; the charge-collect sweep
+	// fetches the exact settled balance-transaction fee and records it later.
 }
 
 func recordStripeFee(ctx context.Context, store *Store, buyerID uuid.UUID, pi string) error {
