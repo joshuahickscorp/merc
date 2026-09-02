@@ -311,30 +311,51 @@ func (s *Store) ApplyPaymentEventTx(ctx context.Context, event stripeCashEvent) 
 		return result, err
 	}
 	defer tx.Rollback(ctx)
-	if err := lockStripeCashBinding(ctx, tx, event.ChargeID); err != nil {
-		return result, err
+	var storedType, storedObject, storedCharge, storedPI, storedHash string
+	var storedCreated int64
+	var inserted bool
+	err = tx.QueryRow(ctx, `
+		WITH cash_lock AS MATERIALIZED (
+			SELECT pg_advisory_xact_lock(hashtextextended($1, 0)) AS locked
+		), inserted AS MATERIALIZED (
+			INSERT INTO stripe_webhook_events
+			  (event_id,event_type,object_id,charge_id,payment_intent,event_created,payload_sha256)
+			SELECT $2,$3,$4,$5,NULLIF($6,''),$7,$8
+			  FROM cash_lock
+			ON CONFLICT (event_id) DO NOTHING
+			RETURNING event_type,object_id,charge_id,COALESCE(payment_intent,'') AS payment_intent,
+			          event_created,payload_sha256,true AS inserted
+		), durable AS (
+			SELECT event_type,object_id,charge_id,payment_intent,event_created,payload_sha256,inserted
+			  FROM inserted
+			 UNION ALL
+			SELECT event_type,object_id,charge_id,COALESCE(payment_intent,''),event_created,payload_sha256,false
+			  FROM stripe_webhook_events
+			 WHERE event_id=$2
+		)
+		SELECT event_type,object_id,charge_id,payment_intent,event_created,payload_sha256,inserted
+		  FROM durable
+		 LIMIT 1`,
+		"merc:stripe-cash:"+event.ChargeID, event.EventID, event.EventType, event.ObjectID,
+		event.ChargeID, event.PaymentIntent, event.EventCreated, event.PayloadSHA256,
+	).Scan(&storedType, &storedObject, &storedCharge, &storedPI, &storedCreated, &storedHash, &inserted)
+	if errors.Is(err, pgx.ErrNoRows) {
+		// A concurrent insert can win the ON CONFLICT check after this
+		// statement's snapshot was taken. Re-read only that rare replay path;
+		// the normal lock/insert/replay decision is one database round trip.
+		err = tx.QueryRow(ctx, `
+			SELECT event_type,object_id,charge_id,COALESCE(payment_intent,''),event_created,payload_sha256
+			  FROM stripe_webhook_events WHERE event_id=$1`, event.EventID,
+		).Scan(&storedType, &storedObject, &storedCharge, &storedPI, &storedCreated, &storedHash)
+		if err != nil {
+			return result, err
+		}
+		inserted = false
 	}
-
-	tag, err := tx.Exec(ctx, `
-		INSERT INTO stripe_webhook_events
-		  (event_id,event_type,object_id,charge_id,payment_intent,event_created,payload_sha256)
-		VALUES ($1,$2,$3,$4,$5,$6,$7)
-		ON CONFLICT (event_id) DO NOTHING`,
-		event.EventID, event.EventType, event.ObjectID, event.ChargeID,
-		nullableStripeID(event.PaymentIntent), event.EventCreated, event.PayloadSHA256,
-	)
 	if err != nil {
 		return result, err
 	}
-	if tag.RowsAffected() == 0 {
-		var storedType, storedObject, storedCharge, storedPI, storedHash string
-		var storedCreated int64
-		if err := tx.QueryRow(ctx, `
-			SELECT event_type,object_id,charge_id,COALESCE(payment_intent,''),event_created,payload_sha256
-			  FROM stripe_webhook_events WHERE event_id=$1`, event.EventID,
-		).Scan(&storedType, &storedObject, &storedCharge, &storedPI, &storedCreated, &storedHash); err != nil {
-			return result, err
-		}
+	if !inserted {
 		if storedType != event.EventType || storedObject != event.ObjectID ||
 			storedCharge != event.ChargeID || storedPI != event.PaymentIntent ||
 			storedCreated != event.EventCreated || storedHash != event.PayloadSHA256 {
@@ -347,52 +368,54 @@ func (s *Store) ApplyPaymentEventTx(ctx context.Context, event stripeCashEvent) 
 		return result, nil
 	}
 
-	resolvedPI := event.PaymentIntent
-	if resolvedPI == "" {
-		if err := tx.QueryRow(ctx, `
-			SELECT payment_intent FROM buyer_cash_collections WHERE charge_id=$1`,
-			event.ChargeID).Scan(&resolvedPI); err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return result, err
-		}
-	}
-	if resolvedPI == "" {
-		if err := tx.QueryRow(ctx, `
-			SELECT COALESCE(payment_intent,'') FROM stripe_charge_cash_state WHERE charge_id=$1`,
-			event.ChargeID).Scan(&resolvedPI); err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return result, err
-		}
-	}
-	if resolvedPI == "" && event.EventType != stripeEventChargeRefunded {
-		if err := tx.QueryRow(ctx, `
-			SELECT COALESCE(payment_intent,'') FROM stripe_dispute_cash_state WHERE dispute_id=$1`,
-			event.ObjectID).Scan(&resolvedPI); err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return result, err
-		}
-	}
-
+	var resolvedPI string
 	var collectionReceived int64
 	var collectionCurrency, collectionChargeID string
-	if resolvedPI != "" {
-		err = tx.QueryRow(ctx, `
-			SELECT received_cents,currency,COALESCE(charge_id,'') FROM buyer_cash_collections
-			 WHERE payment_intent=$1 FOR UPDATE`, resolvedPI,
-		).Scan(&collectionReceived, &collectionCurrency, &collectionChargeID)
-		if err == nil {
-			result.LinkedCollection = true
-			if collectionCurrency != event.Currency {
-				return result, fmt.Errorf("stripe event %s currency %s conflicts with collection %s currency %s",
-					event.EventID, event.Currency, resolvedPI, collectionCurrency)
-			}
-			if event.EventType == stripeEventChargeRefunded && event.AmountCents != collectionReceived {
-				return result, fmt.Errorf("stripe charge %s amount %d conflicts with collection %s amount %d",
-					event.ChargeID, event.AmountCents, resolvedPI, collectionReceived)
-			}
-			if collectionChargeID != "" && collectionChargeID != event.ChargeID {
-				return result, fmt.Errorf("stripe event %s charge %s conflicts with collection %s charge %s",
-					event.EventID, event.ChargeID, resolvedPI, collectionChargeID)
-			}
-		} else if !errors.Is(err, pgx.ErrNoRows) {
-			return result, err
+	var linkedCollection bool
+	err = tx.QueryRow(ctx, `
+		WITH resolution AS MATERIALIZED (
+			SELECT COALESCE(
+				NULLIF($1,''),
+				(SELECT payment_intent FROM buyer_cash_collections WHERE charge_id=$2),
+				(SELECT payment_intent FROM stripe_charge_cash_state WHERE charge_id=$2),
+				CASE WHEN $3<>$4 THEN
+					(SELECT payment_intent FROM stripe_dispute_cash_state WHERE dispute_id=$5)
+				END,
+				'') AS payment_intent
+		), collection AS MATERIALIZED (
+			SELECT r.payment_intent,
+			       COALESCE(c.received_cents,0) AS received_cents,
+			       COALESCE(c.currency,'') AS currency,
+			       COALESCE(c.charge_id,'') AS charge_id,
+			       (c.payment_intent IS NOT NULL) AS linked
+			  FROM resolution r
+			  LEFT JOIN LATERAL (
+				SELECT payment_intent,received_cents,currency,charge_id
+				  FROM buyer_cash_collections
+				 WHERE payment_intent=NULLIF(r.payment_intent,'')
+				 FOR UPDATE
+			  ) c ON TRUE
+		)
+		SELECT payment_intent,received_cents,currency,charge_id,linked
+		  FROM collection`,
+		event.PaymentIntent, event.ChargeID, event.EventType, stripeEventChargeRefunded, event.ObjectID,
+	).Scan(&resolvedPI, &collectionReceived, &collectionCurrency, &collectionChargeID, &linkedCollection)
+	if err != nil {
+		return result, err
+	}
+	result.LinkedCollection = linkedCollection
+	if result.LinkedCollection {
+		if collectionCurrency != event.Currency {
+			return result, fmt.Errorf("stripe event %s currency %s conflicts with collection %s currency %s",
+				event.EventID, event.Currency, resolvedPI, collectionCurrency)
+		}
+		if event.EventType == stripeEventChargeRefunded && event.AmountCents != collectionReceived {
+			return result, fmt.Errorf("stripe charge %s amount %d conflicts with collection %s amount %d",
+				event.ChargeID, event.AmountCents, resolvedPI, collectionReceived)
+		}
+		if collectionChargeID != "" && collectionChargeID != event.ChargeID {
+			return result, fmt.Errorf("stripe event %s charge %s conflicts with collection %s charge %s",
+				event.EventID, event.ChargeID, resolvedPI, collectionChargeID)
 		}
 	}
 

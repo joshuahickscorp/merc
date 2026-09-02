@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -142,5 +143,27 @@ func TestSavedCardWebhookOrderingAndExpandableReferences(t *testing.T) {
 		"count payment-method events: %v")
 	if eventRows != 2 {
 		t.Fatalf("payment-method event rows=%d, want 2", eventRows)
+	}
+}
+
+func TestUnknownSavedCardCustomerDoesNotRetainEvent(t *testing.T) {
+	ctx, store, pool := openIsolatedTestStore(t)
+	defer pool.Close()
+	event := stripePaymentMethodEvent{
+		EventID:       "evt_unknown_saved_card",
+		EventType:     "payment_method.attached",
+		CustomerID:    "cus_unknown_saved_card",
+		PaymentMethod: "pm_unknown_saved_card",
+		EventCreated:  1_700_000_003,
+		PayloadSHA256: strings.Repeat("a", 64),
+	}
+	if err := store.SetBillingPMByCustomerEvent(ctx, event); !errors.Is(err, errNotFound) {
+		t.Fatalf("unknown saved-card customer error=%v, want errNotFound", err)
+	}
+	var eventRows int
+	mustf(t, pool.QueryRow(ctx, `SELECT count(*) FROM stripe_payment_method_events`).Scan(&eventRows),
+		"count unknown payment-method events: %v")
+	if eventRows != 0 {
+		t.Fatalf("unknown saved-card event rows=%d, want 0", eventRows)
 	}
 }

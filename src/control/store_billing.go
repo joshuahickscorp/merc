@@ -121,65 +121,75 @@ func (s *Store) SetBillingPMByCustomerEvent(
 		!isSHA256Hex(event.PayloadSHA256) {
 		return errors.New("billing payment-method event is missing its identity or ordering tuple")
 	}
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-
-	tag, err := tx.Exec(ctx, `
-		INSERT INTO stripe_payment_method_events
-		  (event_id,event_type,customer_id,payment_method,event_created,payload_sha256)
-		VALUES ($1,$2,$3,$4,$5,$6)
-		ON CONFLICT (event_id) DO NOTHING`,
+	var storedType, storedCustomer, storedPM, storedHash string
+	var storedCreated int64
+	var inserted bool
+	var updated bool
+	err := s.pool.QueryRow(ctx, `
+		WITH customer AS MATERIALIZED (
+			SELECT 1
+			  FROM billing_customers
+			 WHERE stripe_customer_id=$3
+		), inserted AS MATERIALIZED (
+			INSERT INTO stripe_payment_method_events
+			  (event_id,event_type,customer_id,payment_method,event_created,payload_sha256)
+			SELECT $1,$2,$3,$4,$5,$6
+			  FROM customer
+			ON CONFLICT (event_id) DO NOTHING
+			RETURNING event_type,customer_id,payment_method,event_created,payload_sha256,true AS inserted
+		), updated AS (
+			UPDATE billing_customers b
+			   SET default_payment_method=$4,
+			       default_payment_method_event_created=$5,
+			       default_payment_method_event_id=$1,
+			       updated_at=now()
+			  FROM inserted i
+			 WHERE b.stripe_customer_id=$3
+			   AND (b.default_payment_method_event_created < $5
+			        OR (b.default_payment_method_event_created = $5
+			            AND b.default_payment_method_event_id < $1))
+			 RETURNING b.stripe_customer_id
+		), durable AS (
+			SELECT event_type,customer_id,payment_method,event_created,payload_sha256,inserted
+			  FROM inserted
+			 UNION ALL
+			SELECT event_type,customer_id,payment_method,event_created,payload_sha256,false
+			  FROM stripe_payment_method_events
+			 WHERE event_id=$1
+		)
+		SELECT d.event_type,d.customer_id,d.payment_method,d.event_created,d.payload_sha256,d.inserted,
+		       EXISTS (SELECT 1 FROM updated) AS updated
+		  FROM durable d
+		 LIMIT 1`,
 		event.EventID, event.EventType, event.CustomerID, event.PaymentMethod,
-		event.EventCreated, event.PayloadSHA256)
-	if err != nil {
-		return err
-	}
-	if tag.RowsAffected() == 0 {
-		var storedType, storedCustomer, storedPM, storedHash string
-		var storedCreated int64
-		if err := tx.QueryRow(ctx, `
+		event.EventCreated, event.PayloadSHA256).
+		Scan(&storedType, &storedCustomer, &storedPM, &storedCreated, &storedHash, &inserted, &updated)
+	if errors.Is(err, pgx.ErrNoRows) {
+		// A concurrent same-ID insert can be invisible to this statement's
+		// snapshot after ON CONFLICT waits. Only that path needs a second read;
+		// a new event for an unknown customer still returns errNotFound without
+		// retaining the event.
+		err = s.pool.QueryRow(ctx, `
 			SELECT event_type,customer_id,payment_method,event_created,payload_sha256
 			  FROM stripe_payment_method_events WHERE event_id=$1`, event.EventID).
-			Scan(&storedType, &storedCustomer, &storedPM, &storedCreated, &storedHash); err != nil {
+			Scan(&storedType, &storedCustomer, &storedPM, &storedCreated, &storedHash)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return errNotFound
+		}
+		if err != nil {
 			return err
 		}
-		if storedType != event.EventType || storedCustomer != event.CustomerID ||
-			storedPM != event.PaymentMethod || storedCreated != event.EventCreated ||
-			storedHash != event.PayloadSHA256 {
-			return fmt.Errorf("Stripe payment-method event %s conflicts with its durable event binding", event.EventID)
-		}
-		return tx.Commit(ctx)
+		inserted = false
 	}
-
-	updated, err := tx.Exec(ctx, `
-		UPDATE billing_customers
-		   SET default_payment_method=$2,
-		       default_payment_method_event_created=$3,
-		       default_payment_method_event_id=$4,
-		       updated_at=now()
-		 WHERE stripe_customer_id=$1
-		   AND (default_payment_method_event_created < $3
-		        OR (default_payment_method_event_created = $3
-		            AND default_payment_method_event_id < $4))`,
-		event.CustomerID, event.PaymentMethod, event.EventCreated, event.EventID)
 	if err != nil {
 		return err
 	}
-	if updated.RowsAffected() == 0 {
-		var exists bool
-		if err := tx.QueryRow(ctx,
-			`SELECT EXISTS(SELECT 1 FROM billing_customers WHERE stripe_customer_id=$1)`, event.CustomerID,
-		).Scan(&exists); err != nil {
-			return err
-		}
-		if !exists {
-			return errNotFound
-		}
+	if !inserted && (storedType != event.EventType || storedCustomer != event.CustomerID ||
+		storedPM != event.PaymentMethod || storedCreated != event.EventCreated ||
+		storedHash != event.PayloadSHA256) {
+		return fmt.Errorf("Stripe payment-method event %s conflicts with its durable event binding", event.EventID)
 	}
-	return tx.Commit(ctx)
+	return nil
 }
 
 func validateBillingPMUpdateCount(rows int64) error {

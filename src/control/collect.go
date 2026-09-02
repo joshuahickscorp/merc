@@ -106,39 +106,79 @@ func recordBuyerCashCollection(
 	default:
 		return fmt.Errorf("invalid buyer cash source kind %q", sourceKind)
 	}
-	if err := lockStripeCashBinding(ctx, tx, charge.ChargeID); err != nil {
-		return err
-	}
 	var recorded string
+	var bindingConflict bool
+	var chargeBound, disputeBound bool
 	err := tx.QueryRow(ctx, `
-		INSERT INTO buyer_cash_collections
-		  (payment_intent,charge_id,buyer_id,source_kind,job_id,charge_batch_id,
-		   requested_cents,received_cents,currency)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-		ON CONFLICT (payment_intent) DO UPDATE SET
-		  payment_intent=EXCLUDED.payment_intent
-		WHERE buyer_cash_collections.charge_id=EXCLUDED.charge_id
-		  AND buyer_cash_collections.buyer_id=EXCLUDED.buyer_id
-		  AND buyer_cash_collections.source_kind=EXCLUDED.source_kind
-		  AND buyer_cash_collections.job_id IS NOT DISTINCT FROM EXCLUDED.job_id
-		  AND buyer_cash_collections.charge_batch_id IS NOT DISTINCT FROM EXCLUDED.charge_batch_id
-		  AND buyer_cash_collections.requested_cents=EXCLUDED.requested_cents
-		  AND buyer_cash_collections.received_cents=EXCLUDED.received_cents
-		  AND buyer_cash_collections.currency=EXCLUDED.currency
-		RETURNING payment_intent`,
-		charge.PaymentIntentID, charge.ChargeID, buyerID, sourceKind, jobID, batchID,
-		charge.RequestedCents, charge.ReceivedCents, charge.Currency,
-	).Scan(&recorded)
+		WITH cash_lock AS MATERIALIZED (
+			SELECT pg_advisory_xact_lock(hashtextextended($1, 0)) AS locked
+		), recorded AS MATERIALIZED (
+			INSERT INTO buyer_cash_collections
+			  (payment_intent,charge_id,buyer_id,source_kind,job_id,charge_batch_id,
+			   requested_cents,received_cents,currency)
+			SELECT $2,$3,$4,$5,$6,$7,$8,$9,$10
+			  FROM cash_lock
+			ON CONFLICT (payment_intent) DO UPDATE SET
+			  payment_intent=EXCLUDED.payment_intent
+			WHERE buyer_cash_collections.charge_id=EXCLUDED.charge_id
+			  AND buyer_cash_collections.buyer_id=EXCLUDED.buyer_id
+			  AND buyer_cash_collections.source_kind=EXCLUDED.source_kind
+			  AND buyer_cash_collections.job_id IS NOT DISTINCT FROM EXCLUDED.job_id
+			  AND buyer_cash_collections.charge_batch_id IS NOT DISTINCT FROM EXCLUDED.charge_batch_id
+			  AND buyer_cash_collections.requested_cents=EXCLUDED.requested_cents
+			  AND buyer_cash_collections.received_cents=EXCLUDED.received_cents
+			  AND buyer_cash_collections.currency=EXCLUDED.currency
+			RETURNING payment_intent
+		), binding AS MATERIALIZED (
+			SELECT EXISTS(
+				SELECT 1 FROM stripe_charge_cash_state
+				 WHERE charge_id=$3 AND (
+				   (payment_intent IS NOT NULL AND payment_intent<>$2)
+				   OR amount_cents<>$9 OR currency<>$10)
+				UNION ALL
+				SELECT 1 FROM stripe_dispute_cash_state
+				 WHERE charge_id=$3 AND (
+				   (payment_intent IS NOT NULL AND payment_intent<>$2)
+				   OR amount_cents>$9 OR currency<>$10)
+				UNION ALL
+				SELECT 1 FROM stripe_risk_events
+				 WHERE charge_id=$3 AND payment_intent IS NOT NULL AND payment_intent<>$2
+			) AS conflicting
+			  FROM recorded
+		), bound_charge AS (
+			UPDATE stripe_charge_cash_state s
+			   SET payment_intent=r.payment_intent,updated_at=now()
+			  FROM recorded r, binding b
+			 WHERE NOT b.conflicting AND s.charge_id=$3 AND s.payment_intent IS NULL
+			 RETURNING s.charge_id
+		), bound_dispute AS (
+			UPDATE stripe_dispute_cash_state s
+			   SET payment_intent=r.payment_intent,updated_at=now()
+			  FROM recorded r, binding b
+			 WHERE NOT b.conflicting AND s.charge_id=$3 AND s.payment_intent IS NULL
+			 RETURNING s.charge_id
+		)
+		SELECT r.payment_intent,b.conflicting,
+		       EXISTS (SELECT 1 FROM bound_charge),
+		       EXISTS (SELECT 1 FROM bound_dispute)
+		  FROM recorded r CROSS JOIN binding b`,
+		"merc:stripe-cash:"+charge.ChargeID, charge.PaymentIntentID, charge.ChargeID,
+		buyerID, sourceKind, jobID, batchID, charge.RequestedCents, charge.ReceivedCents,
+		charge.Currency,
+	).Scan(&recorded, &bindingConflict, &chargeBound, &disputeBound)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return fmt.Errorf("payment intent %s is already bound to a different cash source or amount", charge.PaymentIntentID)
 	}
 	if err != nil {
 		return fmt.Errorf("recording canonical buyer cash %s: %w", charge.PaymentIntentID, err)
 	}
-	if err := bindStripeCashStateToCollection(ctx, tx, charge.ChargeID,
-		charge.PaymentIntentID, charge.ReceivedCents, charge.Currency); err != nil {
-		return err
+	if bindingConflict {
+		return fmt.Errorf("charge %s webhook state is bound to a different PaymentIntent", charge.ChargeID)
 	}
+	// The CTEs are intentionally observed by the final SELECT so the state
+	// repairs remain part of the same statement. These flags are diagnostic
+	// only; a no-op is the correct result when no prior provider state existed.
+	_, _, _ = recorded, chargeBound, disputeBound
 	return nil
 }
 

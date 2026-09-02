@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/jackc/pgx/v5"
 )
 
 const stripePaymentIntentFailedEvent = "payment_intent.payment_failed"
@@ -93,38 +95,63 @@ func (s *Store) ApplyStripePaymentFailureEvent(
 	if err := validateStripePaymentFailureEvent(event); err != nil {
 		return result, err
 	}
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return result, err
-	}
-	defer tx.Rollback(ctx)
-
-	tag, err := tx.Exec(ctx, `
-		INSERT INTO stripe_payment_failure_events
-		  (event_id,event_type,payment_intent,operation_key,customer_id,status,
-		   failure_type,failure_code,decline_code,event_created,payload_sha256)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-		ON CONFLICT (event_id) DO NOTHING`,
+	var storedType, storedPI, storedOperation, storedCustomer, storedStatus string
+	var storedFailureType, storedFailureCode, storedDeclineCode, storedHash string
+	var storedCreated int64
+	var inserted bool
+	err := s.pool.QueryRow(ctx, `
+		WITH inserted AS MATERIALIZED (
+			INSERT INTO stripe_payment_failure_events
+			  (event_id,event_type,payment_intent,operation_key,customer_id,status,
+			   failure_type,failure_code,decline_code,event_created,payload_sha256)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+			ON CONFLICT (event_id) DO NOTHING
+			RETURNING event_type,payment_intent,COALESCE(operation_key,'') AS operation_key,
+			          COALESCE(customer_id,'') AS customer_id,status,
+			          COALESCE(failure_type,'') AS failure_type,COALESCE(failure_code,'') AS failure_code,
+			          COALESCE(decline_code,'') AS decline_code,
+			          event_created,payload_sha256,true AS inserted
+		), durable AS (
+			SELECT event_type,payment_intent,operation_key,customer_id,status,
+			       failure_type,failure_code,decline_code,event_created,payload_sha256,inserted
+			  FROM inserted
+			 UNION ALL
+			SELECT event_type,payment_intent,COALESCE(operation_key,''),COALESCE(customer_id,''),status,
+			       COALESCE(failure_type,''),COALESCE(failure_code,''),COALESCE(decline_code,''),
+			       event_created,payload_sha256,false
+			  FROM stripe_payment_failure_events
+			 WHERE event_id=$1
+		)
+		SELECT event_type,payment_intent,operation_key,customer_id,status,
+		       failure_type,failure_code,decline_code,event_created,payload_sha256,inserted
+		  FROM durable
+		 LIMIT 1`,
 		event.EventID, event.EventType, event.PaymentIntent, nullableStripeID(event.OperationKey),
 		nullableStripeID(event.CustomerID), event.Status, nullableStripeID(event.FailureType),
 		nullableStripeID(event.FailureCode), nullableStripeID(event.DeclineCode),
-		event.EventCreated, event.PayloadSHA256)
-	if err != nil {
-		return result, err
-	}
-	if tag.RowsAffected() == 0 {
-		var storedType, storedPI, storedOperation, storedCustomer, storedStatus string
-		var storedFailureType, storedFailureCode, storedDeclineCode, storedHash string
-		var storedCreated int64
-		if err := tx.QueryRow(ctx, `
+		event.EventCreated, event.PayloadSHA256).
+		Scan(&storedType, &storedPI, &storedOperation, &storedCustomer, &storedStatus,
+			&storedFailureType, &storedFailureCode, &storedDeclineCode, &storedCreated, &storedHash, &inserted)
+	if errors.Is(err, pgx.ErrNoRows) {
+		// A concurrent insert can win the ON CONFLICT check after this
+		// statement's snapshot was taken. Re-read only that rare path; the
+		// uncontended webhook path remains one database round trip.
+		err = s.pool.QueryRow(ctx, `
 			SELECT event_type,payment_intent,COALESCE(operation_key,''),COALESCE(customer_id,''),status,
 			       COALESCE(failure_type,''),COALESCE(failure_code,''),COALESCE(decline_code,''),
 			       event_created,payload_sha256
 			  FROM stripe_payment_failure_events WHERE event_id=$1`, event.EventID).
 			Scan(&storedType, &storedPI, &storedOperation, &storedCustomer, &storedStatus,
-				&storedFailureType, &storedFailureCode, &storedDeclineCode, &storedCreated, &storedHash); err != nil {
+				&storedFailureType, &storedFailureCode, &storedDeclineCode, &storedCreated, &storedHash)
+		if err != nil {
 			return result, err
 		}
+		inserted = false
+	}
+	if err != nil {
+		return result, err
+	}
+	if !inserted {
 		if storedType != event.EventType || storedPI != event.PaymentIntent ||
 			storedOperation != event.OperationKey || storedCustomer != event.CustomerID ||
 			storedStatus != event.Status || storedFailureType != event.FailureType ||
@@ -133,9 +160,6 @@ func (s *Store) ApplyStripePaymentFailureEvent(
 			return result, fmt.Errorf("Stripe payment-failure event %s conflicts with its durable event binding", event.EventID)
 		}
 		result.Duplicate = true
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return stripePaymentFailureEventResult{}, err
 	}
 	return result, nil
 }
