@@ -1,7 +1,7 @@
 # Merc
 
-Merc is a frozen engineering prototype for a distributed compute marketplace.
-It coordinates heterogeneous providers through a Go control plane, a Rust
+Merc is a frozen software candidate for a distributed compute marketplace. It
+coordinates heterogeneous providers through a Go control plane, a Rust
 provider agent, independent result verification, metering, accounting, and
 operator-controlled release gates.
 
@@ -18,8 +18,12 @@ unrestricted public access, or unsupervised production use.
 | Live money / public launch | `NO_GO_PROHIBITED` |
 
 The authoritative status and release checks are in
-[docs/RELEASE_READINESS.md](docs/RELEASE_READINESS.md). Payment and settlement
-code exists for bounded testing; its presence is not evidence that money moved.
+[docs/RELEASE_READINESS.md](docs/RELEASE_READINESS.md). The backend-alpha
+record remains blocked by a P1 restart/rollback identity-reproducibility defect
+around the sealed engine build identity. Private canary clearance also requires
+the remaining operational controls, rehearsal, and independent approval.
+Payment and settlement code exists for bounded testing; its presence is not
+evidence that money moved.
 
 ## Runtime
 
@@ -40,6 +44,14 @@ for short Stripe call bursts; those transport optimizations do not bypass the
 payment authority, idempotency keys, exact-money checks, or settlement ledger.
 Performance receipts under `evidence/perf/` are measurements, not permission
 to enable live money.
+
+## Controls, not permission
+
+Merc's Level A decision means that the reviewed software candidate can proceed
+through its defined engineering gates. It does not broaden authority to run a
+provider network, charge a buyer, pay a supplier, or open a public service.
+Those transitions remain separately receipt-bound, operator-controlled, and
+explicitly denied until their own release decisions are satisfied.
 
 ## Performance posture
 
